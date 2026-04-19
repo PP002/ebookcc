@@ -1,0 +1,5 @@
+{
+  "name": "Comic Text Editor",
+  "description": "Detect and edit comic speech bubbles with AI-powered OCR and selectable text overlays.",
+  "requestFramePermissions": []
+}

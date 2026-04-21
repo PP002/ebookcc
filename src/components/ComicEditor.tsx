@@ -613,6 +613,7 @@ export default function ComicEditor() {
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+  const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return document.documentElement.classList.contains('dark');
@@ -723,6 +724,13 @@ export default function ComicEditor() {
     const page = pages[pageIndex];
     if (!page || page.status === 'processing') return;
 
+    if (processedCount >= 10 && !customApiKey) {
+      setIsBatchProcessing(false);
+      setShowApiKeyModal(true);
+      toast.error("You've reached the free limit of 10 pages. Please enter your own Gemini API key to continue.");
+      return;
+    }
+
     setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'processing' } : p));
     
     try {
@@ -764,6 +772,12 @@ export default function ComicEditor() {
         cleanedImage, 
         status: 'done' 
       } : p));
+
+      setProcessedCount(prev => {
+        const newCount = prev + 1;
+        localStorage.setItem('gemini_processed_count', newCount.toString());
+        return newCount;
+      });
       
       if (!isBatchProcessing) {
         toast.success(`Processed page ${pageIndex + 1}`);
@@ -1197,6 +1211,13 @@ ${navItems}    </ol>
         <p className="text-muted-foreground text-lg">
           Upload images, ZIP, or CBZ files to batch process and export as EPUB.
         </p>
+        {!customApiKey && (
+          <div className="flex items-center justify-center pt-2">
+            <span className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
+              Free Pages Used: {Math.min(processedCount, 10)} / 10
+            </span>
+          </div>
+        )}
       </header>
 
       {pages.length === 0 ? (
@@ -1753,9 +1774,9 @@ ${navItems}    </ol>
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-background border rounded-xl shadow-2xl p-6 max-w-md w-full space-y-4"
             >
-              <h2 className="text-xl font-bold">API Quota Exceeded</h2>
+              <h2 className="text-xl font-bold">API Key Required</h2>
               <p className="text-muted-foreground text-sm">
-                The default Gemini API key has exceeded its quota. To continue processing, please provide your own Gemini API key.
+                You've reached the limit of the free tier (10 pages) or the default API has exceeded its quota. To continue processing, please provide your own Gemini API key.
               </p>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Gemini API Key</label>

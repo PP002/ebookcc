@@ -1,13 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { detectComicText, detectComicPanels, ComicText } from '@/src/services/gemini';
+import { detectComicText, detectComicPanels, translateTexts, ComicText } from '@/src/services/gemini';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
+
+const LANGUAGES = [
+  "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chinese (Simplified)", "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "English", "Esperanto", "Estonian", "Finnish", "French", "Frisian", "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Kinyarwanda", "Korean", "Kurdish", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Myanmar (Burmese)", "Nepali", "Norwegian", "Nyanja (Chichewa)", "Odia (Oriya)", "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish", "Tagalog (Filipino)", "Tajik", "Tamil", "Tatar", "Telugu", "Thai", "Turkish", "Turkmen", "Ukrainian", "Urdu", "Uyghur", "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
+];
 
 interface PageData {
   id: string;
@@ -64,6 +71,7 @@ async function getAverageColor(imgSrc: string, box: [number, number, number, num
 
       resolve(`rgb(${dominantColor[0]}, ${dominantColor[1]}, ${dominantColor[2]})`);
     };
+    img.onerror = () => resolve('#ffffff');
     img.src = imgSrc;
   });
 }
@@ -100,6 +108,7 @@ async function generateCleanedImage(imgSrc: string, texts: ComicText[]): Promise
 
       resolve(canvas.toDataURL('image/jpeg', 0.9));
     };
+    img.onerror = () => resolve(imgSrc);
     img.src = imgSrc;
   });
 }
@@ -108,6 +117,7 @@ const getImageDimensions = (url: string): Promise<{width: number, height: number
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => resolve({ width: 0, height: 0 });
     img.src = url;
   });
 };
@@ -128,7 +138,10 @@ const checkIfTextOnlyPage = async (page: PageData, base64Data: string): Promise<
   
   const img = new Image();
   img.src = base64Data;
-  await new Promise((resolve) => { img.onload = resolve; });
+  await new Promise((resolve) => { 
+    img.onload = resolve;
+    img.onerror = resolve; 
+  });
 
   const canvas = document.createElement('canvas');
   canvas.width = img.width;
@@ -194,7 +207,10 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
 
   const img = new Image();
   img.src = base64Data;
-  await new Promise((resolve) => { img.onload = resolve; });
+  await new Promise((resolve) => { 
+    img.onload = resolve;
+    img.onerror = resolve; 
+  });
 
   const canvas = document.createElement('canvas');
   canvas.width = img.width;
@@ -238,7 +254,7 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
   }));
 
   const mergeDistX = img.width * 0.08;
-  const mergeDistY = img.height * 0.08;
+  const mergeDistY = img.height * 0.15; // Increased to aggressively merge floating text blocks
 
   let changed = true;
   while (changed) {
@@ -276,7 +292,7 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
       let b = getBrightness(x, y);
       if (isBlackGutter ? b < 50 : b > 200) matchCount++;
     }
-    return matchCount > height * 0.985;
+    return matchCount >= height - Math.max(15, height * 0.015);
   };
 
   const isGutterRow = (y: number, xMin: number, xMax: number) => {
@@ -291,11 +307,41 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
       let b = getBrightness(x, y);
       if (isBlackGutter ? b < 50 : b > 200) matchCount++;
     }
-    return matchCount > width * 0.985;
+    return matchCount >= width - Math.max(15, width * 0.015);
   };
 
   const minGutterColWidth = Math.max(10, Math.floor(img.width * 0.012));
   const minGutterRowHeight = Math.max(10, Math.floor(img.height * 0.012));
+
+  const checkHorizontalBorder = (y: number, xMin: number, xMax: number, searchHeight: number = 6) => {
+    let width = xMax - xMin;
+    let maxDarkCount = 0;
+    for (let cy = Math.floor(y) - searchHeight; cy <= Math.floor(y) + searchHeight; cy++) {
+      if (cy < 0 || cy >= img.height) continue;
+      let darkCount = 0;
+      for (let x = Math.floor(xMin); x < Math.floor(xMax); x++) {
+        let b = getBrightness(x, cy);
+        if (isBlackGutter ? b > 150 : b < 100) darkCount++;
+      }
+      if (darkCount > maxDarkCount) maxDarkCount = darkCount;
+    }
+    return maxDarkCount > width * 0.45;
+  };
+
+  const checkVerticalBorder = (x: number, yMin: number, yMax: number, searchWidth: number = 6) => {
+    let height = yMax - yMin;
+    let maxDarkCount = 0;
+    for (let cx = Math.floor(x) - searchWidth; cx <= Math.floor(x) + searchWidth; cx++) {
+      if (cx < 0 || cx >= img.width) continue;
+      let darkCount = 0;
+      for (let y = Math.floor(yMin); y < Math.floor(yMax); y++) {
+        let b = getBrightness(cx, y);
+        if (isBlackGutter ? b > 150 : b < 100) darkCount++;
+      }
+      if (darkCount > maxDarkCount) maxDarkCount = darkCount;
+    }
+    return maxDarkCount > height * 0.45;
+  };
 
   const splitRegion = (region: Region): Region[] => {
     // If this region contains NO text boxes, do not split it further.
@@ -323,18 +369,24 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
       let start = gutterRows[0];
       let prev = gutterRows[0];
       for (let i = 1; i < gutterRows.length; i++) {
-        if (gutterRows[i] === prev + 1) {
+        if (gutterRows[i] <= prev + 4) {
           prev = gutterRows[i];
         } else {
           if (prev - start >= minGutterRowHeight) {
-            horizontalSplits.push({start, end: prev});
+            let isValid = checkHorizontalBorder(start, region.xMin, region.xMax) || checkHorizontalBorder(prev, region.xMin, region.xMax);
+            if ((prev - start) > img.height * 0.04) isValid = true; // wide gutters are inherently valid
+            if (region.xMax - region.xMin >= img.width * 0.95 && (prev - start) > img.height * 0.015) isValid = true;
+            if (isValid) horizontalSplits.push({start, end: prev});
           }
           start = gutterRows[i];
           prev = gutterRows[i];
         }
       }
       if (prev - start >= minGutterRowHeight) {
-        horizontalSplits.push({start, end: prev});
+        let isValid = checkHorizontalBorder(start, region.xMin, region.xMax) || checkHorizontalBorder(prev, region.xMin, region.xMax);
+        if ((prev - start) > img.height * 0.04) isValid = true;
+        if (region.xMax - region.xMin >= img.width * 0.95 && (prev - start) > img.height * 0.015) isValid = true;
+        if (isValid) horizontalSplits.push({start, end: prev});
       }
     }
 
@@ -368,18 +420,22 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
       let start = gutterCols[0];
       let prev = gutterCols[0];
       for (let i = 1; i < gutterCols.length; i++) {
-        if (gutterCols[i] === prev + 1) {
+        if (gutterCols[i] <= prev + 4) {
           prev = gutterCols[i];
         } else {
           if (prev - start >= minGutterColWidth) {
-            verticalSplits.push({start, end: prev});
+            let isValid = checkVerticalBorder(start, region.yMin, region.yMax) || checkVerticalBorder(prev, region.yMin, region.yMax);
+            if ((prev - start) > img.width * 0.05) isValid = true;
+            if (isValid) verticalSplits.push({start, end: prev});
           }
           start = gutterCols[i];
           prev = gutterCols[i];
         }
       }
       if (prev - start >= minGutterColWidth) {
-        verticalSplits.push({start, end: prev});
+        let isValid = checkVerticalBorder(start, region.yMin, region.yMax) || checkVerticalBorder(prev, region.yMin, region.yMax);
+        if ((prev - start) > img.width * 0.05) isValid = true;
+        if (isValid) verticalSplits.push({start, end: prev});
       }
     }
 
@@ -548,14 +604,30 @@ export default function ComicEditor() {
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [tempText, setTempText] = useState("");
-  const [viewMode, setViewMode] = useState<'edit' | 'clean' | 'preview'>('edit');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const [pageInputValue, setPageInputValue] = useState("");
   const [isGridView, setIsGridView] = useState(false);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
+  const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
+  const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
+  });
   const imageRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   const activePage = pages[currentPageIndex];
 
@@ -664,9 +736,31 @@ export default function ComicEditor() {
 
       const cleanedImage = await generateCleanedImage(page.originalImage, processedResults);
       
+      let finalResults = processedResults;
+
+      if (translateDuringBatch && batchTargetLanguage && finalResults.length > 0) {
+        try {
+          const textsToTranslate = finalResults.map(t => t.text);
+          const translatedTexts = await translateTexts(textsToTranslate, batchTargetLanguage, customApiKey);
+          finalResults = finalResults.map((t, i) => ({
+            ...t,
+            text: translatedTexts[i] || t.text
+          }));
+        } catch (translateError: any) {
+          console.error("Translation during batch failed:", translateError);
+           if (translateError?.message?.toLowerCase().includes("quota") || translateError?.status === 429) {
+             setShowApiKeyModal(true);
+             if (!isBatchProcessing) {
+                toast.error("Gemini API Quota Exceeded during translation. Please provide your own API key.");
+             }
+             throw translateError;
+           }
+        }
+      }
+
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { 
         ...p, 
-        detectedTexts: processedResults, 
+        detectedTexts: finalResults, 
         cleanedImage, 
         status: 'done' 
       } : p));
@@ -824,7 +918,10 @@ ${pagesHtml}</body>
     a.href = url;
     a.download = 'comic_export.html';
     a.click();
-    toast.success("HTML generated successfully!");
+    toast.success("HTML generated successfully!", { icon: "!" });
+    setTimeout(() => {
+      toast("Easily Send to Kindle", { icon: "!", duration: 4000 });
+    }, 500);
   };
 
   const downloadPdf = async () => {
@@ -1086,7 +1183,15 @@ ${navItems}    </ol>
     <div className="max-w-6xl mx-auto p-6 space-y-8">
       <header className="text-center space-y-2">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
-          <Book className="w-10 h-10 text-primary" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsDarkMode(!isDarkMode)} 
+            className="w-10 h-10 rounded-full hover:bg-muted text-primary"
+            title="Toggle Dark Mode"
+          >
+            {isDarkMode ? <Moon className="w-8 h-8" /> : <Sun className="w-8 h-8" />}
+          </Button>
           Comic Book Editor
         </h1>
         <p className="text-muted-foreground text-lg">
@@ -1130,14 +1235,6 @@ ${navItems}    </ol>
                       <Edit2 className="w-4 h-4" /> Editor
                     </Button>
                     <Button 
-                      variant={viewMode === 'clean' ? "secondary" : "ghost"} 
-                      size="sm" 
-                      onClick={() => setViewMode('clean')}
-                      className="gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" /> Clean
-                    </Button>
-                    <Button 
                       variant={viewMode === 'preview' ? "secondary" : "ghost"} 
                       size="sm" 
                       onClick={() => setViewMode('preview')}
@@ -1148,27 +1245,6 @@ ${navItems}    </ol>
                     <div className="w-px h-6 bg-border mx-1 self-center" />
                   </>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.multiple = true;
-                    input.accept = 'image/*,application/zip,application/x-zip-compressed';
-                    input.onchange = (e) => {
-                      const target = e.target as HTMLInputElement;
-                      if (target.files) {
-                        onDrop(Array.from(target.files));
-                      }
-                    };
-                    input.click();
-                  }}
-                  className="gap-2"
-                >
-                  <Upload className="w-4 h-4" /> Add Page
-                </Button>
-                <div className="w-px h-6 bg-border mx-1 self-center" />
                 <Button
                   variant={isGridView ? "secondary" : "ghost"}
                   size="sm"
@@ -1184,23 +1260,92 @@ ${navItems}    </ol>
                   <CheckSquare className="w-4 h-4" /> {isGridView ? "Done" : "Select"}
                 </Button>
                 {isGridView && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (selectedPages.size === pages.length) {
-                        setSelectedPages(new Set());
-                      } else {
-                        setSelectedPages(new Set(pages.map((_, i) => i)));
-                      }
-                    }}
-                    className="gap-2"
-                  >
-                    <CheckSquare className="w-4 h-4" /> {selectedPages.size === pages.length ? "Deselect All" : "Select All"}
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.multiple = true;
+                        input.accept = 'image/*,application/zip,application/x-zip-compressed';
+                        input.onchange = (e) => {
+                          const target = e.target as HTMLInputElement;
+                          if (target.files) {
+                            onDrop(Array.from(target.files));
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="gap-2"
+                    >
+                      <Upload className="w-4 h-4" /> Add Page
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (selectedPages.size === pages.length) {
+                          setSelectedPages(new Set());
+                        } else {
+                          setSelectedPages(new Set(pages.map((_, i) => i)));
+                        }
+                      }}
+                      className="gap-2"
+                    >
+                      <CheckSquare className="w-4 h-4" /> {selectedPages.size === pages.length ? "Deselect All" : "Select All"}
+                    </Button>
+                  </>
                 )}
                 {isGridView && selectedPages.size > 0 && (
                   <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const sortedSelected = Array.from(selectedPages).sort((a: number, b: number) => a - b);
+                        if (sortedSelected[0] === 0) return;
+                        const newPages = [...pages];
+                        const newSelected = new Set<number>();
+                        for (const idx of sortedSelected) {
+                          const numIdx = idx as number;
+                          const temp = newPages[numIdx - 1];
+                          newPages[numIdx - 1] = newPages[numIdx];
+                          newPages[numIdx] = temp;
+                          newSelected.add(numIdx - 1);
+                        }
+                        setPages(newPages);
+                        setSelectedPages(newSelected);
+                      }}
+                      className="gap-2"
+                      disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === 0)}
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Move Left
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const sortedSelected = Array.from(selectedPages).sort((a: number, b: number) => b - a);
+                        if (sortedSelected[0] === pages.length - 1) return;
+                        const newPages = [...pages];
+                        const newSelected = new Set<number>();
+                        for (const idx of sortedSelected) {
+                          const numIdx = idx as number;
+                          const temp = newPages[numIdx + 1];
+                          newPages[numIdx + 1] = newPages[numIdx];
+                          newPages[numIdx] = temp;
+                          newSelected.add(numIdx + 1);
+                        }
+                        setPages(newPages);
+                        setSelectedPages(newSelected);
+                      }}
+                      className="gap-2"
+                      disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === pages.length - 1)}
+                    >
+                      Move Right <ChevronRight className="w-4 h-4" />
+                    </Button>
+                    <div className="w-px h-6 bg-border mx-1 self-center" />
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1410,15 +1555,20 @@ ${navItems}    </ol>
                               <div 
                                 className={cn(
                                   "w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300",
-                                  viewMode === 'preview' ? "opacity-100" : (viewMode === 'clean' ? "opacity-0 pointer-events-none" : "opacity-100")
+                                  "opacity-100"
                                 )}
                               >
                                 <div 
                                   className={cn(
                                     "font-medium text-black whitespace-pre-wrap text-center",
-                                    viewMode === 'preview' ? "text-[1.2cqi] leading-tight" : "bg-white/90 px-1 rounded text-[0.9vw] opacity-0 group-hover:opacity-100 transition-opacity"
+                                    viewMode === 'preview' ? "leading-tight" : "bg-white/90 px-1 rounded text-[0.9vw] opacity-0 group-hover:opacity-100 transition-opacity"
                                   )}
-                                  style={{ fontFamily: viewMode === 'preview' ? "Helvetica, Arial, sans-serif" : "inherit", wordBreak: 'break-word' }}
+                                  style={{ 
+                                    fontFamily: viewMode === 'preview' ? "Helvetica, Arial, sans-serif" : "inherit", 
+                                    wordBreak: 'break-word',
+                                    fontSize: viewMode === 'preview' ? `${(Math.max(14, activePage.width * 0.012) / activePage.width) * 100}cqi` : undefined,
+                                    lineHeight: viewMode === 'preview' ? 1.2 : undefined
+                                  }}
                                 >
                                   {item.text}
                                 </div>
@@ -1466,7 +1616,32 @@ ${navItems}    </ol>
             <Card className="p-6 space-y-4 sticky top-6">
               <h3 className="font-semibold text-lg border-bottom pb-2">Batch Controls</h3>
               
-              <div className="space-y-2">
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 p-3 bg-muted/40 border rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      id="translate-batch" 
+                      checked={translateDuringBatch} 
+                      onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
+                    />
+                    <label htmlFor="translate-batch" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                      Translate Text
+                    </label>
+                  </div>
+                  {translateDuringBatch && (
+                    <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select Language" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LANGUAGES.map(lang => (
+                          <SelectItem key={lang} value={lang}>{lang}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
                 <Button 
                   className="w-full gap-2" 
                   onClick={() => processPage(currentPageIndex)} 
@@ -1488,13 +1663,16 @@ ${navItems}    </ol>
                 
                 <div className="pt-4 border-t mt-4 space-y-2">
                   <Button 
-                    className="w-full gap-2" 
+                    className="w-full flex-col items-start gap-1 h-auto py-2" 
                     onClick={downloadHtml}
                     disabled={pages.filter(p => p.status === 'done').length === 0}
                     variant="outline"
                   >
-                    <Download className="w-4 h-4" />
-                    Export Full HTML
+                    <div className="flex items-center gap-2">
+                      <Download className="w-4 h-4" />
+                      <span>Export as Reflowed HTML</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground ml-6">Better for Send to Kindle</span>
                   </Button>
                   <Button 
                     className="w-full gap-2" 

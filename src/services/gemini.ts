@@ -95,3 +95,35 @@ export async function detectComicText(base64Image: string, customApiKey?: string
     throw error;
   }
 }
+
+export async function translateTexts(texts: string[], targetLanguage: string = "English", customApiKey?: string): Promise<string[]> {
+  try {
+    const client = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : ai;
+    const response = await client.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          parts: [
+            {
+              text: `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already ${targetLanguage}, leave it as is.`,
+            },
+            { text: JSON.stringify(texts) }
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.STRING
+          }
+        },
+      },
+    });
+    return JSON.parse(response.text) as string[];
+  } catch (error) {
+    console.error("Error translating text:", error);
+    throw error;
+  }
+}

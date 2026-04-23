@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -786,16 +786,38 @@ export default function ComicEditor() {
       console.error(error);
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'error' } : p));
       
-      if (error?.message?.toLowerCase().includes("quota") || error?.status === 429) {
+      let errorMsg = error?.message || String(error);
+      try {
+        if (errorMsg.startsWith('{')) {
+          const parsed = JSON.parse(errorMsg);
+          if (parsed.error && typeof parsed.error === 'string') {
+             const internalParsed = JSON.parse(parsed.error);
+             errorMsg = internalParsed?.error?.message || errorMsg;
+          } else if (parsed.error && parsed.error.message) {
+             errorMsg = parsed.error.message;
+          }
+        }
+      } catch(e) {}
+
+      if (errorMsg.toLowerCase().includes("quota") || error?.status === 429) {
         setIsBatchProcessing(false);
         setShowApiKeyModal(true);
         if (!isBatchProcessing) {
           toast.error("Gemini API Quota Exceeded. Please provide your own API key.");
         }
         throw error;
+      } else if (errorMsg.toLowerCase().includes("api key not valid") || errorMsg.includes("API_KEY_INVALID")) {
+        setIsBatchProcessing(false);
+        toast.error("Invalid API Key. Please provide a valid Gemini API key.");
+        if (customApiKey) {
+           setCustomApiKey("");
+           localStorage.removeItem('gemini_api_key');
+        }
+        setShowApiKeyModal(true);
+        throw error;
       } else {
         if (!isBatchProcessing) {
-          toast.error(`Failed to process page ${pageIndex + 1}`);
+          toast.error(`Failed to process page ${pageIndex + 1}: ${errorMsg}`);
         }
       }
     }
@@ -1193,30 +1215,54 @@ ${navItems}    </ol>
     toast.success("EPUB generated successfully!");
   };
 
+  const downloadText = () => {
+    let textContent = "";
+    for (let i = 0; i < pages.length; i++) {
+       const page = pages[i];
+       if (page.status === 'done' && page.detectedTexts.length > 0) {
+         textContent += `--- Page ${i + 1} ---\n`;
+         for (let textObj of page.detectedTexts) {
+           textContent += `${textObj.text.replace(/\n/g, ' ')}\n`;
+         }
+         textContent += `\n`;
+       }
+    }
+    
+    if (!textContent) {
+      toast.error("No text available to export.");
+      return;
+    }
+
+    const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'comic_text.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Text exported successfully!");
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8">
+    <div className="relative max-w-6xl mx-auto p-6 space-y-8">
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={() => setIsDarkMode(!isDarkMode)} 
+        className="fixed top-4 right-4 w-10 h-10 rounded-full hover:bg-muted text-primary z-50 bg-background/50 backdrop-blur-sm"
+        title="Toggle Dark Mode"
+      >
+        {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+      </Button>
+
       <header className="text-center space-y-2">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => setIsDarkMode(!isDarkMode)} 
-            className="w-10 h-10 rounded-full hover:bg-muted text-primary"
-            title="Toggle Dark Mode"
-          >
-            {isDarkMode ? <Moon className="w-8 h-8" /> : <Sun className="w-8 h-8" />}
-          </Button>
-          Comic Book Editor
+          Ebook Studio
         </h1>
-        <p className="text-muted-foreground text-lg">
-          Upload images, ZIP, or CBZ files to batch process and export as EPUB.
-        </p>
-        {!customApiKey && (
-          <div className="flex items-center justify-center pt-2">
-            <span className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
-              Free Pages Used: {Math.min(processedCount, 10)} / 10
-            </span>
-          </div>
+        {pages.length === 0 && (
+          <p className="text-muted-foreground text-lg">
+            Batch processing and export of your ebooks using AI-powered OCR tools.
+          </p>
         )}
       </header>
 
@@ -1241,17 +1287,17 @@ ${navItems}    </ol>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <div className="lg:col-span-3 space-y-4">
+          <div className="lg:col-span-3 space-y-2">
             {/* Toolbar */}
-            <div className="flex justify-between items-center bg-muted/30 p-2 rounded-lg border">
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-center bg-muted/30 p-1 rounded-lg border gap-y-2">
+              <div className="flex flex-wrap items-center gap-2 w-full">
                 {!isGridView && (
                   <>
                     <Button 
                       variant={viewMode === 'edit' ? "secondary" : "ghost"} 
                       size="sm" 
                       onClick={() => setViewMode('edit')}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <Edit2 className="w-4 h-4" /> Editor
                     </Button>
@@ -1259,11 +1305,11 @@ ${navItems}    </ol>
                       variant={viewMode === 'preview' ? "secondary" : "ghost"} 
                       size="sm" 
                       onClick={() => setViewMode('preview')}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <Eye className="w-4 h-4" /> Preview
                     </Button>
-                    <div className="w-px h-6 bg-border mx-1 self-center" />
+                    <div className="w-px h-5 bg-border mx-1 self-center" />
                   </>
                 )}
                 <Button
@@ -1276,7 +1322,7 @@ ${navItems}    </ol>
                       setLastSelectedIndex(null);
                     }
                   }}
-                  className="gap-2"
+                  className="gap-2 h-8"
                 >
                   <CheckSquare className="w-4 h-4" /> {isGridView ? "Done" : "Select"}
                 </Button>
@@ -1298,7 +1344,7 @@ ${navItems}    </ol>
                         };
                         input.click();
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <Upload className="w-4 h-4" /> Add Page
                     </Button>
@@ -1312,7 +1358,7 @@ ${navItems}    </ol>
                           setSelectedPages(new Set(pages.map((_, i) => i)));
                         }
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <CheckSquare className="w-4 h-4" /> {selectedPages.size === pages.length ? "Deselect All" : "Select All"}
                     </Button>
@@ -1338,7 +1384,7 @@ ${navItems}    </ol>
                         setPages(newPages);
                         setSelectedPages(newSelected);
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                       disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === 0)}
                     >
                       <ChevronLeft className="w-4 h-4" /> Move Left
@@ -1361,12 +1407,12 @@ ${navItems}    </ol>
                         setPages(newPages);
                         setSelectedPages(newSelected);
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                       disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === pages.length - 1)}
                     >
                       Move Right <ChevronRight className="w-4 h-4" />
                     </Button>
-                    <div className="w-px h-6 bg-border mx-1 self-center" />
+                    <div className="w-px h-5 bg-border mx-1 self-center" />
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1378,7 +1424,7 @@ ${navItems}    </ol>
                         setPages(newPages);
                         setSelectedPages(new Set());
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <X className="w-4 h-4" /> Toggle Ignore
                     </Button>
@@ -1393,62 +1439,60 @@ ${navItems}    </ol>
                         setCurrentPageIndex(0);
                         setIsGridView(false);
                       }}
-                      className="gap-2"
+                      className="gap-2 h-8"
                     >
                       <Trash2 className="w-4 h-4" /> Delete
                     </Button>
                   </>
                 )}
               </div>
-              
-              <div className="flex items-center gap-4">
-                {!isGridView && (
-                  <>
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <span>Page</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={pages.length}
-                        value={pageInputValue}
-                        onChange={(e) => {
-                          setPageInputValue(e.target.value);
-                          const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 1 && val <= pages.length) {
-                            setCurrentPageIndex(val - 1);
-                          }
-                        }}
-                        onBlur={() => {
-                          setPageInputValue((currentPageIndex + 1).toString());
-                        }}
-                        className="w-16 h-8 px-2 text-center border rounded-md bg-background [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span>of {pages.length}</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        disabled={currentPageIndex === 0}
-                        onClick={() => setCurrentPageIndex(p => p - 1)}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        disabled={currentPageIndex === pages.length - 1}
-                        onClick={() => setCurrentPageIndex(p => p + 1)}
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
             </div>
+            
+            {!isGridView && (
+              <div className="flex justify-between items-center py-0">
+                <div className="flex items-center gap-1 text-sm font-medium">
+                  <span>Page</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={pages.length}
+                    value={pageInputValue}
+                    onChange={(e) => {
+                      setPageInputValue(e.target.value);
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val) && val >= 1 && val <= pages.length) {
+                        setCurrentPageIndex(val - 1);
+                      }
+                    }}
+                    onBlur={() => {
+                      setPageInputValue((currentPageIndex + 1).toString());
+                    }}
+                    className="w-10 h-5 px-1 text-center bg-transparent border-b border-t-0 border-x-0 border-foreground/30 focus-visible:outline-none focus:border-primary focus:ring-0 rounded-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span>of {pages.length}</span>
+                </div>
+                <div className="flex gap-1">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="w-6 h-6"
+                    disabled={currentPageIndex === 0}
+                    onClick={() => setCurrentPageIndex(p => p - 1)}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="w-6 h-6"
+                    disabled={currentPageIndex === pages.length - 1}
+                    onClick={() => setCurrentPageIndex(p => p + 1)}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* Main Content Area */}
             {isGridView ? (
@@ -1507,11 +1551,21 @@ ${navItems}    </ol>
                 </div>
               </Card>
             ) : (
-              <Card className="relative overflow-hidden bg-black/5 rounded-xl border-2 border-muted min-h-[500px] flex items-center justify-center">
+              <div className="relative w-full flex items-center justify-center">
                 {activePage ? (
-                  <div className={cn("relative inline-block w-full transition-opacity duration-300", activePage.isIgnored ? "opacity-50" : "opacity-100")} style={{ containerType: 'inline-size' }}>
+                  <div 
+                    className={cn("relative inline-block w-full transition-opacity duration-300", activePage.isIgnored ? "opacity-50" : "opacity-100")} 
+                    style={{ containerType: 'inline-size' }}
+                    onClick={() => {
+                      if (viewMode === 'preview') {
+                        setIsGridView(true);
+                      } else if (viewMode === 'edit' && editingIndex !== null) {
+                        setEditingIndex(null);
+                      }
+                    }}
+                  >
                     {activePage.isIgnored && (
-                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm">
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm pointer-events-none">
                         <div className="bg-destructive/90 text-destructive-foreground px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
                           <X className="w-5 h-5" /> This page is ignored and will be skipped during processing
                         </div>
@@ -1521,7 +1575,7 @@ ${navItems}    </ol>
                       ref={imageRef}
                       src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
                       alt={`Page ${currentPageIndex + 1}`}
-                      className="w-full h-auto block"
+                      className="w-full h-auto block bg-white"
                     />
                     <AnimatePresence>
                       {activePage.detectedTexts.map((item, idx) => {
@@ -1542,8 +1596,9 @@ ${navItems}    </ol>
                               ...boxStyle,
                               backgroundColor: 'transparent',
                             }}
-                            onClick={() => {
+                            onClick={(e) => {
                               if (viewMode === 'edit') {
+                                e.stopPropagation();
                                 setEditingIndex(idx);
                                 setTempText(item.text);
                               }
@@ -1553,7 +1608,12 @@ ${navItems}    </ol>
                               <div className="w-full h-full flex flex-col p-1 bg-white">
                                 <textarea
                                   autoFocus
-                                  className="w-full h-full resize-none text-[0.9vw] leading-tight focus:outline-none border-none p-1 bg-transparent text-black"
+                                  className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-black text-center"
+                                  style={{
+                                    fontFamily: "Helvetica, Arial, sans-serif",
+                                    fontSize: `${(Math.max(14, activePage.width * 0.012) / activePage.width) * 100}cqi`,
+                                    lineHeight: 1.2
+                                  }}
                                   value={tempText}
                                   onChange={(e) => setTempText(e.target.value)}
                                   onKeyDown={(e) => {
@@ -1582,13 +1642,13 @@ ${navItems}    </ol>
                                 <div 
                                   className={cn(
                                     "font-medium text-black whitespace-pre-wrap text-center",
-                                    viewMode === 'preview' ? "leading-tight" : "bg-white/90 px-1 rounded text-[0.9vw] opacity-0 group-hover:opacity-100 transition-opacity"
+                                    viewMode === 'preview' ? "" : "bg-white/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                   )}
                                   style={{ 
-                                    fontFamily: viewMode === 'preview' ? "Helvetica, Arial, sans-serif" : "inherit", 
+                                    fontFamily: "Helvetica, Arial, sans-serif", 
                                     wordBreak: 'break-word',
-                                    fontSize: viewMode === 'preview' ? `${(Math.max(14, activePage.width * 0.012) / activePage.width) * 100}cqi` : undefined,
-                                    lineHeight: viewMode === 'preview' ? 1.2 : undefined
+                                    fontSize: `${(Math.max(14, activePage.width * 0.012) / activePage.width) * 100}cqi`,
+                                    lineHeight: 1.2
                                   }}
                                 >
                                   {item.text}
@@ -1601,7 +1661,7 @@ ${navItems}    </ol>
                     </AnimatePresence>
                   </div>
                 ) : null}
-              </Card>
+              </div>
             )}
 
             {/* Thumbnails */}
@@ -1634,113 +1694,22 @@ ${navItems}    </ol>
           </div>
 
           <div className="space-y-6">
-            <Card className="p-6 space-y-4 sticky top-6">
-              <h3 className="font-semibold text-lg border-bottom pb-2">Batch Controls</h3>
+            <Card className="p-6 flex flex-col sticky top-6">
               
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 p-3 bg-muted/40 border rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Checkbox 
-                      id="translate-batch" 
-                      checked={translateDuringBatch} 
-                      onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
-                    />
-                    <label htmlFor="translate-batch" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
-                      Translate Text
-                    </label>
-                  </div>
-                  {translateDuringBatch && (
-                    <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select Language" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LANGUAGES.map(lang => (
-                          <SelectItem key={lang} value={lang}>{lang}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-
-                <Button 
-                  className="w-full gap-2" 
-                  onClick={() => processPage(currentPageIndex)} 
-                  disabled={activePage?.status === 'processing' || isBatchProcessing}
-                  variant="secondary"
-                >
-                  {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  Process Current Page
-                </Button>
-
-                <Button 
-                  className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white" 
-                  onClick={handleBatchProcess} 
-                  disabled={isBatchProcessing || pages.every(p => p.status === 'done')}
-                >
-                  {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Batch Process All
-                </Button>
-                
-                <div className="pt-4 border-t mt-4 space-y-2">
-                  <Button 
-                    className="w-full flex-col items-start gap-1 h-auto py-2" 
-                    onClick={downloadHtml}
-                    disabled={pages.filter(p => p.status === 'done').length === 0}
-                    variant="outline"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Download className="w-4 h-4" />
-                      <span>Export as Reflowed HTML</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground ml-6">Better for Send to Kindle</span>
-                  </Button>
-                  <Button 
-                    className="w-full gap-2" 
-                    onClick={downloadPdf}
-                    disabled={pages.filter(p => p.status === 'done').length === 0}
-                    variant="outline"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export Full PDF
-                  </Button>
-                  <Button 
-                    className="w-full gap-2" 
-                    onClick={downloadEpub}
-                    disabled={pages.filter(p => p.status === 'done').length === 0}
-                  >
-                    <Book className="w-4 h-4" />
-                    Export Full EPUB
-                  </Button>
-                </div>
-
-                <Button 
-                  variant="ghost" 
-                  className="w-full gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4" 
-                  onClick={() => {
-                    setPages([]);
-                    setCurrentPageIndex(0);
-                  }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Clear All Pages
-                </Button>
-              </div>
-
               {activePage?.detectedTexts && activePage.detectedTexts.length > 0 && (
-                <div className="pt-4 border-t space-y-3">
-                  <div className="flex justify-between items-center">
+                <div className="space-y-3 max-h-[320px] flex flex-col mb-4">
+                  <div className="flex justify-between items-center shrink-0">
                     <span className="text-sm font-medium">Page {currentPageIndex + 1} Texts</span>
                     <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                       {activePage.detectedTexts.length}
                     </span>
                   </div>
-                  <div className="max-h-[30vh] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px]">
                     {activePage.detectedTexts.map((t, i) => (
                       <div 
                         key={i}
                         className={cn(
-                          "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-center gap-2",
+                          "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2",
                           editingIndex === i ? "border-primary bg-primary/5" : "border-border"
                         )}
                         onClick={() => {
@@ -1749,16 +1718,117 @@ ${navItems}    </ol>
                           setViewMode('edit');
                         }}
                       >
-                        <div 
-                          className="w-4 h-4 rounded-full border border-black/10 shrink-0" 
-                          style={{ backgroundColor: t.bgColor }}
-                        />
+                        <span className="shrink-0 w-4 font-semibold text-muted-foreground mt-0.5">{i + 1}.</span>
                         <p className="line-clamp-2 font-mono flex-1">{t.text}</p>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              <div className={cn("shrink-0", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 items-center w-full pb-2">
+                    <div className="flex items-center justify-center gap-2">
+                      <Checkbox 
+                        id="translate-batch" 
+                        checked={translateDuringBatch} 
+                        onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
+                        className="w-5 h-5 border-2 border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background"
+                      />
+                      <label htmlFor="translate-batch" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                        Translate Text
+                      </label>
+                    </div>
+                    {translateDuringBatch && (
+                      <div className="w-full max-w-[200px]">
+                        <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select Language" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {LANGUAGES.map(lang => (
+                              <SelectItem key={lang} value={lang}>{lang}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+
+                  <Button 
+                    variant="ghost"
+                    className="w-full gap-2" 
+                    onClick={() => processPage(currentPageIndex)} 
+                    disabled={activePage?.status === 'processing' || isBatchProcessing}
+                  >
+                    {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    Process Current Page
+                  </Button>
+
+                  <Button 
+                    variant="ghost"
+                    className="w-full gap-2" 
+                    onClick={handleBatchProcess} 
+                    disabled={isBatchProcessing || pages.every(p => p.status === 'done')}
+                  >
+                    {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    Batch Process All
+                  </Button>
+                  
+                  <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger 
+                        render={
+                          <Button 
+                            variant="ghost" 
+                            className="w-full gap-2"
+                            disabled={pages.filter(p => p.status === 'done').length === 0} 
+                          />
+                        }
+                      >
+                        <Download className="w-4 h-4" /> Export
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-48" align="center">
+                        <DropdownMenuItem onClick={downloadText} className="cursor-pointer">
+                          <Download className="w-4 h-4 mr-2" /> Export TXT
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer">
+                          <Download className="w-4 h-4 mr-2" /> Export HTML
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer">
+                          <Download className="w-4 h-4 mr-2" /> Export PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer">
+                          <Book className="w-4 h-4 mr-2" /> Export EPUB
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <a 
+                      href="https://www.amazon.com/sendtokindle/" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="block w-full text-xs text-muted-foreground text-center mt-3 pt-3 border-t hover:underline hover:text-primary transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span>Send to Kindle</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  <Button 
+                    variant="ghost" 
+                    className="w-full gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4" 
+                    onClick={() => {
+                      setPages([]);
+                      setCurrentPageIndex(0);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Clear All Pages
+                  </Button>
+                </div>
+              </div>
             </Card>
           </div>
         </div>

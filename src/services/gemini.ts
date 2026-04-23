@@ -11,7 +11,7 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
     if (customApiKey) {
       const client = new GoogleGenAI({ apiKey: customApiKey });
       const response = await client.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: [{ parts: [{ text: "Analyze this complex comic page layout. Identify the strict rectangular boundaries for every major art panel/frame on the page. Only return the structural bounding boxes of the panels themselves, not individual characters or faces. A panel is a framed rectangular section containing art. Return a JSON list of bounding boxes: [[ymin, xmin, ymax, xmax], ...]. The coordinates should be between 0 and 1000." }, { inlineData: { mimeType: "image/jpeg", data: base64Image.split(",")[1] || base64Image } }] }],
         config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.ARRAY, items: { type: Type.NUMBER } } } },
       });

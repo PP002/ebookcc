@@ -24,7 +24,7 @@ async function startServer() {
       if (!ai) return res.status(500).json({ error: "Server missing Gemini API Key." });
       const { base64Image } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: [
           {
             parts: [

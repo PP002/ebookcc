@@ -29,86 +29,136 @@ interface PageData {
   isIgnored?: boolean;
 }
 
-// Helper to sample background color from image
-async function getAverageColor(imgSrc: string, box: [number, number, number, number]): Promise<string> {
+// Helper to resize image for AI processing (reduces bandwidth and speed up detection)
+async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve('#ffffff');
-
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0);
-
-      const [ymin, xmin, ymax, xmax] = box;
-      const sx = Math.max(0, (xmin / 1000) * canvas.width);
-      const sy = Math.max(0, (ymin / 1000) * canvas.height);
-      const sw = Math.min(canvas.width - sx, ((xmax - xmin) / 1000) * canvas.width);
-      const sh = Math.min(canvas.height - sy, ((ymax - ymin) / 1000) * canvas.height);
-
-      if (sw <= 0 || sh <= 0) return resolve('#ffffff');
-
-      const imageData = ctx.getImageData(sx, sy, sw, sh).data;
-      const colorCounts: Record<string, number> = {};
-      let maxCount = 0;
-      let dominantColor = [255, 255, 255];
-
-      for (let i = 0; i < imageData.length; i += 4) {
-        const r = Math.floor(imageData[i] / 16) * 16;
-        const g = Math.floor(imageData[i + 1] / 16) * 16;
-        const b = Math.floor(imageData[i + 2] / 16) * 16;
-        const key = `${r},${g},${b}`;
-
-        colorCounts[key] = (colorCounts[key] || 0) + 1;
-        if (colorCounts[key] > maxCount) {
-          maxCount = colorCounts[key];
-          dominantColor = [imageData[i], imageData[i + 1], imageData[i + 2]];
+      let { width, height } = img;
+      if (width > height) {
+        if (width > maxDim) {
+          height = (height * maxDim) / width;
+          width = maxDim;
+        }
+      } else {
+        if (height > maxDim) {
+          width = (width * maxDim) / height;
+          height = maxDim;
         }
       }
-
-      resolve(`rgb(${dominantColor[0]}, ${dominantColor[1]}, ${dominantColor[2]})`);
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(imgSrc);
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
-    img.onerror = () => resolve('#ffffff');
+    img.onerror = () => resolve(imgSrc);
     img.src = imgSrc;
   });
 }
 
-async function generateCleanedImage(imgSrc: string, texts: ComicText[]): Promise<string> {
+// Helper to sample background color from image
+function getAverageColorFromCanvas(ctx: CanvasRenderingContext2D, box: [number, number, number, number]): string {
+  const [ymin, xmin, ymax, xmax] = box;
+  const canvas = ctx.canvas;
+  const sx = Math.max(0, (xmin / 1000) * canvas.width);
+  const sy = Math.max(0, (ymin / 1000) * canvas.height);
+  const sw = Math.min(canvas.width - sx, ((xmax - xmin) / 1000) * canvas.width);
+  const sh = Math.min(canvas.height - sy, ((ymax - ymin) / 1000) * canvas.height);
+
+  if (sw <= 0 || sh <= 0) return '#ffffff';
+
+  try {
+    const imageData = ctx.getImageData(sx, sy, sw, sh).data;
+    const colorCounts: Record<string, number> = {};
+    let maxCount = 0;
+    let dominantColor = [255, 255, 255];
+
+    // Sampling step to keep it fast
+    const step = imageData.length > 5000 ? 8 : 4;
+    for (let i = 0; i < imageData.length; i += step) {
+      const r = Math.floor(imageData[i] / 16) * 16;
+      const g = Math.floor(imageData[i + 1] / 16) * 16;
+      const b = Math.floor(imageData[i + 2] / 16) * 16;
+      const key = `${r},${g},${b}`;
+
+      colorCounts[key] = (colorCounts[key] || 0) + 1;
+      if (colorCounts[key] > maxCount) {
+        maxCount = colorCounts[key];
+        dominantColor = [imageData[i], imageData[i + 1], imageData[i + 2]];
+      }
+    }
+    return `rgb(${dominantColor[0]}, ${dominantColor[1]}, ${dominantColor[2]})`;
+  } catch (e) {
+    return '#ffffff';
+  }
+}
+
+async function generateCleanedImageFromElement(img: HTMLImageElement, texts: ComicText[]): Promise<string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return img.src;
+
+  ctx.drawImage(img, 0, 0);
+
+  texts.forEach(t => {
+    const [ymin, xmin, ymax, xmax] = t.box_2d;
+    const expansion = 8;
+    const eyMin = Math.max(0, ymin - expansion);
+    const exMin = Math.max(0, xmin - expansion);
+    const eyMax = Math.min(1000, ymax + expansion);
+    const exMax = Math.min(1000, xmax + expansion);
+
+    const x = (exMin / 1000) * canvas.width;
+    const y = (eyMin / 1000) * canvas.height;
+    const w = ((exMax - exMin) / 1000) * canvas.width;
+    const h = ((eyMax - eyMin) / 1000) * canvas.height;
+
+    ctx.fillStyle = t.bgColor || 'white';
+    ctx.fillRect(x, y, w, h);
+  });
+
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+// Helper to check if a page is likely blank (solid color)
+async function isPageLikelyBlank(imgSrc: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+      const size = 32;
+      canvas.width = size;
+      canvas.height = size;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve(imgSrc);
-
-      ctx.drawImage(img, 0, 0);
-
-      texts.forEach(t => {
-        const [ymin, xmin, ymax, xmax] = t.box_2d;
-        const expansion = 8;
-        const eyMin = Math.max(0, ymin - expansion);
-        const exMin = Math.max(0, xmin - expansion);
-        const eyMax = Math.min(1000, ymax + expansion);
-        const exMax = Math.min(1000, xmax + expansion);
-
-        const x = (exMin / 1000) * canvas.width;
-        const y = (eyMin / 1000) * canvas.height;
-        const w = ((exMax - exMin) / 1000) * canvas.width;
-        const h = ((eyMax - eyMin) / 1000) * canvas.height;
-
-        ctx.fillStyle = t.bgColor || 'white';
-        ctx.fillRect(x, y, w, h);
-      });
-
-      resolve(canvas.toDataURL('image/jpeg', 0.9));
+      if (!ctx) return resolve(false);
+      ctx.drawImage(img, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      
+      let rSum = 0, gSum = 0, bSum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        rSum += data[i];
+        gSum += data[i+1];
+        bSum += data[i+2];
+      }
+      const rAvg = rSum / (size * size);
+      const gAvg = gSum / (size * size);
+      const bAvg = bSum / (size * size);
+      
+      let varianceSum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        varianceSum += Math.pow(data[i] - rAvg, 2) + Math.pow(data[i+1] - gAvg, 2) + Math.pow(data[i+2] - bAvg, 2);
+      }
+      const variance = varianceSum / (size * size * 3); // Heuristic divisor (changed from 1.5 to 3)
+      resolve(variance < 30); // Higher threshold for "blankness" (changed from 20 to 30)
     };
-    img.onerror = () => resolve(imgSrc);
+    img.onerror = () => resolve(false);
     img.src = imgSrc;
   });
 }
@@ -120,6 +170,37 @@ const getImageDimensions = (url: string): Promise<{width: number, height: number
     img.onerror = () => resolve({ width: 0, height: 0 });
     img.src = url;
   });
+};
+
+const rotateImageIfNeeded = async (url: string, width: number, height: number): Promise<{url: string, width: number, height: number}> => {
+  if (width > height) {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = height; 
+    canvas.height = width;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { url, width, height };
+
+    // Rotate 270 degrees clockwise
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((270 * Math.PI) / 180);
+    ctx.drawImage(img, -width / 2, -height / 2);
+
+    return { 
+      url: canvas.toDataURL('image/jpeg', 0.95), 
+      width: canvas.width, 
+      height: canvas.height 
+    };
+  }
+  return { url, width, height };
 };
 
 const blobUrlToBase64 = async (url: string): Promise<string> => {
@@ -571,20 +652,18 @@ const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey
     const isPanelTextOnly = panelTotalInk > 0 && (panelInkOutsideText / panelTotalInk) < 0.15;
     let base64Image: string | undefined;
 
-    if (!isPanelTextOnly || p.texts.length === 0) {
-      const cropCanvas = document.createElement('canvas');
-      const cropCtx = cropCanvas.getContext('2d');
-      const sWidth = p.right - p.left;
-      const sHeight = p.bottom - p.top;
-      
-      if (sWidth > 0 && sHeight > 0) {
-        cropCanvas.width = sWidth;
-        cropCanvas.height = sHeight;
-        if (cropCtx) {
-          cropCtx.drawImage(img, p.left, p.top, sWidth, sHeight, 0, 0, sWidth, sHeight);
-        }
-        base64Image = cropCanvas.toDataURL('image/jpeg', 0.9);
+    const cropCanvas = document.createElement('canvas');
+    const cropCtx = cropCanvas.getContext('2d');
+    const sWidth = p.right - p.left;
+    const sHeight = p.bottom - p.top;
+    
+    if (sWidth > 0 && sHeight > 0) {
+      cropCanvas.width = sWidth;
+      cropCanvas.height = sHeight;
+      if (cropCtx) {
+        cropCtx.drawImage(img, p.left, p.top, sWidth, sHeight, 0, 0, sWidth, sHeight);
       }
+      base64Image = cropCanvas.toDataURL('image/jpeg', 0.9);
     }
 
     exportPanels.push({
@@ -602,6 +681,7 @@ export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [tempText, setTempText] = useState("");
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
@@ -629,6 +709,27 @@ export default function ComicEditor() {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl + A shortcut (and Cmd + A for Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        const activeElement = document.activeElement;
+        const isInput = activeElement?.tagName === 'INPUT' || 
+                        activeElement?.tagName === 'TEXTAREA' || 
+                        (activeElement as HTMLElement)?.isContentEditable ||
+                        activeElement?.hasAttribute('contenteditable');
+        
+        if (!isInput && pages.length > 0) {
+          e.preventDefault();
+          setSelectedPages(new Set(pages.map((_, i) => i)));
+          setIsGridView(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pages.length]);
 
   const activePage = pages[currentPageIndex];
 
@@ -671,13 +772,14 @@ export default function ComicEditor() {
 
   const onDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
+    setIsUploading(true);
     
     let newPages: PageData[] = [];
     const file = acceptedFiles[0];
     
-    if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz')) {
-      toast.info("Extracting archive...");
-      try {
+    try {
+      if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz')) {
+        toast.info("Extracting archive...");
         const zip = await JSZip.loadAsync(file);
         const imageFiles = Object.keys(zip.files)
           .filter(name => name.match(/\.(jpe?g|png|webp)$/i))
@@ -687,26 +789,29 @@ export default function ComicEditor() {
           const blob = await zip.files[name].async("blob");
           const url = URL.createObjectURL(blob);
           const dims = await getImageDimensions(url);
-          newPages.push({ id: name + Date.now(), filename: name, originalImage: url, cleanedImage: null, detectedTexts: [], status: 'pending', width: dims.width, height: dims.height });
+          const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
+          newPages.push({ id: name + Date.now(), filename: name, originalImage: processed.url, cleanedImage: null, detectedTexts: [], status: 'pending', width: processed.width, height: processed.height });
         }
         toast.success(`Extracted ${newPages.length} pages`);
-      } catch (e) {
-        toast.error("Failed to read archive");
-        return;
+      } else {
+        const sortedFiles = [...acceptedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+        for (const f of sortedFiles) {
+          const url = URL.createObjectURL(f);
+          const dims = await getImageDimensions(url);
+          const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
+          newPages.push({ id: f.name + Date.now(), filename: f.name, originalImage: processed.url, cleanedImage: null, detectedTexts: [], status: 'pending', width: processed.width, height: processed.height });
+        }
       }
-    } else {
-      const sortedFiles = [...acceptedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-      for (const f of sortedFiles) {
-        const url = URL.createObjectURL(f);
-        const dims = await getImageDimensions(url);
-        newPages.push({ id: f.name + Date.now(), filename: f.name, originalImage: url, cleanedImage: null, detectedTexts: [], status: 'pending', width: dims.width, height: dims.height });
+      
+      setPages(prev => [...prev, ...newPages]);
+      if (pages.length === 0 && newPages.length > 0) {
+        setCurrentPageIndex(0);
+        setViewMode('edit');
       }
-    }
-    
-    setPages(prev => [...prev, ...newPages]);
-    if (pages.length === 0) {
-      setCurrentPageIndex(0);
-      setViewMode('edit');
+    } catch (e) {
+      toast.error("Failed to process files");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -722,27 +827,51 @@ export default function ComicEditor() {
 
   const processPage = async (pageIndex: number) => {
     const page = pages[pageIndex];
-    if (!page || page.status === 'processing') return;
+    if (!page || page.status === 'processing' || page.isIgnored) return;
 
-    if (processedCount >= 10 && !customApiKey) {
+    if (!customApiKey) {
       setIsBatchProcessing(false);
       setShowApiKeyModal(true);
-      toast.error("You've reached the free limit of 10 pages. Please enter your own Gemini API key to continue.");
       return;
     }
 
     setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'processing' } : p));
     
     try {
-      const base64Image = await blobUrlToBase64(page.originalImage);
-      const result = await detectComicText(base64Image, customApiKey);
+      let result = page.detectedTexts;
       
-      const processedResults = await Promise.all(result.map(async (item) => {
-        const bgColor = await getAverageColor(page.originalImage, item.box_2d);
-        return { ...item, bgColor };
-      }));
+      if (result.length === 0) {
+        // 1. Prepare image for AI (Resize to reasonable dimensions to save bandwidth)
+        const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
+        
+        // 2. Detect text
+        result = await detectComicText(aiBase64, customApiKey);
+        
+        if (result.length === 0) {
+          setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
+          return;
+        }
+      }
+      
+      // 3. Load full-res image once for processing
+      const fullImg = new Image();
+      fullImg.crossOrigin = "Anonymous";
+      fullImg.src = page.originalImage;
+      await new Promise((resolve) => { fullImg.onload = resolve; fullImg.onerror = resolve; });
 
-      const cleanedImage = await generateCleanedImage(page.originalImage, processedResults);
+      const canvas = document.createElement('canvas');
+      canvas.width = fullImg.naturalWidth;
+      canvas.height = fullImg.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("Could not create canvas context");
+      ctx.drawImage(fullImg, 0, 0);
+
+      const processedResults = result.map((item) => {
+        const bgColor = getAverageColorFromCanvas(ctx, item.box_2d);
+        return { ...item, bgColor };
+      });
+
+      const cleanedImage = await generateCleanedImageFromElement(fullImg, processedResults);
       
       let finalResults = processedResults;
 
@@ -806,6 +935,13 @@ export default function ComicEditor() {
           toast.error("Gemini API Quota Exceeded. Please provide your own API key.");
         }
         throw error;
+      } else if (errorMsg.toLowerCase().includes("api key missing") || errorMsg.toLowerCase().includes("server missing gemini api key")) {
+        setIsBatchProcessing(false);
+        setShowApiKeyModal(true);
+        if (!isBatchProcessing) {
+          toast.error("Gemini API Key is missing. Please provide your own to continue.");
+        }
+        throw error;
       } else if (errorMsg.toLowerCase().includes("api key not valid") || errorMsg.includes("API_KEY_INVALID")) {
         setIsBatchProcessing(false);
         toast.error("Invalid API Key. Please provide a valid Gemini API key.");
@@ -825,10 +961,43 @@ export default function ComicEditor() {
 
   const handleBatchProcess = async () => {
     setIsBatchProcessing(true);
-    toast.info(`Starting batch process for ${pages.length} pages...`);
     
-    for (let i = 0; i < pages.length; i++) {
-      if (pages[i].status === 'done' || pages[i].isIgnored) continue;
+    // Determine which pages to process
+    const indicesToProcess = selectedPages.size > 0 
+      ? Array.from(selectedPages).filter(i => !pages[i].isIgnored && pages[i].status !== 'done')
+      : pages.map((_, i) => i).filter(i => !pages[i].isIgnored && pages[i].status !== 'done');
+
+    if (indicesToProcess.length === 0) {
+      toast.info("No pages found that require processing.");
+      setIsBatchProcessing(false);
+      return;
+    }
+
+    // Step 1: Blank Check Phase
+    toast.info(`Initial scan for blank pages...`);
+    const preservedIndices: number[] = [];
+    for (const idx of indicesToProcess) {
+      const page = pages[idx];
+      if (page.status === 'done') continue;
+      
+      const isBlank = await isPageLikelyBlank(page.originalImage);
+      if (isBlank) {
+        setPages(prev => prev.map((p, pIdx) => pIdx === idx ? { ...p, status: 'done', isIgnored: true } : p));
+        console.log(`[Batch] Auto-ignored page ${idx + 1} (likely blank)`);
+      } else {
+        preservedIndices.push(idx);
+      }
+    }
+
+    if (preservedIndices.length === 0) {
+      setIsBatchProcessing(false);
+      toast.success("Batch review complete. All pages were empty.");
+      return;
+    }
+
+    toast.info(`Processing ${preservedIndices.length} content pages...`);
+    
+    for (const i of preservedIndices) {
       setCurrentPageIndex(i); // Follow along
       try {
         await processPage(i);
@@ -836,6 +1005,7 @@ export default function ComicEditor() {
         if (e?.message?.toLowerCase().includes("quota") || e?.status === 429) {
           break; // Stop batch processing on quota error
         }
+        console.error(`Failed to process page ${i + 1}:`, e);
       }
     }
     
@@ -843,6 +1013,7 @@ export default function ComicEditor() {
     if (!showApiKeyModal) {
       toast.success("Batch processing complete!");
     }
+    setSelectedPages(new Set());
   };
 
   const getBoxStyle = (box: [number, number, number, number], imgWidth: number, imgHeight: number) => {
@@ -901,24 +1072,34 @@ export default function ComicEditor() {
       const panels = await getPanelsForPage(page, base64Data, customApiKey);
 
       let panelsHtml = '';
-      for (let p of panels) {
-        let imageHtml = '';
-        if (p.base64Image) {
-          imageHtml = `
+      if (panels.length === 0) {
+        panelsHtml = `
+      <div class="panel-card">
         <div class="panel-image-container">
-          <img src="${p.base64Image}" class="panel-img" alt="Panel" />
+          <img src="${page.cleanedImage || base64Data}" class="panel-img" alt="Panel" />
+        </div>
+        ${page.detectedTexts.length > 0 ? `<div class="panel-text-container">${page.detectedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')}</div>` : ''}
+      </div>`;
+      } else {
+        for (let p of panels) {
+          let imageHtml = '';
+          if (p.base64Image) {
+            imageHtml = `
+          <div class="panel-image-container">
+            <img src="${p.base64Image}" class="panel-img" alt="Panel" />
+          </div>`;
+          }
+
+          const textContent = p.texts.length > 0 
+            ? p.texts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')
+            : '';
+          
+          panelsHtml += `
+        <div class="panel-card">
+          ${imageHtml}
+          ${textContent ? `<div class="panel-text-container">${textContent}</div>` : ''}
         </div>`;
         }
-
-        const textContent = p.texts.length > 0 
-          ? p.texts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')
-          : '';
-        
-        panelsHtml += `
-      <div class="panel-card">
-        ${imageHtml}
-        ${textContent ? `<div class="panel-text-container">${textContent}</div>` : ''}
-      </div>`;
       }
 
       pagesHtml += `
@@ -966,8 +1147,9 @@ ${pagesHtml}</body>
 
     try {
       const { jsPDF } = await import('jspdf');
-      
+
       const firstPage = pages[0];
+      // Use standard units and formats. For auto-fit, we define the format based on the first page.
       const pdf = new jsPDF({
         orientation: firstPage.width > firstPage.height ? 'landscape' : 'portrait',
         unit: 'px',
@@ -979,6 +1161,7 @@ ${pagesHtml}</body>
         const page = pages[i];
         
         if (i > 0) {
+          // Explicitly set format and orientation for each page to match image aspect ratio
           pdf.addPage([page.width, page.height], page.width > page.height ? 'landscape' : 'portrait');
         }
 
@@ -1085,12 +1268,15 @@ ${pagesHtml}</body>
     let manifestItems = '';
     let spineItems = '';
     let navItems = '';
+    let ncxItems = '';
 
     for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      const pageId = `page${i + 1}`;
-      const imgId = `img${i + 1}`;
-      const imgFilename = `image${i + 1}.jpg`;
+        const page = pages[i];
+      const seqIndex = i + 1;
+      
+      const pageId = `page${seqIndex}`;
+      const imgId = `img${seqIndex}`;
+      const imgFilename = `image${seqIndex}.jpg`;
 
       const imgSrc = page.cleanedImage || page.originalImage;
       let base64Data = imgSrc;
@@ -1105,7 +1291,11 @@ ${pagesHtml}</body>
         manifestItems += `    <item id="${imgId}" href="images/${imgFilename}" media-type="image/jpeg"/>\n`;
       }
       spineItems += `    <itemref idref="${pageId}"/>\n`;
-      navItems += `      <li><a href="${pageId}.xhtml">Page ${i + 1}</a></li>\n`;
+      navItems += `      <li><a href="${pageId}.xhtml">Page ${seqIndex}</a></li>\n`;
+      ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
+      <navLabel><text>Page ${seqIndex}</text></navLabel>
+      <content src="${pageId}.xhtml"/>
+    </navPoint>\n`;
 
       if (isTextOnly) {
         const sortedTexts = [...page.detectedTexts].sort((a, b) => a.box_2d[0] - b.box_2d[0]);
@@ -1114,10 +1304,10 @@ ${pagesHtml}</body>
         zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
-  <title>Page ${i + 1}</title>
+  <title>Page ${seqIndex}</title>
   <meta name="viewport" content="width=${page.width}, height=${page.height}"/>
   <style>
-    body { margin: 0; padding: 2em; width: 100%; height: 100%; background: #fff; color: #000; font-family: 'Arial', sans-serif; box-sizing: border-box; }
+    body { margin: 0; padding: 2em; background: #fff; color: #000; font-family: sans-serif; box-sizing: border-box; }
     p { margin-bottom: 1em; line-height: 1.5; font-size: 1.2em; text-align: justify; }
   </style>
 </head>
@@ -1149,19 +1339,19 @@ ${textContent}
         zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
-  <title>Page ${i + 1}</title>
+  <title>Page ${seqIndex}</title>
   <meta name="viewport" content="width=${page.width}, height=${page.height}"/>
   <style>
     body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
     .container { position: relative; width: 100%; height: 100%; }
-    .comic-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: block; pointer-events: none; -webkit-user-select: none; user-select: none; }
-    .text-box { position: absolute; background: transparent; color: black; font-family: 'Arial', sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; box-sizing: border-box; z-index: 2; overflow: hidden; word-break: break-word; line-height: 1.2; pointer-events: auto; -webkit-user-select: text; user-select: text; }
+    .comic-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: block; }
+    .text-box { position: absolute; background: transparent; color: black; font-family: sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; box-sizing: border-box; z-index: 2; overflow: hidden; word-break: break-word; line-height: 1.2; }
     .text-box p { margin: 0; padding: 0; width: 100%; }
   </style>
 </head>
 <body>
   <div class="container">
-    <img src="images/${imgFilename}" alt="Page ${i + 1}" class="comic-img" />
+    <img src="images/${imgFilename}" alt="Page ${seqIndex}" class="comic-img" />
 ${overlays}  </div>
 </body>
 </html>`);
@@ -1177,23 +1367,41 @@ ${overlays}  </div>
       }
     }
 
-    zip.file("OEBPS/content.opf", `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0">
+    const uuid = `comic-${Date.now()}`;
+    const firstPage = pages[0];
+    const ncxContent = `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:${uuid}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>Comic Book Export</text></docTitle>
+  <navMap>
+${ncxItems}  </navMap>
+</ncx>`;
+    zip.file("OEBPS/toc.ncx", ncxContent);
+
+    const opfContent = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="pub-id">urn:uuid:comic-${Date.now()}</dc:identifier>
+    <dc:identifier id="pub-id">urn:uuid:${uuid}</dc:identifier>
     <dc:title>Comic Book Export</dc:title>
     <dc:language>en</dc:language>
-    <meta property="dcterms:modified">${new Date().toISOString().split('.')[0]}Z</meta>
+    <meta property="dcterms:modified">${new Date().toISOString().replace(/\.[0-9]+Z$/, 'Z')}</meta>
     <meta property="rendition:layout">pre-paginated</meta>
     <meta property="rendition:orientation">auto</meta>
-    <meta property="rendition:spread">none</meta>
+    <meta property="rendition:spread">auto</meta>
   </metadata>
   <manifest>
-${manifestItems}    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-  </manifest>
-  <spine>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+${manifestItems}  </manifest>
+  <spine toc="ncx">
 ${spineItems}  </spine>
-</package>`);
+</package>`;
+    zip.file("OEBPS/content.opf", opfContent);
 
     zip.file("OEBPS/nav.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -1206,7 +1414,7 @@ ${navItems}    </ol>
 </body>
 </html>`);
 
-    const content = await zip.generateAsync({ type: "blob" });
+    const content = await zip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
     const url = URL.createObjectURL(content);
     const a = document.createElement('a');
     a.href = url;
@@ -1219,7 +1427,8 @@ ${navItems}    </ol>
     let textContent = "";
     for (let i = 0; i < pages.length; i++) {
        const page = pages[i];
-       if (page.status === 'done' && page.detectedTexts.length > 0) {
+       // Only include text for pages that are done or intentionally ignored (if they happen to have text)
+       if ((page.status === 'done' || page.isIgnored) && page.detectedTexts.length > 0) {
          textContent += `--- Page ${i + 1} ---\n`;
          for (let textObj of page.detectedTexts) {
            textContent += `${textObj.text.replace(/\n/g, ' ')}\n`;
@@ -1257,7 +1466,7 @@ ${navItems}    </ol>
 
       <header className="text-center space-y-2">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
-          Ebook Studio
+          EbookCC
         </h1>
         {pages.length === 0 && (
           <p className="text-muted-foreground text-lg">
@@ -1265,6 +1474,22 @@ ${navItems}    </ol>
           </p>
         )}
       </header>
+
+      {isUploading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-card shadow-xl border border-border"
+          >
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="text-center">
+              <h3 className="text-xl font-bold">Uploading...</h3>
+              <p className="text-muted-foreground">Preparing your ebook pages for processing</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {pages.length === 0 ? (
         <div
@@ -1760,7 +1985,7 @@ ${navItems}    </ol>
                     variant="ghost"
                     className="w-full gap-2" 
                     onClick={() => processPage(currentPageIndex)} 
-                    disabled={activePage?.status === 'processing' || isBatchProcessing}
+                    disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored}
                   >
                     {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                     Process Current Page
@@ -1770,10 +1995,10 @@ ${navItems}    </ol>
                     variant="ghost"
                     className="w-full gap-2" 
                     onClick={handleBatchProcess} 
-                    disabled={isBatchProcessing || pages.every(p => p.status === 'done')}
+                    disabled={isBatchProcessing || pages.every(p => p.status === 'done' || p.isIgnored)}
                   >
                     {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    Batch Process All
+                    {selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All"}
                   </Button>
                   
                   <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center">
@@ -1783,7 +2008,7 @@ ${navItems}    </ol>
                           <Button 
                             variant="ghost" 
                             className="w-full gap-2"
-                            disabled={pages.filter(p => p.status === 'done').length === 0} 
+                            disabled={pages.length === 0 || !pages.some(p => p.status === 'done' || p.isIgnored)} 
                           />
                         }
                       >
@@ -1846,7 +2071,11 @@ ${navItems}    </ol>
             >
               <h2 className="text-xl font-bold">API Key Required</h2>
               <p className="text-muted-foreground text-sm">
-                You've reached the limit of the free tier (10 pages) or the default API has exceeded its quota. To continue processing, please provide your own Gemini API key.
+                Did you know? Google provides a generous free tier for the <code className="bg-muted px-1 rounded">gemini-2.5-flash-lite</code> model with 1,500 requests per day! This means you can process about 500 pages completely free every single day.
+                <br /><br />
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
+                  Get your free Gemini API Key here
+                </a>
               </p>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Gemini API Key</label>
@@ -1858,7 +2087,7 @@ ${navItems}    </ol>
                   className="w-full px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Your key is stored locally in your browser and is never sent to our servers.
+                  The API key will be saved locally (strictly in your browser) so you don't have to input it again when returning.
                 </p>
               </div>
               <div className="flex justify-end gap-2 pt-4">

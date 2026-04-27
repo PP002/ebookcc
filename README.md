@@ -1,7 +1,7 @@
 
 ## View on the website: 
 
-https://ai.studio/apps/41a57a36-24a1-418a-a9bb-c28854d2ae07
+https://ebookcc-40201852658.europe-west2.run.app/
 
 ## Run Locally
 

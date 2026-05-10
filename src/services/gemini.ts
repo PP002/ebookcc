@@ -68,10 +68,11 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
         });
       }
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash-lite",
+        model: "gemini-2.0-flash",
         contents: [{ parts }],
         config: {
           responseMimeType: "application/json",
+          maxOutputTokens: 8192,
           responseSchema
         }
       });
@@ -177,7 +178,7 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
   }
 }
 
-export async function detectComicText(base64Image: string, customApiKey?: string, guidedBoxes?: [number, number, number, number][], ocrProvider: 'gemini' | 'vision' = 'gemini', visionApiKey?: string): Promise<ComicText[]> {
+export async function detectComicText(base64Image: string, customApiKey?: string, suggestedCount?: number, ocrProvider: 'gemini' | 'vision' = 'gemini', visionApiKey?: string): Promise<ComicText[]> {
   try {
     if (ocrProvider === 'vision') {
       if (!visionApiKey) throw new Error("Vision API key is required when using Vision Provider");
@@ -257,27 +258,7 @@ export async function detectComicText(base64Image: string, customApiKey?: string
         }
       }
       
-      // Attempt to enforce guided boxes if provided
-      if (guidedBoxes && guidedBoxes.length > 0 && texts.length > 0) {
-         // Naive mapping: only keep text blocks that overlap with guided boxes
-         const guidedTexts: ComicText[] = [];
-         texts.forEach(t => {
-            let overlaps = false;
-            const tb = t.box_2d;
-            for (let gb of guidedBoxes) {
-               // intersection check
-               const yIntersect = Math.max(0, Math.min(tb[2], gb[2]) - Math.max(tb[0], gb[0]));
-               const xIntersect = Math.max(0, Math.min(tb[3], gb[3]) - Math.max(tb[1], gb[1]));
-               if (xIntersect > 0 && yIntersect > 0) {
-                 overlaps = true;
-                 break;
-               }
-            }
-            if (overlaps) guidedTexts.push(t);
-         });
-         return guidedTexts.length > 0 ? guidedTexts : texts;
-      }
-      
+      // No longer filtering by guided boxes to ensure full page scan as per user request
       return texts;
     }
 
@@ -285,10 +266,28 @@ export async function detectComicText(base64Image: string, customApiKey?: string
       console.log("[Frontend Direct] Running detectText locally to bypass server limits");
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       
-      let promptText = "Analyze this page. For each speech bubble, caption, or entire paragraph of text, extract ALL the text precisely. Transcribe every single word exactly as written, paying close attention to words at the edges, small text, or floating words. Do NOT skip, summarize, or truncate any text. Preserve all punctuation and newlines (\\n). Find a single tight bounding box [ymin, xmin, ymax, xmax] that covers the ENTIRE paragraph or speech bubble text. Do NOT separate lines of the same paragraph into different boxes. Do NOT include borders or background. Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. If no text is found, output: [].";
+      let promptText = "Analyze this page image for text extraction. This page might contain dense text paragraphs, comic bubbles, or captions.\n\n" +
+                        "YOUR GOALS:\n" +
+                        "1. Detect and transcribe EVERY piece of text precisely. No skipping, no summarizing.\n" +
+                        "2. Each visually distinct paragraph or block MUST be its own separate entry. Do NOT merge multiple paragraphs into one string.\n" +
+                        "3. Output VERY TIGHT bounding boxes [ymin, xmin, ymax, xmax] (0-1000) for each logical block (bubble, caption, or individual paragraph). The box should only encompass the text pixels.\n" +
+                        "4. For each block, return the text as a single cohesive string (remove internal line breaks within that paragraph).\n\n" +
+                        "READING ORDER RULES:\n" +
+                        "- For BOOKS/PROSE: Sort by natural flow (Title -> Paragraph 1 -> Paragraph 2 -> etc.). Handle columns properly (left column then right column).\n" +
+                        "- For COMICS: Sort by panel order, then bubbles/captions in reading flow.\n\n" +
+                        "Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. Return ONLY the JSON.";
       
-      if (guidedBoxes && guidedBoxes.length > 0) {
-        promptText = `Analyze this page. I have already identified ${guidedBoxes.length} bounding boxes containing text bubbles or captions on this page. For EACH of these boxes, extract ALL the text precisely. Pay very close attention to words at the absolute edges of the bubbles, hyphenated words, or small text. Do NOT miss a single word. Transcribe everything exactly as written. Preserve newlines (\\n). Return a JSON list containing EXACTLY ${guidedBoxes.length} items in the same order as the boxes provided: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. The bounding boxes I identified are:\n${JSON.stringify(guidedBoxes, null, 2)}\nReturn ONLY the JSON. Do not miss any box, and do not add extra boxes. Make sure to refine the bounding boxes slightly if my boxes are not tight enough around the text.`;
+      if (suggestedCount !== undefined) {
+        const hintText = suggestedCount > 0 
+          ? `Approx ${suggestedCount} regions detected.`
+          : `Scan carefully; extract ALL text.`;
+
+        promptText = `Complete extraction. ${hintText}\n\n` +
+          `MISSION:\n` +
+          `1. Extract ALL text in strict reading order.\n` +
+          `2. PRECISE SEPARATION: Every logical paragraph must be a separate JSON object.\n` +
+          `3. Bounding boxes MUST be extremely tight to text edges.\n\n` +
+          `Return JSON list: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. Return ONLY JSON.`;
       }
 
       const schema = {
@@ -316,7 +315,7 @@ export async function detectComicText(base64Image: string, customApiKey?: string
     const res = await fetchWithRetry("/api/detectText", {
       method: "POST",
       headers,
-      body: JSON.stringify({ base64Image, guidedBoxes }),
+      body: JSON.stringify({ base64Image, suggestedCount }),
     });
     const text = await res.text();
     if (text.trim().startsWith('<')) {

@@ -2,35 +2,9 @@ import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
-import * as ort from "onnxruntime-node";
 import sharp from "sharp";
 
-let yoloSession: ort.InferenceSession | null = null;
-async function initYolo() {
-  try {
-    const modelPath = path.join(process.cwd(), "server_models", "best.onnx");
-    if (fs.existsSync(modelPath)) {
-      yoloSession = await ort.InferenceSession.create(modelPath, {
-        executionProviders: ['cpu'],
-        intraOpNumThreads: 1,
-        interOpNumThreads: 1
-      });
-      console.log("[Server] Loaded internal YOLO onnx model from", modelPath);
-    }
-  } catch (e) {
-    console.error("[Server] Failed to load internal YOLO model:", e);
-  }
-}
-
-process.on('uncaughtException', (err) => {
-  console.error("Uncaught Exception:", err);
-});
-process.on('unhandledRejection', (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-});
-
 async function startServer() {
-  await initYolo();
   const app = express();
   const PORT = 3000;
 
@@ -134,9 +108,9 @@ function handleGeminiError(e: any, res: express.Response) {
             
             const form = new FormData();
             form.append("file", blob, "image.jpg");
-            form.append("conf", "0.20"); // slightly lower for panels to ensure capture
+            form.append("conf", "0.15"); // lower for better recall
             form.append("iou", "0.45"); 
-            form.append("imgsz", "640");
+            form.append("imgsz", "1280");
 
             const yoloRes = await fetch(yoloUrl, {
                 method: "POST",
@@ -159,8 +133,8 @@ function handleGeminiError(e: any, res: express.Response) {
                         let segments;
                         if (r.segments && r.segments.x && r.segments.y) {
                            segments = {
-                              x: r.segments.x.map((xVal: number) => (xVal / origW) * 1000),
-                              y: r.segments.y.map((yVal: number) => (yVal / origH) * 1000)
+                               x: r.segments.x.map((xVal: number) => (xVal / origW) * 1000),
+                               y: r.segments.y.map((yVal: number) => (yVal / origH) * 1000)
                            };
                         }
 
@@ -206,119 +180,7 @@ function handleGeminiError(e: any, res: express.Response) {
         }
       }
 
-      if (!yoloSession) {
-        console.log("[API] detectPanelsLocalYolo: YOLO model not loaded");
-        return res.status(503).json({ error: "YOLO model not loaded" });
-      }
-
-      const imgBuffer = Buffer.from(rawBase64, 'base64');
-      
-      const image = sharp(imgBuffer);
-      const metadata = await image.metadata();
-      const origW = metadata.width!;
-      const origH = metadata.height!;
-
-      const inputSize = 640;
-      const scale = Math.min(inputSize / origW, inputSize / origH);
-      const drawWidth = Math.round(origW * scale);
-      const drawHeight = Math.round(origH * scale);
-      
-      const dx = Math.floor((inputSize - drawWidth) / 2);
-      const dy = Math.floor((inputSize - drawHeight) / 2);
-
-      // Resize and pad (letterboxing)
-      const resized = await image
-        .resize({ width: drawWidth, height: drawHeight, fit: 'fill' })
-        .extend({
-          top: dy,
-          bottom: inputSize - drawHeight - dy,
-          left: dx,
-          right: inputSize - drawWidth - dx,
-          background: { r: 114, g: 114, b: 114, alpha: 1 }
-        })
-        .removeAlpha()
-        .raw()
-        .toBuffer();
-
-      // Convert to float32 [1, 3, 640, 640] normalized to 0-1
-      const float32Data = new Float32Array(3 * inputSize * inputSize);
-      for (let i = 0; i < inputSize * inputSize; i++) {
-        float32Data[i] = resized[i * 3] / 255.0; // R
-        float32Data[inputSize * inputSize + i] = resized[i * 3 + 1] / 255.0; // G
-        float32Data[2 * inputSize * inputSize + i] = resized[i * 3 + 2] / 255.0; // B
-      }
-
-      const inputTensor = new ort.Tensor('float32', float32Data, [1, 3, inputSize, inputSize]);
-      const feeds: Record<string, ort.Tensor> = {};
-      feeds[yoloSession.inputNames[0]] = inputTensor;
-
-      const output = await yoloSession.run(feeds);
-      const outputTensor = output[yoloSession.outputNames[0]];
-
-      const dims = outputTensor.dims;
-      const tensorData = outputTensor.data as Float32Array;
-      
-      const numClasses = dims[1] - 4;
-      const numBoxes = dims[2];
-
-      let panelBoxes = [];
-      let textBoxes = [];
-
-      for (let i = 0; i < numBoxes; i++) {
-        let maxClassScore = 0;
-        let maxClassIndex = -1;
-        for (let c = 0; c < numClasses; c++) {
-          const score = tensorData[(4 + c) * numBoxes + i];
-          if (score > maxClassScore) {
-            maxClassScore = score;
-            maxClassIndex = c;
-          }
-        }
-
-        if (maxClassScore > 0.25) {
-          const cx = tensorData[0 * numBoxes + i];
-          const cy = tensorData[1 * numBoxes + i];
-          const w = tensorData[2 * numBoxes + i];
-          const h = tensorData[3 * numBoxes + i];
-
-          let x1 = cx - w / 2;
-          let y1 = cy - h / 2;
-          let x2 = cx + w / 2;
-          let y2 = cy + h / 2;
-
-          if (yoloTextOnly) {
-            textBoxes.push({ x1, y1, x2, y2, score: maxClassScore });
-          } else {
-            if (maxClassIndex === yoloPanelClass) {
-              panelBoxes.push({ x1, y1, x2, y2, score: maxClassScore });
-            } else if (maxClassIndex === yoloTextClass) {
-              textBoxes.push({ x1, y1, x2, y2, score: maxClassScore });
-            }
-          }
-        }
-      }
-
-      const finalPanelBoxes = nonMaxSuppression(panelBoxes, 0.45);
-      const finalTextBoxes = nonMaxSuppression(textBoxes, 0.45);
-
-      const mapToOriginal = (b: any) => {
-        const origX1 = (b.x1 - dx) / scale;
-        const origY1 = (b.y1 - dy) / scale;
-        const origX2 = (b.x2 - dx) / scale;
-        const origY2 = (b.y2 - dy) / scale;
-
-        const yMin = Math.max(0, Math.min(1000, (origY1 / origH) * 1000));
-        const xMin = Math.max(0, Math.min(1000, (origX1 / origW) * 1000));
-        const yMax = Math.max(0, Math.min(1000, (origY2 / origH) * 1000));
-        const xMax = Math.max(0, Math.min(1000, (origX2 / origW) * 1000));
-
-        return [yMin, xMin, yMax, xMax];
-      };
-
-      return res.json({
-         panels: finalPanelBoxes.map(mapToOriginal),
-         texts: finalTextBoxes.map(mapToOriginal)
-      });
+      return res.status(400).json({ error: "No YOLO URL provided and internal model is disabled" });
     } catch (e: any) {
       console.error(e);
       return res.status(500).json({ error: String(e.message || e) });
@@ -434,13 +296,31 @@ function handleGeminiError(e: any, res: express.Response) {
     try {
       const ai = getAIClient(req);
       if (!ai) return res.status(500).json({ error: "Gemini API Key missing. Please provide one in the settings." });
-      const { base64Image, guidedBoxes } = req.body;
+      const { base64Image, suggestedCount } = req.body;
       console.log(`[API] Image size: ${Math.round(base64Image.length / 1024)} KB`);
       
-      let promptText = "Analyze this page. For each speech bubble, caption, or entire paragraph of text, extract ALL the text precisely. Transcribe every single word exactly as written, paying close attention to words at the edges, small text, or floating words. Do NOT skip, summarize, or truncate any text. Preserve all punctuation and newlines (\\n). Find a single tight bounding box [ymin, xmin, ymax, xmax] that covers the ENTIRE paragraph or speech bubble text. Do NOT separate lines of the same paragraph into different boxes. Do NOT include borders or background. Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. If no text is found, output: [].";
+      let promptText = "Analyze this page image for text extraction. This page might contain dense text paragraphs, comic bubbles, or captions.\n\n" +
+                        "YOUR GOALS:\n" +
+                        "1. Detect and transcribe EVERY piece of text precisely. No skipping, no summarizing.\n" +
+                        "2. Each visually distinct paragraph or block MUST be its own separate entry. Do NOT merge multiple paragraphs into one string.\n" +
+                        "3. Output VERY TIGHT bounding boxes [ymin, xmin, ymax, xmax] (0-1000) for each logical block (bubble, caption, or individual paragraph). The box should only encompass the text pixels.\n" +
+                        "4. For each block, return the text as a single cohesive string (remove internal line breaks within that paragraph).\n\n" +
+                        "READING ORDER RULES:\n" +
+                        "- For BOOKS/PROSE: Sort by natural flow (Title -> Paragraph 1 -> Paragraph 2 -> etc.). Handle columns properly (left column then right column).\n" +
+                        "- For COMICS: Sort by panel order, then bubbles/captions in reading flow.\n\n" +
+                        "Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. Return ONLY the JSON.";
       
-      if (guidedBoxes && guidedBoxes.length > 0) {
-        promptText = `Analyze this page. I have already identified ${guidedBoxes.length} bounding boxes containing text bubbles or captions on this page. For EACH of these boxes, extract ALL the text precisely. Pay very close attention to words at the absolute edges of the bubbles, hyphenated words, or small text. Do NOT miss a single word. Transcribe everything exactly as written. Preserve newlines (\\n). Return a JSON list containing EXACTLY ${guidedBoxes.length} items in the same order as the boxes provided: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. The bounding boxes I identified are:\n${JSON.stringify(guidedBoxes, null, 2)}\nReturn ONLY the JSON. Do not miss any box, and do not add extra boxes. Make sure to refine the bounding boxes slightly if my boxes are not tight enough around the text.`;
+      if (suggestedCount !== undefined) {
+        const hintText = suggestedCount > 0 
+          ? `Approx ${suggestedCount} regions detected.`
+          : `Scan carefully; extract ALL text.`;
+
+        promptText = `Complete extraction. ${hintText}\n\n` +
+          `MISSION:\n` +
+          `1. Extract ALL text in strict reading order.\n` +
+          `2. PRECISE SEPARATION: Every logical paragraph must be a separate JSON object.\n` +
+          `3. Bounding boxes MUST be extremely tight to text edges.\n\n` +
+          `Return JSON list: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. Return ONLY JSON.`;
       }
 
       let retries = 3;
@@ -448,7 +328,7 @@ function handleGeminiError(e: any, res: express.Response) {
       while (true) {
         try {
           response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-lite",
+            model: "gemini-2.0-flash",
             contents: [
               {
                 parts: [
@@ -466,6 +346,7 @@ function handleGeminiError(e: any, res: express.Response) {
             ],
             config: {
               responseMimeType: "application/json",
+              maxOutputTokens: 8192,
               responseSchema: {
                 type: Type.ARRAY,
                 items: {

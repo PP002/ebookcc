@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { detectComicText, detectComicPanels, detectLayoutLocalYolo, translateTexts, ComicText, LayoutResult } from '@/services/gemini';
-import { detectPanelsTfjs } from '@/lib/yoloTfjs';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -25,7 +24,6 @@ interface PageData {
   detectedTexts: ComicText[];
   yoloTexts?: any[];
   detectedPanels?: any[];
-  testedBoundaries?: [number, number, number, number][];
   status: 'pending' | 'processing' | 'done' | 'error';
   width: number;
   height: number;
@@ -767,8 +765,7 @@ interface ExportPanel {
         try {
           layoutResult = await runPredictAPI(base64Data);
         } catch (apiErr) {
-          console.warn("Predict API failed, falling back to TF.JS:", apiErr);
-          layoutResult = await detectPanelsTfjs(img, "/models/yolo26n-seg-1280-half.tfjs/model.json", false, 1, 0, 0, 1280);
+          console.warn("Predict API failed:", apiErr);
         }
         
         if (layoutResult) {
@@ -1002,7 +999,10 @@ async function runPredictAPI(base64Data: string): Promise<LayoutResult> {
 }
 
 const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => {
-  // Auto-detect Manga mode if >= 30% of text boxes are vertical OR if CJK characters are present
+  if (!texts || texts.length === 0) return [];
+  if (texts.length === 1) return texts;
+
+  // Auto-detect Manga mode if >= 15% of text boxes are vertical OR if CJK characters are present
   let verticalCount = 0;
   let cjkCount = 0;
   for (const t of texts) {
@@ -1013,7 +1013,7 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
   }
   const isMangaModeLayout = forceMangaMode !== undefined 
     ? forceMangaMode 
-    : (texts.length > 0 && ((verticalCount / texts.length) >= 0.2 || (cjkCount / texts.length) >= 0.3));
+    : (texts.length > 0 && ((verticalCount / texts.length) >= 0.15 || (cjkCount / texts.length) >= 0.2));
 
   if (isMangaModeLayout) {
     // Manga text grouping: Primarily Top-to-Bottom tiers, then Right-to-Left within tiers.
@@ -1035,7 +1035,7 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
         const verticalOverlap = Math.max(0, Math.min(aBottom, bBottom) - Math.max(aTop, bTop));
         const minHeight = Math.min(aBottom - aTop, bBottom - bTop);
         
-        if (verticalOverlap > 0.3 * minHeight || Math.abs(aTop - bTop) < 60) {
+        if (verticalOverlap > 0.4 * minHeight || Math.abs(aTop - bTop) < 60) {
           currentTier.push(t);
         } else {
           tiers.push(currentTier);
@@ -1047,38 +1047,64 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
     
     const finalSorted: ComicText[] = [];
     for (const tier of tiers) {
-      // Tie-breaker inside a Row tier is Right-to-Left
-      tier.sort((a, b) => {
-        const aRight = a.box_2d[3];
-        const bRight = b.box_2d[3];
-        return bRight - aRight;
-      });
+      tier.sort((a, b) => (b.box_2d[1] + b.box_2d[3]) - (a.box_2d[1] + a.box_2d[3]));
       finalSorted.push(...tier);
     }
     return finalSorted;
   }
 
-  // Western grouping: Primary flow is ROWS (Top-to-Bottom), then Left-to-Right
-  const sortedByTop = [...texts].sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+  // Western grouping: Handle potential multi-column books
+  const sortedByY = [...texts].sort((a, b) => a.box_2d[0] - b.box_2d[0]);
   
+  // 1. Detect Column Layout
+  const xCenters = texts.map(t => (t.box_2d[1] + t.box_2d[3]) / 2);
+  const leftCount = xCenters.filter(x => x < 450).length;
+  const rightCount = xCenters.filter(x => x > 550).length;
+  // Spanning elements (like titles) have wide boxes or are centered
+  const spanningHeuristic = (t: ComicText) => {
+    const width = t.box_2d[3] - t.box_2d[1];
+    const centerX = (t.box_2d[1] + t.box_2d[3]) / 2;
+    return width > 600 || (width > 300 && Math.abs(centerX - 500) < 100);
+  };
+  const spanningCount = texts.filter(spanningHeuristic).length;
+  
+  const isMultiColumn = texts.length > 3 && leftCount > 0 && rightCount > 0 && (spanningCount / texts.length) < 0.5;
+
+  if (isMultiColumn) {
+    const elements = [...texts];
+    const spanning = elements.filter(spanningHeuristic);
+    const nonSpanning = elements.filter(e => !spanning.includes(e));
+    
+    const topSpanning = spanning.filter(t => t.box_2d[0] < 300).sort((a, b) => {
+       const yDiff = a.box_2d[0] - b.box_2d[0];
+       if (Math.abs(yDiff) < 30) return a.box_2d[1] - b.box_2d[1];
+       return yDiff;
+    });
+    const bottomSpanning = spanning.filter(t => t.box_2d[0] >= 300).sort((a, b) => {
+       const yDiff = a.box_2d[0] - b.box_2d[0];
+       if (Math.abs(yDiff) < 30) return a.box_2d[1] - b.box_2d[1];
+       return yDiff;
+    });
+    
+    const leftCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 < 500).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    const rightCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 >= 500).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    
+    return [...topSpanning, ...leftCol, ...rightCol, ...bottomSpanning];
+  }
+
+  // 2. Standard Row-First Layout for non-column pages
+  const finalSorted: ComicText[] = [];
   const tiers: ComicText[][] = [];
   let currentTier: ComicText[] = [];
   
-  for (const t of sortedByTop) {
+  for (const t of sortedByY) {
     if (currentTier.length === 0) {
       currentTier.push(t);
     } else {
-      const firstInTier = currentTier[0];
-      const aTop = firstInTier.box_2d[0];
-      const aBottom = firstInTier.box_2d[2];
-      const aHeight = aBottom - aTop;
-      
-      const bTop = t.box_2d[0];
-      const bBottom = t.box_2d[2];
-      const bHeight = bBottom - bTop;
-      
-      const verticalOverlap = Math.max(0, Math.min(aBottom, bBottom) - Math.max(aTop, bTop));
-      if (verticalOverlap > 0.2 * Math.min(aHeight, bHeight) || Math.abs(aTop - bTop) < 80) {
+      const first = currentTier[0];
+      const yOverlap = Math.max(0, Math.min(first.box_2d[2], t.box_2d[2]) - Math.max(first.box_2d[0], t.box_2d[0]));
+      const minH = Math.min(first.box_2d[2] - first.box_2d[0], t.box_2d[2] - t.box_2d[0]);
+      if (yOverlap > 0.4 * minH || Math.abs(first.box_2d[0] - t.box_2d[0]) < 25) {
         currentTier.push(t);
       } else {
         tiers.push(currentTier);
@@ -1088,16 +1114,8 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
   }
   if (currentTier.length > 0) tiers.push(currentTier);
   
-  const finalSorted: ComicText[] = [];
   for (const tier of tiers) {
-    tier.sort((a, b) => {
-      const aLeft = a.box_2d[1];
-      const bLeft = b.box_2d[1];
-      if (Math.abs(aLeft - bLeft) < 50) {
-        return a.box_2d[0] - b.box_2d[0];
-      }
-      return aLeft - bLeft;
-    });
+    tier.sort((a, b) => a.box_2d[1] - b.box_2d[1]);
     finalSorted.push(...tier);
   }
   return finalSorted;
@@ -1126,8 +1144,6 @@ export default function ComicEditor() {
     }
     return false;
   });
-  const [showYoloBoxes, setShowYoloBoxes] = useState(false);
-  const [isTestingYolo, setIsTestingYolo] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
@@ -1266,7 +1282,7 @@ export default function ComicEditor() {
     setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'processing' } : p));
     
     try {
-      let result = page.detectedTexts;
+      let result: ComicText[] = [];
       let localTexts: any[] | undefined = page.yoloTexts;
       let localPanels: any[] | undefined = page.detectedPanels;
       
@@ -1276,52 +1292,6 @@ export default function ComicEditor() {
       fullImg.src = page.originalImage;
       await new Promise((resolve) => { fullImg.onload = resolve; fullImg.onerror = resolve; });
 
-      if (result.length === 0) {
-        // 1. Prepare image for AI (Resize to reasonable dimensions to save bandwidth)
-        const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
-        
-        localTexts = page.yoloTexts || localTexts;
-        localPanels = page.detectedPanels || localPanels;
-
-        if (!localTexts || !localPanels) {
-          try {
-            let layoutResult = null;
-            try {
-              console.log("Running server-side ONNX YOLO model before Gemini...");
-              layoutResult = await runPredictAPI(aiBase64);
-            } catch (apiErr) {
-              console.log("Running TF.JS YOLO model in browser before Gemini...", apiErr);
-              layoutResult = await detectPanelsTfjs(fullImg, "/models/yolo26n-seg-1280-half.tfjs/model.json", false, 1, 0, 0, 1280);
-            }
-            if (layoutResult) {
-              if (layoutResult.texts && layoutResult.texts.length > 0) {
-                localTexts = layoutResult.texts;
-              }
-              if (layoutResult.panels) {
-                localPanels = layoutResult.panels;
-              }
-            }
-          } catch (err) {
-            console.error("YOLO detection for text failed", err);
-          }
-        }
-
-        // 2. Detect text
-        // Ensure localTexts only contains box arrays before passing to the API, to avoid huge payloads if mask data leaked into it.
-        const cleanLocalTexts = localTexts ? localTexts.map((t: any) => Array.isArray(t) ? t : t.box_2d) : undefined;
-        result = await detectComicText(aiBase64, customApiKey, cleanLocalTexts, 'gemini');
-        
-        // Cache yoloTexts and detectedPanels to save computation next time or during export
-        if ((localTexts && localTexts !== page.yoloTexts) || (localPanels && localPanels !== page.detectedPanels)) {
-          setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, yoloTexts: localTexts, detectedPanels: localPanels } : p));
-        }
-
-        if (result.length === 0) {
-          setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
-          return;
-        }
-      }
-      
       const canvas = document.createElement('canvas');
       canvas.width = fullImg.naturalWidth;
       canvas.height = fullImg.naturalHeight;
@@ -1329,8 +1299,97 @@ export default function ComicEditor() {
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
+      const aiBase64 = await resizeImageForAI(page.originalImage, 2500);
+
+      // 1. Initial Layout Detection (YOLO / Predict API)
+      if (!localTexts || !localPanels) {
+        try {
+          console.log("Running layout detection...");
+          const layoutResult = await runPredictAPI(aiBase64);
+          if (layoutResult) {
+            localTexts = layoutResult.texts || [];
+            localPanels = layoutResult.panels || [];
+          }
+        } catch (apiErr) {
+          console.log("Predict API failed:", apiErr);
+        }
+      }
+
+      // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
+      if (localPanels && localPanels.length > 0) {
+        toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
+        
+        // Sort panels by reading order before processing
+        const sortedPanels = [...localPanels].sort((a, b) => {
+          const boxA = a.box_2d || a;
+          const boxB = b.box_2d || b;
+          const yDiff = boxA[0] - boxB[0];
+          if (Math.abs(yDiff) < 50) return boxA[1] - boxB[1];
+          return yDiff;
+        });
+
+        const finalResults: ComicText[] = [];
+        
+        for (let i = 0; i < sortedPanels.length; i++) {
+          const panel = sortedPanels[i];
+          const box = panel.box_2d || panel;
+          
+          // Crop panel for OCR
+          const pSx = Math.max(0, (box[1] / 1000) * fullImg.naturalWidth);
+          const pSy = Math.max(0, (box[0] / 1000) * fullImg.naturalHeight);
+          const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1]) / 1000) * fullImg.naturalWidth);
+          const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0]) / 1000) * fullImg.naturalHeight);
+          
+          const pCanvas = document.createElement('canvas');
+          pCanvas.width = pSw;
+          pCanvas.height = pSh;
+          const pCtx = pCanvas.getContext('2d');
+          if (pCtx) {
+            pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
+            const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
+            
+            // Run Gemini OCR on panel
+            const panelTexts = await detectComicText(pBase64, customApiKey, undefined, 'gemini');
+            
+            // Transform panel coordinates back to page coordinates
+            panelTexts.forEach(pt => {
+              const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
+              const yMin = box[0] + (pyMin / 1000) * (box[2] - box[0]);
+              const xMin = box[1] + (pxMin / 1000) * (box[3] - box[1]);
+              const yMax = box[0] + (pyMax / 1000) * (box[2] - box[0]);
+              const xMax = box[1] + (pxMax / 1000) * (box[3] - box[1]);
+              finalResults.push({ ...pt, box_2d: [yMin, xMin, yMax, xMax] });
+            });
+          }
+        }
+        result = finalResults;
+      } 
+      // Branch B: No Panels detected -> Regular Book Mode
+      else {
+        toast.info("Book detected: Analyzing layout and extracting text...");
+        // Follow "Non-panel" branch: Regular book -> Gemini OCR and analyze layout
+        const rawResult = await detectComicText(aiBase64, customApiKey, localTexts?.length || 0, 'gemini');
+        // Canonical sort for the book page
+        result = sortTextsReadingOrder(rawResult);
+      }
+
+      // Cache yoloTexts and detectedPanels to save computation next time or during export
+      if ((localTexts && localTexts !== page.yoloTexts) || (localPanels && localPanels !== page.detectedPanels)) {
+        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, yoloTexts: localTexts, detectedPanels: localPanels } : p));
+      }
+
+      if (result.length === 0) {
+        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
+        toast.info("No text detected on this page.");
+        return;
+      }
+
+      const isBookMode = !localPanels || localPanels.length === 0;
+
       const processedResults = result.map((item) => {
-        const refinedBox = refineTextBubbleBounds(ctx, item.box_2d);
+        // Only refine if it's likely a short comic bubble AND we are in comic mode
+        const shouldRefine = !isBookMode && item.text.length < 50;
+        const refinedBox = shouldRefine ? refineTextBubbleBounds(ctx, item.box_2d) : item.box_2d;
         const bgColor = getAverageColorFromCanvas(ctx, refinedBox);
         let maskBase64 = undefined;
         let mask_box_2d = undefined;
@@ -1352,10 +1411,9 @@ export default function ComicEditor() {
               bestMatch = lt;
             }
           }
-          const matched = bestMatch;
-          if (matched && matched.maskBase64) {
-            maskBase64 = matched.maskBase64;
-            mask_box_2d = matched.box_2d || matched;
+          if (bestMatch && bestMatch.maskBase64) {
+            maskBase64 = bestMatch.maskBase64;
+            mask_box_2d = bestMatch.box_2d || bestMatch;
           }
         }
         return { ...item, box_2d: refinedBox, bgColor, maskBase64, mask_box_2d };
@@ -1446,46 +1504,6 @@ export default function ComicEditor() {
           toast.error(`Failed to process page ${pageIndex + 1}: ${errorMsg}`);
         }
       }
-    }
-  };
-
-  const handleTestYolo = async () => {
-    if (pages.length === 0 || isTestingYolo) return;
-    const page = pages[currentPageIndex];
-    setIsTestingYolo(true);
-    try {
-      toast.info("Testing YOLO...");
-      let layoutResult = null;
-      try {
-         const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
-         layoutResult = await runPredictAPI(aiBase64);
-      } catch (err) {
-         console.warn("Predict API failed in test, trying TFJS", err);
-         const fullImg = new Image();
-         fullImg.crossOrigin = "Anonymous";
-         fullImg.src = page.originalImage;
-         await new Promise((resolve) => { fullImg.onload = resolve; fullImg.onerror = resolve; });
-         layoutResult = await detectPanelsTfjs(fullImg, "/models/yolo26n-seg-1280-half.tfjs/model.json", false, 1, 0, 0, 1280);
-      }
-      if (layoutResult) {
-        setPages(prev => prev.map((p, idx) => idx === currentPageIndex ? { 
-          ...p, 
-          yoloTexts: layoutResult.texts,
-          detectedPanels: layoutResult.panels
-        } : p));
-        setShowYoloBoxes(true);
-        toast.success(`YOLO found ${layoutResult.panels.length} panels, ${layoutResult.texts.length} texts`);
-      } else {
-        toast.error("YOLO returned no result");
-      }
-    } catch (e: any) {
-      if (e.message && e.message.includes("YOLO model not loaded")) {
-        toast.error("YOLO model not loaded. Please upload your 'best.onnx' file to the 'server_models/' directory.");
-      } else {
-        toast.error(`YOLO failed: ${e.message}`);
-      }
-    } finally {
-      setIsTestingYolo(false);
     }
   };
 
@@ -1580,45 +1598,6 @@ export default function ComicEditor() {
       width: `${(widthPx / imgWidth) * 100}%`,
       height: `${(heightPx / imgHeight) * 100}%`,
     };
-  };
-
-  const handleTestBoundaries = async () => {
-    if (currentPageIndex < 0 || currentPageIndex >= pages.length) return;
-    const page = pages[currentPageIndex];
-    if (!page.originalImage || page.detectedTexts.length === 0) {
-      toast.error("No text bubbles to test.");
-      return;
-    }
-
-    try {
-      toast.info("Testing boundaries...");
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
-      img.src = page.originalImage;
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
-
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("Could not create canvas context");
-      ctx.drawImage(img, 0, 0);
-
-      const refinedBoxes = page.detectedTexts.map(t => refineTextBubbleBounds(ctx, t.box_2d));
-
-      setPages(prev => prev.map((p, idx) => idx === currentPageIndex ? { 
-        ...p, 
-        testedBoundaries: refinedBoxes
-      } : p));
-      
-      toast.success("Boundaries refined! Shown in green outlines.");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to test boundaries");
-    }
   };
 
   const handleSaveEdit = (index: number) => {
@@ -1780,18 +1759,7 @@ ${pagesHtml}</body>
           base64Data = await blobUrlToBase64(base64Data);
         }
 
-        if (page.detectedTexts.length === 0) {
-            // Image-only
-            const imgProps = pdf.getImageProperties(base64Data);
-            const ratio = imgProps.width / imgProps.height;
-            const targetWidth = contentWidth;
-            const targetHeight = targetWidth / ratio;
-            
-            checkAddPage(targetHeight + 20);
-            pdf.addImage(base64Data, 'JPEG', margin, currentY, targetWidth, targetHeight);
-            currentY += targetHeight + 20;
-
-        } else if (page.isTextOnly) {
+        if (page.isTextOnly) {
             // Text-only
             pdf.setFontSize(12);
             pdf.setTextColor(0, 0, 0);
@@ -1829,18 +1797,20 @@ ${pagesHtml}</body>
                pdf.addImage(base64Data, 'JPEG', margin, currentY, targetWidth, targetHeight);
                currentY += targetHeight + 20;
 
-               pdf.setFontSize(12);
-               pdf.setTextColor(0, 0, 0);
-               const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
-               const textStr = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
-               const textLines = pdf.splitTextToSize(textStr, contentWidth);
-               const lineHeight = 16;
-               checkAddPage(textLines.length * lineHeight + 10);
-               textLines.forEach((line: string) => {
-                 pdf.text(line, margin, currentY, { baseline: 'top' });
-                 currentY += lineHeight;
-               });
-               currentY += 20;
+               if (page.detectedTexts.length > 0) {
+                 pdf.setFontSize(12);
+                 pdf.setTextColor(0, 0, 0);
+                 const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
+                 const textStr = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
+                 const textLines = pdf.splitTextToSize(textStr, contentWidth);
+                 const lineHeight = 16;
+                 checkAddPage(textLines.length * lineHeight + 10);
+                 textLines.forEach((line: string) => {
+                   pdf.text(line, margin, currentY, { baseline: 'top' });
+                   currentY += lineHeight;
+                 });
+                 currentY += 20;
+               }
             } else {
                for (let p of panels) {
                   if (p.base64Image) {
@@ -1952,31 +1922,6 @@ ${pagesHtml}</body>
 ${textContent}
 </body>
 </html>`);
-      } else if (page.detectedTexts.length === 0) {
-        // Image only
-        manifestItems += `    <item id="${imgId}" href="images/${imgFilename}" media-type="image/jpeg"/>\n`;
-        zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head>
-  <title>Page ${seqIndex}</title>
-  <meta name="viewport" content="width=800, height=1200"/>
-  <style>
-    body { margin: 0; padding: 0; width: 100%; height: 100%; background: #fff; text-align: center; }
-    .comic-img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-  </style>
-</head>
-<body>
-  <img src="images/${imgFilename}" alt="Page ${seqIndex}" class="comic-img" />
-</body>
-</html>`);
-        if (imgSrc.startsWith('data:')) {
-          const base64DataRaw = imgSrc.split(',')[1];
-          zip.file(`OEBPS/images/${imgFilename}`, base64DataRaw, { base64: true });
-        } else {
-          const response = await fetch(imgSrc);
-          const blob = await response.blob();
-          zip.file(`OEBPS/images/${imgFilename}`, blob);
-        }
       } else {
          const panels = await getPanelsForPage(page, base64Data);
          
@@ -1998,7 +1943,7 @@ ${textContent}
              panelsXhtml = `
                <div class="panel-card">
                  <img src="images/${imgFilename}" class="comic-img" alt="Page ${seqIndex}" />
-                 <div class="panel-text">${textContent}</div>
+                 ${textContent ? `<div class="panel-text">${textContent}</div>` : ''}
                </div>
              `;
          } else {
@@ -2507,6 +2452,27 @@ ${navItems}    </ol>
                           alt={`Page ${currentPageIndex + 1}`}
                           className="w-full h-auto block bg-white"
                         />
+                        
+                        {/* Plain-text display underneath as requested by user workflow */}
+                        {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
+                          <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
+                            <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
+                              <Book className="w-5 h-5 text-primary" /> Extracted Text
+                            </h3>
+                            <div className="space-y-6">
+                              {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
+                                <div key={idx} className="group relative">
+                                  <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
+                                    {(idx + 1).toString().padStart(2, '0')}
+                                  </div>
+                                  <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
+                                    {item.text}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <AnimatePresence>
                           {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
                             const boxStyle = getBoxStyle(item.box_2d, activePage.width, activePage.height);
@@ -2596,57 +2562,6 @@ ${navItems}    </ol>
                             );
                           })}
                         </AnimatePresence>
-
-                        {showYoloBoxes && (
-                           <>
-                             {/* Render full page SVG overlay for any segments */}
-                             {((activePage.detectedPanels?.some((b: any) => b.segments)) || (activePage.yoloTexts?.some((b: any) => b.segments))) && (
-                               <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-                                  {activePage.detectedPanels?.map((box: any, idx: number) => {
-                                      if (!box.segments) return null;
-                                      const pts = box.segments.x.map((xVal: number, i: number) => `${xVal},${box.segments.y[i]}`).join(" ");
-                                      return <polygon key={`panel-poly-${idx}`} points={pts} fill="rgba(239, 68, 68, 0.2)" stroke="rgb(239, 68, 68)" strokeWidth="4" vectorEffect="non-scaling-stroke" />
-                                  })}
-                                  {activePage.yoloTexts?.map((box: any, idx: number) => {
-                                      if (!box.segments) return null;
-                                      const pts = box.segments.x.map((xVal: number, i: number) => `${xVal},${box.segments.y[i]}`).join(" ");
-                                      return <polygon key={`text-poly-${idx}`} points={pts} fill="rgba(59, 130, 246, 0.2)" stroke="rgb(59, 130, 246)" strokeWidth="4" vectorEffect="non-scaling-stroke" />
-                                  })}
-                               </svg>
-                             )}
-
-                             {activePage.detectedPanels && activePage.detectedPanels.map((box: any, idx) => {
-                               if (box.segments) return null;
-                               const boxStyle = getBoxStyle(box, activePage.width, activePage.height);
-                               return (
-                                 <div key={`panel-${idx}`} className="absolute border-4 border-red-500 pointer-events-none overflow-hidden" style={boxStyle}>
-                                   {box.maskBase64 && (
-                                     <img src={box.maskBase64} className="w-full h-full object-fill opacity-80" alt="mask" />
-                                   )}
-                                 </div>
-                               );
-                             })}
-
-                             {activePage.yoloTexts && activePage.yoloTexts.map((box: any, idx) => {
-                               if (box.segments) return null;
-                               const boxStyle = getBoxStyle(box, activePage.width, activePage.height);
-                               return (
-                                 <div key={`yolo-text-${idx}`} className="absolute border-4 border-blue-500 pointer-events-none overflow-hidden" style={boxStyle}>
-                                   {box.maskBase64 && (
-                                     <img src={box.maskBase64} className="w-full h-full object-fill opacity-80" alt="mask" />
-                                   )}
-                                 </div>
-                               );
-                             })}
-                           </>
-                        )}
-                        
-                        {activePage.testedBoundaries && activePage.testedBoundaries.map((box, idx) => {
-                          const boxStyle = getBoxStyle(box, activePage.width, activePage.height);
-                          return (
-                            <div key={`tested-boundary-${idx}`} className="absolute border-2 border-red-500 bg-red-500/10 pointer-events-none" style={boxStyle} />
-                          );
-                        })}
                       </>
                     )}
                   </div>
@@ -2685,34 +2600,6 @@ ${navItems}    </ol>
 
           <div className="space-y-6">
             <Card className="p-6 flex flex-col sticky top-6">
-              
-              <div className="flex flex-col gap-2 mb-4 pb-4 border-b">
-                <Button 
-                  variant="outline" 
-                  onClick={handleTestYolo} 
-                  disabled={isTestingYolo}
-                >
-                  {isTestingYolo ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                  Test YOLO Local Model
-                </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={handleTestBoundaries} 
-                  disabled={!activePage || activePage.detectedTexts.length === 0}
-                >
-                  Test Text Boundaries Scan
-                </Button>
-                <div className="flex items-center gap-2 mt-2">
-                  <Checkbox 
-                    id="show-yolo" 
-                    checked={showYoloBoxes}
-                    onCheckedChange={(c) => setShowYoloBoxes(!!c)}
-                  />
-                  <label htmlFor="show-yolo" className="text-sm font-medium leading-none cursor-pointer">
-                    Show YOLO Debug Boxes
-                  </label>
-                </div>
-              </div>
 
               {activePage?.detectedTexts && activePage.detectedTexts.length > 0 && (
                 <div className="space-y-3 max-h-[320px] flex flex-col mb-4">

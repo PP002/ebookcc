@@ -153,7 +153,6 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (customApiKey) headers["x-api-key"] = customApiKey;
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
     if (customYoloKey) headers["x-yolo-key"] = customYoloKey;
 
@@ -266,30 +265,22 @@ export async function detectComicText(base64Image: string, customApiKey?: string
       console.log("[Frontend Direct] Running detectText locally to bypass server limits");
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       
-      let promptText = "Analyze this page image for text extraction. This page might contain dense text paragraphs, comic bubbles, or captions.\n\n" +
-                        "YOUR GOALS:\n" +
-                        "1. Detect and transcribe EVERY piece of text precisely. No skipping, no summarizing.\n" +
-                        "2. Each visually distinct paragraph or block MUST be its own separate entry. Do NOT merge multiple paragraphs into one string.\n" +
-                        "3. Output VERY TIGHT bounding boxes [ymin, xmin, ymax, xmax] (0-1000) for each logical block (bubble, caption, or individual paragraph). The box should only encompass the text pixels.\n" +
-                        "4. For each block, return the text as a single cohesive string (remove internal line breaks within that paragraph).\n\n" +
-                        "READING ORDER RULES:\n" +
-                        "- For BOOKS/PROSE: Sort by natural flow (Title -> Paragraph 1 -> Paragraph 2 -> etc.). Handle columns properly (left column then right column).\n" +
-                        "- For COMICS: Sort by panel order, then bubbles/captions in reading flow.\n\n" +
-                        "Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. Return ONLY the JSON.";
+      const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
+
+STRICT RULES — follow every one exactly:
+1. Extract EVERY visible piece of text. Do not skip anything.
+2. PARAGRAPH SEPARATION: A new paragraph begins when there is a visible vertical gap between lines. Each visually separate paragraph MUST be its own JSON object. NEVER merge two paragraphs into one string.
+3. WITHIN a paragraph: lines are joined with a single space. Remove soft line-breaks inside a paragraph.
+4. Bounding box [ymin, xmin, ymax, xmax] (0–1000) must hug the text pixels tightly. No padding.
+5. Do NOT think about reading order. Just detect and extract each block independently.
+6. For comic speech bubbles: each bubble = one object. Do not merge bubbles.
+7. For captions: each caption box = one object.
+
+${suggestedCount !== undefined ? (suggestedCount > 0 ? `Hint: approximately ${suggestedCount} text regions expected.` : `Scan carefully — extract ALL text.`) : ''}
+
+Return ONLY a JSON array:
+[{"text": "paragraph text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
       
-      if (suggestedCount !== undefined) {
-        const hintText = suggestedCount > 0 
-          ? `Approx ${suggestedCount} regions detected.`
-          : `Scan carefully; extract ALL text.`;
-
-        promptText = `Complete extraction. ${hintText}\n\n` +
-          `MISSION:\n` +
-          `1. Extract ALL text in strict reading order.\n` +
-          `2. PRECISE SEPARATION: Every logical paragraph must be a separate JSON object.\n` +
-          `3. Bounding boxes MUST be extremely tight to text edges.\n\n` +
-          `Return JSON list: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. Return ONLY JSON.`;
-      }
-
       const schema = {
         type: Type.ARRAY,
         items: {
@@ -310,7 +301,6 @@ export async function detectComicText(base64Image: string, customApiKey?: string
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (customApiKey) headers["x-api-key"] = customApiKey;
 
     const res = await fetchWithRetry("/api/detectText", {
       method: "POST",
@@ -349,7 +339,6 @@ export async function translateTexts(texts: string[], targetLanguage: string = "
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (customApiKey) headers["x-api-key"] = customApiKey;
 
     const res = await fetchWithRetry("/api/translate", {
       method: "POST",

@@ -1057,43 +1057,43 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
   const sortedByY = [...texts].sort((a, b) => a.box_2d[0] - b.box_2d[0]);
   
   // 1. Detect Column Layout
+  const COLUMN_BREAK = 500;
+  const PAGE_WIDTH = 1000;
+  
   const xCenters = texts.map(t => (t.box_2d[1] + t.box_2d[3]) / 2);
   const leftCount = xCenters.filter(x => x < 450).length;
   const rightCount = xCenters.filter(x => x > 550).length;
-  // Spanning elements (like titles) have wide boxes or are centered
+  
+  // Spanning elements (like titles/headers) have wide boxes or are centered
   const spanningHeuristic = (t: ComicText) => {
     const width = t.box_2d[3] - t.box_2d[1];
     const centerX = (t.box_2d[1] + t.box_2d[3]) / 2;
-    return width > 600 || (width > 300 && Math.abs(centerX - 500) < 100);
+    // Spanning if: Very wide (>55%) OR centered and reasonably wide (>20%)
+    return width > 550 || (width > 200 && Math.abs(centerX - COLUMN_BREAK) < 80);
   };
-  const spanningCount = texts.filter(spanningHeuristic).length;
   
-  const isMultiColumn = texts.length > 3 && leftCount > 0 && rightCount > 0 && (spanningCount / texts.length) < 0.5;
+  const spanningCount = texts.filter(spanningHeuristic).length;
+  const isMultiColumn = texts.length > 3 && leftCount >= 2 && rightCount >= 2 && (spanningCount / texts.length) < 0.6;
 
   if (isMultiColumn) {
     const elements = [...texts];
     const spanning = elements.filter(spanningHeuristic);
     const nonSpanning = elements.filter(e => !spanning.includes(e));
     
-    const topSpanning = spanning.filter(t => t.box_2d[0] < 300).sort((a, b) => {
-       const yDiff = a.box_2d[0] - b.box_2d[0];
-       if (Math.abs(yDiff) < 30) return a.box_2d[1] - b.box_2d[1];
-       return yDiff;
-    });
-    const bottomSpanning = spanning.filter(t => t.box_2d[0] >= 300).sort((a, b) => {
-       const yDiff = a.box_2d[0] - b.box_2d[0];
-       if (Math.abs(yDiff) < 30) return a.box_2d[1] - b.box_2d[1];
-       return yDiff;
-    });
+    const minY = Math.min(...nonSpanning.map(b => b.box_2d[0]));
+    const maxY = Math.max(...nonSpanning.map(b => b.box_2d[2]));
     
-    const leftCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 < 500).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
-    const rightCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 >= 500).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    const topSpanning = spanning.filter(t => t.box_2d[0] < minY + 50).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    const bottomSpanning = spanning.filter(t => t.box_2d[0] >= maxY - 50 && !topSpanning.includes(t)).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    const middleSpanning = spanning.filter(t => !topSpanning.includes(t) && !bottomSpanning.includes(t)).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
     
-    return [...topSpanning, ...leftCol, ...rightCol, ...bottomSpanning];
+    const leftCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 < COLUMN_BREAK).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    const rightCol = nonSpanning.filter(t => (t.box_2d[1] + t.box_2d[3]) / 2 >= COLUMN_BREAK).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+    
+    return [...topSpanning, ...leftCol, ...middleSpanning, ...rightCol, ...bottomSpanning];
   }
 
   // 2. Standard Row-First Layout for non-column pages
-  const finalSorted: ComicText[] = [];
   const tiers: ComicText[][] = [];
   let currentTier: ComicText[] = [];
   
@@ -1114,12 +1114,14 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
   }
   if (currentTier.length > 0) tiers.push(currentTier);
   
+  const finalSorted: ComicText[] = [];
   for (const tier of tiers) {
     tier.sort((a, b) => a.box_2d[1] - b.box_2d[1]);
     finalSorted.push(...tier);
   }
   return finalSorted;
 };
+
 
 export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);

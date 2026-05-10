@@ -4,16 +4,92 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import sharp from "sharp";
 
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
+type TextBlock = { text: string; box_2d: [number, number, number, number] };
+
+// ─────────────────────────────────────────────
+// Deterministic reading-order sort (no AI)
+// Handles: single-column, multi-column, titles
+// ─────────────────────────────────────────────
+function sortTextsReadingOrder(blocks: TextBlock[]): TextBlock[] {
+  if (blocks.length === 0) return blocks;
+
+  const PAGE = 1000;
+  const COLUMN_BREAK = PAGE / 2;
+
+  // A block is "spanning" (not part of a column) if:
+  // - It's very wide (>55%)
+  // - Or it's centered (midX within 400-600) AND relatively wide or likely a header (>20% width)
+  const isSpanning = (b: TextBlock) => {
+    const width = b.box_2d[3] - b.box_2d[1];
+    const centerX = (b.box_2d[1] + b.box_2d[3]) / 2;
+    return width > PAGE * 0.55 || (width > PAGE * 0.2 && Math.abs(centerX - COLUMN_BREAK) < PAGE * 0.08);
+  };
+
+  const spanningBlocks = blocks.filter(isSpanning);
+  const narrowBlocks   = blocks.filter(b => !isSpanning(b));
+
+  // Detect multi-column: significant blocks on both sides of center
+  const leftCount  = narrowBlocks.filter(b => (b.box_2d[1] + b.box_2d[3]) / 2 < COLUMN_BREAK).length;
+  const rightCount = narrowBlocks.filter(b => (b.box_2d[1] + b.box_2d[3]) / 2 >= COLUMN_BREAK).length;
+  const isMultiColumn = leftCount >= 2 && rightCount >= 2;
+
+  if (!isMultiColumn) {
+    // Single column: pure top-to-bottom
+    return [...blocks].sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+  }
+
+  // Multi-column logic
+  // Find column vertical bounds to decide if a spanning block is top, middle (interjected), or bottom
+  const nonSpanningY = narrowBlocks.map(b => b.box_2d[0]);
+  const minY = Math.min(...nonSpanningY);
+  const maxY = Math.max(...narrowBlocks.map(b => b.box_2d[2]));
+
+  const topSpanning = spanningBlocks.filter(b => b.box_2d[0] < minY + 50).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+  const bottomSpanning = spanningBlocks.filter(b => b.box_2d[0] >= maxY - 50 && !topSpanning.includes(b)).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+  const middleSpanning = spanningBlocks.filter(b => !topSpanning.includes(b) && !bottomSpanning.includes(b)).sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+
+  const leftCol = narrowBlocks
+    .filter(b => (b.box_2d[1] + b.box_2d[3]) / 2 < COLUMN_BREAK)
+    .sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+  const rightCol = narrowBlocks
+    .filter(b => (b.box_2d[1] + b.box_2d[3]) / 2 >= COLUMN_BREAK)
+    .sort((a, b) => a.box_2d[0] - b.box_2d[0]);
+
+  // Interleave middle spanning blocks if possible, or just place them between cols?
+  // Usually middle spanning blocks mean the layout is complex (e.g. Header-Cols-MiddleSpanning-MoreCols)
+  // For now: Top -> LeftCol -> MiddleSpanning -> RightCol -> Bottom
+  // Actually, usually headers for the whole page are Top.
+  // If "Foreword" is at the top of the columns but centered, it'll be in topSpanning.
+  return [...topSpanning, ...leftCol, ...middleSpanning, ...rightCol, ...bottomSpanning];
+}
+
+// ─────────────────────────────────────────────
+// Normalize text: collapse soft line-breaks
+// within a block but keep the block as one string
+// ─────────────────────────────────────────────
+function normalizeBlockText(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\n+/g, ' ')     // all newlines → single space
+    .replace(/\s{2,}/g, ' ')  // collapse multiple spaces
+    .trim();
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Increase payload limit for large images
   app.use(express.json({ limit: '50mb' }));
 
-  // Get AI Client dynamically
-  function getAIClient(req: express.Request) {
-    const apiKey = req.headers['x-api-key'] as string || process.env.GEMINI_API_KEY;
+  // ─────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────
+
+  function getAIClient() {
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
     return new GoogleGenAI({ apiKey });
   }
@@ -21,17 +97,65 @@ async function startServer() {
   function parseJsonSafely(text: string | undefined, defaultValue: any) {
     if (!text) return defaultValue;
     try {
-      let cleanText = text.trim();
-      const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      let clean = text.trim();
+      const match = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
       if (match) {
-        cleanText = match[1].trim();
+        clean = match[1].trim();
       } else {
-        cleanText = cleanText.replace(/^```json/i, "").replace(/```$/i, "").trim();
+        clean = clean.replace(/^```json/i, "").replace(/```$/i, "").trim();
       }
-      return JSON.parse(cleanText);
-    } catch (e) {
+      return JSON.parse(clean);
+    } catch {
       return null;
     }
+  }
+
+  // Shared retry wrapper — eliminates the copy-pasted retry blocks
+  async function callWithRetry<T>(
+    fn: () => Promise<T>,
+    res: express.Response,
+    label: string,
+    retries = 3
+  ): Promise<T | null> {
+    while (true) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        const is429 = err.message?.includes("429") || err.message?.includes("RESOURCE_EXHAUSTED");
+        if (retries > 0 && is429) {
+          const match = err.message.match(/Please retry in ([\d\.]+)s/);
+          const delayMs = match
+            ? Math.ceil(parseFloat(match[1])) * 1000 + 1000
+            : 20000;
+          if (delayMs > 10000) {
+            console.log(`[API][${label}] Rate limit delay ${delayMs}ms — returning 429 to client`);
+            res.status(429).json({ error: "Rate limited", retryAfterMs: delayMs });
+            return null;
+          }
+          console.log(`[API][${label}] Rate limited. Retrying in ${~~(delayMs / 1000)}s (${retries} left)`);
+          await new Promise(r => setTimeout(r, delayMs));
+          retries--;
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
+  function handleGeminiError(e: any, res: express.Response) {
+    let statusCode = 500;
+    let errorPayload: any = e.message || String(e);
+    try {
+      if (typeof errorPayload === 'string' && errorPayload.startsWith('{')) {
+        const parsed = JSON.parse(errorPayload);
+        statusCode = parsed.error?.code || e.status || 500;
+        if (errorPayload.includes("429") || errorPayload.includes("RESOURCE_EXHAUSTED")) statusCode = 429;
+        errorPayload = parsed;
+      } else if (errorPayload?.includes("429") || errorPayload?.includes("RESOURCE_EXHAUSTED")) {
+        statusCode = 429;
+      }
+    } catch (_) {}
+    res.status(statusCode).json({ error: errorPayload });
   }
 
   function iou(box1: any, box2: any) {
@@ -42,141 +166,104 @@ async function startServer() {
     const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
     const area1 = (box1.x2 - box1.x1) * (box1.y2 - box1.y1);
     const area2 = (box2.x2 - box2.x1) * (box2.y2 - box2.y1);
-    const union = area1 + area2 - intersection;
-    return intersection / union;
+    return intersection / (area1 + area2 - intersection);
   }
 
   function nonMaxSuppression(boxes: any[], iouThreshold: number) {
     boxes.sort((a, b) => b.score - a.score);
     const result = [];
     while (boxes.length > 0) {
-      const currentBox = boxes.shift();
-      result.push(currentBox);
-      boxes = boxes.filter(box => iou(currentBox, box) < iouThreshold);
+      const current = boxes.shift();
+      result.push(current);
+      boxes = boxes.filter(box => iou(current, box) < iouThreshold);
     }
     return result;
   }
 
-function handleGeminiError(e: any, res: express.Response) {
-    let statusCode = 500;
-    let errorPayload: any = e.message || String(e);
+  // ─────────────────────────────────────────────
+  // Routes
+  // ─────────────────────────────────────────────
 
-    try {
-      if (typeof errorPayload === 'string' && errorPayload.startsWith('{')) {
-        const parsed = JSON.parse(errorPayload);
-        if (parsed.error && parsed.error.code) {
-          statusCode = parsed.error.code;
-        } else if (e.status) {
-          statusCode = e.status;
-        } else if (errorPayload.includes("429") || errorPayload.includes("RESOURCE_EXHAUSTED")) {
-          statusCode = 429;
-        }
-        errorPayload = parsed;
-      } else if (errorPayload && (errorPayload.includes("429") || errorPayload.includes("RESOURCE_EXHAUSTED"))) {
-        statusCode = 429;
-      }
-    } catch (_) {}
-
-    res.status(statusCode).json({ error: errorPayload });
-  }
-
-  // API Routes
   app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {
     console.log("[API] detectPanelsLocalYolo request received");
-    
     try {
-      const yoloUrl = req.headers["x-yolo-url"] as string;
-      const yoloKey = req.headers["x-yolo-key"] as string;
-      const yoloTextOnly = req.headers["x-yolo-text-only"] === "true";
+      const yoloUrl    = req.headers["x-yolo-url"] as string;
+      const yoloKey    = req.headers["x-yolo-key"] as string;
+      const yoloTextOnly   = req.headers["x-yolo-text-only"] === "true";
       const yoloPanelClass = parseInt(req.headers["x-yolo-panel-class"] as string || "0", 10);
-      const yoloTextClass = parseInt(req.headers["x-yolo-text-class"] as string || "1", 10);
+      const yoloTextClass  = parseInt(req.headers["x-yolo-text-class"]  as string || "1", 10);
+
       const { base64Image } = req.body;
+      if (!base64Image || typeof base64Image !== 'string') {
+        return res.status(400).json({ error: 'base64Image is required' });
+      }
       const rawBase64 = base64Image.split(",")[1] || base64Image;
-      
-      // Use External YOLO Model if provided
+
       if (yoloUrl) {
         console.log("[API] detectPanelsLocalYolo: Routing to External YOLO Endpoint:", yoloUrl);
         try {
           if (yoloUrl.includes("/predict")) {
-            const imgBuf = Buffer.from(rawBase64, 'base64');
-            const blob = new Blob([imgBuf], { type: 'image/jpeg' });
-            
-            const imageInfo = sharp(imgBuf);
-            const metadata = await imageInfo.metadata();
-            const origW = metadata.width || 1000;
-            const origH = metadata.height || 1000;
-            
+            const imgBuf   = Buffer.from(rawBase64, 'base64');
+            const metadata = await sharp(imgBuf).metadata();
+            const origW    = metadata.width  || 1000;
+            const origH    = metadata.height || 1000;
+
             const form = new FormData();
-            form.append("file", blob, "image.jpg");
-            form.append("conf", "0.15"); // lower for better recall
-            form.append("iou", "0.45"); 
-            form.append("imgsz", "1280");
+            form.append("file", new Blob([imgBuf], { type: 'image/jpeg' }), "image.jpg");
+            form.append("conf", "0.15");
+            form.append("iou",  "0.45");
+            form.append("imgsz","1280");
 
             const yoloRes = await fetch(yoloUrl, {
-                method: "POST",
-                headers: { "Authorization": `Bearer ${yoloKey || ''}` },
-                body: form
+              method: "POST",
+              headers: { "Authorization": `Bearer ${yoloKey || ''}` },
+              body: form
             });
-            if (yoloRes.ok) {
-                const data = await yoloRes.json();
-                if (data.images && data.images[0] && data.images[0].results) {
-                    const results = data.images[0].results;
-                    const panels: any[] = [];
-                    const texts: any[] = [];
-                    results.forEach((r: any) => {
-                        const y1 = (r.box.y1 / origH) * 1000;
-                        const x1 = (r.box.x1 / origW) * 1000;
-                        const y2 = (r.box.y2 / origH) * 1000;
-                        const x2 = (r.box.x2 / origW) * 1000;
-                        const box_2d = [y1, x1, y2, x2];
-                        
-                        let segments;
-                        if (r.segments && r.segments.x && r.segments.y) {
-                           segments = {
-                               x: r.segments.x.map((xVal: number) => (xVal / origW) * 1000),
-                               y: r.segments.y.map((yVal: number) => (yVal / origH) * 1000)
-                           };
-                        }
 
-                        const item = { box_2d, segments };
-                        if (yoloTextOnly) {
-                             texts.push(item);
-                        } else {
-                            if (r.class === yoloPanelClass) panels.push(item);
-                            else if (r.class === yoloTextClass) texts.push(item);
-                            else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) texts.push(item);
-                        }
-                    });
-                    return res.json({ panels, texts });
-                }
-            } else {
-                 console.error("[API] detectPanelsLocalYolo: /predict endpoint returned", yoloRes.status, await yoloRes.text());
-            }
-          } else {
-            const fetchMethod = {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${yoloKey || ''}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ base64Image: rawBase64 })
-            };
-            const yoloRes = await fetch(yoloUrl, fetchMethod);
             if (yoloRes.ok) {
               const data = await yoloRes.json();
-              if (data && data.panels && data.texts) {
-                  return res.json({ panels: data.panels, texts: data.texts });
-              } else if (data && data.boxes) {
+              if (data.images?.[0]?.results) {
+                const panels: any[] = [];
+                const texts:  any[] = [];
+                data.images[0].results.forEach((r: any) => {
+                  const box_2d = [
+                    (r.box.y1 / origH) * 1000,
+                    (r.box.x1 / origW) * 1000,
+                    (r.box.y2 / origH) * 1000,
+                    (r.box.x2 / origW) * 1000,
+                  ];
+                  const segments = r.segments?.x ? {
+                    x: r.segments.x.map((v: number) => (v / origW) * 1000),
+                    y: r.segments.y.map((v: number) => (v / origH) * 1000),
+                  } : undefined;
+                  const item = { box_2d, segments };
                   if (yoloTextOnly) {
-                    return res.json({ panels: [], texts: data.boxes });
+                    texts.push(item);
                   } else {
-                    return res.json({ panels: data.boxes, texts: [] });
+                    if (r.class === yoloPanelClass) panels.push(item);
+                    else if (r.class === yoloTextClass) texts.push(item);
+                    else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) texts.push(item);
                   }
+                });
+                return res.json({ panels, texts });
               }
+            } else {
+              console.error("[API] /predict returned", yoloRes.status, await yoloRes.text());
+            }
+          } else {
+            const yoloRes = await fetch(yoloUrl, {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ base64Image: rawBase64 })
+            });
+            if (yoloRes.ok) {
+              const data = await yoloRes.json();
+              if (data?.panels && data?.texts) return res.json({ panels: data.panels, texts: data.texts });
+              if (data?.boxes) return res.json({ panels: yoloTextOnly ? [] : data.boxes, texts: yoloTextOnly ? data.boxes : [] });
             }
           }
         } catch (err) {
-            console.error("[API] detectPanelsLocalYolo: External YOLO API failed.", err);
+          console.error("[API] detectPanelsLocalYolo: External YOLO failed.", err);
         }
       }
 
@@ -192,99 +279,60 @@ function handleGeminiError(e: any, res: express.Response) {
     try {
       const yoloUrl = req.headers["x-yolo-url"] as string;
       const yoloKey = req.headers["x-yolo-key"] as string;
+
       const { base64Image } = req.body;
+      if (!base64Image || typeof base64Image !== 'string') {
+        return res.status(400).json({ error: 'base64Image is required' });
+      }
       const rawBase64 = base64Image.split(",")[1] || base64Image;
 
-      // Use External YOLO / HuggingFace Model (e.g. Nano Banana)
       if (yoloUrl) {
-        console.log("[API] Routing request to External YOLO Custom Endpoint:", yoloUrl);
-        
-        const fetchMethod = {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${yoloKey || ''}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ base64Image: rawBase64 })
-        };
-        
+        console.log("[API] Routing to External YOLO:", yoloUrl);
         try {
-          const yoloRes = await fetch(yoloUrl, fetchMethod);
+          const yoloRes = await fetch(yoloUrl, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ base64Image: rawBase64 })
+          });
           if (yoloRes.ok) {
             const data = await yoloRes.json();
-            // If the custom endpoint returns `{ boxes: [ [ymin, xmin, ymax, xmax], ... ] }`
-            if (data && data.boxes && Array.isArray(data.boxes)) {
-                return res.json(data.boxes);
-            }
+            if (data?.boxes && Array.isArray(data.boxes)) return res.json(data.boxes);
           }
         } catch (err) {
-            console.error("[API] YOLO API failed, falling back to Gemini.", err);
+          console.error("[API] YOLO failed, falling back to Gemini.", err);
         }
       }
 
-      const ai = getAIClient(req);
-      if (!ai) return res.status(500).json({ error: "Gemini API Key missing. Please provide one in the settings." });
-      console.log(`[API] Image size: ${Math.round(base64Image.length / 1024)} KB`);
-      let retries = 3;
-      let response;
-      while (true) {
-        try {
-          response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-lite",
-            contents: [
+      const ai = getAIClient();
+      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+
+      const result = await callWithRetry(() =>
+        ai.models.generateContent({
+          model: "gemini-2.0-flash-lite",
+          contents: [{
+            parts: [
               {
-                parts: [
-                  {
-                    text: "Analyze this complex comic page layout. Identify the strict rectangular boundaries for every major art panel/frame on the page. Only return the structural bounding boxes of the panels themselves, not individual characters or faces. A panel is a framed rectangular section containing art. Return a JSON list of bounding boxes: [[ymin, xmin, ymax, xmax], ...]. The coordinates should be between 0 and 1000. If no panels are found, output an empty JSON list: [].",
-                  },
-                  {
-                    inlineData: {
-                      mimeType: "image/jpeg",
-                      data: rawBase64,
-                    },
-                  },
-                ],
+                text: "Analyze this comic page. Identify every major art panel/frame. Return ONLY the structural bounding boxes of panels (framed rectangular sections containing art). Do NOT include characters or faces. Return a JSON list: [[ymin, xmin, ymax, xmax], ...] with coordinates 0–1000. Empty list if no panels found."
               },
-            ],
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.ARRAY,
-                  items: { type: Type.NUMBER },
-                  description: "[ymin, xmin, ymax, xmax] for a comic panel"
-                }
-              },
-            },
-          });
-          break;
-        } catch (err: any) {
-          if (retries > 0 && err.message && err.message.includes("429")) {
-            let delayMs = 20000;
-            const match = err.message.match(/Please retry in ([\d\.]+)s/);
-            if (match && match[1]) {
-                const delaySec = parseFloat(match[1]);
-                delayMs = Math.ceil(delaySec) * 1000 + 1000; // add 1 extra sec to be safe
+              { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
             }
-            if (delayMs > 10000) {
-               console.log(`[API] Rate limit delay is ${delayMs}ms. Returning 429 to client to handle retry.`);
-               return res.status(429).json({ error: "Rate limited", retryAfterMs: delayMs });
-            }
-            console.log(`[API] Rate limited on detectPanels. Retries left: ${retries}. Retrying in ${~~(delayMs/1000)} seconds...`);
-            await new Promise(r => setTimeout(r, delayMs));
-            retries--;
-          } else {
-            throw err;
           }
-        }
-      }
-      let parsed = parseJsonSafely(response.text, []);
-      if (!parsed) {
-        console.warn("[API] Failed to parse detectPanels response, returning empty array. Raw:", response.text);
-        parsed = [];
-      }
+        }),
+        res, "detectPanels"
+      );
+      if (!result) return; // 429 already sent
+
+      let parsed = parseJsonSafely(result.text, []);
+      if (!parsed) { console.warn("[API] detectPanels parse failed. Raw:", result.text); parsed = []; }
       res.json(parsed);
+
     } catch (e: any) {
       console.error(e);
       return handleGeminiError(e, res);
@@ -294,102 +342,79 @@ function handleGeminiError(e: any, res: express.Response) {
   app.post("/api/detectText", async (req, res) => {
     console.log("[API] detectText request received");
     try {
-      const ai = getAIClient(req);
-      if (!ai) return res.status(500).json({ error: "Gemini API Key missing. Please provide one in the settings." });
+      const ai = getAIClient();
+      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+
       const { base64Image, suggestedCount } = req.body;
+      if (!base64Image || typeof base64Image !== 'string') {
+        return res.status(400).json({ error: 'base64Image is required' });
+      }
+
       console.log(`[API] Image size: ${Math.round(base64Image.length / 1024)} KB`);
-      
-      let promptText = "Analyze this page image for text extraction. This page might contain dense text paragraphs, comic bubbles, or captions.\n\n" +
-                        "YOUR GOALS:\n" +
-                        "1. Detect and transcribe EVERY piece of text precisely. No skipping, no summarizing.\n" +
-                        "2. Each visually distinct paragraph or block MUST be its own separate entry. Do NOT merge multiple paragraphs into one string.\n" +
-                        "3. Output VERY TIGHT bounding boxes [ymin, xmin, ymax, xmax] (0-1000) for each logical block (bubble, caption, or individual paragraph). The box should only encompass the text pixels.\n" +
-                        "4. For each block, return the text as a single cohesive string (remove internal line breaks within that paragraph).\n\n" +
-                        "READING ORDER RULES:\n" +
-                        "- For BOOKS/PROSE: Sort by natural flow (Title -> Paragraph 1 -> Paragraph 2 -> etc.). Handle columns properly (left column then right column).\n" +
-                        "- For COMICS: Sort by panel order, then bubbles/captions in reading flow.\n\n" +
-                        "Return a JSON list: [{\"text\": \"...\", \"box_2d\": [ymin, xmin, ymax, xmax]}]. Return ONLY the JSON.";
-      
-      if (suggestedCount !== undefined) {
-        const hintText = suggestedCount > 0 
-          ? `Approx ${suggestedCount} regions detected.`
-          : `Scan carefully; extract ALL text.`;
 
-        promptText = `Complete extraction. ${hintText}\n\n` +
-          `MISSION:\n` +
-          `1. Extract ALL text in strict reading order.\n` +
-          `2. PRECISE SEPARATION: Every logical paragraph must be a separate JSON object.\n` +
-          `3. Bounding boxes MUST be extremely tight to text edges.\n\n` +
-          `Return JSON list: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]. Return ONLY JSON.`;
-      }
+      const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
 
-      let retries = 3;
-      let response;
-      while (true) {
-        try {
-          response = await ai.models.generateContent({
-            model: "gemini-2.0-flash",
-            contents: [
-              {
-                parts: [
-                  {
-                    text: promptText,
-                  },
-                  {
-                    inlineData: {
-                      mimeType: "image/jpeg",
-                      data: base64Image.split(",")[1] || base64Image,
-                    },
-                  },
-                ],
-              },
-            ],
-            config: {
-              responseMimeType: "application/json",
-              maxOutputTokens: 8192,
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    text: { type: Type.STRING },
-                    box_2d: {
-                      type: Type.ARRAY,
-                      items: { type: Type.NUMBER },
-                    },
-                  },
-                  required: ["text", "box_2d"],
+STRICT RULES — follow every one exactly:
+1. Extract EVERY visible piece of text. Do not skip anything.
+2. PARAGRAPH SEPARATION: A new paragraph begins when there is a visible vertical gap between lines. Each visually separate paragraph MUST be its own JSON object. NEVER merge two paragraphs into one string.
+3. WITHIN a paragraph: lines are joined with a single space. Remove soft line-breaks inside a paragraph.
+4. Bounding box [ymin, xmin, ymax, xmax] (0–1000) must hug the text pixels tightly. No padding.
+5. Do NOT think about reading order. Just detect and extract each block independently.
+6. For comic speech bubbles: each bubble = one object. Do not merge bubbles.
+7. For captions: each caption box = one object.
+
+${suggestedCount !== undefined ? (suggestedCount > 0 ? `Hint: approximately ${suggestedCount} text regions expected.` : `Scan carefully — extract ALL text.`) : ''}
+
+Return ONLY a JSON array:
+[{"text": "paragraph text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
+
+      const rawBase64 = base64Image.split(",")[1] || base64Image;
+
+      const result = await callWithRetry(() =>
+        ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: [{
+            parts: [
+              { text: promptText },
+              { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            maxOutputTokens: 8192,
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text:   { type: Type.STRING },
+                  box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } }
                 },
-              },
-            },
-          });
-          break; // success
-        } catch (err: any) {
-          if (retries > 0 && err.message && err.message.includes("429")) {
-            let delayMs = 20000;
-            const match = err.message.match(/Please retry in ([\d\.]+)s/);
-            if (match && match[1]) {
-                const delaySec = parseFloat(match[1]);
-                delayMs = Math.ceil(delaySec) * 1000 + 1000;
+                required: ["text", "box_2d"]
+              }
             }
-            if (delayMs > 10000) {
-               console.log(`[API] Rate limit delay is ${delayMs}ms. Returning 429 to client to handle retry.`);
-               return res.status(429).json({ error: "Rate limited", retryAfterMs: delayMs });
-            }
-            console.log(`[API] Rate limited on detectText. Retries left: ${retries}. Retrying in ${~~(delayMs/1000)} seconds...`);
-            await new Promise(r => setTimeout(r, delayMs));
-            retries--;
-          } else {
-            throw err;
           }
-        }
-      }
-      let parsed = parseJsonSafely(response.text, []);
+        }),
+        res, "detectText"
+      );
+      if (!result) return;
+
+      let parsed: TextBlock[] = parseJsonSafely(result.text, []);
       if (!parsed) {
-        console.warn("[API] Failed to parse detectText response, returning empty array. Raw:", response.text);
+        console.warn("[API] detectText parse failed. Raw:", result.text);
         parsed = [];
       }
+
+      parsed = parsed.map(block => ({
+        ...block,
+        text: normalizeBlockText(block.text)
+      }));
+
+      parsed = parsed.filter(block => block.text.length > 0);
+      parsed = sortTextsReadingOrder(parsed);
+
       res.json(parsed);
+
     } catch (e: any) {
       console.error(e);
       return handleGeminiError(e, res);
@@ -399,63 +424,46 @@ function handleGeminiError(e: any, res: express.Response) {
   app.post("/api/translate", async (req, res) => {
     console.log("[API] translate request received");
     try {
-      const ai = getAIClient(req);
-      if (!ai) return res.status(500).json({ error: "Gemini API Key missing. Please provide one in the settings." });
+      const ai = getAIClient();
+      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+
       const { texts, targetLanguage } = req.body;
-      console.log(`[API] Translating ${texts?.length} items to ${targetLanguage}`);
-      let retries = 3;
-      let response;
-      while (true) {
-        try {
-          response = await ai.models.generateContent({
-            model: "gemini-2.0-flash-lite",
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already ${targetLanguage}, leave it as is.`,
-                  },
-                  { text: JSON.stringify(texts) }
-                ],
-              },
-            ],
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.STRING
-                }
-              },
-            },
-          });
-          break;
-        } catch (err: any) {
-          if (retries > 0 && err.message && err.message.includes("429")) {
-            let delayMs = 20000;
-            const match = err.message.match(/Please retry in ([\d\.]+)s/);
-            if (match && match[1]) {
-                const delaySec = parseFloat(match[1]);
-                delayMs = Math.ceil(delaySec) * 1000 + 1000;
-            }
-            if (delayMs > 10000) {
-               console.log(`[API] Rate limit delay is ${delayMs}ms. Returning 429 to client to handle retry.`);
-               return res.status(429).json({ error: "Rate limited", retryAfterMs: delayMs });
-            }
-            console.log(`[API] Rate limited on translate. Retries left: ${retries}. Retrying in ${~~(delayMs/1000)} seconds...`);
-            await new Promise(r => setTimeout(r, delayMs));
-            retries--;
-          } else {
-            throw err;
-          }
-        }
+      if (!texts || !Array.isArray(texts)) {
+        return res.status(400).json({ error: 'texts array is required' });
       }
-      let parsed = parseJsonSafely(response.text, texts);
+      if (!targetLanguage || typeof targetLanguage !== 'string') {
+        return res.status(400).json({ error: 'targetLanguage is required' });
+      }
+
+      console.log(`[API] Translating ${texts.length} items to ${targetLanguage}`);
+
+      const result = await callWithRetry(() =>
+        ai.models.generateContent({
+          model: "gemini-2.0-flash-lite",
+          contents: [{
+            parts: [
+              {
+                text: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.`
+              },
+              { text: JSON.stringify(texts) }
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+          }
+        }),
+        res, "translate"
+      );
+      if (!result) return;
+
+      let parsed = parseJsonSafely(result.text, texts);
       if (!parsed || !Array.isArray(parsed)) {
-        console.warn("[API] Failed to parse translate response, returning original texts. Raw:", response.text);
+        console.warn("[API] translate parse failed, returning originals. Raw:", result.text);
         parsed = texts;
       }
       res.json(parsed);
+
     } catch (e: any) {
       console.error(e);
       return handleGeminiError(e, res);
@@ -464,26 +472,18 @@ function handleGeminiError(e: any, res: express.Response) {
 
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('Express Error:', err.message);
-    if (err.type === 'entity.too.large') {
-      return res.status(413).json({ error: 'Payload too large' });
-    }
+    if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Payload too large' });
     res.status(500).json({ error: err.message });
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
   app.listen(PORT, "0.0.0.0", () => {
@@ -492,3 +492,4 @@ function handleGeminiError(e: any, res: express.Response) {
 }
 
 startServer();
+

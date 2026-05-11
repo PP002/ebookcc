@@ -782,7 +782,7 @@ interface ExportPanel {
     }
 
     if (aiPanels && aiPanels.length > 0) {
-      rawPanels = aiPanels.map((p: any) => {
+      rawPanels = aiPanels.map((p: any, originalIdx: number) => {
         const box = Array.isArray(p) ? p : p.box_2d;
         const mask = Array.isArray(p) ? undefined : p.maskBase64;
         return {
@@ -790,7 +790,8 @@ interface ExportPanel {
           xMin: Math.max(0, (box[1] / 1000) * img.width),
           yMax: Math.min(img.height, (box[2] / 1000) * img.height),
           xMax: Math.min(img.width, (box[3] / 1000) * img.width),
-          maskBase64: mask
+          maskBase64: mask,
+          originalIdx
         };
       });
     }
@@ -819,9 +820,19 @@ interface ExportPanel {
 
   let validPanels = rawPanels.filter(r => (r.xMax - r.xMin >= 20 && r.yMax - r.yMin >= 20));
 
-  // Assign each text to exactly one panel (the one it overlaps most / center distance is shortest)
+  // Assign each text to exactly one panel
   const textsByPanel: Map<number, ComicText[]> = new Map();
   page.detectedTexts.forEach(t => {
+    // If text already has a panel assignment from OCR step, use it
+    if (t.panelIdx !== undefined) {
+      const foundIdx = validPanels.findIndex(vp => (vp as any).originalIdx === t.panelIdx);
+      if (foundIdx !== -1) {
+        if (!textsByPanel.has(foundIdx)) textsByPanel.set(foundIdx, []);
+        textsByPanel.get(foundIdx)!.push(t);
+        return;
+      }
+    }
+
     let tXCenter = ((t.box_2d[1] + t.box_2d[3]) / 2 / 1000) * img.width;
     let tYCenter = ((t.box_2d[0] + t.box_2d[2]) / 2 / 1000) * img.height;
     
@@ -1336,11 +1347,12 @@ export default function ComicEditor() {
           const panel = sortedPanels[i];
           const box = panel.box_2d || panel;
           
-          // Crop panel for OCR
-          const pSx = Math.max(0, (box[1] / 1000) * fullImg.naturalWidth);
-          const pSy = Math.max(0, (box[0] / 1000) * fullImg.naturalHeight);
-          const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1]) / 1000) * fullImg.naturalWidth);
-          const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0]) / 1000) * fullImg.naturalHeight);
+          // Crop panel for OCR with a small margin for context
+          const margin = 20; // 2% margin
+          const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
+          const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
+          const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
+          const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
           
           const pCanvas = document.createElement('canvas');
           pCanvas.width = pSw;
@@ -1350,17 +1362,46 @@ export default function ComicEditor() {
             pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
             const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
             
-            // Run Gemini OCR on panel
-            const panelTexts = await detectComicText(pBase64, customApiKey, undefined, 'gemini');
+            // Run Gemini OCR on panel with panel-hint (-1)
+            const panelTexts = await detectComicText(pBase64, customApiKey, -1, 'gemini');
             
             // Transform panel coordinates back to page coordinates
+            // Note: we need to account for the margin we added during cropping
             panelTexts.forEach(pt => {
               const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
-              const yMin = box[0] + (pyMin / 1000) * (box[2] - box[0]);
-              const xMin = box[1] + (pxMin / 1000) * (box[3] - box[1]);
-              const yMax = box[0] + (pyMax / 1000) * (box[2] - box[0]);
-              const xMax = box[1] + (pxMax / 1000) * (box[3] - box[1]);
-              finalResults.push({ ...pt, box_2d: [yMin, xMin, yMax, xMax] });
+              
+              // Local coords in the crop (0-1000) mapped to the crop's width/height
+              const cropLocalXMin = (pxMin / 1000) * pSw;
+              const cropLocalYMin = (pyMin / 1000) * pSh;
+              const cropLocalXMax = (pxMax / 1000) * pSw;
+              const cropLocalYMax = (pyMax / 1000) * pSh;
+              
+              // Map crop local pixels to fullImg pixels
+              const fullImgPixelXMin = pSx + cropLocalXMin;
+              const fullImgPixelYMin = pSy + cropLocalYMin;
+              const fullImgPixelXMax = pSx + cropLocalXMax;
+              const fullImgPixelYMax = pSy + cropLocalYMax;
+              
+              // Map fullImg pixels back to page-relative units (0-1000)
+              const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
+              const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
+              const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
+              const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
+              
+              const tXCenter = (xMin + xMax) / 2;
+              const tYCenter = (yMin + yMax) / 2;
+              
+              // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
+              const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
+                              tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
+              
+              if (isInside) {
+                finalResults.push({ 
+                  ...pt, 
+                  box_2d: [yMin, xMin, yMax, xMax],
+                  panelIdx: localPanels.indexOf(panel)
+                });
+              }
             });
           }
         }

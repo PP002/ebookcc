@@ -355,7 +355,7 @@ async function startServer() {
       const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
 
 STRICT RULES — follow every one exactly:
-1. Extract EVERY visible piece of text. Do not skip anything.
+1. Extract EVERY visible piece of text in this image. Do not skip anything.
 2. PARAGRAPH SEPARATION: A new paragraph begins when there is a visible vertical gap between lines. Each visually separate paragraph MUST be its own JSON object. NEVER merge two paragraphs into one string.
 3. WITHIN a paragraph: lines are joined with a single space. Remove soft line-breaks inside a paragraph.
 4. Bounding box [ymin, xmin, ymax, xmax] (0–1000) must hug the text pixels tightly. No padding.
@@ -363,10 +363,11 @@ STRICT RULES — follow every one exactly:
 6. For comic speech bubbles: each bubble = one object. Do not merge bubbles.
 7. For captions: each caption box = one object.
 
-${suggestedCount !== undefined ? (suggestedCount > 0 ? `Hint: approximately ${suggestedCount} text regions expected.` : `Scan carefully — extract ALL text.`) : ''}
+${suggestedCount === -1 ? "This image is a SINGLE PANEL CROP from a comic page. Focus exclusively on the text within this art frame." : ""}
+${suggestedCount !== undefined && suggestedCount > 0 ? `Hint: approximately ${suggestedCount} text regions expected.` : suggestedCount === 0 ? "Scan carefully — extract ALL text." : ""}
 
-Return ONLY a JSON array:
-[{"text": "paragraph text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
+Return ONLY a JSON array. If NO text is found, return an empty array [].
+Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
 
       const rawBase64 = base64Image.split(",")[1] || base64Image;
 

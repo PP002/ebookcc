@@ -6,11 +6,10 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --external:express --external:vite --external:sharp --outfile=dist/server.cjs",
-    "preview": "npm run build && wrangler dev",
+    "preview": "vite preview",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "deploy": "npm run build && wrangler deploy"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
@@ -41,7 +40,6 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.36.3",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
@@ -49,7 +47,6 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0",
-    "wrangler": "^4.90.0"
+    "vite": "^6.2.0"
   }
 }

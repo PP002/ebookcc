@@ -1153,7 +1153,9 @@ export default function ComicEditor() {
   const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return document.documentElement.classList.contains('dark');
+      const stored = localStorage.getItem('theme-preference');
+      if (stored) return stored === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
     return false;
   });
@@ -1162,10 +1164,27 @@ export default function ComicEditor() {
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('theme-preference', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme-preference', 'light');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      // Only auto-switch if user hasn't manually set a preference in this session?
+      // Actually, if we want it to "follow os settings", we should respond to changes.
+      // But typically manual toggle overrides auto until reload or explicit reset.
+      // For now, let's just make it response if there's NO stored preference.
+      if (!localStorage.getItem('theme-preference')) {
+        setIsDarkMode(e.matches);
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
+import { useTheme } from 'next-themes';
 
 const LANGUAGES = [
   "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chinese (Simplified)", "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "English", "Esperanto", "Estonian", "Finnish", "French", "Frisian", "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Kinyarwanda", "Korean", "Kurdish", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Myanmar (Burmese)", "Nepali", "Norwegian", "Nyanja (Chichewa)", "Odia (Oriya)", "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish", "Tagalog (Filipino)", "Tajik", "Tamil", "Tatar", "Telugu", "Thai", "Turkish", "Turkmen", "Ukrainian", "Urdu", "Uyghur", "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
@@ -1151,40 +1152,10 @@ export default function ComicEditor() {
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('theme-preference');
-      if (stored) return stored === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDarkMode = resolvedTheme === 'dark';
+
   const imageRef = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme-preference', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme-preference', 'light');
-    }
-  }, [isDarkMode]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      // Only auto-switch if user hasn't manually set a preference in this session?
-      // Actually, if we want it to "follow os settings", we should respond to changes.
-      // But typically manual toggle overrides auto until reload or explicit reset.
-      // For now, let's just make it response if there's NO stored preference.
-      if (!localStorage.getItem('theme-preference')) {
-        setIsDarkMode(e.matches);
-      }
-    };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2151,7 +2122,7 @@ ${navItems}    </ol>
         <Button 
           variant="ghost" 
           size="icon" 
-          onClick={() => setIsDarkMode(!isDarkMode)} 
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
           className="w-10 h-10 rounded-full hover:bg-muted text-primary bg-background/50 backdrop-blur-sm shadow-sm border border-border/50"
           title="Toggle Dark Mode"
         >
@@ -2161,6 +2132,7 @@ ${navItems}    </ol>
 
       <header className="text-center space-y-2 pt-4">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
+          <img src="/logo.png" alt="Logo" className="w-12 h-12 object-contain" />
           EbookCC
         </h1>
         {pages.length === 0 && (

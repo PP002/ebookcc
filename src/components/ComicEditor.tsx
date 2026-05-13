@@ -1352,6 +1352,9 @@ export default function ComicEditor() {
             pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
             const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
             
+            // Wait slightly between panels to help avoid early rate limiting
+            if (i > 0) await new Promise(r => setTimeout(r, 1000));
+
             // Run Gemini OCR on panel with panel-hint (-1)
             const panelTexts = await detectComicText(pBase64, customApiKey, -1, 'gemini');
             
@@ -2132,7 +2135,12 @@ ${navItems}    </ol>
 
       <header className="text-center space-y-2 pt-4">
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
-          <img src="/logo.png" alt="Logo" className="w-12 h-12 object-contain" />
+          <motion.div 
+            whileHover={{ scale: 1.1, rotate: 5 }}
+            className="w-12 h-12 flex items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm border border-primary/20"
+          >
+            <Sparkles className="w-8 h-8" />
+          </motion.div>
           EbookCC
         </h1>
         {pages.length === 0 && (
@@ -2777,10 +2785,11 @@ ${navItems}    </ol>
               <h2 className="text-xl font-bold mb-4">App Settings</h2>
 
               <div className="space-y-4">
-                <div className="p-4 border rounded-lg bg-card">
-                  <h3 className="font-semibold mb-2">Gemini Text Engine</h3>
+                <div className="p-4 border rounded-lg bg-card text-center">
+                  <h3 className="font-semibold mb-2">Gemini AI Engine</h3>
                   <p className="text-muted-foreground text-xs mb-3">
-                    Google provides a generous free tier for the <code className="bg-muted px-1 rounded">gemini-2.0-flash-lite</code> model with 1,500 requests per day!
+                    We use <code className="bg-muted px-1 rounded">gemini-flash-latest</code> for high-precision OCR and translation. 
+                    I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.
                     <br />
                     <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
                       Get your free Gemini API Key here

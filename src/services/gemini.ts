@@ -54,9 +54,14 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
 }
 
 async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: string, responseSchema?: any) {
-  const ai = new GoogleGenAI({ apiKey });
+  if (!apiKey) throw new Error("An API Key must be set when running in a browser");
   
-  let retries = 5;
+  const ai = new GoogleGenAI({ apiKey });
+  const modelName = "gemini-flash-latest"; 
+  
+  let retries = 10;
+  let baseDelay = 5000;
+
   while (true) {
     try {
       const parts: any[] = [{ text: promptText }];
@@ -68,30 +73,40 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
           }
         });
       }
+      
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [{ parts }],
+        model: modelName,
+        contents: [{ role: 'user', parts }],
         config: {
           responseMimeType: "application/json",
           maxOutputTokens: 8192,
           responseSchema
         }
       });
+      
       return response.text;
     } catch (err: any) {
-      if (retries > 0 && err.message && err.message.includes("429")) {
-        let delayMs = 20000;
-        const match = err.message.match(/Please retry in ([\d\.]+)s/);
+      const errorStr = (err.message || "").toLowerCase();
+      const isRateLimit = errorStr.includes("429") || errorStr.includes("too many requests") || errorStr.includes("quota");
+      
+      if (retries > 0 && isRateLimit) {
+        let delayMs = baseDelay * (11 - retries); // Exponential-ish backoff
+        
+        // Try to parse recommended delay
+        const match = errorStr.match(/retry in ([\d\.]+)s/);
         if (match && match[1]) {
-            const delaySec = parseFloat(match[1]);
-            delayMs = Math.ceil(delaySec) * 1000 + 1000;
+          delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
         }
-        console.log(`[Frontend Direct] Rate limited. Retrying in ${~~(delayMs/1000)}s...`);
+
+        console.warn(`[Gemini Retry] Rate limited. Waiting ${delayMs/1000}s before retry ${11 - retries}...`);
         await new Promise(r => setTimeout(r, delayMs));
         retries--;
-      } else {
-        throw err;
+        continue;
       }
+      
+      // Detailed error logging for non-retryable or exhausted retries
+      console.error("[Gemini Error]", err);
+      throw err;
     }
   }
 }

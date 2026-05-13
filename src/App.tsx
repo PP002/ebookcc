@@ -10,6 +10,7 @@ import { ThemeProvider } from 'next-themes';
 
 export default function App() {
   return (
+    // @ts-ignore
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">

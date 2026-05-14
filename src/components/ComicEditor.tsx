@@ -2286,12 +2286,12 @@ ${navItems}    </ol>
       </div>
 
       <header className="text-center space-y-2 pt-4">
-        <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
+        <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-4">
           <motion.div 
-            whileHover={{ scale: 1.1, rotate: 5 }}
-            className="w-12 h-12 flex items-center justify-center rounded-xl overflow-hidden shadow-sm border"
+            whileHover={{ scale: 1.05 }}
+            className="h-10 flex items-center justify-center"
           >
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+            <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
           </motion.div>
           EbookCC
         </h1>

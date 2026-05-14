@@ -464,7 +464,20 @@ interface ExportPanel {
   maskBase64?: string;
 }
 
-  const getPanelsForPage = async (page: PageData, base64Data: string, customApiKey?: string): Promise<ExportPanel[]> => {
+  const getPanelsForPage = async (page: PageData, base64Data: string, splitEnabled: boolean = true, customApiKey?: string): Promise<ExportPanel[]> => {
+  if (!splitEnabled) {
+    // If splitting is disabled, return the whole page as one panel
+    return [{
+      top: 0,
+      bottom: page.height,
+      left: 0,
+      right: page.width,
+      texts: page.detectedTexts,
+      isTextOnly: page.isTextOnly || false,
+      base64Image: base64Data
+    }];
+  }
+
   const toSentenceCase = (str: string) => {
     let text = str.toLowerCase();
     text = text.replace(/(^\s*[a-z]|[\.\!\?]\s*[a-z])/g, match => match.toUpperCase());
@@ -802,7 +815,27 @@ interface ExportPanel {
 
   if (rawPanels.length === 0) {
     let initialRegion: Region = { xMin: 0, xMax: img.width, yMin: 0, yMax: img.height };
-    rawPanels = [initialRegion];
+    rawPanels = splitRegion(initialRegion);
+    console.log(`[Split] No AI panels found, local scan found ${rawPanels.length} regions`);
+  } else {
+    // Even if we have AI panels, if it's just one giant panel that covers >95% of the page, 
+    // it might be a failure to split a multi-panel page. Let's try splitting it.
+    let finalRawPanels: Region[] = [];
+    for (const p of rawPanels) {
+      const pWidth = p.xMax - p.xMin;
+      const pHeight = p.yMax - p.yMin;
+      // If panel is huge (e.g. > 80% screen area), try local subdivision
+      if ((pWidth * pHeight) > (img.width * img.height * 0.8)) {
+        const subPanels = splitRegion(p);
+        if (subPanels.length > 1) {
+          console.log(`[Split] Subdivided large AI panel into ${subPanels.length} regions`);
+          finalRawPanels.push(...subPanels);
+          continue;
+        }
+      }
+      finalRawPanels.push(p);
+    }
+    rawPanels = finalRawPanels;
   }
 
   const determineMangaMode = () => {
@@ -1150,6 +1183,8 @@ export default function ComicEditor() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
+  const [ocrDuringBatch, setOcrDuringBatch] = useState(true);
+  const [splitDuringBatch, setSplitDuringBatch] = useState(true);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -1276,9 +1311,20 @@ export default function ComicEditor() {
     const page = pages[pageIndex];
     if (!page || page.status === 'processing' || page.isIgnored) return;
 
-    if (!customApiKey) {
+    console.log(`[Batch] Processing page ${pageIndex + 1}/${pages.length}`, {
+      ocr: ocrDuringBatch,
+      split: splitDuringBatch,
+      translate: translateDuringBatch
+    });
+
+    if (!customApiKey && (ocrDuringBatch || translateDuringBatch)) {
       setIsBatchProcessing(false);
       setShowApiKeyModal(true);
+      return;
+    }
+
+    if (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) {
+      setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
       return;
     }
 
@@ -1302,10 +1348,10 @@ export default function ComicEditor() {
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
-      const aiBase64 = await resizeImageForAI(page.originalImage, 2500);
+      const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
-      if (!localTexts || !localPanels) {
+      if (splitDuringBatch && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
           const layoutResult = await runPredictAPI(aiBase64);
@@ -1319,7 +1365,7 @@ export default function ComicEditor() {
       }
 
       // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
-      if (localPanels && localPanels.length > 0) {
+      if (splitDuringBatch && localPanels && localPanels.length > 0) {
         toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
         
         // Sort panels by reading order before processing
@@ -1333,80 +1379,86 @@ export default function ComicEditor() {
 
         const finalResults: ComicText[] = [];
         
-        for (let i = 0; i < sortedPanels.length; i++) {
-          const panel = sortedPanels[i];
-          const box = panel.box_2d || panel;
-          
-          // Crop panel for OCR with a small margin for context
-          const margin = 20; // 2% margin
-          const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
-          const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
-          const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
-          const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
-          
-          const pCanvas = document.createElement('canvas');
-          pCanvas.width = pSw;
-          pCanvas.height = pSh;
-          const pCtx = pCanvas.getContext('2d');
-          if (pCtx) {
-            pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
-            const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
+        if (ocrDuringBatch) {
+          for (let i = 0; i < sortedPanels.length; i++) {
+            const panel = sortedPanels[i];
+            const box = panel.box_2d || panel;
             
-            // Wait slightly between panels to help avoid early rate limiting
-            if (i > 0) await new Promise(r => setTimeout(r, 1000));
+            // Crop panel for OCR with a small margin for context
+            const margin = 20; // 2% margin
+            const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
+            const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
+            const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
+            const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
+            
+            const pCanvas = document.createElement('canvas');
+            pCanvas.width = pSw;
+            pCanvas.height = pSh;
+            const pCtx = pCanvas.getContext('2d');
+            if (pCtx) {
+              pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
+              const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
+              
+              // Wait slightly between panels to help avoid early rate limiting
+              if (i > 0) await new Promise(r => setTimeout(r, 1000));
 
-            // Run Gemini OCR on panel with panel-hint (-1)
-            const panelTexts = await detectComicText(pBase64, customApiKey, -1, 'gemini');
-            
-            // Transform panel coordinates back to page coordinates
-            // Note: we need to account for the margin we added during cropping
-            panelTexts.forEach(pt => {
-              const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
+              // Run Gemini OCR on panel with panel-hint (-1)
+              const panelTexts = await detectComicText(pBase64, customApiKey, -1, 'gemini');
               
-              // Local coords in the crop (0-1000) mapped to the crop's width/height
-              const cropLocalXMin = (pxMin / 1000) * pSw;
-              const cropLocalYMin = (pyMin / 1000) * pSh;
-              const cropLocalXMax = (pxMax / 1000) * pSw;
-              const cropLocalYMax = (pyMax / 1000) * pSh;
-              
-              // Map crop local pixels to fullImg pixels
-              const fullImgPixelXMin = pSx + cropLocalXMin;
-              const fullImgPixelYMin = pSy + cropLocalYMin;
-              const fullImgPixelXMax = pSx + cropLocalXMax;
-              const fullImgPixelYMax = pSy + cropLocalYMax;
-              
-              // Map fullImg pixels back to page-relative units (0-1000)
-              const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
-              const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
-              const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
-              const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
-              
-              const tXCenter = (xMin + xMax) / 2;
-              const tYCenter = (yMin + yMax) / 2;
-              
-              // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
-              const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
-                              tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
-              
-              if (isInside) {
-                finalResults.push({ 
-                  ...pt, 
-                  box_2d: [yMin, xMin, yMax, xMax],
-                  panelIdx: localPanels.indexOf(panel)
-                });
-              }
-            });
+              // Transform panel coordinates back to page coordinates
+              // Note: we need to account for the margin we added during cropping
+              panelTexts.forEach(pt => {
+                const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
+                
+                // Local coords in the crop (0-1000) mapped to the crop's width/height
+                const cropLocalXMin = (pxMin / 1000) * pSw;
+                const cropLocalYMin = (pyMin / 1000) * pSh;
+                const cropLocalXMax = (pxMax / 1000) * pSw;
+                const cropLocalYMax = (pyMax / 1000) * pSh;
+                
+                // Map crop local pixels to fullImg pixels
+                const fullImgPixelXMin = pSx + cropLocalXMin;
+                const fullImgPixelYMin = pSy + cropLocalYMin;
+                const fullImgPixelXMax = pSx + cropLocalXMax;
+                const fullImgPixelYMax = pSy + cropLocalYMax;
+                
+                // Map fullImg pixels back to page-relative units (0-1000)
+                const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
+                const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
+                const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
+                const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
+                
+                const tXCenter = (xMin + xMax) / 2;
+                const tYCenter = (yMin + yMax) / 2;
+                
+                // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
+                const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
+                                tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
+                
+                if (isInside) {
+                  finalResults.push({ 
+                    ...pt, 
+                    box_2d: [yMin, xMin, yMax, xMax],
+                    panelIdx: localPanels.indexOf(panel)
+                  });
+                }
+              });
+            }
           }
         }
         result = finalResults;
       } 
-      // Branch B: No Panels detected -> Regular Book Mode
+      // Branch B: No Panels detected or split disabled -> Regular Book Mode
       else {
-        toast.info("Book detected: Analyzing layout and extracting text...");
-        // Follow "Non-panel" branch: Regular book -> Gemini OCR and analyze layout
-        const rawResult = await detectComicText(aiBase64, customApiKey, localTexts?.length || 0, 'gemini');
-        // Canonical sort for the book page
-        result = sortTextsReadingOrder(rawResult);
+        if (ocrDuringBatch) {
+          toast.info("Analyzing layout and extracting text...");
+          // Follow "Non-panel" branch: Regular book -> Gemini OCR and analyze layout
+          const rawResult = await detectComicText(aiBase64, customApiKey, localTexts?.length || 0, 'gemini');
+          // Canonical sort for the book page
+          result = sortTextsReadingOrder(rawResult);
+        } else {
+          result = page.detectedTexts; // Keep existing if no OCR requested
+        }
       }
 
       // Cache yoloTexts and detectedPanels to save computation next time or during export
@@ -1414,9 +1466,13 @@ export default function ComicEditor() {
         setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, yoloTexts: localTexts, detectedPanels: localPanels } : p));
       }
 
-      if (result.length === 0) {
+      const hasPanels = localPanels && localPanels.length > 0;
+
+      if (result.length === 0 && !splitDuringBatch) {
         setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
-        toast.info("No text detected on this page.");
+        if (!hasPanels) {
+          toast.info("No panels or text detected on this page.");
+        }
         return;
       }
 
@@ -1544,6 +1600,16 @@ export default function ComicEditor() {
   };
 
   const handleBatchProcess = async () => {
+    // If no AI options are selected, skip batch processing and export directly
+    if (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) {
+      toast.info("No AI processing requested. Ready to export.");
+      // Just mark all pending pages as done
+      setPages(prev => prev.map(p => p.status === 'pending' ? { ...p, status: 'done' } : p));
+      // Trigger EPUB export as a default reasonable comic format
+      downloadEpub();
+      return;
+    }
+
     setIsBatchProcessing(true);
     
     // Determine which pages to process
@@ -1654,14 +1720,22 @@ export default function ComicEditor() {
     setEditingIndex(null);
   };
 
+  const getExportablePages = () => {
+    if (selectedPages.size > 0) {
+      return pages.filter((_, i) => selectedPages.has(i));
+    }
+    return pages;
+  };
+
   const downloadHtml = async () => {
-    if (pages.length === 0) return;
+    const exportPages = getExportablePages();
+    if (exportPages.length === 0) return;
     toast.info("Generating HTML...");
 
     let pagesHtml = '';
 
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
+    for (let i = 0; i < exportPages.length; i++) {
+      const page = exportPages[i];
       const imgSrc = page.originalImage;
       let base64Data = imgSrc;
       
@@ -1670,14 +1744,16 @@ export default function ComicEditor() {
       }
 
       let panelsHtml = '';
-      if (page.detectedTexts.length === 0) {
+      const hasText = page.detectedTexts && page.detectedTexts.length > 0;
+      
+      if (!hasText && !splitDuringBatch) {
         panelsHtml = `
       <div class="panel-card">
         <div class="panel-image-container">
           <img src="${base64Data}" class="panel-img" alt="Panel" />
         </div>
       </div>`;
-      } else if (page.isTextOnly) {
+      } else if (hasText && page.isTextOnly) {
         const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
         const textContent = sortedTexts.map(t => {
           return t.text.split('\n').map(p => `<p class="panel-text-line">${p}</p>`).join('');
@@ -1689,7 +1765,7 @@ export default function ComicEditor() {
         </div>
       </div>`;
       } else {
-        const panels = await getPanelsForPage(page, base64Data);
+        const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
         if (panels.length === 0) {
           panelsHtml = `
         <div class="panel-card">
@@ -1734,12 +1810,12 @@ ${panelsHtml}
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Comic Export</title>
 <style>
-    body { margin: 0; padding: 20px; background: #fff; font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; }
-    .page-wrapper { width: 100%; max-width: 800px; margin-bottom: 60px; display: flex; flex-direction: column; gap: 40px; }
-    .panel-card { display: flex; flex-direction: column; align-items: center; width: 100%; }
-    .panel-image-container { width: 100%; display: flex; justify-content: center; margin-bottom: 16px; }
-    .panel-img { max-width: 100%; height: auto; display: block; }
-    .panel-text-container { width: 100%; max-width: 600px; text-align: left; }
+    body { margin: 0; padding: ${splitDuringBatch ? '20px' : '0'}; background: #fff; font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; }
+    .page-wrapper { width: 100%; max-width: ${splitDuringBatch ? '1000px' : '100%'}; margin-bottom: 0px; display: flex; flex-direction: column; gap: 0px; }
+    .panel-card { display: flex; flex-direction: column; align-items: center; width: 100%; border: none; margin: 0; padding: 0; }
+    .panel-image-container { width: 100%; display: flex; justify-content: center; margin-bottom: 0px; }
+    .panel-img { width: 100%; max-width: 100%; height: auto; display: block; }
+    .panel-text-container { width: 100%; max-width: 100%; text-align: left; padding: 20px; box-sizing: border-box; }
     .panel-text-line { margin: 0 0 12px 0; font-size: 1rem; line-height: 1.6; color: #222; }
     .panel-text-line:last-child { margin-bottom: 0; }
 </style>
@@ -1761,7 +1837,8 @@ ${pagesHtml}</body>
   };
 
   const downloadPdf = async () => {
-    if (pages.length === 0) return;
+    const exportPages = getExportablePages();
+    if (exportPages.length === 0) return;
     toast.info("Generating PDF (Panel by Panel)...");
 
     try {
@@ -1776,7 +1853,7 @@ ${pagesHtml}</body>
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 40;
+      const margin = splitDuringBatch ? 40 : 0;
       const contentWidth = pageWidth - margin * 2;
       let currentY = margin;
       let isFirstPage = true;
@@ -1788,8 +1865,8 @@ ${pagesHtml}</body>
         }
       };
 
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
+      for (let i = 0; i < exportPages.length; i++) {
+        const page = exportPages[i];
         let base64Data = page.originalImage;
         if (!base64Data.startsWith('data:')) {
           base64Data = await blobUrlToBase64(base64Data);
@@ -1820,7 +1897,7 @@ ${pagesHtml}</body>
             currentY += 20;
         } else {
             // Panels logic same as HTML export
-            const panels = await getPanelsForPage(page, base64Data);
+            const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
             
             if (panels.length === 0) {
                // Fallback: full image + text
@@ -1896,7 +1973,8 @@ ${pagesHtml}</body>
   };
 
   const downloadEpub = async () => {
-    if (pages.length === 0) return;
+    const exportPages = getExportablePages();
+    if (exportPages.length === 0) return;
     toast.info("Generating EPUB (Panel by Panel)...");
     const zip = new JSZip();
 
@@ -1912,15 +1990,13 @@ ${pagesHtml}</body>
     let spineItems = '';
     let navItems = '';
     let ncxItems = '';
+    let seqIndex = 1;
 
-    for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-      const seqIndex = i + 1;
-      
-      const pageId = `page${seqIndex}`;
-      const imgId = `img${seqIndex}`;
-      const imgFilename = `image${seqIndex}.jpg`;
+    const isNoOptions = !ocrDuringBatch && !translateDuringBatch && !splitDuringBatch;
+    const isSplitOnly = !ocrDuringBatch && !translateDuringBatch && splitDuringBatch;
 
+    for (let i = 0; i < exportPages.length; i++) {
+      const page = exportPages[i];
       const imgSrc = page.originalImage;
       let base64Data = imgSrc;
       if (!imgSrc.startsWith('data:')) {
@@ -1929,15 +2005,16 @@ ${pagesHtml}</body>
       
       const isTextOnly = page.isTextOnly || false;
 
-      manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml"/>\n`;
-      spineItems += `    <itemref idref="${pageId}"/>\n`;
-      navItems += `      <li><a href="${pageId}.xhtml">Page ${seqIndex}</a></li>\n`;
-      ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
-      <navLabel><text>Page ${seqIndex}</text></navLabel>
+      if (isTextOnly) {
+        const pageId = `page${seqIndex}`;
+        manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml" />\n`;
+        spineItems += `    <itemref idref="${pageId}"/>\n`;
+        navItems += `      <li><a href="${pageId}.xhtml">Text Page ${seqIndex}</a></li>\n`;
+        ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
+      <navLabel><text>Text Page ${seqIndex}</text></navLabel>
       <content src="${pageId}.xhtml"/>
     </navPoint>\n`;
 
-      if (isTextOnly) {
         const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
         const textContent = sortedTexts.map(t => {
           const paragraphs = t.text.split('\n').map(p => `<p>${p}</p>`).join('');
@@ -1947,8 +2024,8 @@ ${pagesHtml}</body>
         zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
-  <title>Page ${seqIndex}</title>
-  <meta name="viewport" content="width=800, height=1200"/>
+  <title>Text Page ${seqIndex}</title>
+  ${isSplitOnly ? '' : '<meta name="viewport" content="width=800, height=1200"/>'}
   <style>
     body { margin: 0; padding: 2em; background: #fff; color: #000; font-family: sans-serif; box-sizing: border-box; }
     p { margin-bottom: 1em; line-height: 1.5; font-size: 1.2em; text-align: justify; }
@@ -1958,11 +2035,25 @@ ${pagesHtml}</body>
 ${textContent}
 </body>
 </html>`);
+        seqIndex++;
       } else {
-         const panels = await getPanelsForPage(page, base64Data);
+         const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
          
-         let panelsXhtml = '';
-         if (panels.length === 0) {
+         if (panels.length === 0 || (!splitDuringBatch && panels.length === 1)) {
+             const pageId = `page${seqIndex}`;
+             const imgId = `img${seqIndex}`;
+             const imgFilename = `image${seqIndex}.jpg`;
+             const w = page.width || 800;
+             const h = page.height || 1200;
+
+             manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml"/>\n`;
+             spineItems += `    <itemref idref="${pageId}"/>\n`;
+             navItems += `      <li><a href="${pageId}.xhtml">Page ${seqIndex}</a></li>\n`;
+             ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
+      <navLabel><text>Page ${seqIndex}</text></navLabel>
+      <content src="${pageId}.xhtml"/>
+    </navPoint>\n`;
+
              manifestItems += `    <item id="${imgId}" href="images/${imgFilename}" media-type="image/jpeg"/>\n`;
              if (imgSrc.startsWith('data:')) {
                const base64DataRaw = imgSrc.split(',')[1];
@@ -1973,58 +2064,105 @@ ${textContent}
                zip.file(`OEBPS/images/${imgFilename}`, blob);
              }
              
-             const textContent = sortTextsReadingOrder(page.detectedTexts)
-                 .map(t => `<p>${t.text.replace(/\n/g, ' ')}</p>`).join('');
-                 
-             panelsXhtml = `
-               <div class="panel-card">
-                 <img src="images/${imgFilename}" class="comic-img" alt="Page ${seqIndex}" />
-                 ${textContent ? `<div class="panel-text">${textContent}</div>` : ''}
-               </div>
-             `;
-         } else {
-             for (let pIdx = 0; pIdx < panels.length; pIdx++) {
-                const p = panels[pIdx];
-                let imageHtml = '';
-                if (p.base64Image) {
-                   const panelImgFilename = `page${seqIndex}_panel${pIdx}.jpg`;
-                   const panelId = `img_${seqIndex}_${pIdx}`;
-                   const panelBase64DataRaw = p.base64Image.split(',')[1];
-                   zip.file(`OEBPS/images/${panelImgFilename}`, panelBase64DataRaw, { base64: true });
-                   manifestItems += `    <item id="${panelId}" href="images/${panelImgFilename}" media-type="image/jpeg"/>\n`;
-                   imageHtml = `<img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx}"/>`;
-                }
-                
-                const textContent = p.texts.length > 0 
-                    ? sortTextsReadingOrder(p.texts).map(t => `<p>${t.text.replace(/\n/g, ' ')}</p>`).join('')
-                    : '';
-                    
-                panelsXhtml += `
-                  <div class="panel-card">
-                    ${imageHtml}
-                    ${textContent ? `<div class="panel-text">${textContent}</div>` : ''}
-                  </div>
-                `;
-             }
-         }
-         
-         zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
+             zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
   <title>Page ${seqIndex}</title>
-  <meta name="viewport" content="width=800, height=1200"/>
+  <meta name="viewport" content="width=${w}, height=${h}"/>
   <style>
-    body { margin: 0; padding: 1em; background: #fff; color: #000; font-family: sans-serif; text-align: center; }
-    .panel-card { margin-bottom: 2em; page-break-inside: avoid; }
-    .comic-img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-    .panel-text { margin-top: 1em; text-align: left; font-size: 1.2em; line-height: 1.5; }
-    p { margin: 0.5em 0; }
+    body { margin: 0; padding: 0; background: ${isNoOptions ? '#fff' : '#000'}; width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center; }
+    .comic-img { width: 100%; height: 100%; object-fit: contain; }
   </style>
 </head>
 <body>
-${panelsXhtml}
+  <img src="images/${imgFilename}" class="comic-img" alt="Page ${seqIndex}" />
 </body>
 </html>`);
+             seqIndex++;
+         } else if (isSplitOnly) {
+             // Reflowable mode for "Split Only" - multiple panels per page
+             const pageId = `page${seqIndex}`;
+             manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml" />\n`;
+             spineItems += `    <itemref idref="${pageId}"/>\n`;
+             navItems += `      <li><a href="${pageId}.xhtml">Page ${seqIndex}</a></li>\n`;
+             ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
+      <navLabel><text>Page ${seqIndex}</text></navLabel>
+      <content src="${pageId}.xhtml"/>
+    </navPoint>\n`;
+
+             let panelsHtml = '';
+             for (let pIdx = 0; pIdx < panels.length; pIdx++) {
+                const p = panels[pIdx];
+                const panelImgFilename = `image${seqIndex}_p${pIdx}.jpg`;
+                const imgId = `img${seqIndex}_p${pIdx}`;
+
+                if (p.base64Image) {
+                   const panelBase64DataRaw = p.base64Image.split(',')[1];
+                   zip.file(`OEBPS/images/${panelImgFilename}`, panelBase64DataRaw, { base64: true });
+                   manifestItems += `    <item id="${imgId}" href="images/${panelImgFilename}" media-type="image/jpeg"/>\n`;
+                   panelsHtml += `<div class="panel-box"><img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}" /></div>\n`;
+                }
+             }
+
+             zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head>
+  <title>Page ${seqIndex} Panels</title>
+  <style>
+    body { margin: 0; padding: 0; background: #fff; text-align: center; }
+    .panel-box { margin-bottom: 0px; page-break-inside: avoid; display: block; width: 100%; }
+    .comic-img { width: 100%; height: auto; display: block; }
+  </style>
+</head>
+<body>
+${panelsHtml}
+</body>
+</html>`);
+             seqIndex++;
+         } else {
+             // Fixed layout - one per panel (for AI processed pages)
+             for (let pIdx = 0; pIdx < panels.length; pIdx++) {
+                const p = panels[pIdx];
+                const pageId = `page${seqIndex}_p${pIdx}`;
+                const panelImgFilename = `image${seqIndex}_p${pIdx}.jpg`;
+                const imgId = `img${seqIndex}_p${pIdx}`;
+                const w = p.right - p.left;
+                const h = p.bottom - p.top;
+
+                manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml"/>\n`;
+                spineItems += `    <itemref idref="${pageId}"/>\n`;
+                
+                if (pIdx === 0) {
+                    navItems += `      <li><a href="${pageId}.xhtml">Page ${seqIndex}</a></li>\n`;
+                    ncxItems += `    <navPoint id="${pageId}" playOrder="${seqIndex}">
+      <navLabel><text>Page ${seqIndex}</text></navLabel>
+      <content src="${pageId}.xhtml"/>
+    </navPoint>\n`;
+                }
+
+                if (p.base64Image) {
+                   const panelBase64DataRaw = p.base64Image.split(',')[1];
+                   zip.file(`OEBPS/images/${panelImgFilename}`, panelBase64DataRaw, { base64: true });
+                   manifestItems += `    <item id="${imgId}" href="images/${panelImgFilename}" media-type="image/jpeg"/>\n`;
+                }
+                
+                zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head>
+  <title>Page ${seqIndex} Panel ${pIdx + 1}</title>
+  <meta name="viewport" content="width=${w}, height=${h}"/>
+  <style>
+    body { margin: 0; padding: 0; background: #000; width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+    .comic-img { width: ${w}px; height: ${h}px; object-fit: contain; }
+  </style>
+</head>
+<body>
+  <img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}"/>
+</body>
+</html>`);
+             }
+             seqIndex++;
+         }
       }
     }
 
@@ -2050,6 +2188,19 @@ ${ncxItems}  </navMap>
     <dc:title>Comic Book Export</dc:title>
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">${new Date().toISOString().replace(/\.[0-9]+Z$/, 'Z')}</meta>
+    ${isSplitOnly ? `
+    <meta property="rendition:layout">reflowable</meta>
+    ` : `
+    <!-- Fixed Layout Metadata -->
+    <meta property="rendition:layout">pre-paginated</meta>
+    <meta property="rendition:orientation">portrait</meta>
+    <meta property="rendition:spread">none</meta>
+    <meta name="fixed-layout" content="true"/>
+    <meta name="book-type" content="comic"/>
+    <meta name="primary-writing-mode" content="horizontal-lr"/>
+    <meta name="zero-gutter" content="true"/>
+    <meta name="zero-margin" content="true"/>
+    `}
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
@@ -2081,9 +2232,10 @@ ${navItems}    </ol>
   };
 
   const downloadText = () => {
+    const exportPages = getExportablePages();
     let textContent = "";
-    for (let i = 0; i < pages.length; i++) {
-       const page = pages[i];
+    for (let i = 0; i < exportPages.length; i++) {
+       const page = exportPages[i];
        // Only include text for pages that are done or intentionally ignored (if they happen to have text)
        if ((page.status === 'done' || page.isIgnored) && page.detectedTexts.length > 0) {
          textContent += `--- Page ${i + 1} ---\n`;
@@ -2137,9 +2289,9 @@ ${navItems}    </ol>
         <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-3">
           <motion.div 
             whileHover={{ scale: 1.1, rotate: 5 }}
-            className="w-12 h-12 flex items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm border border-primary/20"
+            className="w-12 h-12 flex items-center justify-center rounded-xl overflow-hidden shadow-sm border"
           >
-            <Sparkles className="w-8 h-8" />
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
           </motion.div>
           EbookCC
         </h1>
@@ -2675,28 +2827,68 @@ ${navItems}    </ol>
 
               <div className={cn("shrink-0", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
                 <div className="space-y-4">
-                  <div className="flex flex-col gap-3 items-center w-full pb-2">
-                    <div className="flex items-center justify-center gap-2">
-                      <Checkbox 
-                        id="translate-batch" 
-                        checked={translateDuringBatch} 
-                        onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
-                        className="w-5 h-5 border-2 border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background"
-                      />
-                      <label htmlFor="translate-batch" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
-                        Translate Text
-                      </label>
+                  <div className="flex flex-col gap-3 items-stretch w-full pb-2">
+                    <div 
+                      className="flex items-center justify-between p-2 rounded hover:bg-accent/50 cursor-pointer transition-colors"
+                      onClick={() => {
+                        const allSelected = ocrDuringBatch && splitDuringBatch && translateDuringBatch;
+                        setOcrDuringBatch(!allSelected);
+                        setSplitDuringBatch(!allSelected);
+                        setTranslateDuringBatch(!allSelected);
+                      }}
+                    >
+                      <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground">All (process all)</label>
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${ocrDuringBatch && splitDuringBatch && translateDuringBatch ? 'bg-primary border-primary' : 'border-muted-foreground'}`}>
+                        {ocrDuringBatch && splitDuringBatch && translateDuringBatch && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
+                      </div>
                     </div>
+
+                    <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-1">
+                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
+                        <div className="flex flex-col">
+                          <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Split Panels</label>
+                          <span className="text-[10px] text-muted-foreground">Detect and individualize panels</span>
+                        </div>
+                        <Checkbox 
+                          checked={splitDuringBatch} 
+                          onCheckedChange={(c) => setSplitDuringBatch(!!c)}
+                          className="w-4 h-4 border-muted-foreground"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
+                        <div className="flex flex-col">
+                          <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Extract Text (OCR)</label>
+                          <span className="text-[10px] text-muted-foreground">Extract text via Gemini Flash</span>
+                        </div>
+                        <Checkbox 
+                          checked={ocrDuringBatch} 
+                          onCheckedChange={(c) => setOcrDuringBatch(!!c)}
+                          className="w-4 h-4 border-muted-foreground"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
+                        <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Translate Text</label>
+                        <Checkbox 
+                          id="translate-batch" 
+                          checked={translateDuringBatch} 
+                          onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
+                          className="w-4 h-4 border-muted-foreground"
+                        />
+                      </div>
+                    </div>
+
                     {translateDuringBatch && (
-                      <div className="w-full max-w-[200px]">
+                      <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1">
                         <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger className="w-full h-8 text-[11px]">
                             <SelectValue placeholder="Select Language" />
                           </SelectTrigger>
                           <SelectContent>
-                            {LANGUAGES.map(lang => (
-                              <SelectItem key={lang} value={lang}>{lang}</SelectItem>
-                            ))}
+                            <div className="max-h-[200px] overflow-y-auto">
+                              {LANGUAGES.map(lang => (
+                                <SelectItem key={lang} value={lang} className="text-xs">{lang}</SelectItem>
+                              ))}
+                            </div>
                           </SelectContent>
                         </Select>
                       </div>
@@ -2718,10 +2910,13 @@ ${navItems}    </ol>
                     variant="ghost"
                     className="w-full gap-2" 
                     onClick={handleBatchProcess} 
-                    disabled={isBatchProcessing || pages.every(p => p.status === 'done' || p.isIgnored)}
+                    disabled={isBatchProcessing || (pages.every(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
                   >
-                    {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    {selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All"}
+                    {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch ? <Download className="w-4 h-4" /> : <Play className="w-4 h-4" />)}
+                    {(!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) 
+                      ? (selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : "Export Directly")
+                      : (selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All")
+                    }
                   </Button>
                   
                   <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center">
@@ -2731,12 +2926,12 @@ ${navItems}    </ol>
                           <Button 
                             variant="ghost" 
                             className="w-full gap-2"
-                            disabled={pages.length === 0 || !pages.some(p => p.status === 'done' || p.isIgnored)} 
-                          />
+                            disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
+                          >
+                            <Download className="w-4 h-4" /> Export
+                          </Button>
                         }
-                      >
-                        <Download className="w-4 h-4" /> Export
-                      </DropdownMenuTrigger>
+                      />
                       <DropdownMenuContent className="w-48" align="center">
                         <DropdownMenuItem onClick={downloadText} className="cursor-pointer">
                           <Download className="w-4 h-4 mr-2" /> TXT
@@ -2752,6 +2947,14 @@ ${navItems}    </ol>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    <a 
+                      href="https://www.amazon.com/sendtokindle/" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4"
+                    >
+                      Send to Kindle <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
                   </div>
 
                   <Button 
@@ -2785,8 +2988,8 @@ ${navItems}    </ol>
               <h2 className="text-xl font-bold mb-4">App Settings</h2>
 
               <div className="space-y-4">
-                <div className="p-4 border rounded-lg bg-card text-center">
-                  <h3 className="font-semibold mb-2">Gemini AI Engine</h3>
+                <div className="space-y-4">
+                  <h3 className="font-semibold mb-2 text-primary">Gemini AI Engine</h3>
                   <p className="text-muted-foreground text-xs mb-3">
                     We use <code className="bg-muted px-1 rounded">gemini-flash-latest</code> for high-precision OCR and translation. 
                     I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.

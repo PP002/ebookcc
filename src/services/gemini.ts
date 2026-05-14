@@ -32,24 +32,36 @@ function parseJsonSafely(text: string | undefined, defaultValue: any) {
 async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5): Promise<Response> {
   let attempt = 0;
   while (attempt < maxRetries) {
-    const res = await fetch(url, options);
-    if (res.status === 429) {
-      let retryAfterMs = 20000;
-      try {
-        const data = await res.clone().json();
-        if (data.retryAfterMs) {
-          retryAfterMs = data.retryAfterMs;
-        }
-      } catch (e) {
-        // ignore
+    try {
+      if (!window.navigator.onLine) {
+        throw new Error("Browser is offline");
       }
-      console.log(`[Frontend] Rate limited, waiting ${Math.round(retryAfterMs/1000)}s before retry...`);
-      await new Promise(r => setTimeout(r, retryAfterMs));
+      const res = await fetch(url, options);
+      if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
+        let retryAfterMs = res.status === 429 ? 20000 : 5000;
+        try {
+          const data = await res.clone().json();
+          if (data.retryAfterMs) {
+            retryAfterMs = data.retryAfterMs;
+          }
+        } catch (e) {
+          // ignore
+        }
+        console.log(`[Frontend] Rate limited, waiting ${Math.round(retryAfterMs/1000)}s before retry...`);
+        await new Promise(r => setTimeout(r, retryAfterMs));
+        attempt++;
+        continue;
+      }
+      return res;
+    } catch (err: any) {
+      console.warn(`[Frontend] Fetch attempt ${attempt + 1} failed:`, err.message || err);
       attempt++;
-      continue;
+      if (attempt >= maxRetries) throw err;
+      // Wait a bit before retrying after a network error
+      await new Promise(r => setTimeout(r, 2000 * attempt));
     }
-    return res;
   }
+  // Should not reach here due to throw in catch block
   return await fetch(url, options);
 }
 
@@ -120,32 +132,39 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
     headers["x-yolo-panel-class"] = yoloPanelClass.toString();
     headers["x-yolo-text-class"] = yoloTextClass.toString();
     
-    const res = await fetchWithRetry("/api/detectPanelsLocalYolo", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ base64Image }),
-    });
-    const text = await res.text();
-    if (text.trim().startsWith('<')) {
-      throw new Error("Server is restarting or returning HTML");
-    }
-    if (!res.ok) {
-      let parsedMessage = text;
-      try {
-        const json = JSON.parse(text);
-        if (json.error) parsedMessage = json.error;
-      } catch (e) {}
-      throw new Error(`Local YOLO failed: ${parsedMessage}`);
-    }
-
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    
     try {
+      const res = await fetchWithRetry("/api/detectPanelsLocalYolo", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ base64Image }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      const text = await res.text();
+      if (text.trim().startsWith('<')) {
+        throw new Error("Server returned HTML (likely restarting or erroring)");
+      }
+      
+      if (!res.ok) {
+        let parsedMessage = text;
+        try {
+          const json = JSON.parse(text);
+          if (json.error) parsedMessage = json.error;
+        } catch (e) {}
+        throw new Error(parsedMessage);
+      }
+
       return JSON.parse(text);
-    } catch(e) {
-      console.error("Failed to parse JSON. Raw response:", text.substring(0, 200));
-      throw e;
+    } catch(err: any) {
+      clearTimeout(timeoutId);
+      // Suppress redundant logs as the parent runPredictAPI handles the multi-url logic
+      throw err;
     }
   } catch (error) {
-    console.error("Error detecting layout locally:", error);
     throw error;
   }
 }

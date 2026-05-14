@@ -214,13 +214,26 @@ async function startServer() {
             form.append("iou",  "0.45");
             form.append("imgsz","1280");
 
-            const yoloRes = await fetch(yoloUrl, {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${yoloKey || ''}` },
-              body: form
-            });
+            let yoloRes = null;
+            let externalRetries = 2;
+            while (externalRetries >= 0) {
+              try {
+                yoloRes = await fetch(yoloUrl, {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${yoloKey || ''}` },
+                  body: form,
+                  signal: AbortSignal.timeout(60000) // 1 minute timeout
+                });
+                if (yoloRes.ok) break;
+                console.warn(`[API] External YOLO attempt failed (${yoloRes.status}). Retries left: ${externalRetries}`);
+              } catch (e: any) {
+                console.error(`[API] External YOLO fetch error: ${e.message}. Retries left: ${externalRetries}`);
+              }
+              externalRetries--;
+              if (externalRetries >= 0) await new Promise(r => setTimeout(r, 2000));
+            }
 
-            if (yoloRes.ok) {
+            if (yoloRes && yoloRes.ok) {
               const data = await yoloRes.json();
               if (data.images?.[0]?.results) {
                 const panels: any[] = [];
@@ -248,22 +261,29 @@ async function startServer() {
                 return res.json({ panels, texts });
               }
             } else {
-              console.error("[API] /predict returned", yoloRes.status, await yoloRes.text());
+              const errBody = yoloRes ? await yoloRes.text() : "Request failed or timed out";
+              console.error(`[API] /predict failed for ${yoloUrl} after retries. Status: ${yoloRes?.status}. Body: ${errBody}`);
+              throw new Error(`External Predict failed for ${yoloUrl}: ${yoloRes?.status || 'Timeout'}`);
             }
           } else {
             const yoloRes = await fetch(yoloUrl, {
               method: "POST",
               headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ base64Image: rawBase64 })
+              body: JSON.stringify({ base64Image: rawBase64 }),
+              signal: AbortSignal.timeout(60000)
             });
             if (yoloRes.ok) {
               const data = await yoloRes.json();
               if (data?.panels && data?.texts) return res.json({ panels: data.panels, texts: data.texts });
               if (data?.boxes) return res.json({ panels: yoloTextOnly ? [] : data.boxes, texts: yoloTextOnly ? data.boxes : [] });
+            } else {
+              throw new Error(`External YOLO JSON API failed: ${yoloRes.status}`);
             }
           }
-        } catch (err) {
-          console.error("[API] detectPanelsLocalYolo: External YOLO failed.", err);
+        } catch (err: any) {
+          console.error("[API] detectPanelsLocalYolo: External YOLO failed.", err.message);
+          // Don't just swallow the error if we had a yoloUrl. Fall through will return 400 with this error.
+          return res.status(502).json({ error: `External YOLO connectivity error: ${err.message}` });
         }
       }
 

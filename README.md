@@ -1,12 +1,10 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
 
-This contains everything you need to run your app locally.
+# Visit online
 
-View your app in AI Studio: https://ai.studio/apps/41a57a36-24a1-418a-a9bb-c28854d2ae07
+This contains everything you need to create and convert your ebook.
+
+View your app in AI Studio: https://ebookcc.cptd.workers.dev/
 
 ## Run Locally
 

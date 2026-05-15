@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -1168,8 +1168,32 @@ const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => 
 };
 
 
+import layoutsData from '../ebookcc_layouts.json';
+
+interface LayoutSlot {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface LayoutTemplate {
+  image_slots: LayoutSlot[];
+  black_fills: LayoutSlot[];
+}
+
+interface LayoutsData {
+  templates: Record<string, LayoutTemplate>;
+}
+
+const LAYOUTS = (layoutsData as LayoutsData).templates;
+
 export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [showCollageModal, setShowCollageModal] = useState(false);
+  const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
+  const [isRandomMode, setIsRandomMode] = useState(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -1252,8 +1276,7 @@ export default function ComicEditor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pages.length, isGridView, selectedPages, currentPageIndex]);
 
-  const onDrop = async (acceptedFiles: File[]) => {
-    if (acceptedFiles.length === 0) return;
+  const processUploadedFiles = async (acceptedFiles: File[]) => {
     setIsUploading(true);
     
     let newPages: PageData[] = [];
@@ -1295,6 +1318,119 @@ export default function ComicEditor() {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const onDrop = async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+    
+    // Check if it's a zip or a real upload
+    const file = acceptedFiles[0];
+    const isZip = file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz');
+    
+    // If images are uploaded and it's not a zip, ask for collage
+    if (!isZip && acceptedFiles.length >= 1) {
+      setPendingFiles(acceptedFiles);
+      setShowCollageModal(true);
+      return;
+    }
+    
+    await processUploadedFiles(acceptedFiles);
+  };
+
+  const generateCollage = async (templateName: string, pageFiles: File[]) => {
+    const template = LAYOUTS[templateName];
+    if (!template) {
+      console.error(`Template ${templateName} not found`);
+      return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    const scale = 8;
+    canvas.width = 317.5 * scale;
+    canvas.height = 423.33 * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Black Fills
+    ctx.fillStyle = '#000000';
+    for (const fill of template.black_fills) {
+      ctx.fillRect(fill.x * scale, fill.y * scale, fill.width * scale, fill.height * scale);
+    }
+
+    // 2. Preload images for this page to get ratios
+    const imagePool = await Promise.all(pageFiles.map(async (file) => {
+      return new Promise<{ img: HTMLImageElement, ratio: number, objectUrl: string }>((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => resolve({ img, ratio: img.width / img.height, objectUrl });
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error(`Failed to load image: ${file.name}`));
+        };
+        img.src = objectUrl;
+      });
+    }));
+
+    // 3. Match images to slots based on ratio
+    const remainingImages = [...imagePool];
+    
+    for (let i = 0; i < template.image_slots.length; i++) {
+        const slot = template.image_slots[i];
+        const slotW = slot.width * scale;
+        const slotH = slot.height * scale;
+        const slotRatio = slotW / slotH;
+        const slotX = slot.x * scale;
+        const slotY = slot.y * scale;
+
+        if (remainingImages.length === 0) {
+            continue;
+        }
+
+        // Find best ratio match
+        let bestMatchIdx = 0;
+        let minDiff = Math.abs(remainingImages[0].ratio - slotRatio);
+        
+        for (let j = 1; j < remainingImages.length; j++) {
+            const diff = Math.abs(remainingImages[j].ratio - slotRatio);
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestMatchIdx = j;
+            }
+        }
+
+        const { img, ratio: imgRatio, objectUrl } = remainingImages.splice(bestMatchIdx, 1)[0];
+
+        let dW, dH, dX, dY;
+
+        if (imgRatio > slotRatio) {
+            // Image is wider than slot relative to height -> fit to width
+            dW = slotW;
+            dH = slotW / imgRatio;
+            dX = slotX;
+            dY = slotY + (slotH - dH) / 2;
+        } else {
+            // Image is taller than slot relative to width -> fit to height
+            dH = slotH;
+            dW = slotH * imgRatio;
+            dX = slotX + (slotW - dW) / 2;
+            dY = slotY;
+        }
+
+        ctx.drawImage(img, 0, 0, img.width, img.height, dX, dY, dW, dH);
+        URL.revokeObjectURL(objectUrl);
+    }
+
+    // Clean up any unused images
+    remainingImages.forEach(item => URL.revokeObjectURL(item.objectUrl));
+
+    return {
+        url: canvas.toDataURL('image/jpeg', 0.9),
+        width: canvas.width,
+        height: canvas.height
+    };
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -3025,6 +3161,240 @@ ${navItems}    </ol>
                   toast.success("Settings saved!");
                 }}>
                   Save & Continue
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Collage Modal */}
+      <AnimatePresence>
+        {showCollageModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="bg-background border rounded-2xl shadow-2xl p-8 max-w-4xl w-full space-y-6 my-8"
+            >
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-bold">Create Collage?</h2>
+                  <p className="text-sm text-muted-foreground">Uploaded {pendingFiles.length} images</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => {
+                  setShowCollageModal(false);
+                  processUploadedFiles(pendingFiles);
+                }}>
+                  <X className="w-6 h-6" />
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-xl max-h-[500px] overflow-y-auto custom-scrollbar">
+                {Object.keys(LAYOUTS).map(templateId => (
+                  <div 
+                    key={templateId}
+                    onClick={() => {
+                      setIsRandomMode(false);
+                      setSelectedTemplates(prev => 
+                        prev.includes(templateId) ? prev.filter(id => id !== templateId) : [...prev, templateId]
+                      );
+                    }}
+                    className={cn(
+                      "relative aspect-[3/4] border-2 rounded-lg cursor-pointer hover:border-primary transition-all p-3 flex flex-col items-center justify-center gap-2",
+                      selectedTemplates.includes(templateId) && !isRandomMode ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-card"
+                    )}
+                  >
+                    <div className="relative w-full aspect-[3/4] rounded overflow-hidden shadow-inner bg-muted/20">
+                       {LAYOUTS[templateId].image_slots.map((slot, i) => (
+                         <div 
+                            key={i}
+                            className="absolute border border-primary/30 bg-primary/10"
+                            style={{
+                              left: `${(slot.x / 317.5) * 100}%`,
+                              top: `${(slot.y / 423.33) * 100}%`,
+                              width: `${(slot.width / 317.5) * 100}%`,
+                              height: `${(slot.height / 423.33) * 100}%`
+                            }}
+                         />
+                       ))}
+                       {LAYOUTS[templateId].black_fills.map((fill, i) => (
+                         <div 
+                            key={i}
+                            className="absolute bg-black"
+                            style={{
+                              left: `${(fill.x / 317.5) * 100}%`,
+                              top: `${(fill.y / 423.33) * 100}%`,
+                              width: `${(fill.width / 317.5) * 100}%`,
+                              height: `${(fill.height / 423.33) * 100}%`
+                            }}
+                         />
+                       ))}
+                    </div>
+                    <span className="text-[10px] font-mono font-bold uppercase truncate w-full text-center text-muted-foreground group-hover:text-primary">
+                      {templateId.replace('batch_', '')}
+                    </span>
+                    {selectedTemplates.includes(templateId) && !isRandomMode && (
+                      <div className="absolute -top-2 -right-2 bg-primary text-primary-foreground rounded-full p-1 shadow-md">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                <div className="flex gap-2 flex-1">
+                  <Button 
+                    variant={isRandomMode ? "default" : "outline"}
+                    className={cn("flex-1 h-12", isRandomMode && "bg-primary text-primary-foreground")}
+                    onClick={() => {
+                      setIsRandomMode(true);
+                      setSelectedTemplates([]);
+                    }}
+                  >
+                    <Shuffle className="w-4 h-4 mr-2" />
+                    Auto Randomize
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    className="flex-1 h-12"
+                    onClick={() => {
+                        setShowCollageModal(false);
+                        processUploadedFiles(pendingFiles);
+                    }}
+                  >
+                    No, Just Upload
+                  </Button>
+                </div>
+                <Button 
+                  className="flex-1 h-12 font-bold"
+                  disabled={(selectedTemplates.length === 0 && !isRandomMode) || isUploading}
+                  onClick={async () => {
+                    if (pendingFiles.length === 0) return;
+                    
+                    setIsUploading(true);
+                    setShowCollageModal(false);
+                    const toastId = toast.loading(`Creating collages... (0/${pendingFiles.length} images)`);
+                    
+                    try {
+                      // 1. Pre-calculate all image ratios to avoid repeated loading
+                      const imagesWithRatios = await Promise.all(pendingFiles.map(async (file) => {
+                        return new Promise<{ file: File, ratio: number }>((resolve, reject) => {
+                          const img = new Image();
+                          const objectUrl = URL.createObjectURL(file);
+                          img.onload = () => {
+                            const ratio = img.width / img.height;
+                            URL.revokeObjectURL(objectUrl);
+                            resolve({ file, ratio });
+                          };
+                          img.onerror = () => {
+                            URL.revokeObjectURL(objectUrl);
+                            reject(new Error(`Failed to load ${file.name}`));
+                          };
+                          img.src = objectUrl;
+                        });
+                      }));
+
+                      const collageResults = [];
+                      let currentImgIdx = 0;
+                      
+                      // Consider all templates if in random mode, otherwise only selected ones
+                      const templatePool = isRandomMode ? Object.keys(LAYOUTS) : selectedTemplates;
+
+                      // Keep creating pages until all images are consumed
+                      while (currentImgIdx < imagesWithRatios.length) {
+                          const remainingCount = imagesWithRatios.length - currentImgIdx;
+                          
+                          // Find the best template in the pool for the next batch of images
+                          let bestTId = templatePool[0];
+                          let minScore = Infinity;
+                          
+                          for (const tId of templatePool) {
+                              const template = LAYOUTS[tId];
+                              const slotCount = template.image_slots.length;
+                              
+                              // We can't use a template that needs more images than we have left
+                              // UNLESS it's the only option or we are okay with blank slots
+                              const batchSize = Math.min(slotCount, remainingCount);
+                              const batch = imagesWithRatios.slice(currentImgIdx, currentImgIdx + batchSize);
+                              
+                              // Score this template: average ratio difference for available images
+                              let totalDiff = 0;
+                              const slots = [...template.image_slots];
+                              const tempBatch = [...batch];
+                              
+                              // Greedy match ratios for scoring
+                              while (slots.length > 0 && tempBatch.length > 0) {
+                                  const slot = slots.shift()!;
+                                  const slotRatio = slot.width / slot.height;
+                                  
+                                  let bestImgIdx = 0;
+                                  let bestImgDiff = Math.abs(tempBatch[0].ratio - slotRatio);
+                                  
+                                  for (let j = 1; j < tempBatch.length; j++) {
+                                      const diff = Math.abs(tempBatch[j].ratio - slotRatio);
+                                      if (diff < bestImgDiff) {
+                                          bestImgDiff = diff;
+                                          bestImgIdx = j;
+                                      }
+                                  }
+                                  totalDiff += bestImgDiff;
+                                  tempBatch.splice(bestImgIdx, 1);
+                              }
+
+                              // Add penalty for unfilled slots if we want to fill pages as much as possible
+                              const penalty = (slotCount - batchSize) * 0.5;
+                              const score = (totalDiff / batchSize) + penalty;
+
+                              if (score < minScore) {
+                                  minScore = score;
+                                  bestTId = tId;
+                              }
+                          }
+
+                          const finalTemplate = LAYOUTS[bestTId];
+                          const pageFilesBatch = pendingFiles.slice(currentImgIdx, currentImgIdx + finalTemplate.image_slots.length);
+                          
+                          const res = await generateCollage(bestTId, pageFilesBatch);
+                          if (res) {
+                              collageResults.push({ ...res, name: `Collage_Page${collageResults.length + 1}_${bestTId}` });
+                          }
+                          
+                          currentImgIdx += finalTemplate.image_slots.length;
+                          toast.loading(`Creating collages... (${Math.min(currentImgIdx, pendingFiles.length)}/${pendingFiles.length} images)`, { id: toastId });
+                      }
+                      
+                      const newPages: PageData[] = collageResults.map((c, idx) => ({
+                        id: c.name + idx + Date.now(),
+                        filename: c.name,
+                        originalImage: c.url,
+                        cleanedImage: null,
+                        detectedTexts: [],
+                        status: 'pending',
+                        width: c.width,
+                        height: c.height
+                      }));
+                      
+                      setPages(prev => [...prev, ...newPages]);
+                      setPendingFiles([]);
+                      setSelectedTemplates([]);
+                      if (pages.length === 0 && newPages.length > 0) {
+                        setCurrentPageIndex(0);
+                        setViewMode('edit');
+                      }
+                      toast.success(`Created ${newPages.length} collages`, { id: toastId });
+                    } catch (error) {
+                      console.error("Collage creation failed:", error);
+                      toast.error("Failed to create collage. Check console for details.", { id: toastId });
+                    } finally {
+                      setIsUploading(false);
+                    }
+                  }}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Create {selectedTemplates.length > 0 ? selectedTemplates.length : ''} Collage{selectedTemplates.length > 1 ? 's' : ''}
                 </Button>
               </div>
             </motion.div>

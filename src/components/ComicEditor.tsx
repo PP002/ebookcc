@@ -1345,19 +1345,21 @@ export default function ComicEditor() {
     }
 
     const canvas = document.createElement('canvas');
-    const scale = 8;
-    canvas.width = 317.5 * scale;
-    canvas.height = 423.33 * scale;
+    canvas.width = 1200;
+    canvas.height = 1600;
+    const scale = 1200 / 317.5;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Black Fills
-    ctx.fillStyle = '#000000';
-    for (const fill of template.black_fills) {
-      ctx.fillRect(fill.x * scale, fill.y * scale, fill.width * scale, fill.height * scale);
+    // 1. Black Fills (Initial pass for static ones, but we might override for dynamic templates)
+    if (!['batch_12', 'batch_13', 'batch_14'].includes(templateName)) {
+      ctx.fillStyle = '#000000';
+      for (const fill of template.black_fills) {
+        ctx.fillRect(fill.x * scale, fill.y * scale, fill.width * scale, fill.height * scale);
+      }
     }
 
     // 2. Preload images for this page to get ratios
@@ -1376,6 +1378,7 @@ export default function ComicEditor() {
 
     // 3. Match images to slots based on ratio
     const remainingImages = [...imagePool];
+    const placedImages: { dX: number, dY: number, dW: number, dH: number, slotIdx: number }[] = [];
     
     for (let i = 0; i < template.image_slots.length; i++) {
         const slot = template.image_slots[i];
@@ -1420,7 +1423,41 @@ export default function ComicEditor() {
         }
 
         ctx.drawImage(img, 0, 0, img.width, img.height, dX, dY, dW, dH);
+
+        // Add 1px black outline
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(dX, dY, dW, dH);
+
+        placedImages.push({ dX, dY, dW, dH, slotIdx: i });
         URL.revokeObjectURL(objectUrl);
+    }
+
+    // 4. Dynamic Black Fills for 12, 13, 14
+    if (['batch_12', 'batch_13', 'batch_14'].includes(templateName)) {
+        const shadowSize = 10; 
+        ctx.fillStyle = '#000000';
+        
+        for (const p of placedImages) {
+            const slot = template.image_slots[p.slotIdx];
+            
+            // Heuristic to detect if this slot has a corresponding bottom/right bar in the original template
+            const hasBottomFill = template.black_fills.some(f => 
+                Math.abs(f.y - (slot.y + slot.height)) < 10 && f.width > f.height
+            );
+            const hasRightFill = template.black_fills.some(f => 
+                Math.abs(f.x - (slot.x + slot.width)) < 10 && f.height > f.width
+            );
+
+            if (hasBottomFill) {
+                // bottom: 15px x width, Indent 15px
+                ctx.fillRect(p.dX + shadowSize, p.dY + p.dH, p.dW, shadowSize);
+            }
+            if (hasRightFill) {
+                // right: 15px x height, Indent 15px
+                ctx.fillRect(p.dX + p.dW, p.dY + shadowSize, shadowSize, p.dH);
+            }
+        }
     }
 
     // Clean up any unused images

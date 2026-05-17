@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { detectComicText, detectComicPanels, detectLayoutLocalYolo, translateTexts, ComicText, LayoutResult } from '@/services/gemini';
 import { Button } from '@/components/ui/button';
@@ -6,9 +6,9 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
 import { useTheme } from 'next-themes';
@@ -17,12 +17,36 @@ const LANGUAGES = [
   "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chinese (Simplified)", "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "English", "Esperanto", "Estonian", "Finnish", "French", "Frisian", "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Kinyarwanda", "Korean", "Kurdish", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Myanmar (Burmese)", "Nepali", "Norwegian", "Nyanja (Chichewa)", "Odia (Oriya)", "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish", "Tagalog (Filipino)", "Tajik", "Tamil", "Tatar", "Telugu", "Thai", "Turkish", "Turkmen", "Ukrainian", "Urdu", "Uyghur", "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
 ];
 
+interface ManualText {
+  id: string;
+  text: string;
+  box_2d: [number, number, number, number];
+  color: string;
+  fontSize: number;
+}
+
+interface ManualImage {
+  id: string;
+  url: string;
+  aspectRatio: number;
+  box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] in 0-1000 space
+  isHighContrast: boolean;
+  crop?: {
+    ymin: number;
+    xmin: number;
+    ymax: number;
+    xmax: number;
+  };
+}
+
 interface PageData {
   id: string;
   filename: string;
   originalImage: string;
   cleanedImage: string | null;
   detectedTexts: ComicText[];
+  manualTexts?: ManualText[];
+  manualImages?: ManualImage[];
   yoloTexts?: any[];
   detectedPanels?: any[];
   status: 'pending' | 'processing' | 'done' | 'error';
@@ -55,6 +79,10 @@ async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) return resolve(imgSrc);
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      
       ctx.drawImage(img, 0, 0, width, height);
       resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
@@ -303,6 +331,8 @@ async function generateCleanedImageFromElement(img: HTMLImageElement, texts: Com
   const ctx = canvas.getContext('2d');
   if (!ctx) return img.src;
 
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0);
 
   for (const t of texts) {
@@ -423,6 +453,9 @@ const rotateImageIfNeeded = async (url: string, width: number, height: number): 
     const ctx = canvas.getContext('2d');
     if (!ctx) return { url, width, height };
 
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     // Rotate 270 degrees clockwise
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate((270 * Math.PI) / 180);
@@ -472,7 +505,7 @@ interface ExportPanel {
       bottom: page.height,
       left: 0,
       right: page.width,
-      texts: page.detectedTexts,
+      texts: [...(page.detectedTexts || []), ...(page.manualTexts || [])],
       isTextOnly: page.isTextOnly || false,
       base64Image: base64Data
     }];
@@ -526,7 +559,7 @@ interface ExportPanel {
 
   interface Region { xMin: number; xMax: number; yMin: number; yMax: number; }
 
-  let mergedTextBoxes: Region[] = page.detectedTexts.map(t => ({
+  let mergedTextBoxes: Region[] = [...(page.detectedTexts || []), ...(page.manualTexts || [])].map(t => ({
     xMin: (t.box_2d[1] / 1000) * img.width,
     xMax: (t.box_2d[3] / 1000) * img.width,
     yMin: (t.box_2d[0] / 1000) * img.height,
@@ -856,10 +889,12 @@ interface ExportPanel {
 
   // Assign each text to exactly one panel
   const textsByPanel: Map<number, ComicText[]> = new Map();
-  page.detectedTexts.forEach(t => {
+  const allAvailableTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+  
+  allAvailableTexts.forEach(t => {
     // If text already has a panel assignment from OCR step, use it
-    if (t.panelIdx !== undefined) {
-      const foundIdx = validPanels.findIndex(vp => (vp as any).originalIdx === t.panelIdx);
+    if ((t as any).panelIdx !== undefined) {
+      const foundIdx = validPanels.findIndex(vp => (vp as any).originalIdx === (t as any).panelIdx);
       if (foundIdx !== -1) {
         if (!textsByPanel.has(foundIdx)) textsByPanel.set(foundIdx, []);
         textsByPanel.get(foundIdx)!.push(t);
@@ -1002,6 +1037,8 @@ interface ExportPanel {
       cropCanvas.width = sWidth;
       cropCanvas.height = sHeight;
       if (cropCtx) {
+        cropCtx.fillStyle = '#ffffff';
+        cropCtx.fillRect(0, 0, sWidth, sHeight);
         cropCtx.drawImage(img, p.left, p.top, sWidth, sHeight, 0, 0, sWidth, sHeight);
       }
       base64Image = cropCanvas.toDataURL('image/jpeg', 0.9);
@@ -1188,22 +1225,969 @@ interface LayoutsData {
 
 const LAYOUTS = (layoutsData as LayoutsData).templates;
 
+interface ImageItemProps {
+  key?: React.Key;
+  img: ManualImage;
+  activePage: PageData;
+  currentPageIndex: number;
+  isSelected: boolean;
+  setSelectedManualImageId: (id: string | null) => void;
+  pages: PageData[];
+  setPages: (pages: PageData[]) => void;
+  viewMode: 'edit' | 'preview';
+  pageRatio: number;
+  setIsAddingTextMode: (val: boolean) => void;
+}
+
+const ImageItem = ({
+  img,
+  activePage,
+  currentPageIndex,
+  isSelected,
+  setSelectedManualImageId,
+  pages,
+  setPages,
+  viewMode,
+  pageRatio,
+  setIsAddingTextMode
+}: ImageItemProps) => {
+  const dragControls = useDragControls();
+  const itemRef = React.useRef<HTMLDivElement>(null);
+  const dragStartPos = React.useRef<{ y1: number; x1: number } | null>(null);
+  const [isScaling, setIsScaling] = useState(false);
+  const [isCropping, setIsCropping] = useState(false);
+  const [scaleDir, setScaleDir] = useState<string | null>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+
+  React.useEffect(() => {
+    if (!isSelected) {
+      setIsCropping(false);
+    }
+  }, [isSelected]);
+
+  const getBoxStyleLocal = (boxInput: any) => {
+    const [y1, x1, y2, x2] = boxInput;
+    return {
+      top: `${(y1 / 1000) * 100}%`,
+      left: `${(x1 / 1000) * 100}%`,
+      width: `${((x2 - x1) / 1000) * 100}%`,
+      height: `${((y2 - y1) / 1000) * 100}%`,
+    };
+  };
+
+  const style = getBoxStyleLocal(img.box_2d);
+
+  const updateImage = (updates: Partial<ManualImage>) => {
+    const updatedPages = [...pages];
+    const page = { ...updatedPages[currentPageIndex] };
+    if (page.manualImages) {
+      const idx = page.manualImages.findIndex(i => i.id === img.id);
+      if (idx !== -1) {
+        page.manualImages = [...page.manualImages];
+        page.manualImages[idx] = { ...page.manualImages[idx], ...updates };
+        updatedPages[currentPageIndex] = page;
+        setPages(updatedPages);
+      }
+    }
+  };
+
+  const deleteItem = () => {
+    const updatedPages = [...pages];
+    const page = { ...updatedPages[currentPageIndex] };
+    if (page.manualImages) {
+      page.manualImages = page.manualImages.filter(i => i.id !== img.id);
+      updatedPages[currentPageIndex] = page;
+      setPages(updatedPages);
+      setSelectedManualImageId(null);
+    }
+  };
+
+  const moveLayer = (direction: 'up' | 'down') => {
+    const updatedPages = [...pages];
+    const page = { ...updatedPages[currentPageIndex] };
+    if (page.manualImages) {
+      const idx = page.manualImages.findIndex(i => i.id === img.id);
+      if (idx !== -1) {
+        const newManualImages = [...page.manualImages];
+        if (direction === 'up' && idx < newManualImages.length - 1) {
+          [newManualImages[idx], newManualImages[idx+1]] = [newManualImages[idx+1], newManualImages[idx]];
+        } else if (direction === 'down' && idx > 0) {
+          [newManualImages[idx], newManualImages[idx-1]] = [newManualImages[idx-1], newManualImages[idx]];
+        }
+        page.manualImages = newManualImages;
+        updatedPages[currentPageIndex] = page;
+        setPages(updatedPages);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isSelected) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Delete') {
+        e.stopPropagation();
+        deleteItem();
+        return;
+      }
+
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.stopPropagation();
+        setSelectedManualImageId(null);
+      } else if (e.key.toLowerCase() === 'u') {
+        e.stopPropagation();
+        moveLayer('up');
+      } else if (e.key.toLowerCase() === 'd') {
+        e.stopPropagation();
+        moveLayer('down');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelected, img.id, currentPageIndex, pages]);
+
+  const handleScaleStart = (e: React.MouseEvent | React.TouchEvent, dir: string) => {
+    e.stopPropagation();
+    setIsScaling(true);
+    setScaleDir(dir);
+  };
+
+  useEffect(() => {
+    if (!isScaling) return;
+
+    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      
+      const parent = itemRef.current?.parentElement;
+      if (!parent) return;
+      const parentRect = parent.getBoundingClientRect();
+      
+      const relativeX = ((clientX - parentRect.left) / parentRect.width) * 1000;
+      const relativeY = ((clientY - parentRect.top) / parentRect.height) * 1000;
+      
+      if (isCropping) {
+        // Cropping logic: modify box_2d AND crop proportionally
+        const ratio = img.aspectRatio || 1;
+        const [ymin, xmin, ymax, xmax] = img.box_2d;
+        const currentCrop = img.crop || { ymin: 0, xmin: 0, ymax: 100, xmax: 100 };
+        let newBox: [number, number, number, number] = [...img.box_2d];
+        let newCrop = { ...currentCrop };
+
+        const boxW = Math.max(0.1, xmax - xmin);
+        const boxH = Math.max(0.1, ymax - ymin);
+        const cropW = Math.max(0.1, currentCrop.xmax - currentCrop.xmin);
+        const cropH = Math.max(0.1, currentCrop.ymax - currentCrop.ymin);
+        
+        if (scaleDir === 'se') {
+          newBox[2] = Math.max(ymin + 5, Math.min(1000, relativeY));
+          newBox[3] = Math.max(xmin + 5, Math.min(1000, relativeX));
+          newCrop.ymax = currentCrop.ymin + cropH * ((newBox[2] - ymin) / boxH);
+          newCrop.xmax = currentCrop.xmin + cropW * ((newBox[3] - xmin) / boxW);
+        } else if (scaleDir === 'sw') {
+          newBox[2] = Math.max(ymin + 5, Math.min(1000, relativeY));
+          newBox[1] = Math.min(xmax - 5, Math.max(0, relativeX));
+          newCrop.ymax = currentCrop.ymin + cropH * ((newBox[2] - ymin) / boxH);
+          newCrop.xmin = currentCrop.xmax - cropW * ((xmax - newBox[1]) / boxW);
+        } else if (scaleDir === 'ne') {
+          newBox[0] = Math.min(ymax - 5, Math.max(0, relativeY));
+          newBox[3] = Math.max(xmin + 5, Math.min(1000, relativeX));
+          newCrop.ymin = currentCrop.ymax - cropH * ((ymax - newBox[0]) / boxH);
+          newCrop.xmax = currentCrop.xmin + cropW * ((newBox[3] - xmin) / boxW);
+        } else if (scaleDir === 'nw') {
+          newBox[0] = Math.min(ymax - 5, Math.max(0, relativeY));
+          newBox[1] = Math.min(xmax - 5, Math.max(0, relativeX));
+          newCrop.ymin = currentCrop.ymax - cropH * ((ymax - newBox[0]) / boxH);
+          newCrop.xmin = currentCrop.xmax - cropW * ((xmax - newBox[1]) / boxW);
+        }
+        
+        // Clamp crop [0, 100] logic if they drag outside the original image
+        if (newCrop.xmin < 0) {
+          newCrop.xmin = 0;
+          newBox[1] = xmax - currentCrop.xmax * (boxW / cropW);
+        }
+        if (newCrop.xmax > 100) {
+          newCrop.xmax = 100;
+          newBox[3] = xmin + (100 - currentCrop.xmin) * (boxW / cropW);
+        }
+        if (newCrop.ymin < 0) {
+          newCrop.ymin = 0;
+          newBox[0] = ymax - currentCrop.ymax * (boxH / cropH);
+        }
+        if (newCrop.ymax > 100) {
+          newCrop.ymax = 100;
+          newBox[2] = ymin + (100 - currentCrop.ymin) * (boxH / cropH);
+        }
+
+        updateImage({ box_2d: newBox, crop: newCrop });
+      } else {
+        // Scaling logic: update img.box_2d (maintain aspect ratio)
+        const [ymin, xmin, ymax, xmax] = img.box_2d;
+        let newBox: [number, number, number, number] = [...img.box_2d];
+        
+        let currentAR = img.aspectRatio || 1;
+        if (img.crop) {
+          const cropW = img.crop.xmax - img.crop.xmin;
+          const cropH = img.crop.ymax - img.crop.ymin;
+          if (cropH > 0) {
+            currentAR = (cropW / cropH) * currentAR;
+          }
+        }
+        const ratio = currentAR * pageRatio;
+        
+        if (scaleDir === 'se') {
+          const newH = Math.max(20, relativeY - ymin);
+          const newW = newH * ratio;
+          newBox[2] = ymin + newH;
+          newBox[3] = xmin + newW;
+          if (newBox[3] > 1000) { newBox[3] = 1000; newBox[2] = ymin + (1000 - xmin) / ratio; }
+          if (newBox[2] > 1000) { newBox[2] = 1000; newBox[3] = xmin + (1000 - ymin) * ratio; }
+        } else if (scaleDir === 'sw') {
+          const newH = Math.max(20, relativeY - ymin);
+          const newW = newH * ratio;
+          newBox[2] = ymin + newH;
+          newBox[1] = xmax - newW;
+          if (newBox[1] < 0) { newBox[1] = 0; newBox[2] = ymin + xmax / ratio; }
+          if (newBox[2] > 1000) { newBox[2] = 1000; newBox[1] = xmax - (1000 - ymin) * ratio; }
+        } else if (scaleDir === 'ne') {
+          const newH = Math.max(20, ymax - relativeY);
+          const newW = newH * ratio;
+          newBox[0] = ymax - newH;
+          newBox[3] = xmin + newW;
+          if (newBox[3] > 1000) { newBox[3] = 1000; newBox[0] = ymax - (1000 - xmin) / ratio; }
+          if (newBox[0] < 0) { newBox[0] = 0; newBox[3] = xmin + ymax * ratio; }
+        } else if (scaleDir === 'nw') {
+          const newH = Math.max(20, ymax - relativeY);
+          const newW = newH * ratio;
+          newBox[0] = ymax - newH;
+          newBox[1] = xmax - newW;
+          if (newBox[1] < 0) { newBox[1] = 0; newBox[0] = ymax - xmax / ratio; }
+          if (newBox[0] < 0) { newBox[0] = 0; newBox[1] = xmax - ymax * ratio; }
+        }
+        updateImage({ box_2d: newBox });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsScaling(false);
+      setScaleDir(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleMouseMove);
+    window.addEventListener('touchend', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleMouseMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [isScaling, scaleDir, img.box_2d, currentPageIndex, isCropping, pageRatio, img.aspectRatio]);
+
+  return (
+    <motion.div
+      ref={itemRef}
+      style={{
+        ...style,
+        x,
+        y,
+        zIndex: isSelected ? 40 : 25,
+      }}
+      drag={isSelected && !isScaling}
+      dragControls={dragControls}
+      dragListener={false}
+      dragMomentum={false}
+      dragElastic={0}
+      onDragStart={() => {
+        dragStartPos.current = { y1: img.box_2d[0], x1: img.box_2d[1] };
+      }}
+      onDragEnd={(event, info) => {
+        if (!dragStartPos.current) return;
+        const parent = itemRef.current?.parentElement;
+        if (!parent) return;
+        const width = parent.offsetWidth;
+        const height = parent.offsetHeight;
+        if (width === 0 || height === 0) return;
+
+        const dx = (info.offset.x / width) * 1000;
+        const dy = (info.offset.y / height) * 1000;
+        
+        const [y1, x1, y2, x2] = img.box_2d;
+        const h = y2 - y1;
+        const w = x2 - x1;
+        
+        const newY1 = Math.round(Math.max(0, Math.min(1000 - h, dragStartPos.current.y1 + dy)));
+        const newX1 = Math.round(Math.max(0, Math.min(1000 - w, dragStartPos.current.x1 + dx)));
+        
+        updateImage({
+          box_2d: [newY1, newX1, newY1 + h, newX1 + w]
+        });
+        x.set(0);
+        y.set(0);
+        dragStartPos.current = null;
+      }}
+      className={cn(
+        "absolute group cursor-pointer pointer-events-auto"
+      )}
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsAddingTextMode(false);
+        setSelectedManualImageId(img.id);
+      }}
+    >
+      <div className={cn(
+        "w-full h-full relative",
+        isSelected && !isCropping && "outline outline-2 outline-black",
+        isSelected && isCropping && "outline outline-2 outline-black"
+      )}>
+        {isSelected && isCropping && (
+          <img 
+            src={img.url} 
+            className={cn("w-full h-full object-cover pointer-events-none opacity-50", img.isHighContrast && "contrast-150 saturate-0")}
+            alt="Original Overlay" 
+            style={img.crop ? {
+              position: 'absolute',
+              width: `${10000 / Math.max(0.1, img.crop.xmax - img.crop.xmin)}%`,
+              height: `${10000 / Math.max(0.1, img.crop.ymax - img.crop.ymin)}%`,
+              left: `-${img.crop.xmin * 100 / Math.max(0.1, img.crop.xmax - img.crop.xmin)}%`,
+              top: `-${img.crop.ymin * 100 / Math.max(0.1, img.crop.ymax - img.crop.ymin)}%`,
+              maxWidth: 'none',
+              objectFit: 'fill'
+            } : {
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              left: 0,
+              top: 0
+            }}
+          />
+        )}
+        <div className={cn(
+          "w-full h-full relative overflow-hidden bg-muted",
+          img.isHighContrast && "contrast-[1.25] grayscale"
+        )}>
+          <img 
+            src={img.url} 
+            className="w-full h-full object-fill pointer-events-none" 
+            alt="Inserted" 
+            style={img.crop ? {
+              position: 'absolute',
+              width: `${10000 / Math.max(0.1, img.crop.xmax - img.crop.xmin)}%`,
+              height: `${10000 / Math.max(0.1, img.crop.ymax - img.crop.ymin)}%`,
+              left: `-${img.crop.xmin * 100 / Math.max(0.1, img.crop.xmax - img.crop.xmin)}%`,
+              top: `-${img.crop.ymin * 100 / Math.max(0.1, img.crop.ymax - img.crop.ymin)}%`,
+              maxWidth: 'none',
+              objectFit: 'fill'
+            } : undefined}
+          />
+        </div>
+        
+        {isSelected && (
+          <>
+            {/* Scale/Crop Handles */}
+            {!isCropping && (
+              <>
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'nw')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute top-0 left-0 w-8 h-8 z-50 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-nw-resize pointer-events-auto"
+                >
+                  <div className="w-3 h-3 border border-white rounded-full bg-black shadow-sm" />
+                </div>
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'ne')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute top-0 right-0 w-8 h-8 z-50 translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-ne-resize pointer-events-auto"
+                >
+                  <div className="w-3 h-3 border border-white rounded-full bg-black shadow-sm" />
+                </div>
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'sw')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-0 left-0 w-8 h-8 z-50 -translate-x-1/2 translate-y-1/2 flex items-center justify-center cursor-sw-resize pointer-events-auto"
+                >
+                  <div className="w-3 h-3 border border-white rounded-full bg-black shadow-sm" />
+                </div>
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'se')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-0 right-0 w-8 h-8 z-50 translate-x-1/2 translate-y-1/2 flex items-center justify-center cursor-se-resize pointer-events-auto"
+                >
+                  <div className="w-3 h-3 border border-white rounded-full bg-black shadow-sm" />
+                </div>
+              </>
+            )}
+
+            {/* Crop Corner Handles (L-brackets like standard cropping tools) */}
+            {isCropping && (
+              <>
+                {/* NW */}
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'nw')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute top-0 left-0 w-8 h-8 z-50 -translate-x-[2px] -translate-y-[2px] cursor-nw-resize pointer-events-auto"
+                >
+                  <div className="absolute top-0 left-0 w-6 h-[4px] bg-black" />
+                  <div className="absolute top-0 left-0 w-[4px] h-6 bg-black" />
+                </div>
+                {/* NE */}
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'ne')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute top-0 right-0 w-8 h-8 z-50 translate-x-[2px] -translate-y-[2px] cursor-ne-resize pointer-events-auto"
+                >
+                  <div className="absolute top-0 right-0 w-6 h-[4px] bg-black" />
+                  <div className="absolute top-0 right-0 w-[4px] h-6 bg-black" />
+                </div>
+                {/* SW */}
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'sw')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-0 left-0 w-8 h-8 z-50 -translate-x-[2px] translate-y-[2px] cursor-sw-resize pointer-events-auto"
+                >
+                  <div className="absolute bottom-0 left-0 w-6 h-[4px] bg-black" />
+                  <div className="absolute bottom-0 left-0 w-[4px] h-6 bg-black" />
+                </div>
+                {/* SE */}
+                <div 
+                  onMouseDown={(e) => handleScaleStart(e, 'se')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-0 right-0 w-8 h-8 z-50 translate-x-[2px] translate-y-[2px] cursor-se-resize pointer-events-auto"
+                >
+                  <div className="absolute bottom-0 right-0 w-6 h-[4px] bg-black" />
+                  <div className="absolute bottom-0 right-0 w-[4px] h-6 bg-black" />
+                </div>
+              </>
+            )}
+
+            {/* Content Toolbar */}
+            <div 
+              className="absolute -top-14 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white border border-gray-200 text-slate-800 shadow-md p-1.5 rounded-lg z-50 pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => updateImage({ isHighContrast: !img.isHighContrast })} title="High Contrast">
+                <Contrast className={cn("h-4 w-4", img.isHighContrast && "text-blue-600")} />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => moveLayer('up')} title="Layer Up (U)">
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => moveLayer('down')} title="Layer Down (D)">
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className={cn("h-9 w-9", isCropping ? "bg-slate-200 text-slate-900 hover:bg-slate-300" : "text-slate-700 hover:bg-slate-100 hover:text-slate-900")} onClick={() => setIsCropping(!isCropping)} title="Crop">
+                <Crop className="h-4 w-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }} title="Move">
+                <Move className="h-4 w-4" />
+              </Button>
+              <div className="w-px h-5 bg-gray-200 mx-1" />
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-red-500 hover:bg-red-50 hover:text-red-600" onClick={deleteItem} title="Delete">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
+interface ManualTextItemProps {
+  key?: React.Key;
+  mt: ManualText;
+  activePage: PageData;
+  currentPageIndex: number;
+  isSelected: boolean;
+  viewMode: string;
+  setSelectedManualTextId: (id: string | null) => void;
+  setSelectedManualImageId: (id: string | null) => void;
+  setOriginalTextBeforeEdit: (text: string) => void;
+  originalTextBeforeEdit: string;
+  pages: PageData[];
+  setPages: (pages: PageData[]) => void;
+  manualTextRef: React.RefObject<HTMLDivElement>;
+  setIsAddingTextMode: (val: boolean) => void;
+}
+
+const ManualTextItem = ({
+  mt,
+  activePage,
+  currentPageIndex,
+  isSelected,
+  viewMode,
+  setSelectedManualTextId,
+  setSelectedManualImageId,
+  setOriginalTextBeforeEdit,
+  originalTextBeforeEdit,
+  pages,
+  setPages,
+  manualTextRef,
+  setIsAddingTextMode
+}: ManualTextItemProps) => {
+  const [isColorFolded, setIsColorFolded] = useState(true);
+  const dragControls = useDragControls();
+  const itemRef = React.useRef<HTMLDivElement>(null);
+  const dragStartPos = React.useRef<{ y1: number; x1: number } | null>(null);
+  
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+
+  const getBoxStyleLocal = (boxInput: any) => {
+    const [y1, x1, y2, x2] = boxInput;
+    return {
+      top: `${(y1 / 1000) * 100}%`,
+      left: `${(x1 / 1000) * 100}%`,
+      width: `${((x2 - x1) / 1000) * 100}%`,
+      height: `${((y2 - y1) / 1000) * 100}%`,
+    };
+  };
+
+  const style = getBoxStyleLocal(mt.box_2d);
+
+  const deleteItem = () => {
+    const updatedPages = [...pages];
+    const page = { ...updatedPages[currentPageIndex] };
+    if (page.manualTexts) {
+      page.manualTexts = page.manualTexts.filter(m => m.id !== mt.id);
+      updatedPages[currentPageIndex] = page;
+      setPages(updatedPages);
+      setSelectedManualTextId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isSelected) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Delete') {
+        e.stopPropagation();
+        deleteItem();
+        return;
+      }
+
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.stopPropagation();
+        setSelectedManualTextId(null);
+      } else if (e.key.toLowerCase() === 'u') {
+        e.stopPropagation();
+        const updatedPages = [...pages];
+        const p = updatedPages[currentPageIndex];
+        if (p.manualTexts) {
+          const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+          if (idx !== -1 && idx < p.manualTexts.length - 1) {
+            const newManualTexts = [...p.manualTexts];
+            [newManualTexts[idx], newManualTexts[idx+1]] = [newManualTexts[idx+1], newManualTexts[idx]];
+            p.manualTexts = newManualTexts;
+            setPages(updatedPages);
+          }
+        }
+      } else if (e.key.toLowerCase() === 'd') {
+        e.stopPropagation();
+        const updatedPages = [...pages];
+        const p = updatedPages[currentPageIndex];
+        if (p.manualTexts) {
+          const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+          if (idx !== -1 && idx > 0) {
+            const newManualTexts = [...p.manualTexts];
+            [newManualTexts[idx], newManualTexts[idx-1]] = [newManualTexts[idx-1], newManualTexts[idx]];
+            p.manualTexts = newManualTexts;
+            setPages(updatedPages);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelected, mt.id, currentPageIndex, pages, setPages, setSelectedManualTextId]);
+
+  return (
+    <motion.div
+      ref={itemRef}
+      initial={false}
+      style={{
+        ...style,
+        x,
+        y,
+        border: isSelected ? '2px solid #000000' : 'none',
+        zIndex: isSelected ? 30 : 20,
+        backgroundColor: 'transparent',
+        borderRadius: '4px',
+        height: 'auto',
+        minHeight: style.height
+      }}
+      drag={isSelected}
+      dragControls={dragControls}
+      dragListener={false}
+      dragMomentum={false}
+      dragElastic={0}
+      onDragStart={() => {
+        dragStartPos.current = { y1: mt.box_2d[0], x1: mt.box_2d[1] };
+      }}
+      onDragEnd={(event, info) => {
+        if (!dragStartPos.current) return;
+        
+        const parent = itemRef.current?.parentElement;
+        if (!parent) return;
+        
+        const width = parent.offsetWidth;
+        const height = parent.offsetHeight;
+        
+        if (width === 0 || height === 0) return;
+
+        const dx = (info.offset.x / width) * 1000;
+        const dy = (info.offset.y / height) * 1000;
+        
+        const updatedPages = [...pages];
+        const pageIndex = currentPageIndex;
+        const page = { ...updatedPages[pageIndex] };
+        
+        if (page.manualTexts) {
+          const manualTexts = [...page.manualTexts];
+          const idx = manualTexts.findIndex(m => m.id === mt.id);
+          if (idx !== -1) {
+            const currentBox = manualTexts[idx].box_2d;
+            const h = currentBox[2] - currentBox[0];
+            const w = currentBox[3] - currentBox[1];
+            
+            const newY1 = Math.round(Math.max(0, Math.min(1000 - h, dragStartPos.current.y1 + dy)));
+            const newX1 = Math.round(Math.max(0, Math.min(1000 - w, dragStartPos.current.x1 + dx)));
+            
+            manualTexts[idx] = {
+              ...manualTexts[idx],
+              box_2d: [newY1, newX1, newY1 + h, newX1 + w]
+            };
+            page.manualTexts = manualTexts;
+            updatedPages[pageIndex] = page;
+            
+            // Critical: Reset motion values BEFORE updating state
+            x.set(0);
+            y.set(0);
+            setPages(updatedPages);
+          }
+        }
+        dragStartPos.current = null;
+      }}
+      className={cn(
+        "absolute flex items-center justify-center cursor-pointer pointer-events-auto",
+        !isSelected && "transition-all duration-300"
+      )}
+      whileDrag={{ 
+        zIndex: 100
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsAddingTextMode(false);
+        if (!isSelected) {
+          setSelectedManualTextId(mt.id);
+          setOriginalTextBeforeEdit(mt.text);
+          setSelectedManualImageId(null);
+        }
+      }}
+    >
+      <div 
+        ref={isSelected ? manualTextRef : null}
+        className="w-full h-full flex items-center justify-center p-2 outline-none min-w-[50px] min-h-[1em]"
+        contentEditable={isSelected}
+        suppressContentEditableWarning
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).blur();
+            setSelectedManualTextId(null);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            // Revert text
+            e.currentTarget.innerText = originalTextBeforeEdit;
+            (e.currentTarget as HTMLElement).blur();
+            setSelectedManualTextId(null);
+          }
+        }}
+        onBlur={(e) => {
+          const newText = e.currentTarget.innerText || "";
+          const updatedPages = [...pages];
+          const p = updatedPages[currentPageIndex];
+          if (p.manualTexts) {
+            const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+            if (idx !== -1) {
+              p.manualTexts[idx].text = newText;
+              setPages(updatedPages);
+            }
+          }
+        }}
+        style={{
+          color: mt.color,
+          fontSize: `calc(var(--cw, ${activePage.width}px) * ${(mt.fontSize / activePage.width)})`,
+          fontFamily: "Helvetica, Arial, sans-serif",
+          textAlign: 'center',
+          wordBreak: 'break-word',
+          lineHeight: 1.2,
+          whiteSpace: 'pre-wrap'
+        }}
+      >
+        {mt.text}
+      </div>
+      
+      {/* Floating Toolbar for Manual Text */}
+      {isSelected && (
+        <div 
+          className="absolute -top-16 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-background text-foreground border border-border shadow-md rounded-xl p-0.5 z-[100] animate-in fade-in zoom-in slide-in-from-bottom-2 duration-200 pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-0.5 px-1 border-r border-border h-9">
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("w-7 h-7 hover:bg-muted shrink-0", !isColorFolded && "text-primary")}
+                onClick={() => setIsColorFolded(!isColorFolded)}
+                title={isColorFolded ? "Show Colors" : "Hide Colors"}
+              >
+                <Palette className="w-4 h-4" />
+              </Button>
+              
+              <AnimatePresence>
+                {!isColorFolded && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute bottom-full left-0 mb-3 p-1.5 bg-background border border-border shadow-lg rounded-lg flex flex-row gap-1.5 items-center z-[110]"
+                  >
+                    <div className="flex flex-row gap-1.5">
+                      {['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6'].map(c => (
+                        <button
+                          key={c}
+                          className={cn(
+                            "w-5 h-5 rounded-full border shadow-sm transition-transform hover:scale-110",
+                            mt.color === c ? "ring-2 ring-primary ring-offset-1" : ""
+                          )}
+                          style={{ backgroundColor: c }}
+                          onClick={() => {
+                            const updatedPages = [...pages];
+                            const p = updatedPages[currentPageIndex];
+                            if (p.manualTexts) {
+                              const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+                              if (idx !== -1) {
+                                p.manualTexts[idx].color = c;
+                                setPages(updatedPages);
+                              }
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="h-6 w-px bg-border flex-shrink-0" />
+                    <div className="relative w-6 h-6 rounded-full border overflow-hidden shadow-inner">
+                      <input 
+                        type="color" 
+                        value={mt.color}
+                        onChange={(e) => {
+                          const updatedPages = [...pages];
+                          const p = updatedPages[currentPageIndex];
+                          if (p.manualTexts) {
+                            const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+                            if (idx !== -1) {
+                              p.manualTexts[idx].color = e.target.value;
+                              setPages(updatedPages);
+                            }
+                          }
+                        }}
+                        className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer border-none p-0 bg-transparent"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-1 px-1 border-r border-border h-9">
+            <Select 
+              value={mt.fontSize.toString()}
+              onValueChange={(val) => {
+                const updatedPages = [...pages];
+                const p = updatedPages[currentPageIndex];
+                if (p.manualTexts) {
+                  const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+                  if (idx !== -1) {
+                    p.manualTexts[idx].fontSize = parseInt(val);
+                    setPages(updatedPages);
+                  }
+                }
+              }}
+            >
+              <SelectTrigger className="w-14 h-8 text-xs font-bold bg-background text-foreground border-border px-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-background text-foreground">
+                {[12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 64, 72, 84, 96, 120, 144, 200, 256].map(size => (
+                  <SelectItem key={size} value={size.toString()} className="text-xs">{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="flex items-center gap-0.5">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => {
+                const updatedPages = [...pages];
+                const p = updatedPages[currentPageIndex];
+                if (p.manualTexts) {
+                  const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+                  if (idx !== -1 && idx < p.manualTexts.length - 1) {
+                    const newManualTexts = [...p.manualTexts];
+                    [newManualTexts[idx], newManualTexts[idx+1]] = [newManualTexts[idx+1], newManualTexts[idx]];
+                    p.manualTexts = newManualTexts;
+                    setPages(updatedPages);
+                  }
+                }
+              }}
+              title="Layer Up (U)"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => {
+                const updatedPages = [...pages];
+                const p = updatedPages[currentPageIndex];
+                if (p.manualTexts) {
+                  const idx = p.manualTexts.findIndex(m => m.id === mt.id);
+                  if (idx !== -1 && idx > 0) {
+                    const newManualTexts = [...p.manualTexts];
+                    [newManualTexts[idx], newManualTexts[idx-1]] = [newManualTexts[idx-1], newManualTexts[idx]];
+                    p.manualTexts = newManualTexts;
+                    setPages(updatedPages);
+                  }
+                }
+              }}
+              title="Layer Down (D)"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }}
+              title="Move"
+            >
+              <Move className="h-4 w-4" />
+            </Button>
+            <div className="w-px h-5 bg-border mx-0.5" />
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              className="h-8 w-8 text-destructive hover:bg-destructive/10" 
+              onClick={(e) => {
+                e.stopPropagation();
+                const updatedPages = [...pages];
+                const p = updatedPages[currentPageIndex];
+                if (p.manualTexts) {
+                  p.manualTexts = p.manualTexts.filter(m => m.id !== mt.id);
+                  setPages(updatedPages);
+                  setSelectedManualTextId(null);
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
 export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [showCollageModal, setShowCollageModal] = useState(false);
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [isRandomMode, setIsRandomMode] = useState(false);
+  const [collageStep, setCollageStep] = useState<'template' | 'settings'>('template');
+  const [collageOutline, setCollageOutline] = useState<boolean>(false);
+  const [collageHighContrast, setCollageHighContrast] = useState<boolean>(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [tempText, setTempText] = useState("");
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [isAddingTextMode, setIsAddingTextMode] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  const [isPortrait, setIsPortrait] = useState(false);
+
+  // Default fold on portrait screen
+  useEffect(() => {
+    const handleResize = () => {
+      const portrait = window.innerHeight > window.innerWidth;
+      setIsPortrait(portrait);
+      if (portrait) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsAddingTextMode(false);
+        setSelectedManualTextId(null);
+        setSelectedManualImageId(null);
+        setEditingIndex(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
   const [isGridView, setIsGridView] = useState(false);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [selectedManualTextId, setSelectedManualTextId] = useState<string | null>(null);
+  const [selectedManualImageId, setSelectedManualImageId] = useState<string | null>(null);
+  const [originalTextBeforeEdit, setOriginalTextBeforeEdit] = useState<string>("");
+  const manualTextRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedManualTextId && manualTextRef.current) {
+      manualTextRef.current.focus();
+      // Move cursor to end
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(manualTextRef.current);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+  }, [selectedManualTextId]);
+
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
@@ -1215,6 +2199,23 @@ export default function ComicEditor() {
   const isDarkMode = resolvedTheme === 'dark';
 
   const imageRef = useRef<HTMLImageElement>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const editorContainerRef = useCallback((node: HTMLDivElement | null) => {
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect();
+      resizeObserverRef.current = null;
+    }
+    if (node) {
+      const observer = new ResizeObserver((entries) => {
+        if (entries[0]) {
+          node.style.setProperty('--cw', `${entries[0].contentRect.width}px`);
+        }
+      });
+      observer.observe(node);
+      resizeObserverRef.current = observer;
+      node.style.setProperty('--cw', `${node.getBoundingClientRect().width}px`);
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1241,7 +2242,15 @@ export default function ComicEditor() {
 
   useEffect(() => {
     setPageInputValue((currentPageIndex + 1).toString());
-  }, [currentPageIndex]);
+    
+    // Auto-scroll sidebar to follow active page
+    if (isSidebarOpen && !isGridView) {
+      const activeThumb = document.getElementById(`thumb-${currentPageIndex}`);
+      if (activeThumb) {
+        activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [currentPageIndex, isSidebarOpen, isGridView]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1258,16 +2267,13 @@ export default function ComicEditor() {
         setSelectedPages(new Set());
         setLastSelectedIndex(null);
         setEditingIndex(null);
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      } else if (e.key === 'Delete' || (e.key === 'Backspace' && isGridView)) {
         if (isGridView && selectedPages.size > 0) {
           setPages(prev => prev.filter((_, idx) => !selectedPages.has(idx)));
           setSelectedPages(new Set());
           setLastSelectedIndex(null);
           setCurrentPageIndex(0);
           setIsGridView(false);
-        } else if (!isGridView && pages.length > 0) {
-          setPages(prev => prev.filter((_, idx) => idx !== currentPageIndex));
-          setCurrentPageIndex(p => Math.max(0, p - 1));
         }
       }
     };
@@ -1337,7 +2343,7 @@ export default function ComicEditor() {
     await processUploadedFiles(acceptedFiles);
   };
 
-  const generateCollage = async (templateName: string, pageFiles: File[]) => {
+  const generateCollage = async (templateName: string, pageFiles: File[], options?: { outline?: boolean, highContrast?: boolean }) => {
     const template = LAYOUTS[templateName];
     if (!template) {
       console.error(`Template ${templateName} not found`);
@@ -1422,12 +2428,32 @@ export default function ComicEditor() {
             dY = slotY;
         }
 
-        ctx.drawImage(img, 0, 0, img.width, img.height, dX, dY, dW, dH);
+        // Apply High Contrast if enabled
+        if (options?.highContrast) {
+          ctx.filter = 'grayscale(1) contrast(1.25)';
+        }
 
-        // Add 1px black outline
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(dX, dY, dW, dH);
+        ctx.drawImage(img, 0, 0, img.width, img.height, dX, dY, dW, dH);
+        
+        // Reset filter
+        ctx.filter = 'none';
+
+        // Outline setting:
+        // 12, 13, 14 always have outline
+        // 6, 7, 8 always not have
+        // others follow user setting
+        let shouldDrawOutline = options?.outline;
+        if (['batch_12', 'batch_13', 'batch_14'].includes(templateName)) {
+            shouldDrawOutline = true;
+        } else if (['batch_6', 'batch_7', 'batch_8'].includes(templateName)) {
+            shouldDrawOutline = false;
+        }
+
+        if (shouldDrawOutline) {
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 2; // Slightly thicker for print quality
+          ctx.strokeRect(dX, dY, dW, dH);
+        }
 
         placedImages.push({ dX, dY, dW, dH, slotIdx: i });
         URL.revokeObjectURL(objectUrl);
@@ -1569,6 +2595,8 @@ export default function ComicEditor() {
             pCanvas.height = pSh;
             const pCtx = pCanvas.getContext('2d');
             if (pCtx) {
+              pCtx.fillStyle = '#ffffff';
+              pCtx.fillRect(0, 0, pSw, pSh);
               pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
               const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
               
@@ -1893,6 +2921,112 @@ export default function ComicEditor() {
     setEditingIndex(null);
   };
 
+  const getMergedImageData = async (page: PageData): Promise<string> => {
+    return new Promise(async (resolve) => {
+      const sourceUrl = page.cleanedImage || page.originalImage;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = sourceUrl;
+      
+      try {
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = rej;
+        });
+      } catch (err) {
+        console.error("Failed to load base image for export merge", err);
+        resolve(sourceUrl);
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(sourceUrl);
+        return;
+      }
+
+      // 1. Draw original image with white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      ctx.filter = 'none'; // Ensure no residue filters
+
+      // 2. Draw manual images
+      if (page.manualImages && page.manualImages.length > 0) {
+        for (const mImg of page.manualImages) {
+          try {
+            const overlayImg = new Image();
+            overlayImg.crossOrigin = "anonymous";
+            overlayImg.src = mImg.url;
+            await new Promise((res, rej) => {
+              overlayImg.onload = res;
+              overlayImg.onerror = rej;
+            });
+
+            const [ymin, xmin, ymax, xmax] = mImg.box_2d;
+            const dx = (xmin / 1000) * canvas.width;
+            const dy = (ymin / 1000) * canvas.height;
+            const dw = ((xmax - xmin) / 1000) * canvas.width;
+            const dh = ((ymax - ymin) / 1000) * canvas.height;
+
+            ctx.save();
+            if (mImg.isHighContrast) {
+              ctx.filter = 'grayscale(1) contrast(1.25)';
+            }
+            
+            if (mImg.crop) {
+                // Handle cropping
+                const cX = mImg.crop.xmin * overlayImg.width / 100;
+                const cY = mImg.crop.ymin * overlayImg.height / 100;
+                const cW = (mImg.crop.xmax - mImg.crop.xmin) * overlayImg.width / 100;
+                const cH = (mImg.crop.ymax - mImg.crop.ymin) * overlayImg.height / 100;
+                ctx.drawImage(overlayImg, cX, cY, cW, cH, dx, dy, dw, dh);
+            } else {
+                ctx.drawImage(overlayImg, dx, dy, dw, dh);
+            }
+            ctx.restore();
+          } catch (e) {
+            console.error("Failed to render manual image in export", e);
+          }
+        }
+      }
+
+      // 3. Draw manual texts
+      if (page.manualTexts && page.manualTexts.length > 0) {
+        for (const mText of page.manualTexts) {
+          const [ymin, xmin, ymax, xmax] = mText.box_2d;
+          const dx = (xmin / 1000) * canvas.width;
+          const dy = (ymin / 1000) * canvas.height;
+          const dw = ((xmax - xmin) / 1000) * canvas.width;
+          const dh = ((ymax - ymin) / 1000) * canvas.height;
+
+          ctx.save();
+          const fontSize = (mText.fontSize / page.width) * canvas.width;
+          ctx.font = `${fontSize}px Helvetica, Arial, sans-serif`;
+          ctx.fillStyle = mText.color || '#000000';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Basic text wrapping on canvas
+          const lines = mText.text.split('\n');
+          const lineHeight = fontSize * 1.2;
+          const totalHeight = lines.length * lineHeight;
+          let startY = dy + (dh - totalHeight) / 2 + lineHeight / 2;
+
+          for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i], dx + dw / 2, startY + i * lineHeight);
+          }
+          ctx.restore();
+        }
+      }
+
+      resolve(canvas.toDataURL('image/jpeg', 0.9));
+    });
+  };
+
   const getExportablePages = () => {
     if (selectedPages.size > 0) {
       return pages.filter((_, i) => selectedPages.has(i));
@@ -1909,15 +3043,11 @@ export default function ComicEditor() {
 
     for (let i = 0; i < exportPages.length; i++) {
       const page = exportPages[i];
-      const imgSrc = page.originalImage;
-      let base64Data = imgSrc;
-      
-      if (!imgSrc.startsWith('data:')) {
-        base64Data = await blobUrlToBase64(imgSrc);
-      }
+      const base64Data = await getMergedImageData(page);
 
       let panelsHtml = '';
-      const hasText = page.detectedTexts && page.detectedTexts.length > 0;
+      const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+      const hasText = allTexts.length > 0;
       
       if (!hasText && !splitDuringBatch) {
         panelsHtml = `
@@ -1927,7 +3057,7 @@ export default function ComicEditor() {
         </div>
       </div>`;
       } else if (hasText && page.isTextOnly) {
-        const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
+        const sortedTexts = sortTextsReadingOrder(allTexts);
         const textContent = sortedTexts.map(t => {
           return t.text.split('\n').map(p => `<p class="panel-text-line">${p}</p>`).join('');
         }).join('');
@@ -1945,7 +3075,7 @@ export default function ComicEditor() {
           <div class="panel-image-container">
             <img src="${base64Data}" class="panel-img" alt="Panel" />
           </div>
-          ${page.detectedTexts.length > 0 ? `<div class="panel-text-container">${sortTextsReadingOrder(page.detectedTexts).map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')}</div>` : ''}
+          ${allTexts.length > 0 ? `<div class="panel-text-container">${sortTextsReadingOrder(allTexts).map(t => `<p class="panel-text-line">${t.text}</p>`).join('')}</div>` : ''}
         </div>`;
         } else {
           for (let p of panels) {
@@ -2038,36 +3168,87 @@ ${pagesHtml}</body>
         }
       };
 
+      const addTextWithCanvas = (textStr: string) => {
+        const fontSize = 12; // pt
+        const lineHeight = 16; // pt
+        const scale = 2; // retina display sharpness
+        
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        
+        ctx.font = `${fontSize * scale}px Helvetica, Arial, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif`;
+        
+        const paragraphs = textStr.split('\n');
+        let lines: string[] = [];
+        
+        for (const p of paragraphs) {
+          if (!p.trim()) {
+            lines.push('');
+            continue;
+          }
+          let currentLine = '';
+          for (let i = 0; i < p.length; i++) {
+            const char = p[i];
+            const testLine = currentLine + char;
+            const w = ctx.measureText(testLine).width / scale;
+            if (w > contentWidth && i > 0) {
+              lines.push(currentLine);
+              currentLine = char;
+            } else {
+              currentLine = testLine;
+            }
+          }
+          lines.push(currentLine);
+        }
+        
+        // Render chunks
+        let chunkLines: string[] = [];
+        
+        const flushChunk = () => {
+           if (chunkLines.length === 0) return;
+           const h = chunkLines.length * lineHeight;
+           canvas.width = contentWidth * scale;
+           canvas.height = h * scale;
+           ctx.font = `${fontSize * scale}px Helvetica, Arial, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif`;
+           ctx.fillStyle = '#000000';
+           ctx.textBaseline = 'top';
+           ctx.clearRect(0,0, canvas.width, canvas.height);
+           
+           for (let i = 0; i < chunkLines.length; i++) {
+              ctx.fillText(chunkLines[i], 0, i * lineHeight * scale);
+           }
+           
+           const dataUrl = canvas.toDataURL('image/png', 0.9);
+           pdf.addImage(dataUrl, 'PNG', margin, currentY, contentWidth, h);
+           currentY += h;
+           chunkLines = [];
+        };
+
+        for (const line of lines) {
+           if (currentY + (chunkLines.length * lineHeight) + lineHeight > pageHeight - margin) {
+              flushChunk();
+              pdf.addPage();
+              currentY = margin;
+           }
+           chunkLines.push(line);
+        }
+        flushChunk();
+      };
+
       for (let i = 0; i < exportPages.length; i++) {
         const page = exportPages[i];
-        let base64Data = page.originalImage;
-        if (!base64Data.startsWith('data:')) {
-          base64Data = await blobUrlToBase64(base64Data);
-        }
+        const base64Data = await getMergedImageData(page);
 
-        if (page.isTextOnly) {
+        if (page.isTextOnly && (!page.manualImages || page.manualImages.length === 0)) {
             // Text-only
-            pdf.setFontSize(12);
-            pdf.setTextColor(0, 0, 0);
-            const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
-            
-            sortedTexts.forEach(t => {
-                const paragraphs = t.text.trim().split('\n');
-                paragraphs.forEach(para => {
-                    if (!para.trim()) return;
-                    const textLines = pdf.splitTextToSize(para.trim(), contentWidth);
-                    const lineHeight = 16;
-                    checkAddPage(textLines.length * lineHeight + 10);
-                    
-                    textLines.forEach((line: string) => {
-                       pdf.text(line, margin, currentY, { baseline: 'top' });
-                       currentY += lineHeight;
-                    });
-                    currentY += lineHeight * 0.5;
-                });
-                currentY += 16;
-            });
-            currentY += 20;
+            const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+            const sortedTexts = sortTextsReadingOrder(allTexts);
+            const textStr = sortedTexts.map(t => t.text.trim()).join('\n\n');
+            if (textStr) {
+               addTextWithCanvas(textStr);
+               currentY += 20;
+            }
         } else {
             // Panels logic same as HTML export
             const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
@@ -2083,19 +3264,14 @@ ${pagesHtml}</body>
                pdf.addImage(base64Data, 'JPEG', margin, currentY, targetWidth, targetHeight);
                currentY += targetHeight + 20;
 
-               if (page.detectedTexts.length > 0) {
-                 pdf.setFontSize(12);
-                 pdf.setTextColor(0, 0, 0);
-                 const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
+               const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+               if (allTexts.length > 0) {
+                 const sortedTexts = sortTextsReadingOrder(allTexts);
                  const textStr = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
-                 const textLines = pdf.splitTextToSize(textStr, contentWidth);
-                 const lineHeight = 16;
-                 checkAddPage(textLines.length * lineHeight + 10);
-                 textLines.forEach((line: string) => {
-                   pdf.text(line, margin, currentY, { baseline: 'top' });
-                   currentY += lineHeight;
-                 });
-                 currentY += 20;
+                 if (textStr) {
+                    addTextWithCanvas(textStr);
+                    currentY += 20;
+                 }
                }
             } else {
                for (let p of panels) {
@@ -2117,20 +3293,12 @@ ${pagesHtml}</body>
                   }
                   
                   if (p.texts.length > 0) {
-                     pdf.setFontSize(12);
-                     pdf.setTextColor(0, 0, 0);
                      const sortedTexts = sortTextsReadingOrder(p.texts);
                      const textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
-                     
-                     const textLines = pdf.splitTextToSize(textContent, contentWidth);
-                     const lineHeight = 16;
-                     checkAddPage(textLines.length * lineHeight + 20);
-                     
-                     textLines.forEach((line: string) => {
-                       pdf.text(line, margin, currentY, { baseline: 'top' });
-                       currentY += lineHeight;
-                     });
-                     currentY += 10; // extra spacing after text
+                     if (textContent) {
+                        addTextWithCanvas(textContent);
+                        currentY += 10; // extra spacing after text
+                     }
                   }
                }
             }
@@ -2167,16 +3335,15 @@ ${pagesHtml}</body>
 
     const isNoOptions = !ocrDuringBatch && !translateDuringBatch && !splitDuringBatch;
     const isSplitOnly = !ocrDuringBatch && !translateDuringBatch && splitDuringBatch;
+    const hasAnyText = exportPages.some(p => ((p.detectedTexts?.length || 0) + (p.manualTexts?.length || 0)) > 0);
+    const useReflowable = isSplitOnly || hasAnyText;
 
     for (let i = 0; i < exportPages.length; i++) {
       const page = exportPages[i];
-      const imgSrc = page.originalImage;
-      let base64Data = imgSrc;
-      if (!imgSrc.startsWith('data:')) {
-        base64Data = await blobUrlToBase64(imgSrc);
-      }
+      const base64Data = await getMergedImageData(page);
       
-      const isTextOnly = page.isTextOnly || false;
+      const isTextOnly = (page.isTextOnly || false) && (!page.manualImages || page.manualImages.length === 0);
+      const allPageTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
 
       if (isTextOnly) {
         const pageId = `page${seqIndex}`;
@@ -2188,7 +3355,7 @@ ${pagesHtml}</body>
       <content src="${pageId}.xhtml"/>
     </navPoint>\n`;
 
-        const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
+        const sortedTexts = sortTextsReadingOrder(allPageTexts);
         const textContent = sortedTexts.map(t => {
           const paragraphs = t.text.split('\n').map(p => `<p>${p}</p>`).join('');
           return paragraphs;
@@ -2198,7 +3365,7 @@ ${pagesHtml}</body>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
   <title>Text Page ${seqIndex}</title>
-  ${isSplitOnly ? '' : '<meta name="viewport" content="width=800, height=1200"/>'}
+  ${useReflowable ? '' : '<meta name="viewport" content="width=1200, height=1600"/>'}
   <style>
     body { margin: 0; padding: 2em; background: #fff; color: #000; font-family: sans-serif; box-sizing: border-box; }
     p { margin-bottom: 1em; line-height: 1.5; font-size: 1.2em; text-align: justify; }
@@ -2216,8 +3383,8 @@ ${textContent}
              const pageId = `page${seqIndex}`;
              const imgId = `img${seqIndex}`;
              const imgFilename = `image${seqIndex}.jpg`;
-             const w = page.width || 800;
-             const h = page.height || 1200;
+             const w = page.width || 1200;
+             const h = page.height || 1600;
 
              manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml"/>\n`;
              spineItems += `    <itemref idref="${pageId}"/>\n`;
@@ -2228,27 +3395,31 @@ ${textContent}
     </navPoint>\n`;
 
              manifestItems += `    <item id="${imgId}" href="images/${imgFilename}" media-type="image/jpeg"/>\n`;
-             if (imgSrc.startsWith('data:')) {
-               const base64DataRaw = imgSrc.split(',')[1];
-               zip.file(`OEBPS/images/${imgFilename}`, base64DataRaw, { base64: true });
-             } else {
-               const response = await fetch(imgSrc);
-               const blob = await response.blob();
-               zip.file(`OEBPS/images/${imgFilename}`, blob);
+             const base64DataRaw = base64Data.split(',')[1];
+             zip.file(`OEBPS/images/${imgFilename}`, base64DataRaw, { base64: true });
+             
+             let textContentHtml = '';
+             let hasText = allPageTexts.length > 0;
+             if (hasText) {
+                 const sortedTexts = sortTextsReadingOrder(allPageTexts);
+                 textContentHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
              }
              
              zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
   <title>Page ${seqIndex}</title>
-  <meta name="viewport" content="width=${w}, height=${h}"/>
+  ${hasText || useReflowable ? '' : `<meta name="viewport" content="width=${w}, height=${h}"/>`}
   <style>
-    body { margin: 0; padding: 0; background: ${isNoOptions ? '#fff' : '#000'}; width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center; }
-    .comic-img { width: 100%; height: 100%; object-fit: contain; }
+    body { margin: 0; padding: 0; background: ${isNoOptions ? '#fff' : '#000'}; ${hasText || useReflowable ? 'text-align: center;' : `width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center;`} }
+    .comic-img { width: 100%; max-width: ${w}px; height: auto; object-fit: contain; }
+    .panel-text-container { max-width: 800px; margin: 20px auto; padding: 20px; font-family: sans-serif; background: transparent; color: ${isNoOptions ? '#000' : '#fff'}; text-align: left;}
+    .panel-text-line { font-size: 1.2em; line-height: 1.5; margin-bottom: 10px; }
   </style>
 </head>
 <body>
   <img src="images/${imgFilename}" class="comic-img" alt="Page ${seqIndex}" />
+  ${hasText ? `<div class="panel-text-container">${textContentHtml}</div>` : ''}
 </body>
 </html>`);
              seqIndex++;
@@ -2269,11 +3440,21 @@ ${textContent}
                 const panelImgFilename = `image${seqIndex}_p${pIdx}.jpg`;
                 const imgId = `img${seqIndex}_p${pIdx}`;
 
+                let panelTextHtml = '';
+                if (p.texts && p.texts.length > 0) {
+                   const sortedTexts = sortTextsReadingOrder(p.texts);
+                   panelTextHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
+                }
+
                 if (p.base64Image) {
                    const panelBase64DataRaw = p.base64Image.split(',')[1];
                    zip.file(`OEBPS/images/${panelImgFilename}`, panelBase64DataRaw, { base64: true });
                    manifestItems += `    <item id="${imgId}" href="images/${panelImgFilename}" media-type="image/jpeg"/>\n`;
                    panelsHtml += `<div class="panel-box"><img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}" /></div>\n`;
+                }
+
+                if (panelTextHtml) {
+                   panelsHtml += `<div class="panel-text-container">${panelTextHtml}</div>\n`;
                 }
              }
 
@@ -2284,7 +3465,9 @@ ${textContent}
   <style>
     body { margin: 0; padding: 0; background: #fff; text-align: center; }
     .panel-box { margin-bottom: 0px; page-break-inside: avoid; display: block; width: 100%; }
-    .comic-img { width: 100%; height: auto; display: block; }
+    .comic-img { width: 100%; max-width: 1200px; height: auto; display: block; margin: 0 auto; }
+    .panel-text-container { max-width: 800px; margin: 20px auto; padding: 20px; font-family: sans-serif; background: transparent; color: #000; text-align: left; }
+    .panel-text-line { font-size: 1.2em; line-height: 1.5; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -2301,6 +3484,13 @@ ${panelsHtml}
                 const imgId = `img${seqIndex}_p${pIdx}`;
                 const w = p.right - p.left;
                 const h = p.bottom - p.top;
+
+                let panelTextHtml = '';
+                let hasText = p.texts && p.texts.length > 0;
+                if (hasText) {
+                   const sortedTexts = sortTextsReadingOrder(p.texts);
+                   panelTextHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
+                }
 
                 manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml"/>\n`;
                 spineItems += `    <itemref idref="${pageId}"/>\n`;
@@ -2323,14 +3513,17 @@ ${panelsHtml}
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
   <title>Page ${seqIndex} Panel ${pIdx + 1}</title>
-  <meta name="viewport" content="width=${w}, height=${h}"/>
+  ${hasText || useReflowable ? '' : `<meta name="viewport" content="width=${w}, height=${h}"/>`}
   <style>
-    body { margin: 0; padding: 0; background: #000; width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-    .comic-img { width: ${w}px; height: ${h}px; object-fit: contain; }
+    body { margin: 0; padding: 0; background: #000; ${hasText || useReflowable ? 'text-align: center;' : `width: ${w}px; height: ${h}px; display: flex; justify-content: center; align-items: center; overflow: hidden;`} }
+    .comic-img { width: 100%; max-width: ${w}px; height: auto; object-fit: contain; display: block; margin: 0 auto; }
+    .panel-text-container { max-width: 800px; margin: 20px auto; padding: 20px; font-family: sans-serif; background: transparent; color: #fff; text-align: left; }
+    .panel-text-line { font-size: 1.2em; line-height: 1.5; margin-bottom: 10px; }
   </style>
 </head>
 <body>
   <img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}"/>
+  ${hasText ? `<div class="panel-text-container">${panelTextHtml}</div>` : ''}
 </body>
 </html>`);
              }
@@ -2409,12 +3602,13 @@ ${navItems}    </ol>
     let textContent = "";
     for (let i = 0; i < exportPages.length; i++) {
        const page = exportPages[i];
-       // Only include text for pages that are done or intentionally ignored (if they happen to have text)
-       if ((page.status === 'done' || page.isIgnored) && page.detectedTexts.length > 0) {
+       const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+       // Include text for all selected/exported pages
+       if (allTexts.length > 0) {
          textContent += `--- Page ${i + 1} ---\n`;
-         const sortedTexts = sortTextsReadingOrder(page.detectedTexts);
+         const sortedTexts = sortTextsReadingOrder(allTexts);
          for (let textObj of sortedTexts) {
-           textContent += `${textObj.text.replace(/\n/g, ' ')}\n`;
+           textContent += `${textObj.text}\n`;
          }
          textContent += `\n`;
        }
@@ -2435,719 +3629,950 @@ ${navItems}    </ol>
     toast.success("Text exported successfully!");
   };
 
-  return (
-    <div className="relative max-w-6xl mx-auto p-6 space-y-8">
-      <div className="fixed top-4 right-4 z-50 flex gap-2">
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={() => setShowApiKeyModal(true)} 
-          className="w-10 h-10 rounded-full hover:bg-muted text-primary bg-background/50 backdrop-blur-sm shadow-sm border border-border/50"
-          title="App Settings"
-        >
-          <Settings className="w-5 h-5" />
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
-          className="w-10 h-10 rounded-full hover:bg-muted text-primary bg-background/50 backdrop-blur-sm shadow-sm border border-border/50"
-          title="Toggle Dark Mode"
-        >
-          {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-        </Button>
-      </div>
-
-      <header className="text-center space-y-2 pt-4">
-        <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-4">
-          <motion.div 
-            whileHover={{ scale: 1.05 }}
-            className="h-10 flex items-center justify-center"
-          >
-            <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
-          </motion.div>
-          EbookCC
-        </h1>
-        {pages.length === 0 && (
-          <p className="text-muted-foreground text-lg">
-            Batch processing and export of your ebooks using AI-powered OCR tools.
-          </p>
-        )}
-      </header>
-
-      {isUploading && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-card shadow-xl border border-border"
-          >
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <div className="text-center">
-              <h3 className="text-xl font-bold">Uploading...</h3>
-              <p className="text-muted-foreground">Preparing your ebook pages for processing</p>
-            </div>
-          </motion.div>
+  const processSidebarContent = (
+    <div className="space-y-6 w-fit flex flex-col items-center shrink-0">
+      {activePage?.detectedTexts && activePage.detectedTexts.length > 0 && (
+        <div className="space-y-3 max-h-[320px] flex flex-col mb-4 w-fit items-center">
+          <div className="flex items-center shrink-0 gap-4 w-fit">
+            <span className="text-sm font-medium whitespace-nowrap">Page {currentPageIndex + 1} Texts</span>
+            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+              {activePage.detectedTexts.length}
+            </span>
+          </div>
+          <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px] w-fit">
+            {sortTextsReadingOrder(activePage.detectedTexts).map((t, i) => (
+              <div 
+                key={i}
+                className={cn(
+                  "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2 min-w-0 max-w-[200px]",
+                  editingIndex === i ? "border-primary bg-primary/5" : "border-border"
+                )}
+                onClick={() => {
+                  setEditingIndex(i);
+                  setTempText(t.text);
+                  setViewMode('edit');
+                }}
+              >
+                <span className="shrink-0 w-4 font-semibold text-muted-foreground mt-0.5">{i + 1}.</span>
+                <p className="line-clamp-2 font-mono flex-1">{t.text}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {pages.length === 0 ? (
-        <div
-          {...getRootProps()}
-          className={cn(
-            "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all duration-300",
-            isDragActive ? "border-primary bg-primary/5 scale-[1.02]" : "border-muted-foreground/20 hover:border-primary/50"
-          )}
-        >
-          <input {...getInputProps()} />
-          <div className="flex flex-col items-center gap-4">
-            <div className="p-4 rounded-full bg-primary/10 text-primary">
-              <Layers className="w-10 h-10" />
+      <div className={cn("shrink-0 w-fit", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
+        <div className="space-y-4 w-fit flex flex-col items-center">
+          <div className="flex flex-col gap-3 items-center w-fit pb-2">
+            <div 
+              className="flex items-center gap-3 p-2 rounded-none hover:bg-accent/50 cursor-pointer transition-colors w-fit justify-center"
+              onClick={() => {
+                const allSelected = ocrDuringBatch && splitDuringBatch && translateDuringBatch;
+                setOcrDuringBatch(!allSelected);
+                setSplitDuringBatch(!allSelected);
+                setTranslateDuringBatch(!allSelected);
+              }}
+            >
+              <div className={`shrink-0 w-4 h-4 border flex items-center justify-center transition-colors ${ocrDuringBatch && splitDuringBatch && translateDuringBatch ? 'bg-primary border-primary' : 'border-muted-foreground'}`}>
+                {ocrDuringBatch && splitDuringBatch && translateDuringBatch && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
+              </div>
+              <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">All (process all)</label>
             </div>
-            <div>
-              <p className="text-xl font-medium">Drop comic pages, ZIP, or CBZ here</p>
-              <p className="text-muted-foreground">or click to browse files</p>
+
+            <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-fit flex flex-col items-start">
+              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
+                <Checkbox 
+                  checked={splitDuringBatch} 
+                  onCheckedChange={(c) => setSplitDuringBatch(!!c)}
+                  className="w-4 h-4 border-muted-foreground rounded-none"
+                />
+                <div className="flex flex-col w-fit">
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Split Panels</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Detect and individualize panels</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
+                <Checkbox 
+                  checked={ocrDuringBatch} 
+                  onCheckedChange={(c) => setOcrDuringBatch(!!c)}
+                  className="w-4 h-4 border-muted-foreground rounded-none"
+                />
+                <div className="flex flex-col w-fit">
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Extract Text (OCR)</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Extract text via Gemini Flash</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
+                <Checkbox 
+                  id="translate-batch-sb" 
+                  checked={translateDuringBatch} 
+                  onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
+                  className="w-4 h-4 border-muted-foreground rounded-none"
+                />
+                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Translate Text</label>
+              </div>
+            </div>
+
+            {translateDuringBatch && (
+              <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1 w-fit">
+                <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
+                  <SelectTrigger className="w-[140px] h-8 text-[11px]">
+                    <SelectValue placeholder="Select Language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <div className="max-h-[200px] overflow-y-auto">
+                      {LANGUAGES.map(lang => (
+                        <SelectItem key={lang} value={lang} className="text-xs">{lang}</SelectItem>
+                      ))}
+                    </div>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <Button 
+            variant="ghost"
+            className="w-fit gap-2 h-9" 
+            onClick={() => processPage(currentPageIndex)} 
+            disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored}
+          >
+            {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            <span className="whitespace-nowrap">Process Current Page</span>
+          </Button>
+
+          <Button 
+            variant="ghost"
+            className="w-fit gap-2 h-9" 
+            onClick={handleBatchProcess} 
+            disabled={isBatchProcessing || (pages.every(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
+          >
+            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch ? <Download className="w-4 h-4" /> : <Play className="w-4 h-4" />)}
+            <span className="whitespace-nowrap">
+              {(!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) 
+                ? (selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : "Export Directly")
+                : (selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All")
+              }
+            </span>
+          </Button>
+          
+          <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center w-fit">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    className="w-fit gap-2 h-9"
+                    disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
+                  >
+                    <Download className="w-4 h-4" /> <span className="whitespace-nowrap">Export</span>
+                  </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-48" align="center">
+                <DropdownMenuItem onClick={downloadText} className="cursor-pointer">
+                  <Download className="w-4 h-4 mr-2" /> TXT
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer">
+                  <Download className="w-4 h-4 mr-2" /> HTML
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer">
+                  <Download className="w-4 h-4 mr-2" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer">
+                  <Book className="w-4 h-4 mr-2" /> EPUB
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <a 
+              href="https://www.amazon.com/sendtokindle/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4 w-fit"
+            >
+              <span className="whitespace-nowrap">Send to Kindle</span> <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          <Button 
+            variant="ghost" 
+            className="w-fit gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4 h-9" 
+            onClick={() => {
+              setPages([]);
+              setCurrentPageIndex(0);
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="whitespace-nowrap">Clear All Pages</span>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {pages.length === 0 ? (
+        <div className="relative max-w-6xl mx-auto p-6 space-y-8">
+          <div className="fixed top-4 right-4 z-50 flex gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
+              className="w-10 h-10 rounded-full hover:bg-muted text-primary bg-transparent"
+              title="Toggle Dark Mode"
+            >
+              {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            </Button>
+          </div>
+
+          <header className="text-center space-y-2 pt-4">
+            <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-4">
+              <motion.div 
+                whileHover={{ scale: 1.05 }}
+                className="h-10 flex items-center justify-center"
+              >
+                <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
+              </motion.div>
+              EbookCC
+            </h1>
+            <p className="text-muted-foreground text-lg">
+              Batch processing and export of your ebooks using AI-powered OCR tools.
+            </p>
+          </header>
+
+          <div
+            {...getRootProps()}
+            className={cn(
+              "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all duration-300",
+              isDragActive ? "border-primary bg-primary/5 scale-[1.02]" : "border-muted-foreground/20 hover:border-primary/50"
+            )}
+          >
+            <input {...getInputProps()} />
+            <div className="flex flex-col items-center gap-4">
+              <div className="p-4 rounded-full bg-primary/10 text-primary">
+                <Layers className="w-10 h-10" />
+              </div>
+              <div>
+                <p className="text-xl font-medium">Drop comic pages, ZIP, or CBZ here</p>
+                <p className="text-muted-foreground">or click to browse files</p>
+              </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <div className="lg:col-span-3 space-y-2">
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center bg-muted/30 p-1 rounded-lg border gap-y-2">
-              <div className="flex flex-wrap items-center gap-2 w-full">
-                {!isGridView && (
-                  <>
-                    <Button 
-                      variant={viewMode === 'edit' ? "secondary" : "ghost"} 
-                      size="sm" 
-                      onClick={() => setViewMode('edit')}
-                      className="gap-2 h-8"
-                    >
-                      <Edit2 className="w-4 h-4" /> Editor
-                    </Button>
-                    <Button 
-                      variant={viewMode === 'preview' ? "secondary" : "ghost"} 
-                      size="sm" 
-                      onClick={() => setViewMode('preview')}
-                      className="gap-2 h-8"
-                    >
-                      <Eye className="w-4 h-4" /> Preview
-                    </Button>
-                    <div className="w-px h-5 bg-border mx-1 self-center" />
-                  </>
-                )}
+        <div className="h-screen bg-background flex flex-col overflow-hidden">
+          <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">
+            <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
+              {/* Left Actions */}
+              <div className="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar py-1">
                 <Button
-                  variant={isGridView ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => {
-                    setIsGridView(!isGridView);
-                    if (isGridView) {
-                      setSelectedPages(new Set());
-                      setLastSelectedIndex(null);
-                    }
-                  }}
-                  className="gap-2 h-8"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  className="w-8 h-8 shrink-0"
+                  title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
                 >
-                  <CheckSquare className="w-4 h-4" /> {isGridView ? "Done" : "Select"}
+                  {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
                 </Button>
-                {isGridView && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                <div className="w-px h-5 bg-border mx-0.5 shrink-0" />
+                
+                {/* Tools Group (Always Visible) */}
+                <div className="flex items-center gap-0.5">
+                  {/* Portrait/Mobile Tools Group */}
+                  <div className={cn("flex", !isPortrait && "sm:hidden")}>
+                    {isGridView ? (
+                      <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        onClick={() => {
+                          setIsGridView(false);
+                          setSelectedPages(new Set());
+                          setLastSelectedIndex(null);
+                        }}
+                        className="h-8 px-3 gap-1.5 shrink-0 text-xs font-bold"
+                      >
+                        <CheckSquare className="w-4 h-4" /> <span>Done</span>
+                      </Button>
+                    ) : (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 px-2 gap-1 shrink-0">
+                            <Sparkles className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48">
+                          <DropdownMenuItem onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/*';
+                            input.onchange = async (e) => {
+                              const target = e.target as HTMLInputElement;
+                              if (target.files && target.files[0]) {
+                                const file = target.files[0];
+                                const reader = new FileReader();
+                                reader.onload = (event) => {
+                                  const base64 = event.target?.result as string;
+                                  const img = new Image();
+                                  img.onload = () => {
+                                    const updatedPages = [...pages];
+                                    const pageIndex = currentPageIndex;
+                                    const page = { ...updatedPages[pageIndex] };
+                                    const pageRatio = page.width > 0 ? page.height / page.width : 1.5;
+                                    const imgRatio = img.width > 0 ? img.width / img.height : 1;
+                                    const relativeW = page.width > 0 ? ((img.width * 0.25) / page.width) * 1000 : 300;
+                                    const initW = Math.round(relativeW);
+                                    const initH = Math.round(initW / (pageRatio * imgRatio));
+                                    const newImage: ManualImage = {
+                                      id: Math.random().toString(36).substr(2, 9),
+                                      url: base64,
+                                      aspectRatio: imgRatio,
+                                      box_2d: [100, 100, 100 + initH, 100 + initW],
+                                      isHighContrast: false
+                                    };
+                                    page.manualImages = [...(page.manualImages || []), newImage];
+                                    updatedPages[pageIndex] = page;
+                                    setPages(updatedPages);
+                                    setSelectedManualImageId(newImage.id);
+                                    setSelectedManualTextId(null);
+                                  };
+                                  img.src = base64;
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            };
+                            input.click();
+                          }}>
+                            <Upload className="w-4 h-4 mr-2" /> Insert Image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            setViewMode('preview');
+                            setIsAddingTextMode(true);
+                          }}>
+                            <Type className="w-4 h-4 mr-2" /> Add Text
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            setIsGridView(true);
+                            setSelectedPages(new Set());
+                            setLastSelectedIndex(null);
+                          }}>
+                            <CheckSquare className="w-4 h-4 mr-2" /> Select
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+
+                  {/* Desktop Tools */}
+                  <div className={cn("items-center gap-0.5", isPortrait ? "hidden" : "hidden sm:flex")}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
                       onClick={() => {
                         const input = document.createElement('input');
                         input.type = 'file';
-                        input.multiple = true;
-                        input.accept = 'image/*,application/zip,application/x-zip-compressed';
-                        input.onchange = (e) => {
+                        input.accept = 'image/*';
+                        input.onchange = async (e) => {
                           const target = e.target as HTMLInputElement;
-                          if (target.files) {
-                            onDrop(Array.from(target.files));
+                          if (target.files && target.files[0]) {
+                            const file = target.files[0];
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              const base64 = event.target?.result as string;
+                              const img = new Image();
+                              img.onload = () => {
+                                const updatedPages = [...pages];
+                                const pageIndex = currentPageIndex;
+                                const page = { ...updatedPages[pageIndex] };
+                                
+                                const pageRatio = page.width > 0 ? page.height / page.width : 1.5;
+                                const imgRatio = img.width > 0 ? img.width / img.height : 1;
+                                
+                                // Insert scaled to 25% of its natural size for better view
+                                const relativeW = page.width > 0 ? ((img.width * 0.25) / page.width) * 1000 : 300;
+                                const initW = relativeW;
+                                const initH = initW / (pageRatio * imgRatio);
+
+                                const newImage: ManualImage = {
+                                  id: Math.random().toString(36).substr(2, 9),
+                                  url: base64,
+                                  aspectRatio: imgRatio,
+                                  box_2d: [100, 100, 100 + initH, 100 + initW],
+                                  isHighContrast: false
+                                };
+                                
+                                page.manualImages = [...(page.manualImages || []), newImage];
+                                updatedPages[pageIndex] = page;
+                                setPages(updatedPages);
+                                setSelectedManualImageId(newImage.id);
+                                setSelectedManualTextId(null);
+                              };
+                              img.src = base64;
+                            };
+                            reader.readAsDataURL(file);
                           }
                         };
                         input.click();
                       }}
-                      className="gap-2 h-8"
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
                     >
-                      <Upload className="w-4 h-4" /> Add Page
+                      <Upload className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Insert Image</span>
                     </Button>
-                    <Button
-                      variant="ghost"
+                    <Button 
+                      variant={(isAddingTextMode) ? "secondary" : "ghost"} 
+                      size="sm" 
+                      onClick={() => {
+                        setViewMode('preview');
+                        setIsAddingTextMode(!isAddingTextMode);
+                      }}
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
+                    >
+                      <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Add Text</span>
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="w-px h-5 bg-border mx-0.5 shrink-0" />
+                
+                    <Button 
+                      variant={isGridView ? "secondary" : "ghost"}
                       size="sm"
                       onClick={() => {
-                        if (selectedPages.size === pages.length) {
+                        setIsGridView(!isGridView);
+                        if (isGridView) {
                           setSelectedPages(new Set());
-                        } else {
-                          setSelectedPages(new Set(pages.map((_, i) => i)));
+                          setLastSelectedIndex(null);
                         }
                       }}
-                      className="gap-2 h-8"
+                      className={cn("gap-1.5 h-8 px-2 shrink-0 text-xs", isPortrait ? "hidden" : "hidden sm:flex")}
                     >
-                      <CheckSquare className="w-4 h-4" /> {selectedPages.size === pages.length ? "Deselect All" : "Select All"}
+                      <CheckSquare className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{isGridView ? "Done" : "Select"}</span>
                     </Button>
-                  </>
-                )}
-                {isGridView && selectedPages.size > 0 && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const sortedSelected = Array.from(selectedPages).sort((a: number, b: number) => a - b);
-                        if (sortedSelected[0] === 0) return;
-                        const newPages = [...pages];
-                        const newSelected = new Set<number>();
-                        for (const idx of sortedSelected) {
-                          const numIdx = idx as number;
-                          const temp = newPages[numIdx - 1];
-                          newPages[numIdx - 1] = newPages[numIdx];
-                          newPages[numIdx] = temp;
-                          newSelected.add(numIdx - 1);
-                        }
-                        setPages(newPages);
-                        setSelectedPages(newSelected);
-                      }}
-                      className="gap-2 h-8"
-                      disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === 0)}
+
+                {/* Bulk Actions Floating Bar (Sole Layer underneath Select) */}
+                <AnimatePresence>
+                  {isGridView && (
+                    <motion.div
+                      initial={{ y: -10, opacity: 0 }}
+                      animate={{ y: 38, opacity: 1 }}
+                      exit={{ y: -10, opacity: 0 }}
+                      transition={{ type: "spring", damping: 20, stiffness: 300 }}
+                      className="absolute left-4 top-0 bg-background/95 backdrop-blur-sm border border-border shadow-md rounded-lg px-2 py-1.5 flex items-center gap-1.5 z-[60] pointer-events-auto"
                     >
-                      <ChevronLeft className="w-4 h-4" /> Move Left
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const sortedSelected = Array.from(selectedPages).sort((a: number, b: number) => b - a);
-                        if (sortedSelected[0] === pages.length - 1) return;
-                        const newPages = [...pages];
-                        const newSelected = new Set<number>();
-                        for (const idx of sortedSelected) {
-                          const numIdx = idx as number;
-                          const temp = newPages[numIdx + 1];
-                          newPages[numIdx + 1] = newPages[numIdx];
-                          newPages[numIdx] = temp;
-                          newSelected.add(numIdx + 1);
-                        }
-                        setPages(newPages);
-                        setSelectedPages(newSelected);
-                      }}
-                      className="gap-2 h-8"
-                      disabled={Array.from(selectedPages).some((idx: unknown) => (idx as number) === pages.length - 1)}
-                    >
-                      Move Right <ChevronRight className="w-4 h-4" />
-                    </Button>
-                    <div className="w-px h-5 bg-border mx-1 self-center" />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const newPages = [...pages];
-                        selectedPages.forEach(idx => {
-                          newPages[idx].isIgnored = !newPages[idx].isIgnored;
-                        });
-                        setPages(newPages);
-                        setSelectedPages(new Set());
-                      }}
-                      className="gap-2 h-8"
-                    >
-                      <X className="w-4 h-4" /> Toggle Ignore
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => {
-                        const newPages = pages.filter((_, idx) => !selectedPages.has(idx));
-                        setPages(newPages);
-                        setSelectedPages(new Set());
-                        setLastSelectedIndex(null);
-                        setCurrentPageIndex(0);
-                        setIsGridView(false);
-                      }}
-                      className="gap-2 h-8"
-                    >
-                      <Trash2 className="w-4 h-4" /> Delete
-                    </Button>
-                  </>
-                )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.multiple = true;
+                          input.accept = 'image/*,application/zip,application/x-zip-compressed';
+                          input.onchange = (e) => {
+                            const target = e.target as HTMLInputElement;
+                            if (target.files) {
+                              onDrop(Array.from(target.files));
+                            }
+                          };
+                          input.click();
+                        }}
+                        className="gap-1.5 h-7 px-2 shrink-0 text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        <Upload className="w-3.5 h-3.5" /> <span>Add Page</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (selectedPages.size === pages.length) {
+                            setSelectedPages(new Set());
+                          } else {
+                            setSelectedPages(new Set(pages.map((_, i) => i)));
+                          }
+                        }}
+                        className="gap-1.5 h-7 px-2 shrink-0 text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5" /> <span>{selectedPages.size === pages.length ? "Deselect All" : "Select All"}</span>
+                      </Button>
+                      
+                      {selectedPages.size > 0 && (
+                        <>
+                          <div className="w-px h-4 bg-border mx-0.5 shrink-0" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const sortedSelected = Array.from(selectedPages).sort((a: any, b: any) => a - b);
+                              if (sortedSelected[0] === 0) return;
+                              const newPages = [...pages];
+                              const newSelected = new Set<number>();
+                              for (const idx of sortedSelected) {
+                                const numIdx = idx as number;
+                                const temp = newPages[numIdx - 1];
+                                newPages[numIdx - 1] = newPages[numIdx];
+                                newPages[numIdx] = temp;
+                                newSelected.add(numIdx - 1);
+                              }
+                              setPages(newPages);
+                              setSelectedPages(newSelected);
+                            }}
+                            className="h-7 w-7 p-0 shrink-0"
+                            disabled={Array.from(selectedPages).some((idx: any) => idx === 0)}
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const sortedSelected = Array.from(selectedPages).sort((a: any, b: any) => b - a);
+                              if (sortedSelected[0] === pages.length - 1) return;
+                              const newPages = [...pages];
+                              const newSelected = new Set<number>();
+                              for (const idx of sortedSelected) {
+                                const numIdx = idx as number;
+                                const temp = newPages[numIdx + 1];
+                                newPages[numIdx + 1] = newPages[numIdx];
+                                newPages[numIdx] = temp;
+                                newSelected.add(numIdx + 1);
+                              }
+                              setPages(newPages);
+                              setSelectedPages(newSelected);
+                            }}
+                            className="h-7 w-7 p-0 shrink-0"
+                            disabled={Array.from(selectedPages).some((idx: any) => idx === pages.length - 1)}
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const newPages = [...pages];
+                              selectedPages.forEach(idx => {
+                                newPages[idx as number].isIgnored = !newPages[idx as number].isIgnored;
+                              });
+                              setPages(newPages);
+                              setSelectedPages(new Set());
+                            }}
+                            className="h-7 w-7 p-0 shrink-0"
+                            title="Ignore Selected"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              const newPages = pages.filter((_, idx) => !selectedPages.has(idx));
+                              setPages(newPages);
+                              setSelectedPages(new Set());
+                              setLastSelectedIndex(null);
+                              setCurrentPageIndex(0);
+                              setIsGridView(false);
+                            }}
+                            className="h-7 w-7 p-0 shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Center Brand */}
+              <div className="flex shrink-0 items-center justify-center gap-2">
+                 <motion.div 
+                   whileHover={{ scale: 1.05 }}
+                   className="h-8 w-8 flex items-center justify-center"
+                 >
+                   <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
+                 </motion.div>
+                 <h1 className={cn("text-lg font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent", isPortrait ? "hidden" : "hidden sm:block")}>EbookCC</h1>
+              </div>
+
+              {/* Right Actions */}
+              <div className="flex flex-1 items-center justify-end gap-0.5">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setShowApiKeyModal(true)} 
+                  className="w-8 h-8 rounded-md hover:bg-muted"
+                  title="App Settings"
+                >
+                  <Settings className="w-5 h-5" />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
+                  className="w-8 h-8 rounded-md hover:bg-muted"
+                  title="Toggle Dark Mode"
+                >
+                  {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+                </Button>
               </div>
             </div>
-            
-            {!isGridView && (
-              <div className="flex justify-between items-center py-0">
-                <div className="flex items-center gap-1 text-sm font-medium">
-                  <span>Page</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={pages.length}
-                    value={pageInputValue}
-                    onChange={(e) => {
-                      setPageInputValue(e.target.value);
-                      const val = parseInt(e.target.value);
-                      if (!isNaN(val) && val >= 1 && val <= pages.length) {
-                        setCurrentPageIndex(val - 1);
-                      }
-                    }}
-                    onBlur={() => {
-                      setPageInputValue((currentPageIndex + 1).toString());
-                    }}
-                    className="w-10 h-5 px-1 text-center bg-transparent border-b border-t-0 border-x-0 border-foreground/30 focus-visible:outline-none focus:border-primary focus:ring-0 rounded-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  <span>of {pages.length}</span>
-                </div>
-                <div className="flex gap-1">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="w-6 h-6"
-                    disabled={currentPageIndex === 0}
-                    onClick={() => setCurrentPageIndex(p => p - 1)}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="w-6 h-6"
-                    disabled={currentPageIndex === pages.length - 1}
-                    onClick={() => setCurrentPageIndex(p => p + 1)}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
+          </header>
 
-            {/* Main Content Area */}
-            {isGridView ? (
-              <Card className="p-6 bg-black/5 rounded-xl border-2 border-muted min-h-[500px]">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {pages.map((page, idx) => (
-                    <div
-                      key={page.id}
-                      onClick={(e) => {
-                        const newSelected = new Set(selectedPages);
-                        if (e.shiftKey && lastSelectedIndex !== null) {
-                          const start = Math.min(lastSelectedIndex, idx);
-                          const end = Math.max(lastSelectedIndex, idx);
-                          for (let i = start; i <= end; i++) {
-                            newSelected.add(i);
-                          }
-                        } else {
-                          if (newSelected.has(idx)) {
-                            newSelected.delete(idx);
-                          } else {
-                            newSelected.add(idx);
-                          }
-                          setLastSelectedIndex(idx);
-                        }
-                        setSelectedPages(newSelected);
-                      }}
-                      className={cn(
-                        "relative aspect-[2/3] rounded-lg overflow-hidden cursor-pointer border-4 transition-all",
-                        selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-transparent hover:border-primary/50 hover:scale-[1.02]",
-                        page.isIgnored && !selectedPages.has(idx) && "opacity-50"
-                      )}
-                    >
-                      <img src={page.originalImage} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
-                      
-                      <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
-                        {idx + 1}
-                      </div>
-
-                      {page.isIgnored && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[2px]">
-                          <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                            <X className="w-3 h-3" /> Ignored
-                          </div>
-                        </div>
-                      )}
-
-                      {selectedPages.has(idx) && (
-                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                          <div className="bg-primary text-primary-foreground rounded-full p-2 shadow-lg">
-                            <CheckSquare className="w-6 h-6" />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            ) : (
-              <div className="relative w-full flex items-center justify-center">
-                {activePage ? (
-                  <div 
-                    className={cn("relative inline-block w-full transition-opacity duration-300", activePage.isIgnored ? "opacity-50" : "opacity-100")} 
-                    style={{ containerType: 'inline-size' }}
-                    onClick={() => {
-                      if (viewMode === 'preview') {
-                        setIsGridView(true);
-                      } else if (viewMode === 'edit' && editingIndex !== null) {
-                        setEditingIndex(null);
-                      }
-                    }}
-                  >
-                    {activePage.isIgnored && (
-                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm pointer-events-none">
-                        <div className="bg-destructive/90 text-destructive-foreground px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
-                          <X className="w-5 h-5" /> This page is ignored and will be skipped during processing
-                        </div>
-                      </div>
-                    )}
-                    {viewMode === 'preview' && activePage.isTextOnly ? (
-                      <div className="w-full h-auto bg-white p-8 sm:p-16 text-black flex flex-col gap-6" style={{ minHeight: '600px', containerType: 'inline-size' }}>
-                        {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
-                          <div 
-                            key={`${activePage.id}-${idx}`} 
-                            className="text-left font-serif whitespace-pre-wrap"
-                            style={{ 
-                              fontSize: `${(Math.max(16, activePage.width * 0.015) / activePage.width) * 100}cqi`,
-                              lineHeight: 1.6
-                            }}
-                          >
-                            {item.text}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <>
-                        <img
-                          ref={imageRef}
-                          src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
-                          alt={`Page ${currentPageIndex + 1}`}
-                          className="w-full h-auto block bg-white"
+          <main className="flex-1 relative w-full overflow-hidden flex">
+            {/* Sidebar Thumbnails */}
+            <AnimatePresence initial={false}>
+              {isSidebarOpen && !isGridView && (
+                <motion.aside
+                  initial={{ x: -180, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -180, opacity: 0 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+                  className="relative z-40 w-[160px] border-r bg-background/95 backdrop-blur-md shadow-sm flex flex-col overflow-hidden h-full shrink-0"
+                >
+                  <div className="p-3 border-b shrink-0 flex items-center justify-between">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Pages</span>
+                    <div className="flex items-center gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-5 w-5 rounded-none hover:bg-muted" 
+                        onClick={() => setCurrentPageIndex(p => Math.max(0, p - 1))}
+                        disabled={currentPageIndex === 0}
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        <input
+                          type="text"
+                          value={pageInputValue}
+                          onChange={(e) => {
+                            setPageInputValue(e.target.value);
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val >= 1 && val <= pages.length) {
+                              setCurrentPageIndex(val - 1);
+                            }
+                          }}
+                          onBlur={() => {
+                            setPageInputValue((currentPageIndex + 1).toString());
+                          }}
+                          className="w-7 h-5 text-[10px] text-center bg-muted border-none p-0 focus-visible:ring-1 focus-visible:ring-primary rounded-none font-bold"
                         />
-                        
-                        {/* Plain-text display underneath as requested by user workflow */}
-                        {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
-                          <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
-                            <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
-                              <Book className="w-5 h-5 text-primary" /> Extracted Text
-                            </h3>
-                            <div className="space-y-6">
-                              {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
-                                <div key={idx} className="group relative">
-                                  <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
-                                    {(idx + 1).toString().padStart(2, '0')}
-                                  </div>
-                                  <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
-                                    {item.text}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
+                        <span className="text-[9px] text-muted-foreground/60 font-mono">/ {pages.length}</span>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-5 w-5 rounded-none hover:bg-muted" 
+                        onClick={() => setCurrentPageIndex(p => Math.min(pages.length - 1, p + 1))}
+                        disabled={currentPageIndex === pages.length - 1}
+                      >
+                        <ChevronRight className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
+                    {pages.map((page, idx) => (
+                      <div 
+                        key={page.id}
+                        id={`thumb-${idx}`}
+                        onClick={() => setCurrentPageIndex(idx)}
+                        className={cn(
+                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all",
+                          currentPageIndex === idx ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" : "border-black/50 hover:border-black opacity-80 hover:opacity-100 outline outline-1 outline-black/20"
+                        )}
+                      >
+                        <img src={page.originalImage} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
+                        <div className="absolute bottom-1 left-1 bg-black text-white text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
+                          {idx + 1}
+                        </div>
+                        {page.status === 'done' && (
+                          <div className="absolute top-1 right-1 bg-green-500 rounded-none p-0.5 shadow-sm">
+                            <Check className="w-2 h-2 text-white" />
                           </div>
                         )}
-                        <AnimatePresence>
-                          {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
-                            const boxStyle = getBoxStyle(item.box_2d, activePage.width, activePage.height);
-                            const boxToUse = item.box_2d || [0,0,0,0];
-                            const [ymin, xmin, ymax, xmax] = boxToUse;
-                            const textW = ((xmax - xmin) / 1000) * activePage.width;
-                            const textH = ((ymax - ymin) / 1000) * activePage.height;
-                            let estimatedFontSizePx = calculateOptimalFontSize(item.text.trim(), textW * 0.95, textH * 0.95);
-                            const fontSizeCqi = (Math.max(4, estimatedFontSizePx) / activePage.width) * 100;
+                        {page.status === 'processing' && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <Loader2 className="w-4 h-4 text-white animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </motion.aside>
+              )}
+            </AnimatePresence>
 
-                            return (
-                              <motion.div
-                                key={`${activePage.id}-${idx}`}
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                className={cn(
-                                  "absolute group transition-all flex items-center justify-center overflow-hidden",
-                                  viewMode === 'edit' && "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
-                                  editingIndex === idx && "border-primary bg-white z-10 shadow-xl",
-                                  viewMode === 'preview' && "select-text"
-                                )}
-                                style={{
-                                  ...boxStyle,
-                                  backgroundColor: 'transparent',
-                                }}
+            <div className="flex-1 flex overflow-hidden relative">
+              {/* Main Content Area */}
+              <div className="flex-1 overflow-y-auto no-scrollbar relative h-full">
+                <div className={cn(
+                  "w-full pt-0",
+                  isPortrait ? "px-4 md:px-6 max-w-[1600px] mx-auto" : "pl-4 md:pl-6 pr-0 max-w-none"
+                )}>
+                  <div className={cn("w-full space-y-0", !isGridView && !isPortrait && "pr-4")}>
+                    
+                    {isGridView ? (
+                      <Card className="p-6 bg-black/5 rounded-none border-2 border-muted min-h-[500px] mt-4">
+                        <div className={cn("grid gap-4", isPortrait ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5")}>
+                          {pages.map((page, idx) => (
+                            <div
+                              key={page.id}
+                              onClick={(e) => {
+                                const newSelected = new Set(selectedPages);
+                                if (e.shiftKey && lastSelectedIndex !== null) {
+                                  const start = Math.min(lastSelectedIndex, idx);
+                                  const end = Math.max(lastSelectedIndex, idx);
+                                  for (let i = start; i <= end; i++) {
+                                    newSelected.add(i);
+                                  }
+                                } else {
+                                  if (newSelected.has(idx)) {
+                                    newSelected.delete(idx);
+                                  } else {
+                                    newSelected.add(idx);
+                                  }
+                                  setLastSelectedIndex(idx);
+                                }
+                                setSelectedPages(newSelected);
+                              }}
+                              className={cn(
+                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all",
+                                selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-black/40 hover:border-primary/50 hover:scale-[1.02]",
+                                page.isIgnored && !selectedPages.has(idx) && "opacity-50"
+                              )}
+                            >
+                              <img src={page.originalImage} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
+                              <div className="absolute top-2 left-2 bg-black text-white text-[10px] px-1.5 py-0.5 rounded-none font-mono">
+                                {(idx + 1).toString().padStart(2, '0')}
+                              </div>
+                              {page.isIgnored && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[2px]">
+                                  <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                                    <X className="w-3 h-3" /> Ignored
+                                  </div>
+                                </div>
+                              )}
+                              {selectedPages.has(idx) && (
+                                <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                                  <div className="bg-primary text-primary-foreground rounded-full p-2 shadow-lg">
+                                    <CheckSquare className="w-6 h-6" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    ) : (
+                      <div className="relative w-full flex items-center justify-center p-0">
+                        {activePage ? (
+                          <div 
+                            className={cn(
+                              "relative w-full transition-opacity duration-300", 
+                              activePage.isIgnored ? "opacity-50" : "opacity-100",
+                              isAddingTextMode ? "cursor-crosshair" : "cursor-default"
+                            )} 
+                          >
+                            <div className="relative mx-auto w-fit h-fit" ref={editorContainerRef}>
+                              <div
+                                className="relative"
                                 onClick={(e) => {
-                                  if (viewMode === 'edit') {
-                                    e.stopPropagation();
-                                    setEditingIndex(idx);
-                                    setTempText(item.text);
+                                  if (isAddingTextMode) {
+                                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                    const x = ((e.clientX - rect.left) / rect.width) * 1000;
+                                    const y = ((e.clientY - rect.top) / rect.height) * 1000;
+                                    const boxW = 200;
+                                    const boxH = 40;
+                                    const newTextId = Math.random().toString(36).substr(2, 9);
+                                    const newText: ManualText = {
+                                      id: newTextId,
+                                      text: "",
+                                      box_2d: [
+                                        Math.max(0, y - boxH / 2),
+                                        Math.max(0, x - boxW / 2),
+                                        Math.min(1000, y + boxH / 2),
+                                        Math.min(1000, x + boxW / 2)
+                                      ],
+                                      color: "#000000",
+                                      fontSize: 72
+                                    };
+                                    const updatedPages = [...pages];
+                                    const page = { ...updatedPages[currentPageIndex] };
+                                    page.manualTexts = [...(page.manualTexts || []), newText];
+                                    updatedPages[currentPageIndex] = page;
+                                    setPages(updatedPages);
+                                    setSelectedManualTextId(newTextId);
+                                    setIsAddingTextMode(false);
+                                    return;
+                                  }
+
+                                  if (selectedManualImageId || selectedManualTextId || editingIndex !== null) {
+                                    setSelectedManualImageId(null);
+                                    setSelectedManualTextId(null);
+                                    setEditingIndex(null);
+                                    return;
+                                  }
+
+                                  if (activePage.isTextOnly) {
+                                    setIsGridView(true);
+                                    return;
                                   }
                                 }}
                               >
-                                {editingIndex === idx ? (
-                                  <div className="w-full h-full flex flex-col p-1 bg-white">
-                                    <textarea
-                                      autoFocus
-                                      className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-black text-center"
-                                      style={{
-                                        fontFamily: "Helvetica, Arial, sans-serif",
-                                        fontSize: `${fontSizeCqi}cqi`,
-                                        lineHeight: 1.25
-                                      }}
-                                      value={tempText}
-                                      onChange={(e) => setTempText(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                          e.preventDefault();
-                                          handleSaveEdit(idx);
-                                        }
-                                      }}
-                                    />
-                                    <div className="absolute -bottom-8 right-0 flex gap-1 bg-white p-1 rounded shadow-lg border">
-                                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleSaveEdit(idx)}>
-                                        <Check className="h-3 w-3 text-green-600" />
-                                      </Button>
-                                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingIndex(null)}>
-                                        <X className="h-3 w-3 text-red-600" />
-                                      </Button>
-                                    </div>
+                              {activePage.isIgnored && (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm pointer-events-none">
+                                  <div className="bg-destructive/90 text-destructive-foreground px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
+                                    <X className="w-5 h-5" /> This page is ignored and will be skipped during processing
                                   </div>
-                                ) : (
-                                  <div 
-                                    className={cn(
-                                      "w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300",
-                                      "opacity-100"
-                                    )}
-                                  >
+                                </div>
+                              )}
+                              {viewMode === 'preview' && activePage.isTextOnly ? (
+                                <div className="w-full h-auto bg-white p-8 sm:p-16 text-black flex flex-col gap-6" style={{ minHeight: '600px' }}>
+                                  {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
+                                    const fontSizeCqi = activePage.width > 0 ? (Math.max(16, activePage.width * 0.015) / activePage.width) * 100 : 2;
+                                    return (
                                     <div 
-                                      className={cn(
-                                        "font-medium text-black whitespace-pre-wrap text-center",
-                                        viewMode === 'preview' ? "" : "bg-white/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                      )}
+                                      key={`${activePage.id}-${idx}`} 
+                                      className="text-left font-serif whitespace-pre-wrap"
                                       style={{ 
-                                        fontFamily: "Helvetica, Arial, sans-serif", 
-                                        wordBreak: 'break-word',
-                                        textWrap: 'balance',
-                                        fontSize: `${fontSizeCqi}cqi`,
-                                        lineHeight: 1.25
+                                        fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`,
+                                        lineHeight: 1.6
                                       }}
                                     >
                                       {item.text}
                                     </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <>
+                                  <img
+                                    ref={imageRef}
+                                    src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
+                                    alt={`Page ${currentPageIndex + 1}`}
+                                    className="max-h-[calc(100vh-3rem)] w-auto block bg-white border border-black mx-auto"
+                                  />
+                                {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
+                                  <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
+                                    <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
+                                      <Book className="w-5 h-5 text-primary" /> Extracted Text
+                                    </h3>
+                                    <div className="space-y-6">
+                                      {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
+                                        <div key={idx} className="group relative">
+                                          <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
+                                            {(idx + 1).toString().padStart(2, '0')}
+                                          </div>
+                                          <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
+                                            {item.text}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
-                              </motion.div>
-                            );
-                          })}
-                        </AnimatePresence>
-                      </>
-                    )}
+                                <AnimatePresence>
+                                  {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
+                                    const boxStyle = getBoxStyle(item.box_2d, activePage.width, activePage.height);
+                                    const boxToUse = item.box_2d || [0,0,0,0];
+                                    const [ymin, xmin, ymax, xmax] = boxToUse;
+                                    const textW = ((xmax - xmin) / 1000) * activePage.width;
+                                    const textH = ((ymax - ymin) / 1000) * (activePage.height || 1);
+                                    let estimatedFontSizePx = calculateOptimalFontSize(item.text.trim(), textW * 0.95, textH * 0.95);
+                                    const fontSizeCqi = activePage.width > 0 ? (Math.max(4, estimatedFontSizePx) / activePage.width) * 100 : 2;
+                                    return (
+                                      <motion.div
+                                        key={`${activePage.id}-${idx}`}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        className={cn(
+                                          "absolute group transition-all flex items-center justify-center overflow-hidden",
+                                          viewMode === 'edit' && "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
+                                          editingIndex === idx && "border-primary bg-white z-10",
+                                          viewMode === 'preview' && "select-text"
+                                        )}
+                                        style={{ ...boxStyle, backgroundColor: 'transparent' }}
+                                        onClick={(e) => {
+                                          if (viewMode === 'edit') {
+                                            e.stopPropagation();
+                                            setEditingIndex(idx);
+                                            setTempText(item.text);
+                                          }
+                                        }}
+                                      >
+                                        {editingIndex === idx ? (
+                                          <div className="w-full h-full flex flex-col p-1 bg-white">
+                                            <textarea
+                                              autoFocus
+                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-black text-center"
+                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
+                                              value={tempText}
+                                              onChange={(e) => setTempText(e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                  e.preventDefault();
+                                                  handleSaveEdit(idx);
+                                                }
+                                              }}
+                                            />
+                                            <div className="absolute -bottom-8 right-0 flex gap-1 bg-white p-1 rounded border">
+                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleSaveEdit(idx)}>
+                                                <Check className="h-3 w-3 text-green-600" />
+                                              </Button>
+                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingIndex(null)}>
+                                                <X className="h-3 w-3 text-red-600" />
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 opacity-100">
+                                            <div 
+                                              className={cn("font-medium text-black whitespace-pre-wrap text-center", viewMode === 'preview' ? "" : "bg-white/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity")}
+                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
+                                            >
+                                              {item.text}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </motion.div>
+                                    );
+                                  })}
+                                  {activePage.manualImages?.map((img) => (
+                                    <ImageItem key={img.id} img={img} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualImageId === img.id} setSelectedManualImageId={setSelectedManualImageId} pages={pages} setPages={setPages} viewMode={viewMode} pageRatio={activePage.width > 0 ? activePage.height / activePage.width : 1.5} setIsAddingTextMode={setIsAddingTextMode} />
+                                  ))}
+                                  {activePage.manualTexts?.map((mt) => (
+                                    <ManualTextItem key={mt.id} mt={mt} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualTextId === mt.id} viewMode={viewMode} setSelectedManualTextId={setSelectedManualTextId} setSelectedManualImageId={setSelectedManualImageId} setOriginalTextBeforeEdit={setOriginalTextBeforeEdit} originalTextBeforeEdit={originalTextBeforeEdit} pages={pages} setPages={setPages} manualTextRef={manualTextRef} setIsAddingTextMode={setIsAddingTextMode} />
+                                  ))}
+                                </AnimatePresence>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* Thumbnails */}
-            {!isGridView && (
-              <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                {pages.map((page, idx) => (
-                  <div 
-                    key={page.id}
-                    onClick={() => setCurrentPageIndex(idx)}
-                    className={cn(
-                      "relative w-20 h-28 shrink-0 rounded overflow-hidden cursor-pointer border-2 transition-all",
-                      currentPageIndex === idx ? "border-primary shadow-md" : "border-transparent opacity-70 hover:opacity-100"
                     )}
-                  >
-                    <img src={page.originalImage} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
-                    {page.status === 'done' && (
-                      <div className="absolute top-1 right-1 bg-green-500 rounded-full p-0.5">
-                        <Check className="w-3 h-3 text-white" />
+
+                    {/* Process Sidebar in Portrait or Grid View */}
+                    {(isPortrait || isGridView) && (
+                      <div className="mt-8 pb-12 border-t pt-8">
+                        <div className="w-fit mx-auto">
+                           {processSidebarContent}
+                        </div>
                       </div>
                     )}
-                    {page.status === 'processing' && (
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <Loader2 className="w-5 h-5 text-white animate-spin" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            <Card className="p-6 flex flex-col sticky top-6">
-
-              {activePage?.detectedTexts && activePage.detectedTexts.length > 0 && (
-                <div className="space-y-3 max-h-[320px] flex flex-col mb-4">
-                  <div className="flex justify-between items-center shrink-0">
-                    <span className="text-sm font-medium">Page {currentPageIndex + 1} Texts</span>
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                      {activePage.detectedTexts.length}
-                    </span>
-                  </div>
-                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px]">
-                    {sortTextsReadingOrder(activePage.detectedTexts).map((t, i) => (
-                      <div 
-                        key={i}
-                        className={cn(
-                          "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2",
-                          editingIndex === i ? "border-primary bg-primary/5" : "border-border"
-                        )}
-                        onClick={() => {
-                          setEditingIndex(i);
-                          setTempText(t.text);
-                          setViewMode('edit');
-                        }}
-                      >
-                        <span className="shrink-0 w-4 font-semibold text-muted-foreground mt-0.5">{i + 1}.</span>
-                        <p className="line-clamp-2 font-mono flex-1">{t.text}</p>
-                      </div>
-                    ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Right Sidebar for Landscape */}
+              {!isPortrait && !isGridView && (
+                <aside className="w-fit min-w-0 max-w-[320px] shrink-0 border-l bg-background/50 backdrop-blur-md flex flex-col h-full overflow-y-auto no-scrollbar sticky top-0">
+                  <div className="px-3 py-6 w-fit">
+                    {processSidebarContent}
+                  </div>
+                </aside>
               )}
-
-              <div className={cn("shrink-0", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 items-stretch w-full pb-2">
-                    <div 
-                      className="flex items-center justify-between p-2 rounded hover:bg-accent/50 cursor-pointer transition-colors"
-                      onClick={() => {
-                        const allSelected = ocrDuringBatch && splitDuringBatch && translateDuringBatch;
-                        setOcrDuringBatch(!allSelected);
-                        setSplitDuringBatch(!allSelected);
-                        setTranslateDuringBatch(!allSelected);
-                      }}
-                    >
-                      <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground">All (process all)</label>
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${ocrDuringBatch && splitDuringBatch && translateDuringBatch ? 'bg-primary border-primary' : 'border-muted-foreground'}`}>
-                        {ocrDuringBatch && splitDuringBatch && translateDuringBatch && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
-                      </div>
-                    </div>
-
-                    <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-1">
-                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
-                        <div className="flex flex-col">
-                          <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Split Panels</label>
-                          <span className="text-[10px] text-muted-foreground">Detect and individualize panels</span>
-                        </div>
-                        <Checkbox 
-                          checked={splitDuringBatch} 
-                          onCheckedChange={(c) => setSplitDuringBatch(!!c)}
-                          className="w-4 h-4 border-muted-foreground"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
-                        <div className="flex flex-col">
-                          <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Extract Text (OCR)</label>
-                          <span className="text-[10px] text-muted-foreground">Extract text via Gemini Flash</span>
-                        </div>
-                        <Checkbox 
-                          checked={ocrDuringBatch} 
-                          onCheckedChange={(c) => setOcrDuringBatch(!!c)}
-                          className="w-4 h-4 border-muted-foreground"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
-                        <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors">Translate Text</label>
-                        <Checkbox 
-                          id="translate-batch" 
-                          checked={translateDuringBatch} 
-                          onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
-                          className="w-4 h-4 border-muted-foreground"
-                        />
-                      </div>
-                    </div>
-
-                    {translateDuringBatch && (
-                      <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1">
-                        <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
-                          <SelectTrigger className="w-full h-8 text-[11px]">
-                            <SelectValue placeholder="Select Language" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <div className="max-h-[200px] overflow-y-auto">
-                              {LANGUAGES.map(lang => (
-                                <SelectItem key={lang} value={lang} className="text-xs">{lang}</SelectItem>
-                              ))}
-                            </div>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </div>
-
-                  <Button 
-                    variant="ghost"
-                    className="w-full gap-2" 
-                    onClick={() => processPage(currentPageIndex)} 
-                    disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored}
-                  >
-                    {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    Process Current Page
-                  </Button>
-
-
-                  <Button 
-                    variant="ghost"
-                    className="w-full gap-2" 
-                    onClick={handleBatchProcess} 
-                    disabled={isBatchProcessing || (pages.every(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
-                  >
-                    {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch ? <Download className="w-4 h-4" /> : <Play className="w-4 h-4" />)}
-                    {(!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) 
-                      ? (selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : "Export Directly")
-                      : (selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All")
-                    }
-                  </Button>
-                  
-                  <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger 
-                        render={
-                          <Button 
-                            variant="ghost" 
-                            className="w-full gap-2"
-                            disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
-                          >
-                            <Download className="w-4 h-4" /> Export
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent className="w-48" align="center">
-                        <DropdownMenuItem onClick={downloadText} className="cursor-pointer">
-                          <Download className="w-4 h-4 mr-2" /> TXT
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer">
-                          <Download className="w-4 h-4 mr-2" /> HTML
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer">
-                          <Download className="w-4 h-4 mr-2" /> PDF
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer">
-                          <Book className="w-4 h-4 mr-2" /> EPUB
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <a 
-                      href="https://www.amazon.com/sendtokindle/" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4"
-                    >
-                      Send to Kindle <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-
-                  <Button 
-                    variant="ghost" 
-                    className="w-full gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4" 
-                    onClick={() => {
-                      setPages([]);
-                      setCurrentPageIndex(0);
-                    }}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Clear All Pages
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
+            </div>
+          </main>
         </div>
       )}
-
       {/* Settings Modal */}
       <AnimatePresence>
         {showApiKeyModal && (
@@ -3156,7 +4581,7 @@ ${navItems}    </ol>
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-background border rounded-xl shadow-2xl p-6 max-w-lg w-full space-y-4 my-8"
+              className="bg-background border rounded-xl shadow-2xl p-6 max-w-lg w-full space-y-4 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
               <h2 className="text-xl font-bold mb-4">App Settings</h2>
 
@@ -3208,236 +4633,311 @@ ${navItems}    </ol>
       {/* Collage Modal */}
       <AnimatePresence>
         {showCollageModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className="bg-background border rounded-2xl shadow-2xl p-8 max-w-4xl w-full space-y-6 my-8"
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              className="bg-background border rounded-2xl shadow-2xl p-8 max-w-4xl w-full my-8 max-h-[95vh] flex flex-col overflow-hidden"
             >
               <div className="flex justify-between items-center">
                 <div className="space-y-1">
-                  <h2 className="text-2xl font-bold">Create Collage?</h2>
-                  <p className="text-sm text-muted-foreground">Uploaded {pendingFiles.length} images</p>
+                  <h2 className="text-2xl font-bold">{collageStep === 'template' ? 'Choose Layout' : 'Advanced Settings'}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {collageStep === 'template' 
+                      ? `Select one or more templates for ${pendingFiles.length} images` 
+                      : 'Customize how images are rendered in the collage'}
+                  </p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => {
+                <Button variant="ghost" size="icon" className="rounded-full" onClick={() => {
                   setShowCollageModal(false);
+                  setCollageStep('template');
                   processUploadedFiles(pendingFiles);
                 }}>
                   <X className="w-6 h-6" />
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-xl max-h-[500px] overflow-y-auto custom-scrollbar">
-                {Object.keys(LAYOUTS).map(templateId => (
-                  <div 
-                    key={templateId}
-                    onClick={() => {
-                      setIsRandomMode(false);
-                      setSelectedTemplates(prev => 
-                        prev.includes(templateId) ? prev.filter(id => id !== templateId) : [...prev, templateId]
-                      );
-                    }}
-                    className={cn(
-                      "relative aspect-[3/4] border-2 rounded-lg cursor-pointer hover:border-primary transition-all p-3 flex flex-col items-center justify-center gap-2",
-                      selectedTemplates.includes(templateId) && !isRandomMode ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-card"
-                    )}
-                  >
-                    <div className="relative w-full aspect-[3/4] rounded overflow-hidden shadow-inner bg-muted/20">
-                       {LAYOUTS[templateId].image_slots.map((slot, i) => (
-                         <div 
-                            key={i}
-                            className="absolute border border-primary/30 bg-primary/10"
-                            style={{
-                              left: `${(slot.x / 317.5) * 100}%`,
-                              top: `${(slot.y / 423.33) * 100}%`,
-                              width: `${(slot.width / 317.5) * 100}%`,
-                              height: `${(slot.height / 423.33) * 100}%`
-                            }}
-                         />
-                       ))}
-                       {LAYOUTS[templateId].black_fills.map((fill, i) => (
-                         <div 
-                            key={i}
-                            className="absolute bg-black"
-                            style={{
-                              left: `${(fill.x / 317.5) * 100}%`,
-                              top: `${(fill.y / 423.33) * 100}%`,
-                              width: `${(fill.width / 317.5) * 100}%`,
-                              height: `${(fill.height / 423.33) * 100}%`
-                            }}
-                         />
-                       ))}
-                    </div>
-                    <span className="text-[10px] font-mono font-bold uppercase truncate w-full text-center text-muted-foreground group-hover:text-primary">
-                      {templateId.replace('batch_', '')}
-                    </span>
-                    {selectedTemplates.includes(templateId) && !isRandomMode && (
-                      <div className="absolute -top-2 -right-2 bg-primary text-primary-foreground rounded-full p-1 shadow-md">
-                        <Check className="w-3 h-3" />
+              <div className="flex-1 overflow-y-auto py-4 px-1 min-h-0 custom-scrollbar space-y-6">
+                {collageStep === 'template' ? (
+                  <div className={cn("grid gap-3 p-4 bg-muted/20 rounded-xl border border-border/50", isPortrait ? "grid-cols-3" : "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8")}>
+                    {Object.keys(LAYOUTS).map(templateId => (
+                    <div 
+                      key={templateId}
+                      onClick={() => {
+                        setIsRandomMode(false);
+                        setSelectedTemplates(prev => 
+                          prev.includes(templateId) ? prev.filter(id => id !== templateId) : [...prev, templateId]
+                        );
+                      }}
+                      className={cn(
+                        "group relative aspect-[3/4] border-2 rounded-lg cursor-pointer transition-all p-1.5 flex flex-col items-center justify-center gap-1.5",
+                        selectedTemplates.includes(templateId) && !isRandomMode 
+                          ? "border-primary bg-primary/10 shadow-md ring-2 ring-primary/20" 
+                          : "border-transparent bg-card hover:border-muted-foreground/30 hover:bg-muted/30"
+                      )}
+                    >
+                      <div className="relative w-full aspect-[3/4] rounded overflow-hidden bg-slate-100">
+                         {LAYOUTS[templateId].image_slots.map((slot, i) => (
+                           <div 
+                              key={i}
+                              className="absolute border border-slate-300 bg-slate-200"
+                              style={{
+                                left: `${(slot.x / 317.5) * 100}%`,
+                                top: `${(slot.y / 423.33) * 100}%`,
+                                width: `${(slot.width / 317.5) * 100}%`,
+                                height: `${(slot.height / 423.33) * 100}%`
+                              }}
+                           />
+                         ))}
+                         {LAYOUTS[templateId].black_fills.map((fill, i) => (
+                           <div 
+                              key={i}
+                              className="absolute bg-slate-800"
+                              style={{
+                                left: `${(fill.x / 317.5) * 100}%`,
+                                top: `${(fill.y / 423.33) * 100}%`,
+                                width: `${(fill.width / 317.5) * 100}%`,
+                                height: `${(fill.height / 423.33) * 100}%`
+                              }}
+                           />
+                         ))}
                       </div>
-                    )}
+                      <span className={cn(
+                        "text-[9px] font-mono font-bold uppercase truncate w-full text-center transition-colors",
+                        selectedTemplates.includes(templateId) && !isRandomMode ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                      )}>
+                        {templateId.replace('batch_', '')}
+                      </span>
+                      {selectedTemplates.includes(templateId) && !isRandomMode && (
+                        <div className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground rounded-full p-0.5 shadow-md">
+                          <Check className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                  <div className="p-6 bg-muted/20 rounded-xl border border-border/50 space-y-6">
+                    <div className="flex items-center gap-4 p-4 bg-background border rounded-lg shadow-sm">
+                    <Checkbox 
+                      checked={collageOutline} 
+                      onCheckedChange={(checked) => setCollageOutline(!!checked)}
+                      className="w-5 h-5 shrink-0"
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-primary" />
+                        <h3 className="font-semibold">Image Outlines</h3>
+                      </div>
+                      <p className="text-sm text-muted-foreground">Add a black border around each image in the collage.</p>
+                      <p className="text-[10px] text-primary/70 font-medium">* Templates 12-14 always have outlines; 6-8 never have them.</p>
+                    </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="flex items-center gap-4 p-4 bg-background border rounded-lg shadow-sm">
+                    <Checkbox 
+                      checked={collageHighContrast} 
+                      onCheckedChange={(checked) => setCollageHighContrast(!!checked)}
+                      className="w-5 h-5 shrink-0"
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Contrast className="w-4 h-4 text-primary" />
+                        <h3 className="font-semibold">B&W High Contrast</h3>
+                      </div>
+                      <p className="text-sm text-muted-foreground">Convert all images to grayscale with boosted contrast (Manga style).</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-4">
-                <div className="flex gap-2 flex-1">
-                  <Button 
-                    variant={isRandomMode ? "default" : "outline"}
-                    className={cn("flex-1 h-12", isRandomMode && "bg-primary text-primary-foreground")}
-                    onClick={() => {
-                      setIsRandomMode(true);
-                      setSelectedTemplates([]);
-                    }}
-                  >
-                    <Shuffle className="w-4 h-4 mr-2" />
-                    Auto Randomize
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    className="flex-1 h-12"
-                    onClick={() => {
+                {collageStep === 'template' ? (
+                  <>
+                    <div className="flex gap-2 flex-1">
+                      <Button 
+                        variant={isRandomMode ? "default" : "outline"}
+                        className={cn("flex-1 h-12", isRandomMode && "bg-primary text-primary-foreground")}
+                        onClick={() => {
+                          setIsRandomMode(true);
+                          setSelectedTemplates([]);
+                        }}
+                      >
+                        <Shuffle className="w-4 h-4 mr-2" />
+                        Random Layouts
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        className="flex-1 h-12"
+                        onClick={() => {
+                            setShowCollageModal(false);
+                            processUploadedFiles(pendingFiles);
+                        }}
+                      >
+                        Skip Collage
+                      </Button>
+                    </div>
+                    <Button 
+                      className="flex-1 h-12 font-bold"
+                      disabled={selectedTemplates.length === 0 && !isRandomMode}
+                      onClick={() => setCollageStep('settings')}
+                    >
+                      Continue to Settings
+                      <ChevronRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      variant="outline"
+                      className="flex-1 h-12"
+                      onClick={() => setCollageStep('template')}
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-2" />
+                      Back to Layouts
+                    </Button>
+                    <Button 
+                      className="flex-[2] h-12 font-bold"
+                      disabled={isUploading}
+                      onClick={async () => {
+                        if (pendingFiles.length === 0) return;
+                        
+                        setIsUploading(true);
                         setShowCollageModal(false);
-                        processUploadedFiles(pendingFiles);
-                    }}
-                  >
-                    No, Just Upload
-                  </Button>
-                </div>
-                <Button 
-                  className="flex-1 h-12 font-bold"
-                  disabled={(selectedTemplates.length === 0 && !isRandomMode) || isUploading}
-                  onClick={async () => {
-                    if (pendingFiles.length === 0) return;
-                    
-                    setIsUploading(true);
-                    setShowCollageModal(false);
-                    const toastId = toast.loading(`Creating collages... (0/${pendingFiles.length} images)`);
-                    
-                    try {
-                      // 1. Pre-calculate all image ratios to avoid repeated loading
-                      const imagesWithRatios = await Promise.all(pendingFiles.map(async (file) => {
-                        return new Promise<{ file: File, ratio: number }>((resolve, reject) => {
-                          const img = new Image();
-                          const objectUrl = URL.createObjectURL(file);
-                          img.onload = () => {
-                            const ratio = img.width / img.height;
-                            URL.revokeObjectURL(objectUrl);
-                            resolve({ file, ratio });
-                          };
-                          img.onerror = () => {
-                            URL.revokeObjectURL(objectUrl);
-                            reject(new Error(`Failed to load ${file.name}`));
-                          };
-                          img.src = objectUrl;
-                        });
-                      }));
+                        setCollageStep('template'); // Reset for next time
+                        const toastId = toast.loading(`Creating collages... (0/${pendingFiles.length} images)`);
+                        
+                        try {
+                          // 1. Pre-calculate all image ratios
+                          const imagesWithRatios = await Promise.all(pendingFiles.map(async (file) => {
+                            return new Promise<{ file: File, ratio: number }>((resolve, reject) => {
+                              const img = new Image();
+                              const objectUrl = URL.createObjectURL(file);
+                              img.onload = () => {
+                                const ratio = img.width / img.height;
+                                URL.revokeObjectURL(objectUrl);
+                                resolve({ file, ratio });
+                              };
+                              img.onerror = () => {
+                                URL.revokeObjectURL(objectUrl);
+                                reject(new Error(`Failed to load ${file.name}`));
+                              };
+                              img.src = objectUrl;
+                            });
+                          }));
 
-                      const collageResults = [];
-                      let currentImgIdx = 0;
-                      
-                      // Consider all templates if in random mode, otherwise only selected ones
-                      const templatePool = isRandomMode ? Object.keys(LAYOUTS) : selectedTemplates;
+                          const collageResults = [];
+                          let currentImgIdx = 0;
+                          const templatePool = isRandomMode ? Object.keys(LAYOUTS) : selectedTemplates;
 
-                      // Keep creating pages until all images are consumed
-                      while (currentImgIdx < imagesWithRatios.length) {
-                          const remainingCount = imagesWithRatios.length - currentImgIdx;
-                          
-                          // Find the best template in the pool for the next batch of images
-                          let bestTId = templatePool[0];
-                          let minScore = Infinity;
-                          
-                          for (const tId of templatePool) {
-                              const template = LAYOUTS[tId];
-                              const slotCount = template.image_slots.length;
+                          while (currentImgIdx < imagesWithRatios.length) {
+                              const remainingCount = imagesWithRatios.length - currentImgIdx;
+                              let bestTId = templatePool[0];
+                              let minScore = Infinity;
                               
-                              // We can't use a template that needs more images than we have left
-                              // UNLESS it's the only option or we are okay with blank slots
-                              const batchSize = Math.min(slotCount, remainingCount);
-                              const batch = imagesWithRatios.slice(currentImgIdx, currentImgIdx + batchSize);
-                              
-                              // Score this template: average ratio difference for available images
-                              let totalDiff = 0;
-                              const slots = [...template.image_slots];
-                              const tempBatch = [...batch];
-                              
-                              // Greedy match ratios for scoring
-                              while (slots.length > 0 && tempBatch.length > 0) {
-                                  const slot = slots.shift()!;
-                                  const slotRatio = slot.width / slot.height;
+                              for (const tId of templatePool) {
+                                  const template = LAYOUTS[tId];
+                                  const slotCount = template.image_slots.length;
+                                  const batchSize = Math.min(slotCount, remainingCount);
+                                  const batch = imagesWithRatios.slice(currentImgIdx, currentImgIdx + batchSize);
                                   
-                                  let bestImgIdx = 0;
-                                  let bestImgDiff = Math.abs(tempBatch[0].ratio - slotRatio);
+                                  let totalDiff = 0;
+                                  const slots = [...template.image_slots];
+                                  const tempBatch = [...batch];
                                   
-                                  for (let j = 1; j < tempBatch.length; j++) {
-                                      const diff = Math.abs(tempBatch[j].ratio - slotRatio);
-                                      if (diff < bestImgDiff) {
-                                          bestImgDiff = diff;
-                                          bestImgIdx = j;
+                                  while (slots.length > 0 && tempBatch.length > 0) {
+                                      const slot = slots.shift()!;
+                                      const slotRatio = slot.width / slot.height;
+                                      let bestImgIdx = 0;
+                                      let bestImgDiff = Math.abs(tempBatch[0].ratio - slotRatio);
+                                      for (let j = 1; j < tempBatch.length; j++) {
+                                          const diff = Math.abs(tempBatch[j].ratio - slotRatio);
+                                          if (diff < bestImgDiff) {
+                                              bestImgDiff = diff;
+                                              bestImgIdx = j;
+                                          }
                                       }
+                                      totalDiff += bestImgDiff;
+                                      tempBatch.splice(bestImgIdx, 1);
                                   }
-                                  totalDiff += bestImgDiff;
-                                  tempBatch.splice(bestImgIdx, 1);
+                                  const penalty = (slotCount - batchSize) * 0.5;
+                                  const score = (totalDiff / batchSize) + penalty;
+                                  if (score < minScore) {
+                                      minScore = score;
+                                      bestTId = tId;
+                                  }
                               }
 
-                              // Add penalty for unfilled slots if we want to fill pages as much as possible
-                              const penalty = (slotCount - batchSize) * 0.5;
-                              const score = (totalDiff / batchSize) + penalty;
+                              const finalTemplate = LAYOUTS[bestTId];
+                              const pageFilesBatch = pendingFiles.slice(currentImgIdx, currentImgIdx + finalTemplate.image_slots.length);
+                              
+                              // Pass options to generateCollage
+                              const res = await generateCollage(bestTId, pageFilesBatch, {
+                                outline: collageOutline,
+                                highContrast: collageHighContrast
+                              });
 
-                              if (score < minScore) {
-                                  minScore = score;
-                                  bestTId = tId;
+                              if (res) {
+                                  collageResults.push({ ...res, name: `Collage_Page${collageResults.length + 1}_${bestTId}` });
                               }
-                          }
-
-                          const finalTemplate = LAYOUTS[bestTId];
-                          const pageFilesBatch = pendingFiles.slice(currentImgIdx, currentImgIdx + finalTemplate.image_slots.length);
-                          
-                          const res = await generateCollage(bestTId, pageFilesBatch);
-                          if (res) {
-                              collageResults.push({ ...res, name: `Collage_Page${collageResults.length + 1}_${bestTId}` });
+                              currentImgIdx += finalTemplate.image_slots.length;
+                              toast.loading(`Creating collages... (${Math.min(currentImgIdx, pendingFiles.length)}/${pendingFiles.length} images)`, { id: toastId });
                           }
                           
-                          currentImgIdx += finalTemplate.image_slots.length;
-                          toast.loading(`Creating collages... (${Math.min(currentImgIdx, pendingFiles.length)}/${pendingFiles.length} images)`, { id: toastId });
-                      }
-                      
-                      const newPages: PageData[] = collageResults.map((c, idx) => ({
-                        id: c.name + idx + Date.now(),
-                        filename: c.name,
-                        originalImage: c.url,
-                        cleanedImage: null,
-                        detectedTexts: [],
-                        status: 'pending',
-                        width: c.width,
-                        height: c.height
-                      }));
-                      
-                      setPages(prev => [...prev, ...newPages]);
-                      setPendingFiles([]);
-                      setSelectedTemplates([]);
-                      if (pages.length === 0 && newPages.length > 0) {
-                        setCurrentPageIndex(0);
-                        setViewMode('edit');
-                      }
-                      toast.success(`Created ${newPages.length} collages`, { id: toastId });
-                    } catch (error) {
-                      console.error("Collage creation failed:", error);
-                      toast.error("Failed to create collage. Check console for details.", { id: toastId });
-                    } finally {
-                      setIsUploading(false);
-                    }
-                  }}
-                >
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Create {selectedTemplates.length > 0 ? selectedTemplates.length : ''} Collage{selectedTemplates.length > 1 ? 's' : ''}
-                </Button>
+                          const newPages: PageData[] = collageResults.map((c, idx) => ({
+                            id: c.name + idx + Date.now(),
+                            filename: c.name,
+                            originalImage: c.url,
+                            cleanedImage: null,
+                            detectedTexts: [],
+                            status: 'pending',
+                            width: c.width,
+                            height: c.height
+                          }));
+                          
+                          setPages(prev => [...prev, ...newPages]);
+                          setPendingFiles([]);
+                          setSelectedTemplates([]);
+                          if (pages.length === 0 && newPages.length > 0) {
+                            setCurrentPageIndex(0);
+                            setViewMode('edit');
+                          }
+                          toast.success(`Created ${newPages.length} collages`, { id: toastId });
+                        } catch (error) {
+                          console.error("Collage creation failed:", error);
+                          toast.error("Failed to create collage", { id: toastId });
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }}
+                    >
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Generate {pendingFiles.length} Images to Collages
+                    </Button>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div>
+      {isUploading && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-card shadow-xl border border-border max-h-[90vh] overflow-y-auto"
+            >
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="text-center">
+              <h3 className="text-xl font-bold">Uploading...</h3>
+              <p className="text-muted-foreground">Preparing your ebook pages for processing</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </>
   );
 }

@@ -14,9 +14,7 @@ export default function App() {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
-          <main className="py-12">
-            <ComicEditor />
-          </main>
+          <ComicEditor />
           <Toaster position="bottom-right" />
         </div>
       </TooltipProvider>

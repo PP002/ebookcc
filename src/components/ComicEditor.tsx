@@ -2191,8 +2191,8 @@ export default function ComicEditor() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
-  const [ocrDuringBatch, setOcrDuringBatch] = useState(true);
-  const [splitDuringBatch, setSplitDuringBatch] = useState(true);
+  const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
+  const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
   const { theme, setTheme, resolvedTheme } = useTheme();

@@ -1,7 +1,7 @@
 
-# Create or Convert your ebook
+## Create or Convert your ebook
 
-This contains everything you need to run your app locally.
+This contains everything you need.
 
 View online: https://ebookcc.cptd.workers.dev/
 

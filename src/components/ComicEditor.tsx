@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -31,6 +31,8 @@ interface ManualImage {
   aspectRatio: number;
   box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] in 0-1000 space
   isHighContrast: boolean;
+  hasOutline?: boolean;
+  color?: string;
   crop?: {
     ymin: number;
     xmin: number;
@@ -460,6 +462,8 @@ const rotateImageIfNeeded = async (url: string, width: number, height: number): 
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate((270 * Math.PI) / 180);
     ctx.drawImage(img, -width / 2, -height / 2);
+
+    await new Promise(r => setTimeout(r, 10));
 
     return { 
       url: canvas.toDataURL('image/jpeg', 0.95), 
@@ -1257,6 +1261,7 @@ const ImageItem = ({
   const [isScaling, setIsScaling] = useState(false);
   const [isCropping, setIsCropping] = useState(false);
   const [scaleDir, setScaleDir] = useState<string | null>(null);
+  const [isColorFolded, setIsColorFolded] = useState(true);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
 
@@ -1569,10 +1574,13 @@ const ImageItem = ({
             }}
           />
         )}
-        <div className={cn(
-          "w-full h-full relative overflow-hidden bg-muted",
-          img.isHighContrast && "contrast-[1.25] grayscale"
-        )}>
+        <div 
+          className={cn(
+            "w-full h-full relative overflow-hidden",
+            img.isHighContrast && "contrast-[1.25] grayscale"
+          )}
+          style={img.hasOutline ? { border: `2px solid ${img.color || '#000000'}`, boxSizing: 'border-box' } : undefined}
+        >
           <img 
             src={img.url} 
             className="w-full h-full object-fill pointer-events-none" 
@@ -1673,8 +1681,49 @@ const ImageItem = ({
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
             >
+              <div className="relative flex items-center">
+                <Button size="icon" variant="ghost" className={cn("h-9 w-9 hover:bg-slate-100", !isColorFolded ? "text-blue-600 bg-slate-100" : "text-slate-700")} onClick={() => setIsColorFolded(!isColorFolded)} title="Colors">
+                  <Palette className="h-4 w-4" />
+                </Button>
+                
+                <AnimatePresence>
+                  {!isColorFolded && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute bottom-full left-0 mb-3 p-1.5 bg-background border border-border shadow-lg rounded-lg flex flex-row gap-1.5 items-center z-[110]"
+                    >
+                      <div className="flex flex-row gap-1.5">
+                        {['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6'].map(c => (
+                          <button
+                            key={c}
+                            className={cn(
+                              "w-5 h-5 rounded-full border shadow-sm transition-transform hover:scale-110",
+                              img.color === c ? "ring-2 ring-blue-600 ring-offset-1" : ""
+                            )}
+                            style={{ backgroundColor: c }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateImage({ color: c, hasOutline: true });
+                              setIsColorFolded(true);
+                            }}
+                            title={c}
+                          />
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="w-px h-5 bg-gray-200 mx-1" />
+
               <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => updateImage({ isHighContrast: !img.isHighContrast })} title="High Contrast">
                 <Contrast className={cn("h-4 w-4", img.isHighContrast && "text-blue-600")} />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => updateImage({ hasOutline: !img.hasOutline })} title="Outline">
+                <Square className={cn("h-4 w-4", img.hasOutline && "text-blue-600")} />
               </Button>
               <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => moveLayer('up')} title="Layer Up (U)">
                 <ArrowUp className="h-4 w-4" />
@@ -2117,6 +2166,18 @@ const ManualTextItem = ({
   );
 };
 
+const RetroProgressBar = ({ progress }: { progress: number }) => (
+  <div className="flex items-center gap-3 w-full max-w-[400px] font-serif text-primary">
+    <span className="text-2xl italic min-w-[55px] text-right drop-shadow-sm">{progress}%</span>
+    <div className="flex-1 h-8 border border-primary p-1 bg-background shadow-[2px_2px_0px_hsl(var(--primary))]">
+      <div 
+        className="h-full bg-primary transition-all duration-500 ease-out" 
+        style={{ width: `${progress}%` }} 
+      />
+    </div>
+  </div>
+);
+
 export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -2194,6 +2255,9 @@ export default function ComicEditor() {
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+  const [loadingText, setLoadingText] = useState("Uploading...");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [batchProgress, setBatchProgress] = useState(0);
   const [processedCount, setProcessedCount] = useState(() => parseInt(localStorage.getItem('gemini_processed_count') || '0', 10));
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === 'dark';
@@ -2284,33 +2348,55 @@ export default function ComicEditor() {
 
   const processUploadedFiles = async (acceptedFiles: File[]) => {
     setIsUploading(true);
+    setLoadingText("Initializing...");
+    setUploadProgress(5);
     
+    // Ensure UI has rendered the overlay
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    setLoadingText("Processing Files...");
+    setUploadProgress(10);
     let newPages: PageData[] = [];
     const file = acceptedFiles[0];
     
     try {
       if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz')) {
-        toast.info("Extracting archive...");
+        setLoadingText("Unzipping Archive...");
+        setUploadProgress(15);
         const zip = await JSZip.loadAsync(file);
+        setUploadProgress(25);
+        setLoadingText("Extracting Images...");
+        
         const imageFiles = Object.keys(zip.files)
           .filter(name => name.match(/\.(jpe?g|png|webp)$/i))
           .sort((a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}));
           
-        for (const name of imageFiles) {
+        setUploadProgress(30);
+        for (let j = 0; j < imageFiles.length; j++) {
+          const name = imageFiles[j];
+          if (zip.files[name].dir) continue;
+          
           const blob = await zip.files[name].async("blob");
           const url = URL.createObjectURL(blob);
           const dims = await getImageDimensions(url);
           const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
           newPages.push({ id: name + Date.now(), filename: name, originalImage: processed.url, cleanedImage: null, detectedTexts: [], status: 'pending', width: processed.width, height: processed.height });
+          setUploadProgress(Math.round(5 + ((j + 1) / imageFiles.length) * 95));
+          // Yield to renderer frequently to keep progress bar fluid
+          await new Promise(r => setTimeout(r, 10));
         }
         toast.success(`Extracted ${newPages.length} pages`);
       } else {
         const sortedFiles = [...acceptedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-        for (const f of sortedFiles) {
+        for (let i = 0; i < sortedFiles.length; i++) {
+          const f = sortedFiles[i];
           const url = URL.createObjectURL(f);
           const dims = await getImageDimensions(url);
           const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
           newPages.push({ id: f.name + Date.now(), filename: f.name, originalImage: processed.url, cleanedImage: null, detectedTexts: [], status: 'pending', width: processed.width, height: processed.height });
+          setUploadProgress(Math.round(5 + ((i + 1) / sortedFiles.length) * 95));
+          // Yield to renderer frequently to keep progress bar fluid
+          await new Promise(r => setTimeout(r, 10));
         }
       }
       
@@ -2319,6 +2405,9 @@ export default function ComicEditor() {
         setCurrentPageIndex(0);
         setViewMode('edit');
       }
+      
+      setUploadProgress(100);
+      await new Promise(r => setTimeout(r, 500));
     } catch (e) {
       toast.error("Failed to process files");
     } finally {
@@ -2329,13 +2418,22 @@ export default function ComicEditor() {
   const onDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     
-    // Check if it's a zip or a real upload
+    // Start progress feedback IMMEDIATELY
+    setIsUploading(true);
+    setUploadProgress(5);
+    setLoadingText("Identifying files...");
+    
+    // Give browser a moment to render the loading overlay
+    await new Promise(r => setTimeout(r, 100));
+
     const file = acceptedFiles[0];
     const isZip = file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz');
     
-    // If images are uploaded and it's not a zip, ask for collage
-    if (!isZip && acceptedFiles.length >= 1) {
+    // If images are uploaded and it's not a zip, show collage modal
+    if (!isZip) {
       setPendingFiles(acceptedFiles);
+      setUploadProgress(100);
+      setIsUploading(false);
       setShowCollageModal(true);
       return;
     }
@@ -2489,6 +2587,9 @@ export default function ComicEditor() {
     // Clean up any unused images
     remainingImages.forEach(item => URL.revokeObjectURL(item.objectUrl));
 
+    // Yield to let UI update before heavy operation
+    await new Promise(r => setTimeout(r, 10));
+
     return {
         url: canvas.toDataURL('image/jpeg', 0.9),
         width: canvas.width,
@@ -2503,6 +2604,7 @@ export default function ComicEditor() {
       'application/zip': ['.zip', '.cbz'],
       'application/x-zip-compressed': ['.zip', '.cbz']
     },
+    useFsAccessApi: false,
     multiple: true,
   } as any);
 
@@ -2812,6 +2914,7 @@ export default function ComicEditor() {
     }
 
     setIsBatchProcessing(true);
+    setBatchProgress(0);
     
     // Determine which pages to process
     const indicesToProcess = selectedPages.size > 0 
@@ -2827,7 +2930,8 @@ export default function ComicEditor() {
     // Step 1: Blank Check Phase
     toast.info(`Initial scan for blank pages...`);
     const preservedIndices: number[] = [];
-    for (const idx of indicesToProcess) {
+    for (let idxIdx = 0; idxIdx < indicesToProcess.length; idxIdx++) {
+      const idx = indicesToProcess[idxIdx];
       const page = pages[idx];
       if (page.status === 'done') continue;
       
@@ -2838,6 +2942,7 @@ export default function ComicEditor() {
       } else {
         preservedIndices.push(idx);
       }
+      setBatchProgress(Math.round(((idxIdx + 1) / indicesToProcess.length) * 10)); // Allocate 10% to scan
     }
 
     if (preservedIndices.length === 0) {
@@ -2853,11 +2958,43 @@ export default function ComicEditor() {
     for (let index = 0; index < preservedIndices.length; index++) {
       const i = preservedIndices[index];
       setCurrentPageIndex(i); // Follow along
+      const chunkSize = 90 / preservedIndices.length;
+      const progressBefore = Math.round(10 + (index * chunkSize));
+      setBatchProgress(progressBefore);
+      
       try {
-        await processPage(i);
+        const progressAfterApi = 10 + (index * chunkSize) + (chunkSize * 0.4);
+        let simProgress = progressBefore;
+        
+        // Setup an interval to animate progress while waiting for the Gemini API
+        const simInterval = setInterval(() => {
+           simProgress += (progressAfterApi - simProgress) * 0.1; // Ease-out approach
+           setBatchProgress(Math.round(simProgress));
+        }, 500);
+
+        try {
+          await processPage(i);
+        } catch (err) {
+          clearInterval(simInterval);
+          throw err;
+        }
+        
+        clearInterval(simInterval);
+        setBatchProgress(Math.round(progressAfterApi));
+        
         if (index < preservedIndices.length - 1) {
            // Wait ~4.5s to respect 15 RPM limits on Gemini 2.5 Flash Free Tier
-           await new Promise(r => setTimeout(r, 4500));
+           const delaySteps = 45;
+           const progressPerStep = (chunkSize * 0.6) / delaySteps;
+           
+           for (let step = 1; step <= delaySteps; step++) {
+             await new Promise(r => setTimeout(r, 100)); // 100ms per step
+             setBatchProgress(Math.round(progressAfterApi + (progressPerStep * step)));
+           }
+        } else {
+           // Last item finishes the full chunk
+           const progressAfter = Math.round(10 + ((index + 1) * chunkSize));
+           setBatchProgress(progressAfter);
         }
       } catch (e: any) {
         if (e?.message?.toLowerCase().includes("quota") || e?.status === 429) {
@@ -2986,6 +3123,12 @@ export default function ComicEditor() {
                 ctx.drawImage(overlayImg, cX, cY, cW, cH, dx, dy, dw, dh);
             } else {
                 ctx.drawImage(overlayImg, dx, dy, dw, dh);
+            }
+            if (mImg.hasOutline) {
+                ctx.strokeStyle = mImg.color || '#000000';
+                ctx.lineWidth = 2; // Make it 2px for better visibility
+                // 1 pixel relative to original image size
+                ctx.strokeRect(dx, dy, dw, dh);
             }
             ctx.restore();
           } catch (e) {
@@ -3926,7 +4069,8 @@ ${navItems}    </ol>
                                       url: base64,
                                       aspectRatio: imgRatio,
                                       box_2d: [100, 100, 100 + initH, 100 + initW],
-                                      isHighContrast: false
+                                      isHighContrast: false,
+                                      color: '#000000'
                                     };
                                     page.manualImages = [...(page.manualImages || []), newImage];
                                     updatedPages[pageIndex] = page;
@@ -3996,7 +4140,8 @@ ${navItems}    </ol>
                                   url: base64,
                                   aspectRatio: imgRatio,
                                   box_2d: [100, 100, 100 + initH, 100 + initW],
-                                  isHighContrast: false
+                                  isHighContrast: false,
+                                  color: '#000000'
                                 };
                                 
                                 page.manualImages = [...(page.manualImages || []), newImage];
@@ -4273,8 +4418,10 @@ ${navItems}    </ol>
                         id={`thumb-${idx}`}
                         onClick={() => setCurrentPageIndex(idx)}
                         className={cn(
-                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all",
-                          currentPageIndex === idx ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" : "border-black/50 hover:border-black opacity-80 hover:opacity-100 outline outline-1 outline-black/20"
+                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-white",
+                          currentPageIndex === idx 
+                            ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" 
+                            : "border-black/20 hover:border-black/60 opacity-85 hover:opacity-100 outline outline-1 outline-black/10"
                         )}
                       >
                         <img src={page.originalImage} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
@@ -4287,7 +4434,7 @@ ${navItems}    </ol>
                           </div>
                         )}
                         {page.status === 'processing' && (
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <div className="absolute inset-0 bg-background/40 flex items-center justify-center">
                             <Loader2 className="w-4 h-4 text-white animate-spin" />
                           </div>
                         )}
@@ -4308,7 +4455,7 @@ ${navItems}    </ol>
                   <div className={cn("w-full space-y-0", !isGridView && !isPortrait && "pr-4")}>
                     
                     {isGridView ? (
-                      <Card className="p-6 bg-black/5 rounded-none border-2 border-muted min-h-[500px] mt-4">
+                      <Card className="p-6 bg-foreground/5 rounded-none border-2 border-muted min-h-[500px] mt-4">
                         <div className={cn("grid gap-4", isPortrait ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5")}>
                           {pages.map((page, idx) => (
                             <div
@@ -4332,8 +4479,8 @@ ${navItems}    </ol>
                                 setSelectedPages(newSelected);
                               }}
                               className={cn(
-                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all",
-                                selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-black/40 hover:border-primary/50 hover:scale-[1.02]",
+                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-white",
+                                selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-black/30 hover:border-primary/50 hover:scale-[1.02]",
                                 page.isIgnored && !selectedPages.has(idx) && "opacity-50"
                               )}
                             >
@@ -4576,7 +4723,7 @@ ${navItems}    </ol>
       {/* Settings Modal */}
       <AnimatePresence>
         {showApiKeyModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/50 backdrop-blur-sm p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -4633,7 +4780,7 @@ ${navItems}    </ol>
       {/* Collage Modal */}
       <AnimatePresence>
         {showCollageModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-background/70 backdrop-blur-md p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -4805,28 +4952,42 @@ ${navItems}    </ol>
                         if (pendingFiles.length === 0) return;
                         
                         setIsUploading(true);
+                        setLoadingText("Creating Collages...");
+                        setUploadProgress(5);
                         setShowCollageModal(false);
                         setCollageStep('template'); // Reset for next time
+                        
+                        // YIELD to React immediately so the loading overlay appears!
+                        await new Promise(r => setTimeout(r, 100));
+                        
                         const toastId = toast.loading(`Creating collages... (0/${pendingFiles.length} images)`);
                         
                         try {
                           // 1. Pre-calculate all image ratios
-                          const imagesWithRatios = await Promise.all(pendingFiles.map(async (file) => {
-                            return new Promise<{ file: File, ratio: number }>((resolve, reject) => {
+                          let completedRatios = 0;
+                          const imagesWithRatios = [];
+                          for (let i = 0; i < pendingFiles.length; i++) {
+                            const file = pendingFiles[i];
+                            const ratio = await new Promise<number>((resolve, reject) => {
                               const img = new Image();
                               const objectUrl = URL.createObjectURL(file);
                               img.onload = () => {
-                                const ratio = img.width / img.height;
+                                const r = img.width / img.height;
                                 URL.revokeObjectURL(objectUrl);
-                                resolve({ file, ratio });
+                                resolve(r);
                               };
                               img.onerror = () => {
                                 URL.revokeObjectURL(objectUrl);
-                                reject(new Error(`Failed to load ${file.name}`));
+                                resolve(1); // fallback ratio
                               };
                               img.src = objectUrl;
                             });
-                          }));
+                            imagesWithRatios.push({ file, ratio });
+                            completedRatios++;
+                            setUploadProgress(Math.round(5 + (completedRatios / pendingFiles.length) * 20)); // Allocate 20% to pre-calculation
+                            // Yield to renderer frequently to keep progress bar fluid
+                            await new Promise(r => setTimeout(r, 10));
+                          }
 
                           const collageResults = [];
                           let currentImgIdx = 0;
@@ -4883,6 +5044,7 @@ ${navItems}    </ol>
                                   collageResults.push({ ...res, name: `Collage_Page${collageResults.length + 1}_${bestTId}` });
                               }
                               currentImgIdx += finalTemplate.image_slots.length;
+                              setUploadProgress(Math.round(25 + (currentImgIdx / pendingFiles.length) * 75)); // Progress from 25% to 100%
                               toast.loading(`Creating collages... (${Math.min(currentImgIdx, pendingFiles.length)}/${pendingFiles.length} images)`, { id: toastId });
                           }
                           
@@ -4905,6 +5067,8 @@ ${navItems}    </ol>
                             setViewMode('edit');
                           }
                           toast.success(`Created ${newPages.length} collages`, { id: toastId });
+                          setUploadProgress(100);
+                          await new Promise(r => setTimeout(r, 500));
                         } catch (error) {
                           console.error("Collage creation failed:", error);
                           toast.error("Failed to create collage", { id: toastId });
@@ -4924,17 +5088,53 @@ ${navItems}    </ol>
         )}
       </AnimatePresence>
       {isUploading && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.1)]">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-card shadow-xl border border-border max-h-[90vh] overflow-y-auto"
+              className="flex flex-col items-center gap-8 px-12 py-12 rounded-lg bg-background shadow-2xl border border-border max-h-[90vh] overflow-y-auto"
             >
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            {loadingText.toLowerCase().includes("collage") ? null : (
+              <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            )}
             <div className="text-center">
-              <h3 className="text-xl font-bold">Uploading...</h3>
-              <p className="text-muted-foreground">Preparing your ebook pages for processing</p>
+              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">{loadingText}</h3>
+              <p className="text-muted-foreground font-medium text-lg leading-tight px-4 min-h-[3rem]">
+                {loadingText.toLowerCase().includes("collage") || loadingText.toLowerCase().includes("reading") || loadingText.toLowerCase().includes("identifying")
+                  ? "Organizing your images into layout templates" 
+                  : "Preparing your ebook pages for processing"}
+              </p>
             </div>
+
+            {loadingText.toLowerCase().includes("collage") && (
+              <RetroProgressBar progress={uploadProgress} />
+            )}
+          </motion.div>
+        </div>
+      )}
+
+      {isBatchProcessing && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex flex-col items-center gap-8 px-12 py-12 rounded-lg bg-background shadow-2xl border border-border max-w-[500px] w-full mx-4"
+          >
+            <div className="text-center space-y-1">
+              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">Processing Batch...</h3>
+              <p className="text-muted-foreground font-medium text-lg leading-tight px-4">AI is analyzing and translating your comic</p>
+            </div>
+
+            <RetroProgressBar progress={batchProgress} />
+            
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="mt-4 border-foreground text-foreground hover:bg-foreground hover:text-background transition-colors rounded-none"
+              onClick={() => setIsBatchProcessing(false)}
+            >
+              Stop Batch
+            </Button>
           </motion.div>
         </div>
       )}

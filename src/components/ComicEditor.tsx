@@ -327,69 +327,8 @@ function getAverageColorFromCanvas(ctx: CanvasRenderingContext2D, box: [number, 
 }
 
 async function generateCleanedImageFromElement(img: HTMLImageElement, texts: ComicText[]): Promise<string> {
-  const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return img.src;
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0);
-
-  for (const t of texts) {
-    const boxToUse = t.box_2d || [0,0,0,0];
-    const [ymin, xmin, ymax, xmax] = boxToUse;
-    // Keep bounding box same, we shrink the mask itself
-    const expansion = 0; 
-    const eyMin = Math.max(0, ymin - expansion);
-    const exMin = Math.max(0, xmin - expansion);
-    const eyMax = Math.max(0, Math.min(1000, ymax + expansion));
-    const exMax = Math.max(0, Math.min(1000, xmax + expansion));
-
-    const x = (exMin / 1000) * canvas.width;
-    const y = (eyMin / 1000) * canvas.height;
-    const w = ((exMax - exMin) / 1000) * canvas.width;
-    const h = ((eyMax - eyMin) / 1000) * canvas.height;
-
-    if (t.maskBase64) {
-      try {
-        const maskImg = new Image();
-        maskImg.crossOrigin = 'Anonymous';
-        await new Promise((resolve, reject) => {
-          maskImg.onload = resolve;
-          maskImg.onerror = reject;
-          maskImg.src = t.maskBase64!;
-        });
-
-        const maskCanvas = document.createElement('canvas');
-        maskCanvas.width = w;
-        maskCanvas.height = h;
-        const mctx = maskCanvas.getContext('2d');
-        if (mctx) {
-          const padding = 2; // slight shrink
-          const drawW = Math.max(1, w - padding * 2);
-          const drawH = Math.max(1, h - padding * 2);
-          mctx.drawImage(maskImg, padding, padding, drawW, drawH);
-          mctx.globalCompositeOperation = 'source-in';
-          mctx.fillStyle = 'white';
-          mctx.fillRect(0, 0, w, h);
-          ctx.drawImage(maskCanvas, x, y, w, h);
-        } else {
-          ctx.fillStyle = 'white';
-          ctx.fillRect(x, y, w, h);
-        }
-      } catch (e) {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(x, y, w, h);
-      }
-    } else {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(x, y, w, h);
-    }
-  }
-
-  return canvas.toDataURL('image/jpeg', 0.9);
+  // Do not erase original in-painting text. Simply return the original image source to keep artwork pristine!
+  return img.src;
 }
 
 // Helper to check if a page is likely blank (solid color)
@@ -2303,6 +2242,36 @@ export default function ComicEditor() {
   }, [pages.length]);
 
   const activePage = pages[currentPageIndex];
+
+  const [activePagePanels, setActivePagePanels] = useState<ExportPanel[]>([]);
+  const [isPanelsLoading, setIsPanelsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (viewMode === 'preview' && activePage && !activePage.isTextOnly && splitDuringBatch) {
+      setIsPanelsLoading(true);
+      getPanelsForPage(activePage, activePage.originalImage, true, customApiKey)
+        .then(res => {
+          if (active) {
+            setActivePagePanels(res);
+            setIsPanelsLoading(false);
+          }
+        })
+        .catch(err => {
+          console.error("Error loading preview panels", err);
+          if (active) {
+            setActivePagePanels([]);
+            setIsPanelsLoading(false);
+          }
+        });
+    } else {
+      setActivePagePanels([]);
+      setIsPanelsLoading(false);
+    }
+    return () => {
+      active = false;
+    };
+  }, [currentPageIndex, viewMode, activePage, splitDuringBatch, customApiKey]);
 
   useEffect(() => {
     setPageInputValue((currentPageIndex + 1).toString());
@@ -4589,33 +4558,67 @@ ${navItems}    </ol>
                                 </div>
                               ) : (
                                 <>
-                                  <img
-                                    ref={imageRef}
-                                    src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
-                                    alt={`Page ${currentPageIndex + 1}`}
-                                    className="max-h-[calc(100vh-3rem)] w-auto block bg-white border border-black mx-auto"
-                                  />
-                                {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
-                                  <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
-                                    <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
-                                      <Book className="w-5 h-5 text-primary" /> Extracted Text
-                                    </h3>
-                                    <div className="space-y-6">
-                                      {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
-                                        <div key={idx} className="group relative">
-                                          <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
-                                            {(idx + 1).toString().padStart(2, '0')}
-                                          </div>
-                                          <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
-                                            {item.text}
-                                          </p>
+                                  {viewMode === 'preview' && activePagePanels.length > 0 ? (
+                                    <div className="flex flex-col gap-8 max-h-[calc(100vh-3rem)] overflow-y-auto p-4 w-full">
+                                      {activePagePanels.map((panel, pIdx) => (
+                                        <div key={pIdx} className="overflow-hidden bg-white max-w-[600px] mx-auto border border-gray-100 rounded-lg shadow-md p-6 flex flex-col items-center gap-6">
+                                          {panel.base64Image && (
+                                            <div className="w-full flex justify-center overflow-hidden">
+                                              <img
+                                                src={panel.base64Image}
+                                                alt={`Panel ${pIdx + 1}`}
+                                                className="max-h-[400px] object-contain rounded border border-gray-100"
+                                              />
+                                            </div>
+                                          )}
+                                          {panel.texts && panel.texts.length > 0 && (
+                                            <div className="w-full text-left p-4 bg-slate-50 border-l-4 border-primary rounded">
+                                              {sortTextsReadingOrder(panel.texts).map((t, tIdx) => (
+                                                <p key={tIdx} className="text-base font-serif text-slate-800 leading-relaxed mb-3 last:mb-0">
+                                                  {t.text}
+                                                </p>
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                       ))}
                                     </div>
-                                  </div>
-                                )}
+                                  ) : viewMode === 'preview' && isPanelsLoading ? (
+                                    <div className="flex flex-col items-center justify-center py-20 gap-3">
+                                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                      <p className="text-sm text-muted-foreground font-medium">Splitting panels & loading preview...</p>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <img
+                                        ref={imageRef}
+                                        src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
+                                        alt={`Page ${currentPageIndex + 1}`}
+                                        className="max-h-[calc(100vh-3rem)] w-auto block bg-white border border-black mx-auto"
+                                      />
+                                      {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
+                                        <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
+                                          <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
+                                            <Book className="w-5 h-5 text-primary" /> Extracted Text
+                                          </h3>
+                                          <div className="space-y-6">
+                                            {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
+                                              <div key={idx} className="group relative">
+                                                <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
+                                                  {(idx + 1).toString().padStart(2, '0')}
+                                                </div>
+                                                <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
+                                                  {item.text}
+                                                </p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
                                 <AnimatePresence>
-                                  {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
+                                  {viewMode === 'edit' && sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
                                     const boxStyle = getBoxStyle(item.box_2d, activePage.width, activePage.height);
                                     const boxToUse = item.box_2d || [0,0,0,0];
                                     const [ymin, xmin, ymax, xmax] = boxToUse;

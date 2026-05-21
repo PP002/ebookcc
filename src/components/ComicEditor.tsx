@@ -56,6 +56,9 @@ interface PageData {
   height: number;
   isIgnored?: boolean;
   isTextOnly?: boolean;
+  hasOcrRun?: boolean;
+  hasLayoutRun?: boolean;
+  translatedLanguage?: string;
 }
 
 // Helper to resize image for AI processing (reduces bandwidth and speed up detection)
@@ -440,10 +443,18 @@ interface ExportPanel {
   maskBase64?: string;
 }
 
+const panelsCache = new Map<string, ExportPanel[]>();
+
   const getPanelsForPage = async (page: PageData, base64Data: string, splitEnabled: boolean = true, customApiKey?: string): Promise<ExportPanel[]> => {
+  const imgHash = base64Data ? `${base64Data.substring(0, 50)}_${base64Data.length}` : '';
+  const cacheKey = `${page.id}_split_${splitEnabled}_im_${imgHash}_${JSON.stringify(page.detectedTexts || [])}_${JSON.stringify(page.manualTexts || [])}_${JSON.stringify(page.manualImages || [])}`;
+  if (panelsCache.has(cacheKey)) {
+    return panelsCache.get(cacheKey)!;
+  }
+
   if (!splitEnabled) {
     // If splitting is disabled, return the whole page as one panel
-    return [{
+    const defaultPanels = [{
       top: 0,
       bottom: page.height,
       left: 0,
@@ -452,6 +463,8 @@ interface ExportPanel {
       isTextOnly: page.isTextOnly || false,
       base64Image: base64Data
     }];
+    panelsCache.set(cacheKey, defaultPanels);
+    return defaultPanels;
   }
 
   const toSentenceCase = (str: string) => {
@@ -995,6 +1008,7 @@ interface ExportPanel {
     });
   }
 
+  panelsCache.set(cacheKey, exportPanels);
   return exportPanels;
 };
 
@@ -2194,6 +2208,15 @@ export default function ComicEditor() {
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+
+  const needsPageProcessing = (p: PageData) => {
+    if (p.isIgnored) return false;
+    if (p.status === 'pending' || p.status === 'error') return true;
+    if (ocrDuringBatch && !p.hasOcrRun) return true;
+    if (splitDuringBatch && !p.hasLayoutRun) return true;
+    if (translateDuringBatch && p.translatedLanguage !== batchTargetLanguage) return true;
+    return false;
+  };
   const [loadingText, setLoadingText] = useState("Uploading...");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [batchProgress, setBatchProgress] = useState(0);
@@ -2581,20 +2604,27 @@ export default function ComicEditor() {
     const page = pages[pageIndex];
     if (!page || page.status === 'processing' || page.isIgnored) return;
 
+    const runOcr = ocrDuringBatch && !page.hasOcrRun;
+    const runLayout = splitDuringBatch && !page.hasLayoutRun;
+    const runTranslate = translateDuringBatch && (page.translatedLanguage !== batchTargetLanguage || runOcr);
+
     console.log(`[Batch] Processing page ${pageIndex + 1}/${pages.length}`, {
-      ocr: ocrDuringBatch,
-      split: splitDuringBatch,
-      translate: translateDuringBatch
+      ocrRequested: ocrDuringBatch,
+      splitRequested: splitDuringBatch,
+      translateRequested: translateDuringBatch,
+      runOcr,
+      runLayout,
+      runTranslate
     });
 
-    if (!customApiKey && (ocrDuringBatch || translateDuringBatch)) {
-      setIsBatchProcessing(false);
-      setShowApiKeyModal(true);
+    if (!runOcr && !runLayout && !runTranslate) {
+      setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
       return;
     }
 
-    if (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) {
-      setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
+    if (!customApiKey && (runOcr || runTranslate)) {
+      setIsBatchProcessing(false);
+      setShowApiKeyModal(true);
       return;
     }
 
@@ -2621,7 +2651,7 @@ export default function ComicEditor() {
       const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
-      if (splitDuringBatch && (!localTexts || !localPanels)) {
+      if (runLayout && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
           const layoutResult = await runPredictAPI(aiBase64);
@@ -2634,8 +2664,10 @@ export default function ComicEditor() {
         }
       }
 
+      const hasLayoutPanels = localPanels && localPanels.length > 0;
+
       // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
-      if (splitDuringBatch && localPanels && localPanels.length > 0) {
+      if (splitDuringBatch && hasLayoutPanels) {
         toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
         
         // Sort panels by reading order before processing
@@ -2649,7 +2681,7 @@ export default function ComicEditor() {
 
         const finalResults: ComicText[] = [];
         
-        if (ocrDuringBatch) {
+        if (runOcr) {
           for (let i = 0; i < sortedPanels.length; i++) {
             const panel = sortedPanels[i];
             const box = panel.box_2d || panel;
@@ -2717,19 +2749,21 @@ export default function ComicEditor() {
               });
             }
           }
+          result = finalResults;
+        } else {
+          result = page.detectedTexts || [];
         }
-        result = finalResults;
       } 
       // Branch B: No Panels detected or split disabled -> Regular Book Mode
       else {
-        if (ocrDuringBatch) {
+        if (runOcr) {
           toast.info("Analyzing layout and extracting text...");
           // Follow "Non-panel" branch: Regular book -> Gemini OCR and analyze layout
           const rawResult = await detectComicText(aiBase64, customApiKey, localTexts?.length || 0, 'gemini');
           // Canonical sort for the book page
           result = sortTextsReadingOrder(rawResult);
         } else {
-          result = page.detectedTexts; // Keep existing if no OCR requested
+          result = page.detectedTexts || []; // Keep existing if no OCR requested
         }
       }
 
@@ -2741,7 +2775,13 @@ export default function ComicEditor() {
       const hasPanels = localPanels && localPanels.length > 0;
 
       if (result.length === 0 && !splitDuringBatch) {
-        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
+        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { 
+          ...p, 
+          status: 'done',
+          hasOcrRun: page.hasOcrRun || ocrDuringBatch,
+          hasLayoutRun: page.hasLayoutRun || splitDuringBatch,
+          translatedLanguage: translateDuringBatch ? batchTargetLanguage : page.translatedLanguage
+        } : p));
         if (!hasPanels) {
           toast.info("No panels or text detected on this page.");
         }
@@ -2787,7 +2827,7 @@ export default function ComicEditor() {
       
       let finalResults = processedResults;
 
-      if (translateDuringBatch && batchTargetLanguage && finalResults.length > 0) {
+      if (runTranslate && batchTargetLanguage && finalResults.length > 0) {
         try {
           const textsToTranslate = finalResults.map(t => t.text);
           const translatedTexts = await translateTexts(textsToTranslate, batchTargetLanguage, customApiKey);
@@ -2815,7 +2855,10 @@ export default function ComicEditor() {
         detectedTexts: finalResults, 
         cleanedImage, 
         status: 'done',
-        isTextOnly: calculatedIsTextOnly
+        isTextOnly: calculatedIsTextOnly,
+        hasOcrRun: page.hasOcrRun || ocrDuringBatch,
+        hasLayoutRun: page.hasLayoutRun || splitDuringBatch,
+        translatedLanguage: translateDuringBatch ? batchTargetLanguage : page.translatedLanguage
       } : p));
 
       setProcessedCount(prev => {
@@ -2887,11 +2930,11 @@ export default function ComicEditor() {
     
     // Determine which pages to process
     const indicesToProcess = selectedPages.size > 0 
-      ? Array.from(selectedPages).filter(i => !pages[i].isIgnored && pages[i].status !== 'done')
-      : pages.map((_, i) => i).filter(i => !pages[i].isIgnored && pages[i].status !== 'done');
+      ? Array.from(selectedPages).filter(i => needsPageProcessing(pages[i]))
+      : pages.map((_, i) => i).filter(i => needsPageProcessing(pages[i]));
 
     if (indicesToProcess.length === 0) {
-      toast.info("No pages found that require processing.");
+      toast.info("All requested pages are already processed. Ready to export.");
       setIsBatchProcessing(false);
       return;
     }
@@ -2902,7 +2945,10 @@ export default function ComicEditor() {
     for (let idxIdx = 0; idxIdx < indicesToProcess.length; idxIdx++) {
       const idx = indicesToProcess[idxIdx];
       const page = pages[idx];
-      if (page.status === 'done') continue;
+      if (page.status === 'done' || page.hasOcrRun || page.hasLayoutRun) {
+        preservedIndices.push(idx); // Already did blank check previously, skip blank check but keep for processing
+        continue;
+      }
       
       const isBlank = await isPageLikelyBlank(page.originalImage);
       if (isBlank) {
@@ -3857,7 +3903,7 @@ ${navItems}    </ol>
             variant="ghost"
             className="w-fit gap-2 h-9" 
             onClick={handleBatchProcess} 
-            disabled={isBatchProcessing || (pages.every(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
+            disabled={isBatchProcessing || pages.length === 0 || (pages.every(p => !needsPageProcessing(p)) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
           >
             {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch ? <Download className="w-4 h-4" /> : <Play className="w-4 h-4" />)}
             <span className="whitespace-nowrap">

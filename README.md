@@ -1,4 +1,4 @@
 ## Create and Convert Ebook
 All you need is here, try it on: https://ebookcc.com
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/ebookcc)
+[![Ko-fi](https://img.shields.io/badge/Support%20via%20PayPal-0079C1?style=for-the-badge&logo=paypal&logoColor=white)](https://ko-fi.com/你的Kofi)

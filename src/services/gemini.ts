@@ -69,7 +69,7 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
   if (!apiKey) throw new Error("An API Key must be set when running in a browser");
   
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = "gemini-flash-latest"; 
+  const modelName = "gemini-flash-lite-latest"; 
   
   let retries = 10;
   let baseDelay = 5000;

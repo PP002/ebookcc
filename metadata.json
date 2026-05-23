@@ -2,5 +2,5 @@
   "name": "EbookCC",
   "description": "Detect and edit comic speech bubbles with AI-powered OCR and selectable text overlays.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

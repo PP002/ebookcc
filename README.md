@@ -1,4 +1,0 @@
-## Create and Convert Ebook
-All you need is here, try it on: https://ebookcc.com
-
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a20%Coffee-0079C1?style=for-the-badge&logo=paypal&logoColor=white)](https://ko-fi.com/kollolliver)

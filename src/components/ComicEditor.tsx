@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -2203,6 +2203,7 @@ export default function ComicEditor() {
   }, [selectedManualTextId]);
 
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [showCoffeeModal, setShowCoffeeModal] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
@@ -3292,6 +3293,7 @@ ${pagesHtml}</body>
     a.download = 'comic_export.html';
     a.click();
     toast.success("HTML generated successfully!", { icon: "!" });
+    setShowCoffeeModal(true);
     setTimeout(() => {
       toast("Easily Send to Kindle", { icon: "!", duration: 4000 });
     }, 500);
@@ -3465,6 +3467,7 @@ ${pagesHtml}</body>
 
       pdf.save('comic_export.pdf');
       toast.success("PDF generated successfully!");
+      setShowCoffeeModal(true);
     } catch (error) {
       console.error("PDF generation failed:", error);
       toast.error("Failed to generate PDF");
@@ -3753,6 +3756,7 @@ ${navItems}    </ol>
     a.download = 'comic_book.epub';
     a.click();
     toast.success("EPUB generated successfully!");
+    setShowCoffeeModal(true);
   };
 
   const downloadText = () => {
@@ -3785,6 +3789,7 @@ ${navItems}    </ol>
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Text exported successfully!");
+    setShowCoffeeModal(true);
   };
 
   const processSidebarContent = (
@@ -4785,7 +4790,7 @@ ${navItems}    </ol>
                 <div className="space-y-4">
                   <h3 className="font-semibold mb-2 text-primary">Gemini AI Engine</h3>
                   <p className="text-muted-foreground text-xs mb-3">
-                    We use <code className="bg-muted px-1 rounded">gemini-flash-latest</code> for high-precision OCR and translation. 
+                    We use <code className="bg-muted px-1 rounded">gemini-flash-lite-latest</code> for high-precision OCR and translation. 
                     I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.
                     <br />
                     <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
@@ -5187,6 +5192,82 @@ ${navItems}    </ol>
           </motion.div>
         </div>
       )}
+
+      {/* Floating Ko-fi Button */}
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2">
+        <motion.a
+          id="ko-fi-float-btn"
+          href="https://ko-fi.com/kollolliver"
+          target="_blank"
+          rel="noopener noreferrer"
+          whileHover={{ scale: 1.05, y: -2 }}
+          whileTap={{ scale: 0.95 }}
+          className="flex items-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-medium py-3 px-5 rounded-full shadow-lg border border-[#ff3d3a] transition-all text-sm group pointer-events-auto"
+        >
+          <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
+          <span>Buy me a coffee</span>
+          <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
+        </motion.a>
+      </div>
+
+      {/* "Buy me a coffee" modal shown after export */}
+      <AnimatePresence>
+        {showCoffeeModal && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <motion.div
+              id="coffee-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative flex flex-col items-center gap-5 px-8 py-10 rounded-2xl bg-background shadow-2xl border border-border max-w-[450px] w-full mx-4 text-center"
+            >
+              {/* Close Button */}
+              <button
+                id="close-coffee-modal-btn"
+                onClick={() => setShowCoffeeModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-16 h-16 rounded-full bg-[#FF5E5B]/10 flex items-center justify-center text-[#FF5E5B] animate-bounce">
+                <Coffee className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-2xl font-bold font-serif text-foreground">Export Complete! 🎉</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  Thank you for using EbookCC! If this tool saved you time and made your comic-reading journey better, please consider supporting the creator with a coffee.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 w-full mt-2">
+                <a
+                  id="ko-fi-modal-donate-btn"
+                  href="https://ko-fi.com/kollolliver"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setShowCoffeeModal(false)}
+                  className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-semibold py-3 px-6 rounded-xl shadow-md transition-all text-sm group"
+                >
+                  <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
+                  <span>Support on Ko-fi</span>
+                  <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
+                </a>
+                
+                <Button
+                  id="not-now-coffee-modal-btn"
+                  variant="ghost"
+                  className="rounded-xl py-3 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  onClick={() => setShowCoffeeModal(false)}
+                >
+                  Maybe later
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

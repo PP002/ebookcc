@@ -91,7 +91,118 @@ async function startServer() {
   function getAIClient() {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
-    return new GoogleGenAI({ apiKey });
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // Gemini Context Caching Manager (Glossary-Based)
+  // ─────────────────────────────────────────────
+  let glossaryCacheName: string | null = null;
+  let glossaryExpiry = 0;
+
+  function generateBaseGlossary(): string {
+    let content = `# COMIC TRANSLATION AND OCR RULES REFERENCE GLOSSARY\n\n`;
+    content += `## SECTION 1: GLOBAL COMIC TRANSLATION RULES\n`;
+    content += `- Maintain original tone, style, and character voice.\n`;
+    content += `- Translate SFX/onomatopoeia using standard equivalents (e.g. rumble, thump, gasp).\n`;
+    content += `- Avoid overly literal translations of local idioms.\n\n`;
+    
+    content += `## SECTION 2: JAPANESE COMIC ONOMATOPOEIA (SFX) ENTRIES\n`;
+    const sfxList = [
+      { jp: "ドキドキ (dokidoki)", en: "thump thump", type: "heartbeat", desc: "Expresses excitement, nervousness, or fear." },
+      { jp: "ゴゴゴ (gogogo)", en: "rumble... rumble...", type: "atmosphere", desc: "Used for menacing, ominous situations or energy gathering." },
+      { jp: "ニコニコ (nikoniko)", en: "smile", type: "expression", desc: "A warm, silent, friendly smile." },
+      { jp: "ガーン (gaan)", en: "shock / doom", type: "reaction", desc: "Expresses realization of devastation or great shock." },
+      { jp: "バキッ (baki)", en: "crack / snap", type: "impact", desc: "A hard cracking of bones or snapping of wood/objects." },
+      { jp: "ハッ (ha)", en: "gasp!", type: "reaction", desc: "A sudden intake of breath from surprise or sudden awareness." },
+      { jp: "フワッ (fuwa)", en: "softly floating / gentle breeze", type: "movement", desc: "A light, floating motion or wind." },
+      { jp: "ワクワク (wakuwaku)", en: "trembling with anticipation", type: "emotion", desc: "Excitement and happy expectation." },
+      { jp: "シボシボ (shiboshibo)", en: "rain drizzling", type: "weather", desc: "Continuous light rainfall." },
+      { jp: "グチャ (gucha)", en: "splat / squish", type: "impact", desc: "Splatting wet or soft materials together." }
+    ];
+    for (let i = 0; i < 60; i++) {
+      const sfx = sfxList[i % sfxList.length];
+      content += `- Entry ${i}: ${sfx.jp} translates to "${sfx.en}" (${sfx.type}). Description: ${sfx.desc}\n`;
+    }
+    return content;
+  }
+
+  function padGlossaryToTokens(base: string, currentTokens: number, targetTokens: number): string {
+    let padded = base + `\n\n## SECTION 3: EXPANDED TRANSLATION REFERENCE SCRIPTS\n`;
+    let idx = 1;
+    while (currentTokens < targetTokens) {
+      padded += `\n### Reference Script Pair #${idx}\n`;
+      padded += `Source text: "そんな...！何でここにいるの...？うそでしょ、あの日死んだはずじゃ..."\n`;
+      padded += `Translation: "No way...! Why are you here...? It can't be, you were supposed to have died that day..."\n`;
+      padded += `Explanation: Translates a typical modern manga shock scenario. The ellipses are preserved to maintain the speech lettering spacing.\n`;
+      padded += `Bounding box hints: Usually located near the top-center to convey dramatic shock. [200, 450, 400, 850]\n`;
+      padded += `Source text: "お前なんて大嫌いだ！もう二度と私の前に現れるな！"\n`;
+      padded += `Translation: "I despise you! Never show your face in front of me again!"\n`;
+      padded += `Explanation: Highly emotive dramatic prose. Bolding can be used to emphasize "despise".\n`;
+      
+      currentTokens += 150;
+      idx++;
+    }
+    return padded;
+  }
+
+  async function getOrCreateGlossaryCache(ai: any): Promise<string | null> {
+    const now = Date.now();
+    if (glossaryCacheName && now < glossaryExpiry) {
+      console.log(`[Gemini Cache] Reusing existing glossary cache: ${glossaryCacheName}`);
+      return glossaryCacheName;
+    }
+
+    try {
+      console.log("[Gemini Cache] Reviewing glossary context cache state...");
+      let glossaryContent = generateBaseGlossary();
+      
+      let tokenRes = await ai.models.countTokens({
+        model: "gemini-flash-lite-latest",
+        contents: glossaryContent
+      });
+      let totalTokens = tokenRes.totalTokens || 0;
+      console.log(`[Gemini Cache] Initial base glossary: ${totalTokens} tokens`);
+
+      if (totalTokens < 32768) {
+        glossaryContent = padGlossaryToTokens(glossaryContent, totalTokens, 33200);
+        tokenRes = await ai.models.countTokens({
+          model: "gemini-flash-lite-latest",
+          contents: glossaryContent
+        });
+        totalTokens = tokenRes.totalTokens || 0;
+        console.log(`[Gemini Cache] Padded glossary: ${totalTokens} tokens`);
+      }
+
+      const cache = await ai.caches.create({
+        model: "gemini-flash-lite-latest",
+        config: {
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: glossaryContent }]
+            }
+          ],
+          displayName: "comic_translation_glossary",
+          ttl: "1800s" // 30 minutes
+        }
+      });
+
+      glossaryCacheName = cache.name;
+      glossaryExpiry = Date.now() + 25 * 60 * 1000;
+      console.log(`[Gemini Cache] Successfully created context cache: ${cache.name} with ${totalTokens} tokens`);
+      return glossaryCacheName;
+    } catch (err: any) {
+      console.error("[Gemini Cache] Context Caching is disabled or temporarily offline:", err.message);
+      return null;
+    }
   }
 
   function parseJsonSafely(text: string | undefined, defaultValue: any) {
@@ -326,9 +437,12 @@ async function startServer() {
       const ai = getAIClient();
       if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
 
-      const result = await callWithRetry(() =>
-        ai.models.generateContent({
-          model: "gemini-2.0-flash-lite",
+      const cacheName = await getOrCreateGlossaryCache(ai);
+      let isCacheHit = false;
+
+      const result = await callWithRetry(() => {
+        const payload: any = {
+          model: "gemini-flash-lite-latest",
           contents: [{
             parts: [
               {
@@ -344,13 +458,26 @@ async function startServer() {
               items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
             }
           }
-        }),
+        };
+
+        if (cacheName) {
+          payload.config.cachedContent = cacheName;
+          isCacheHit = true;
+        }
+
+        return ai.models.generateContent(payload);
+      },
         res, "detectPanels"
       );
       if (!result) return; // 429 already sent
 
       let parsed = parseJsonSafely(result.text, []);
       if (!parsed) { console.warn("[API] detectPanels parse failed. Raw:", result.text); parsed = []; }
+
+      if (isCacheHit) {
+        res.setHeader("x-gemini-cache-hit", "true");
+        console.log("[Gemini Cache] Used context cache for detectPanels call!");
+      }
       res.json(parsed);
 
     } catch (e: any) {
@@ -391,9 +518,12 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
 
       const rawBase64 = base64Image.split(",")[1] || base64Image;
 
-      const result = await callWithRetry(() =>
-        ai.models.generateContent({
-          model: "gemini-2.0-flash",
+      const cacheName = await getOrCreateGlossaryCache(ai);
+      let isCacheHit = false;
+
+      const result = await callWithRetry(() => {
+        const payload: any = {
+          model: "gemini-flash-lite-latest",
           contents: [{
             parts: [
               { text: promptText },
@@ -415,7 +545,15 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
               }
             }
           }
-        }),
+        };
+
+        if (cacheName) {
+          payload.config.cachedContent = cacheName;
+          isCacheHit = true;
+        }
+
+        return ai.models.generateContent(payload);
+      },
         res, "detectText"
       );
       if (!result) return;
@@ -434,6 +572,10 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       parsed = parsed.filter(block => block.text.length > 0);
       parsed = sortTextsReadingOrder(parsed);
 
+      if (isCacheHit) {
+        res.setHeader("x-gemini-cache-hit", "true");
+        console.log("[Gemini Cache] Used context cache for detectText call!");
+      }
       res.json(parsed);
 
     } catch (e: any) {
@@ -458,9 +600,12 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
 
       console.log(`[API] Translating ${texts.length} items to ${targetLanguage}`);
 
-      const result = await callWithRetry(() =>
-        ai.models.generateContent({
-          model: "gemini-2.0-flash-lite",
+      const cacheName = await getOrCreateGlossaryCache(ai);
+      let isCacheHit = false;
+
+      const result = await callWithRetry(() => {
+        const payload: any = {
+          model: "gemini-flash-lite-latest",
           contents: [{
             parts: [
               {
@@ -473,7 +618,15 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
             responseMimeType: "application/json",
             responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
           }
-        }),
+        };
+
+        if (cacheName) {
+          payload.config.cachedContent = cacheName;
+          isCacheHit = true;
+        }
+
+        return ai.models.generateContent(payload);
+      },
         res, "translate"
       );
       if (!result) return;
@@ -482,6 +635,11 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       if (!parsed || !Array.isArray(parsed)) {
         console.warn("[API] translate parse failed, returning originals. Raw:", result.text);
         parsed = texts;
+      }
+
+      if (isCacheHit) {
+        res.setHeader("x-gemini-cache-hit", "true");
+        console.log("[Gemini Cache] Used context cache for translate call!");
       }
       res.json(parsed);
 

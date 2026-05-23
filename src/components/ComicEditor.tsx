@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -2131,6 +2131,13 @@ const RetroProgressBar = ({ progress }: { progress: number }) => (
   </div>
 );
 
+// Helper to safely encode UTF-8 string to base64
+function b64EncodeUnicode(str: string) {
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(match, p1) {
+    return String.fromCharCode(parseInt(p1, 16));
+  }));
+}
+
 export default function ComicEditor() {
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -2204,11 +2211,285 @@ export default function ComicEditor() {
 
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem('github_token') || "");
+  const [githubRepo, setGithubRepo] = useState(() => localStorage.getItem('github_username_repo') || "");
+  const [githubPath, setGithubPath] = useState(() => localStorage.getItem('github_file_path') || "README.md");
+  const [githubBranch, setGithubBranch] = useState(() => localStorage.getItem('github_branch') || "main");
+  const [githubCommitMsg, setGithubCommitMsg] = useState("Sync transcribed comic to README.md via EbookCC");
+  const [isSyncingGithub, setIsSyncingGithub] = useState(false);
+
+  const generateMarkdown = () => {
+    const exportPages = getExportablePages();
+    let md = `# EbookCC Comic Transcription & Translation\n\n`;
+    md += `Detected and translated using **[EbookCC](https://ai.studio/build)** on ${new Date().toLocaleDateString()}.\n\n`;
+    md += `## Comic Book Summary\n`;
+    md += `- **Total Pages**: ${exportPages.length}\n`;
+    md += `- **Generated At**: ${new Date().toUTCString()}\n\n`;
+    md += `---\n\n`;
+
+    for (let i = 0; i < exportPages.length; i++) {
+      const page = exportPages[i];
+      const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+      
+      md += `## Page ${i + 1}\n\n`;
+      if (page.filename) {
+        md += `*Filename: \`${page.filename}\`*\n\n`;
+      }
+      
+      if (allTexts.length > 0) {
+        md += `> [!NOTE]\n`;
+        md += `> Transcribed & Translated Dialogue:\n\n`;
+        
+        const sortedTexts = sortTextsReadingOrder(allTexts);
+        sortedTexts.forEach((textObj, idx) => {
+          md += `${idx + 1}. **${textObj.text.replace(/\n/g, ' ')}**\n`;
+        });
+        md += `\n`;
+      } else {
+        md += `*No text transcribed on this page.*\n\n`;
+      }
+      md += `---\n\n`;
+    }
+    
+    md += `*Transcribed and formatted with zero-latency OCR & LLM processing using EbookCC.*`;
+    return md;
+  };
+
+  const handleSyncToGithub = async () => {
+    if (!githubToken.trim()) {
+      toast.error("GitHub Personal Access Token is required.");
+      return;
+    }
+    if (!githubRepo.trim() || !githubRepo.includes('/')) {
+      toast.error("Please enter repository in owner/repo format (e.g. username/repo).");
+      return;
+    }
+    if (!githubPath.trim()) {
+      toast.error("File path is required.");
+      return;
+    }
+
+    setIsSyncingGithub(true);
+    const toastId = toast.loading("Connecting to GitHub and checking repository...");
+
+    try {
+      const parts = githubRepo.split('/');
+      const owner = parts[0].trim();
+      const repo = parts[1].trim();
+      const cleanPath = githubPath.trim().replace(/^\//, ''); // strip leading slash
+      const branchName = githubBranch.trim() || "main";
+
+      // Save user configuration
+      localStorage.setItem('github_token', githubToken.trim());
+      localStorage.setItem('github_username_repo', githubRepo.trim());
+      localStorage.setItem('github_file_path', cleanPath);
+      localStorage.setItem('github_branch', branchName);
+
+      const markdownContent = generateMarkdown();
+
+      // Encode content strictly to base64 UTF-8
+      const encodedContent = b64EncodeUnicode(markdownContent);
+
+      const headers: Record<string, string> = {
+        "Authorization": `token ${githubToken.trim()}`,
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json"
+      };
+
+      // Step 1: Check if file already exists so we can get its SHA hash
+      const checkUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(cleanPath)}?ref=${encodeURIComponent(branchName)}`;
+      let currentSha: string | undefined = undefined;
+
+      try {
+        const getRes = await fetch(checkUrl, { headers });
+        if (getRes.ok) {
+          const fileData = await getRes.json();
+          currentSha = fileData.sha;
+          console.log("[GitHub Sync] Existing file found. SHA:", currentSha);
+        } else if (getRes.status === 404) {
+          console.log("[GitHub Sync] Creating new file (no existing file found)");
+        } else {
+          const errorMsg = await getRes.text();
+          throw new Error(`GitHub check error (${getRes.status}): ${errorMsg || getRes.statusText}`);
+        }
+      } catch (getErr: any) {
+        if (getErr.message?.includes("check error")) {
+          throw getErr;
+        }
+        console.warn("[GitHub Sync] Non-blocking check warning:", getErr);
+      }
+
+      // Step 2: Push/Update file
+      const updateUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(cleanPath)}`;
+      const putRes = await fetch(updateUrl, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          message: githubCommitMsg.trim() || `Sync transcribed comic to ${cleanPath} via EbookCC`,
+          content: encodedContent,
+          sha: currentSha,
+          branch: branchName
+        })
+      });
+
+      if (!putRes.ok) {
+        const errorText = await putRes.text();
+        throw new Error(`GitHub upload failed (${putRes.status}): ${errorText || putRes.statusText}`);
+      }
+
+      const uploadData = await putRes.json();
+      const htmlUrl = uploadData?.content?.html_url || `https://github.com/${owner}/${repo}/blob/${branchName}/${cleanPath}`;
+
+      toast.success("Successfully synchronized to GitHub!", {
+        id: toastId,
+        description: `Your ${cleanPath} is now live!`,
+        action: {
+          label: "View Commit",
+          onClick: () => window.open(htmlUrl, "_blank")
+        }
+      });
+      setShowGithubModal(false);
+      setShowCoffeeModal(true);
+    } catch (err: any) {
+      console.error("[GitHub Sync Error]", err);
+      let errMsg = err.message || "Unknown error";
+      if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
+        errMsg = "Unauthorized token. Please verify your Personal Access Token (PAT) permissions.";
+      } else if (errMsg.includes("404")) {
+        errMsg = "Repository or branch not found. Check repository string format (owner/repo) and branch spelling.";
+      }
+      toast.error(`GitHub Sync Failed: ${errMsg}`, { id: toastId, duration: 6000 });
+    } finally {
+      setIsSyncingGithub(false);
+    }
+  };
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+
+  const [llmEngine, setLlmEngine] = useState<'gemini' | 'local'>(() => (localStorage.getItem('llm_engine') || 'gemini') as 'gemini' | 'local');
+  const [localLlmUrl, setLocalLlmUrl] = useState(() => localStorage.getItem('local_llm_url') || "http://localhost:11434/v1");
+  const [localLlmModel, setLocalLlmModel] = useState(() => localStorage.getItem('local_llm_model') || "llama3");
+  const [localLlmApiKey, setLocalLlmApiKey] = useState(() => localStorage.getItem('local_llm_api_key') || "");
+  const [isTestingLocalLlm, setIsTestingLocalLlm] = useState(false);
+
+  const handleTestLocalLlm = async () => {
+    setIsTestingLocalLlm(true);
+    try {
+      const cleanBaseUrl = localLlmUrl.endsWith('/') ? localLlmUrl.slice(0, -1) : localLlmUrl;
+      const url = `${cleanBaseUrl}/chat/completions`;
+      
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (localLlmApiKey) {
+        headers["Authorization"] = `Bearer ${localLlmApiKey}`;
+      }
+
+      let res;
+      try {
+        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isHttpUrl = url.toLowerCase().startsWith('http://');
+
+        if (isHttpsPage && isHttpUrl) {
+          console.log("[Local LLM Test] Redirecting to backend proxy to bypass HTTPS Mixed Content");
+          res = await fetch("/api/local-llm-proxy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url,
+              method: "POST",
+              headers,
+              body: {
+                model: localLlmModel,
+                messages: [
+                  { role: "user", content: "Respond with the single word 'OK'." }
+                ],
+                max_tokens: 5,
+                temperature: 0.1
+              }
+            })
+          });
+        } else {
+          res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              model: localLlmModel,
+              messages: [
+                { role: "user", content: "Respond with the single word 'OK'." }
+              ],
+              max_tokens: 5,
+              temperature: 0.1
+            })
+          });
+        }
+      } catch (fetchErr: any) {
+        console.error("Local LLM test fetch error:", fetchErr);
+        
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isHttpsHost = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+
+        let customDiagnostics = `Could not fetch from local endpoint "${cleanBaseUrl}".\n\n`;
+
+        if (isPrivateIp && isHttpsHost && isCloudHost) {
+          customDiagnostics += 
+            `💡 NETWORK BOUNDARY DETECTED:\n\n` +
+            `You are currently running EbookCC on a secure cloud preview (${window.location.host}), but your LLM server is running inside your private local home network (${cleanBaseUrl}).\n\n` +
+            `Public cloud servers in a GCP datacenter cannot connect to private IPs behind your NAT router!\n\n` +
+            `To make this work immediately:\n` +
+            `1. [RECOMMENDED] Download EbookCC and run it locally with "npm run dev". On http://localhost:3000, secure origin limits are removed and everything works perfectly!\n\n` +
+            `2. Use an HTTPS Tunnel (like ngrok http 1234) on your terminal, then paste the resulting secure public https:// url here.\n\n` +
+            `3. Set up a CORS-allowed public gateway.`;
+        } else {
+          customDiagnostics +=
+            `Troubleshooting checklist:\n` +
+            `1. Ensure your local AI is running (e.g. Ollama/LM Studio).\n` +
+            `2. Is CORS enabled? For Ollama, launch in terminal with:\n` +
+            `   OLLAMA_ORIGINS="*" ollama serve\n` +
+            `3. Is the model name "${localLlmModel}" exact?\n` +
+            `4. Mixed Content: Ensure your browser is not blocking requests from secure pages to http://localhost.`;
+        }
+
+        throw new Error(customDiagnostics);
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        let message = `Endpoint returned status ${res.status}. ${errText || res.statusText}`;
+        
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+        
+        if (isPrivateIp && isCloudHost && res.status === 500 && (errText.includes("ETIMEDOUT") || errText.includes("ENOTFOUND") || errText.includes("ECONNREFUSED") || errText.includes("Proxy failed"))) {
+          message = 
+            `💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED\n\n` +
+            `Your Cloud server-side proxy failed to connect to "${cleanBaseUrl}".\n\n` +
+            `Because EbookCC is hosted in the Cloud, its server cannot route to private RFC1918 class-C IPs in your home network (like 192.168.0.198).\n\n` +
+            `To fix this:\n` +
+            `1. [RECOMMENDED] Export EbookCC and launch it locally on your computer with 'npm run dev'. Once run on http://localhost:3000, your browser can directly connect to both private net IPs and secure public APIs seamlessly!\n\n` +
+            `2. Create an ngrok secure tunnel: run 'ngrok http 1234' on your computer and put the public https:// url in the input field!`;
+        }
+        
+        throw new Error(message);
+      }
+
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content?.trim() || "";
+      if (text) {
+        toast.success(`Success! Connected to model '${localLlmModel}'. Response: "${text}"`);
+      } else {
+        toast.warning("Connected but received empty response from LLM.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Local LLM Connection Failed: ${err.message || 'Check URL/model and ensure Ollama/server is running and CORS are allowed.'}`);
+    } finally {
+      setIsTestingLocalLlm(false);
+    }
+  };
 
   const needsPageProcessing = (p: PageData) => {
     if (p.isIgnored) return false;
@@ -2623,7 +2904,7 @@ export default function ComicEditor() {
       return;
     }
 
-    if (!customApiKey && (runOcr || runTranslate)) {
+    if (llmEngine === 'gemini' && !customApiKey && (runOcr || runTranslate)) {
       setIsBatchProcessing(false);
       setShowApiKeyModal(true);
       return;
@@ -2707,8 +2988,20 @@ export default function ComicEditor() {
               // Wait slightly between panels to help avoid early rate limiting
               if (i > 0) await new Promise(r => setTimeout(r, 1000));
 
-              // Run Gemini OCR on panel with panel-hint (-1)
-              const panelTexts = await detectComicText(pBase64, customApiKey, -1, 'gemini');
+              // Run OCR on panel with panel-hint (-1) (Gemini or Local LLM)
+              const panelTexts = await detectComicText(
+                pBase64,
+                customApiKey,
+                -1,
+                'gemini',
+                undefined,
+                {
+                  engine: llmEngine,
+                  url: localLlmUrl,
+                  model: localLlmModel,
+                  apiKey: localLlmApiKey
+                }
+              );
               
               // Transform panel coordinates back to page coordinates
               // Note: we need to account for the margin we added during cropping
@@ -2759,8 +3052,20 @@ export default function ComicEditor() {
       else {
         if (runOcr) {
           toast.info("Analyzing layout and extracting text...");
-          // Follow "Non-panel" branch: Regular book -> Gemini OCR and analyze layout
-          const rawResult = await detectComicText(aiBase64, customApiKey, localTexts?.length || 0, 'gemini');
+          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
+          const rawResult = await detectComicText(
+            aiBase64,
+            customApiKey,
+            localTexts?.length || 0,
+            'gemini',
+            undefined,
+            {
+              engine: llmEngine,
+              url: localLlmUrl,
+              model: localLlmModel,
+              apiKey: localLlmApiKey
+            }
+          );
           // Canonical sort for the book page
           result = sortTextsReadingOrder(rawResult);
         } else {
@@ -2831,7 +3136,17 @@ export default function ComicEditor() {
       if (runTranslate && batchTargetLanguage && finalResults.length > 0) {
         try {
           const textsToTranslate = finalResults.map(t => t.text);
-          const translatedTexts = await translateTexts(textsToTranslate, batchTargetLanguage, customApiKey);
+          const translatedTexts = await translateTexts(
+            textsToTranslate,
+            batchTargetLanguage,
+            customApiKey,
+            {
+              engine: llmEngine,
+              url: localLlmUrl,
+              model: localLlmModel,
+              apiKey: localLlmApiKey
+            }
+          );
           finalResults = finalResults.map((t, i) => ({
             ...t,
             text: translatedTexts[i] || t.text
@@ -3943,6 +4258,9 @@ ${navItems}    </ol>
                 <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer">
                   <Book className="w-4 h-4 mr-2" /> EPUB
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowGithubModal(true)} className="cursor-pointer text-sky-600 dark:text-sky-400 font-medium hover:text-sky-700 dark:hover:text-sky-300">
+                  <Github className="w-4 h-4 mr-2" /> Sync to GitHub
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <a 
@@ -4787,29 +5105,148 @@ ${navItems}    </ol>
               <h2 className="text-xl font-bold mb-4">App Settings</h2>
 
               <div className="space-y-4">
-                <div className="space-y-4">
-                  <h3 className="font-semibold mb-2 text-primary">Gemini AI Engine</h3>
-                  <p className="text-muted-foreground text-xs mb-3">
-                    We use <code className="bg-muted px-1 rounded">gemini-flash-lite-latest</code> for high-precision OCR and translation. 
-                    I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.
-                    <br />
-                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
-                      Get your free Gemini API Key here
-                    </a>
-                  </p>
-                  <label className="text-sm font-medium">Gemini API Key</label>
-                  <input
-                    type="password"
-                    value={customApiKey}
-                    onChange={(e) => setCustomApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full mt-1 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Your key is stored only in your browser's local storage.
-                  </p>
+                {/* Engine Selector Tab */}
+                <div className="flex bg-muted p-1 rounded-lg border border-border">
+                  <button
+                    id="engine-gemini-btn"
+                    onClick={() => setLlmEngine('gemini')}
+                    className={cn(
+                      "flex-1 text-center py-1.5 text-xs font-medium rounded-md transition-colors",
+                      llmEngine === 'gemini' 
+                        ? "bg-background text-foreground shadow-sm font-semibold" 
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Google Gemini (Cloud)
+                  </button>
+                  <button
+                    id="engine-local-btn"
+                    onClick={() => setLlmEngine('local')}
+                    className={cn(
+                      "flex-1 text-center py-1.5 text-xs font-medium rounded-md transition-colors",
+                      llmEngine === 'local' 
+                        ? "bg-background text-foreground shadow-sm font-semibold" 
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Local LLM (Ollama/LM Studio/OpenAI)
+                  </button>
                 </div>
 
+                {llmEngine === 'gemini' ? (
+                  <div className="space-y-4 pt-2">
+                    <h3 className="font-semibold text-primary text-sm flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-emerald-500 animate-pulse" />
+                      Gemini AI Cloud Engine
+                    </h3>
+                    <p className="text-muted-foreground text-xs leading-relaxed">
+                      We use <code className="bg-muted px-1 rounded">gemini-flash-lite-latest</code> for high-precision OCR and translation. 
+                      I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.
+                      <br />
+                      <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
+                        Get your free Gemini API Key here
+                      </a>
+                    </p>
+                    <div>
+                      <label className="text-xs font-semibold text-foreground">Gemini API Key</label>
+                      <input
+                        id="gemini-api-key-input"
+                        type="password"
+                        value={customApiKey}
+                        onChange={(e) => setCustomApiKey(e.target.value)}
+                        placeholder="AIzaSy..."
+                        className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Your key is stored only in your browser's local storage.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pt-2">
+                    <h3 className="font-semibold text-primary text-sm flex items-center gap-1.5">
+                      <Coffee className="w-4 h-4 text-amber-500" />
+                      Local LLM Translation & OCR Engine
+                    </h3>
+                    <p className="text-muted-foreground text-xs leading-relaxed">
+                      Use a local LLM running on your computer for offline, private, and unlimited translations and comic OCR. Supports Ollama, LM Studio, Llama.cpp, or any OpenAI-compatible API.
+                    </p>
+
+                    <div className="bg-muted rounded-lg p-3 border border-border text-xs text-foreground space-y-2 leading-relaxed shadow-sm">
+                      <span className="font-bold flex items-center gap-1.5 text-sky-700 dark:text-sky-400 text-[13px]">
+                        💡 Vision Model Required for OCR
+                      </span>
+                      <p className="text-foreground/90">
+                        To perform <b>OCR (Text Detection)</b>, you must run a <b>vision-enabled multimodal model</b> (such as <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llama3.2-vision</code>, <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">qwen2.5-vision</code>, or <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llava</code>).
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Plain text models like standard <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llama3</code> are perfect for translation but cannot analyze images for OCR.
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Local API Base URL</label>
+                        <input
+                          id="local-llm-url-input"
+                          type="text"
+                          value={localLlmUrl}
+                          onChange={(e) => setLocalLlmUrl(e.target.value)}
+                          placeholder="http://localhost:11434/v1"
+                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Enterprise/Ollama: <code className="bg-muted px-1 rounded">http://localhost:11434/v1</code>, LM Studio: <code className="bg-muted px-1 rounded">http://localhost:1234/v1</code>
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Model Name</label>
+                        <input
+                          id="local-llm-model-input"
+                          type="text"
+                          value={localLlmModel}
+                          onChange={(e) => setLocalLlmModel(e.target.value)}
+                          placeholder="llama3"
+                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Local API Key (Optional)</label>
+                        <input
+                          id="local-llm-key-input"
+                          type="password"
+                          value={localLlmApiKey}
+                          onChange={(e) => setLocalLlmApiKey(e.target.value)}
+                          placeholder="If required by your local proxy/server"
+                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
+                        />
+                      </div>
+
+                      <div className="pt-2">
+                        <Button 
+                          id="btn-test-local-llm"
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="w-full text-xs"
+                          onClick={handleTestLocalLlm}
+                          disabled={isTestingLocalLlm}
+                        >
+                          {isTestingLocalLlm ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                              Testing local endpoint...
+                            </>
+                          ) : (
+                            "Test Local LLM Connection"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-4">
@@ -4820,6 +5257,11 @@ ${navItems}    </ol>
                   if (customApiKey.trim()) localStorage.setItem('gemini_api_key', customApiKey.trim());
                   else localStorage.removeItem('gemini_api_key');
                   
+                  localStorage.setItem('llm_engine', llmEngine);
+                  localStorage.setItem('local_llm_url', localLlmUrl.trim());
+                  localStorage.setItem('local_llm_model', localLlmModel.trim());
+                  localStorage.setItem('local_llm_api_key', localLlmApiKey.trim());
+
                   setShowApiKeyModal(false);
                   toast.success("Settings saved!");
                 }}>
@@ -5262,6 +5704,150 @@ ${navItems}    </ol>
                   onClick={() => setShowCoffeeModal(false)}
                 >
                   Maybe later
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* GitHub Sync Modal */}
+      <AnimatePresence>
+        {showGithubModal && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 overflow-y-auto">
+            <motion.div
+              id="github-sync-modal"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-background border rounded-2xl shadow-2xl p-6 max-w-md w-full relative space-y-4 text-left"
+            >
+              {/* Close button */}
+              <button
+                id="close-github-modal-btn"
+                onClick={() => setShowGithubModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 border-b pb-3">
+                <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                  <Github className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Sync to GitHub</h3>
+                  <p className="text-xs text-muted-foreground">Push transcribed comic markdown as a commit</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-xs leading-relaxed">
+                <div className="space-y-1 bg-muted p-2 rounded border border-border text-[11px] text-muted-foreground leading-normal">
+                  💡 <b>Quick Setup Guide:</b> 
+                  <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                    <li>Generate a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="underline hover:text-sky-500">Personal Access Token (PAT)</a> with <code className="bg-background px-1 rounded border border-border/50 text-foreground font-semibold">repo</code> scope.</li>
+                    <li>Specify your repository in <code className="bg-background px-1 rounded border border-border/50 text-foreground">owner/repo</code> format.</li>
+                  </ul>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-foreground flex items-center gap-1">
+                    GitHub Personal Access Token (PAT)
+                  </label>
+                  <input
+                    type="password"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-foreground">
+                    Repository (owner/name)
+                  </label>
+                  <input
+                    type="text"
+                    value={githubRepo}
+                    onChange={(e) => setGithubRepo(e.target.value)}
+                    placeholder="kollolliver/comic-translations"
+                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-foreground">
+                      File Path in Repo
+                    </label>
+                    <input
+                      type="text"
+                      value={githubPath}
+                      onChange={(e) => setGithubPath(e.target.value)}
+                      placeholder="README.md"
+                      className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-foreground">
+                      Repository Branch
+                    </label>
+                    <input
+                      type="text"
+                      value={githubBranch}
+                      onChange={(e) => setGithubBranch(e.target.value)}
+                      placeholder="main"
+                      className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-foreground">
+                    Commit Message
+                  </label>
+                  <input
+                    type="text"
+                    value={githubCommitMsg}
+                    onChange={(e) => setGithubCommitMsg(e.target.value)}
+                    placeholder="Sync transcribed comic to README.md via EbookCC"
+                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/40 rounded-lg p-3 text-[11px] text-sky-800 dark:text-sky-300 flex items-start gap-2 leading-relaxed">
+                <span className="shrink-0 mt-0.5">ℹ️</span>
+                <p>
+                  Your current transcribed and translated comic dialogue will be formatted into a clean Markdown document (containing page segments and dialog bullet indices) and synced directly.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t text-sm">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowGithubModal(false)}
+                  disabled={isSyncingGithub}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSyncToGithub}
+                  disabled={isSyncingGithub}
+                  className="bg-sky-600 hover:bg-sky-700 text-white gap-2 font-semibold border-none"
+                >
+                  {isSyncingGithub ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Syncing...
+                    </>
+                  ) : (
+                    <>
+                      <Github className="w-4 h-4" />
+                      Sync to GitHub
+                    </>
+                  )}
                 </Button>
               </div>
             </motion.div>

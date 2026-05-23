@@ -649,6 +649,46 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
     }
   });
 
+  // Proxy endpoint to prevent mixed-content & CORS errors for secure browser connections
+  app.post("/api/local-llm-proxy", async (req, res): Promise<any> => {
+    try {
+      const { url, method, headers, body } = req.body;
+      if (!url) {
+        return res.status(400).json({ error: "url is required" });
+      }
+
+      console.log(`[Proxy] Routing request to URL: ${method || 'POST'} ${url}`);
+
+      const response = await fetch(url, {
+        method: method || "POST",
+        headers: headers || { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(30000)
+      });
+
+      const responseText = await response.text();
+      let json;
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        json = null;
+      }
+
+      res.status(response.status);
+      if (json) {
+        res.json(json);
+      } else {
+        res.send(responseText);
+      }
+    } catch (err: any) {
+      console.error("[Proxy Error] Connection failure:", err.message);
+      res.status(500).json({
+        error: `Proxy failed to connect to local LLM server. Details: ${err.message}`,
+        isProxyError: true
+      });
+    }
+  });
+
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('Express Error:', err.message);
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Payload too large' });

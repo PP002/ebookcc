@@ -9,6 +9,7 @@ Detect and edit comic speech bubbles with AI-powered OCR and selectable text ove
 - **AI-Powered OCR**: Automatically detect, read, and overlay clean, selectable and customizable text on comic speech bubbles.
 - **Interactive Speech Bubbles**: Easily add, resize, move, or style text annotations directly over panels.
 - **Flexible Exporters**: Seamless export of edited or annotated comic books to HTML, PDF, EPUB, or Plain Text.
+- **Direct GitHub Sync**: Instantly push transcribed/translated comic dialogue as a beautifully formatted Markdown layout (such as a master `README.md` or ebook summary) straight into your GitHub repository!
 - **Gemini Engine Powered**: Deeply integrated Gemini API capabilities equipped with automatic retry patterns and intelligent rate-limiting wrappers.
 - **Responsive Workspace**: Hand-crafted editor dashboard accommodating dark and light visual modes, customizable font scaling, and effortless image batch-ingestion.
 
@@ -35,6 +36,9 @@ To run this application locally on your machine, check out these quick steps:
    ```bash
    npm run start
    ```
+
+---
+
 ## ☕ Support the Project
 
 If **EbookCC** has saved you time and made your comic-reading or editing process smoother, please consider supporting the creator:

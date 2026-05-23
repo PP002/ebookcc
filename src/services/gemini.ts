@@ -212,8 +212,147 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
   }
 }
 
-export async function detectComicText(base64Image: string, customApiKey?: string, suggestedCount?: number, ocrProvider: 'gemini' | 'vision' = 'gemini', visionApiKey?: string): Promise<ComicText[]> {
+export async function detectComicText(
+  base64Image: string,
+  customApiKey?: string,
+  suggestedCount?: number,
+  ocrProvider: 'gemini' | 'vision' = 'gemini',
+  visionApiKey?: string,
+  localLlmConfig?: LocalLlmConfig
+): Promise<ComicText[]> {
   try {
+    if (localLlmConfig && localLlmConfig.engine === 'local') {
+      const baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
+      const model = localLlmConfig.model || "llama3";
+      const localApiKey = localLlmConfig.apiKey || "";
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (localApiKey) {
+        headers["Authorization"] = `Bearer ${localApiKey}`;
+      }
+
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const url = `${cleanBaseUrl}/chat/completions`;
+
+      const promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes.
+
+RULES:
+1. Locate every word, phrase, caption, or bubble. For each independent paragraph or Speech bubble, detect it as one object.
+2. Coordinates MUST be formatted as a bounding box [ymin, xmin, ymax, xmax], with values scaled between 0 and 1000 representing relative coordinates on the image.
+3. Output the result in JSON format as a list of objects, each representing one detected text with: "text" (transcribed/clean text string) and "box_2d" (number list).
+4. Do not include markdown code block characters like \`\`\`json. Output ONLY a valid JSON list.
+
+Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
+
+      const rawBase64 = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+      const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+
+      const messages = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: promptText
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: fullBase64Url
+              }
+            }
+          ]
+        }
+      ];
+
+      let response;
+      try {
+        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isHttpUrl = url.toLowerCase().startsWith('http://');
+
+        if (isHttpsPage && isHttpUrl) {
+          console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
+          response = await fetch("/api/local-llm-proxy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url,
+              method: "POST",
+              headers,
+              body: {
+                model,
+                messages,
+                temperature: 0.1
+              }
+            })
+          });
+        } else {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              model,
+              messages,
+              temperature: 0.1
+            })
+          });
+        }
+      } catch (fetchErr: any) {
+        console.error("Local LLM OCR Fetch Network Error:", fetchErr);
+        
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isHttpsHost = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+
+        let customErrMessage = `Local LLM OCR Connection Error!\n\nFailed to connect to your local LLM server at "${cleanBaseUrl}".\n\n`;
+
+        if (isPrivateIp && isHttpsHost && isCloudHost) {
+          customErrMessage += 
+            `💡 CLOUD TO LOCAL NETWORK BOUNDARY DETECTED:\n\n` +
+            `You are currently running EbookCC on a secure cloud preview (${window.location.host}), but your LLM server was configured with a private local IP (${cleanBaseUrl}).\n\n` +
+            `To solve this:\n` +
+            `1. [RECOMMENDED] Download EbookCC and run it locally with 'npm run dev'. Browser connection limits vanish entirely on localhost:3000!\n` +
+            `2. Use an HTTPS tunnel (e.g. ngrok http 1234) on your machine and use the secure public ngrok HTTPS address here.`;
+        } else {
+          customErrMessage +=
+            `Please check that:\n` +
+            `1. Your local AI engine has a VISION-capable model loaded (e.g., llama3.2-vision, llama3.2-vision:11b, qwen2.5-vision, or llava).\n` +
+            `2. CORS is enabled in Ollama (OLLAMA_ORIGINS="*" ollama serve) or LM Studio settings.`;
+        }
+
+        throw new Error(customErrMessage);
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Local LLM OCR API error (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      const data = await response.json();
+      const content = data?.choices?.[0]?.message?.content || "";
+      let parsed = parseJsonSafely(content, null);
+      if (!parsed) {
+        // Fallback: try to see if there is still JSON tucked inside the content
+        const match = content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (match) {
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch(e) {}
+        }
+      }
+
+      if (parsed) {
+        if (Array.isArray(parsed)) {
+          return parsed as ComicText[];
+        } else if (parsed.texts && Array.isArray(parsed.texts)) {
+          return parsed.texts as ComicText[];
+        } else if (parsed.results && Array.isArray(parsed.results)) {
+          return parsed.results as ComicText[];
+        }
+      }
+      return [];
+    }
+
     if (ocrProvider === 'vision') {
       if (!visionApiKey) throw new Error("Vision API key is required when using Vision Provider");
       const base64Data = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
@@ -359,8 +498,130 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
   }
 }
 
-export async function translateTexts(texts: string[], targetLanguage: string = "English", customApiKey?: string): Promise<string[]> {
+export interface LocalLlmConfig {
+  engine: 'gemini' | 'local';
+  url?: string;
+  model?: string;
+  apiKey?: string;
+}
+
+export async function translateTexts(
+  texts: string[],
+  targetLanguage: string = "English",
+  customApiKey?: string,
+  localLlmConfig?: LocalLlmConfig
+): Promise<string[]> {
   try {
+    if (localLlmConfig && localLlmConfig.engine === 'local') {
+      const baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
+      const model = localLlmConfig.model || "llama3";
+      const localApiKey = localLlmConfig.apiKey || "";
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (localApiKey) {
+        headers["Authorization"] = `Bearer ${localApiKey}`;
+      }
+
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const url = `${cleanBaseUrl}/chat/completions`;
+
+      const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
+
+      let response;
+      try {
+        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isHttpUrl = url.toLowerCase().startsWith('http://');
+
+        if (isHttpsPage && isHttpUrl) {
+          console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
+          response = await fetch("/api/local-llm-proxy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url,
+              method: "POST",
+              headers,
+              body: {
+                model,
+                messages: [
+                  {
+                    role: "system",
+                    content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
+                  },
+                  {
+                    role: "user",
+                    content: promptText
+                  }
+                ],
+                temperature: 0.2
+              }
+            })
+          });
+        } else {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "system",
+                  content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
+                },
+                {
+                  role: "user",
+                  content: promptText
+                }
+              ],
+              temperature: 0.2
+            })
+          });
+        }
+      } catch (fetchErr: any) {
+        console.error("Local LLM Fetch Network Error:", fetchErr);
+        
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isHttpsHost = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+
+        let customErrMessage = `Local LLM Network Error!\n\nFailed to connect to your local LLM server at "${cleanBaseUrl}".\n\n`;
+
+        if (isPrivateIp && isHttpsHost && isCloudHost) {
+          customErrMessage += 
+            `💡 NETWORK BOUNDARY DETECTED:\n` +
+            `You are currently running EbookCC on a secure cloud preview (${window.location.host}), but trying to connect directly to a private local server (${cleanBaseUrl}).\n\n` +
+            `Public cloud servers cannot reach your private home IP behind your router! To solve this:\n` +
+            `1. [RECOMMENDED] Download EbookCC and run it locally with 'npm run dev' on your machine. On http://localhost:3000, browser restrictions are lifted and it will connect instantly!\n` +
+            `2. Use an HTTPS Tunnel (e.g. ngrok http 1234) to expose your local port, then paste your public secure https:// url here!\n` +
+            `3. Ensure CORS is enabled on your local tool (Ollama: OLLAMA_ORIGINS="*" ollama serve).`;
+        } else {
+          customErrMessage +=
+            `Please check that:\n` +
+            `1. Your local AI service (Ollama / LM Studio / Llama.cpp) is running.\n` +
+            `2. Your model "${model}" is fully downloaded & available.\n` +
+            `3. CORS (Cross-Origin Resource Sharing) is enabled.\n` +
+            `   - Ollama: Run 'OLLAMA_ORIGINS="*" ollama serve' in your terminal.\n` +
+            `   - LM Studio: Enable 'CORS' in Local Server Settings.\n` +
+            `4. No browser extension is blocking loopback requests.`;
+        }
+
+        throw new Error(customErrMessage);
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Local LLM API error (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      const data = await response.json();
+      const content = data?.choices?.[0]?.message?.content || "";
+      const parsed = parseJsonSafely(content, null);
+      if (parsed && Array.isArray(parsed)) {
+        return parsed;
+      }
+      return texts;
+    }
+
     if (customApiKey) {
       console.log("[Frontend Direct] Running translate locally to bypass server limits");
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;

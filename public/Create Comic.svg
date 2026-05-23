@@ -8,6 +8,7 @@
    version="1.1"
    id="svg1"
    inkscape:export-batch-name="batch"
+   inkscape:export-batch-path="/home/kollo/Pictures"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -27,7 +28,7 @@
   <g
      inkscape:groupmode="layer"
      id="layer2"
-     inkscape:label="Layer 2"
+     inkscape:label="Create Comic"
      style="display:inline">
     <rect
        style="fill:none"
@@ -36,7 +37,7 @@
        height="32"
        x="0"
        y="0"
-       inkscape:label="outline" />
+       inkscape:label="rect" />
     <path
        style="fill:#808080;stroke-width:0.949335"
        d="M 1.130742,5.3616998 C 1.2061248,23.263319 1.2061248,23.263319 1.2061248,23.263319 L 8.555948,19.560707 8.405183,2.848 Z"

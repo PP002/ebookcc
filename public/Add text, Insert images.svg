@@ -8,6 +8,7 @@
    version="1.1"
    id="svg1"
    inkscape:export-batch-name="batch"
+   inkscape:export-batch-path="/home/kollo/Pictures"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -25,7 +26,7 @@
   <defs
      id="defs1" />
   <g
-     inkscape:label="Layer 1"
+     inkscape:label="Add text, Insert images"
      inkscape:groupmode="layer"
      id="layer1"
      style="display:inline">
@@ -36,7 +37,7 @@
        height="32"
        x="0"
        y="0"
-       inkscape:label="outline" />
+       inkscape:label="rect" />
     <rect
        style="display:inline;fill:#808080;stroke-width:1.01435"
        id="rect3"

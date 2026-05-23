@@ -8,6 +8,7 @@
    version="1.1"
    id="svg1"
    inkscape:export-batch-name="batch"
+   inkscape:export-batch-path="/home/kollo/Pictures"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -27,7 +28,7 @@
   <g
      inkscape:groupmode="layer"
      id="layer3"
-     inkscape:label="Layer 3"
+     inkscape:label="Reorganize Comics"
      style="display:inline">
     <rect
        style="display:inline;fill:none"
@@ -36,7 +37,7 @@
        height="32"
        x="0"
        y="0"
-       inkscape:label="outline" />
+       inkscape:label="rect" />
     <rect
        style="display:inline;fill:none"
        id="rect14-9"

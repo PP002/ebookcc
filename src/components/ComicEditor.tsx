@@ -2715,7 +2715,7 @@ export default function ComicEditor() {
     
     // If it's an ebook, let user know it's detected but not yet processed
     if (isEbook) {
-      toast.info("Ebook format detected. Direct extraction is not yet supported, but file recorded for future pipeline integration.");
+      toast.info("This feature is still in development. Please stay tuned!");
       setIsUploading(false);
       setUploadProgress(0);
       return;
@@ -4357,7 +4357,7 @@ ${navItems}    </ol>
               </div>
               <div>
                 <p className="text-xl font-medium">Drop files here</p>
-                <p className="text-sm text-muted-foreground mt-1">Supported: EPUB, CBZ, ZIP, PDF</p>
+                <p className="text-sm text-muted-foreground mt-1">Supported: EPUB, CBZ, ZIP, PDF, IMAGES</p>
                 <p className="text-muted-foreground">or click to browse files</p>
               </div>
             </div>

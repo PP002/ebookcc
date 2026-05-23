@@ -15,7 +15,7 @@ export default function App() {
       <TooltipProvider>
         <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
           <ComicEditor />
-          <Toaster position="bottom-right" />
+          <Toaster position="top-right" />
         </div>
       </TooltipProvider>
     </ThemeProvider>

@@ -4327,18 +4327,18 @@ ${navItems}    </ol>
             </Button>
           </div>
 
-          <header className="text-center space-y-2 pt-4">
-            <h1 className="text-4xl font-bold tracking-tight text-foreground flex items-center justify-center gap-4">
-              <motion.div 
-                whileHover={{ scale: 1.05 }}
-                className="h-10 flex items-center justify-center"
-              >
-                <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
-              </motion.div>
-              EbookCC
+          <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-4 px-4">
+            <motion.div 
+              whileHover={{ scale: 1.05 }}
+              className="h-8 flex items-center justify-center"
+            >
+              <img src="/logo.png" alt="EbookCC Logo" aria-hidden="true" className="h-full w-auto block select-none" />
+            </motion.div>
+            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground">
+              AI-Powered Comic OCR & eBook Converter
             </h1>
-            <p className="text-muted-foreground text-lg font-bold">
-              All you need to create and convert ebook
+            <p className="text-muted-foreground text-sm md:text-base font-medium">
+              Transform your comic pages into high-quality digital eBooks with seamless AI-powered text extraction, translation, and automated formatting.
             </p>
             <Slideshow />
           </header>
@@ -4346,22 +4346,52 @@ ${navItems}    </ol>
           <div
             {...getRootProps()}
             className={cn(
-              "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all duration-300",
-              isDragActive ? "border-primary bg-primary/5 scale-[1.02]" : "border-muted-foreground/20 hover:border-primary/50"
+              "max-w-4xl mx-auto w-full border-2 border-solid border-black dark:border-neutral-500 p-12 text-center cursor-pointer bg-transparent"
             )}
           >
             <input {...getInputProps()} />
             <div className="flex flex-col items-center gap-4">
-              <div className="p-4 rounded-full bg-primary/10 text-primary">
-                <Layers className="w-10 h-10" />
+              <div className="p-4 border-2 border-black dark:border-neutral-500">
+                <Layers className="w-10 h-10 text-black dark:text-white" />
               </div>
               <div>
-                <p className="text-xl font-medium">Drop files here</p>
-                <p className="text-sm text-muted-foreground mt-1">Supported: EPUB, CBZ, ZIP, PDF, IMAGES</p>
-                <p className="text-muted-foreground">or click to browse files</p>
+                <p className="text-xl font-bold">Drop files here</p>
+                <p className="text-sm font-medium mt-1">Supported: EPUB, CBZ, ZIP, PDF, IMAGES</p>
+                <p className="text-sm text-neutral-600">or click to browse files</p>
               </div>
             </div>
           </div>
+
+          <section className="max-w-5xl mx-auto py-16 px-4" aria-labelledby="features-heading">
+            <h2 id="features-heading" className="text-xl font-bold tracking-tight mb-8 text-center text-primary">Key Features</h2>
+            <div className="grid md:grid-cols-3 gap-4">
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">Comic OCR & Extraction</h3>
+                    <p className="text-[10px]">Advanced AI OCR (YOLO & Gemini) to extract text bubbles with high precision.</p>
+                </Card>
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">Hybrid AI OCR</h3>
+                    <p className="text-[10px]">Flexible OCR powered by either Gemini Cloud API or local LLMs (Ollama, LM Studio, Llama.cpp).</p>
+                </Card>
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">Smart Panel Splitting</h3>
+                    <p className="text-[10px]">Automated panel segmentation optimized for mobile-first reading experiences and e-reader guided view.</p>
+                </Card>
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">One-Click eBook Export</h3>
+                    <p className="text-[10px]">Seamlessly convert ZIP/CBZ files to professional EPUB formats with a single click.</p>
+                </Card>
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">WYSIWYG Control Suite</h3>
+                    <p className="text-[10px]">Powerful WYSIWYG editor featuring custom text overlays, font fine-tuning, and layout styling.</p>
+                </Card>
+                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                    <h3 className="text-sm font-bold mb-1">Local Infrastructure Aids</h3>
+                    <p className="text-[10px]">Interactive diagnostic tools for automated CORS, environment, and local container setup.</p>
+                </Card>
+            </div>
+          </section>
+
         </div>
       ) : (
         <div className="h-screen bg-background flex flex-col overflow-hidden">

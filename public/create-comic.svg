@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="28.183001"
+   height="19.049002"
+   viewBox="0 0 28.183001 19.049002"
+   version="1.1"
+   id="svg1"
+   inkscape:export-batch-name="batch"
+   inkscape:export-batch-path="/home/kollo/Pictures"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   sodipodi:docname="slide.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#ffffff"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="1"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="px"
+     inkscape:zoom="26.53125"
+     inkscape:cx="15.981154"
+     inkscape:cy="16"
+     inkscape:window-width="2048"
+     inkscape:window-height="1076"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     inkscape:clip-to-page="true" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:groupmode="layer"
+     id="layer2"
+     inkscape:label="Create Comic"
+     style="display:inline"
+     transform="translate(-1.631,-3.424)">
+    <path
+       style="fill:#808080;stroke-width:0.895191"
+       d="M 1.631,5.7683546 C 1.702871,22.463961 1.702871,22.463961 1.702871,22.463961 L 8.7103126,19.010791 8.5665711,3.424 Z"
+       id="path14" />
+    <path
+       style="fill:#808080;stroke-width:0.895191"
+       d="M 3.3435559,5.7683547 C 3.4154269,22.463961 3.4154269,22.463961 3.4154269,22.463961 L 10.422867,19.010791 10.279128,3.4240001 Z"
+       id="path14-6" />
+    <path
+       style="fill:#808080;stroke-width:0.895191"
+       d="M 5.4469115,5.7683546 C 5.5187825,22.463961 5.5187825,22.463961 5.5187825,22.463961 L 12.526223,19.010791 12.382481,3.4240001 Z"
+       id="path14-2" />
+    <rect
+       style="fill:#808080;stroke-width:1.25877"
+       id="rect15"
+       width="14.946862"
+       height="5.4186401"
+       x="14.867138"
+       y="3.5387125" />
+    <rect
+       style="fill:#808080;stroke-width:1.08329"
+       id="rect16"
+       width="8.4426069"
+       height="7.6635056"
+       x="14.867311"
+       y="9.5730381" />
+    <rect
+       style="fill:#808080;stroke-width:1.07671"
+       id="rect17"
+       width="5.9380989"
+       height="7.5860963"
+       x="23.868172"
+       y="9.5237436" />
+    <rect
+       style="fill:#808080;stroke-width:1.08789"
+       id="rect18"
+       width="10.16559"
+       height="4.6058445"
+       x="14.845598"
+       y="17.867157" />
+    <rect
+       style="fill:#808080;stroke-width:1.08329"
+       id="rect19"
+       width="4.1136179"
+       height="4.5980973"
+       x="25.696688"
+       y="17.867157" />
+  </g>
+</svg>

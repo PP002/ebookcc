@@ -10,6 +10,7 @@ import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { Slideshow } from './Slideshow';
 import JSZip from 'jszip';
 import { useTheme } from 'next-themes';
 
@@ -2708,8 +2709,18 @@ export default function ComicEditor() {
     await new Promise(r => setTimeout(r, 100));
 
     const file = acceptedFiles[0];
-    const isZip = file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz');
+    const fileNameLower = file.name.toLowerCase();
+    const isZip = fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.cbz');
+    const isEbook = fileNameLower.endsWith('.pdf') || fileNameLower.endsWith('.epub') || fileNameLower.endsWith('.mobi') || fileNameLower.endsWith('.cbr');
     
+    // If it's an ebook, let user know it's detected but not yet processed
+    if (isEbook) {
+      toast.info("Ebook format detected. Direct extraction is not yet supported, but file recorded for future pipeline integration.");
+      setIsUploading(false);
+      setUploadProgress(0);
+      return;
+    }
+
     // If images are uploaded and it's not a zip, show collage modal
     if (!isZip) {
       setPendingFiles(acceptedFiles);
@@ -2883,7 +2894,11 @@ export default function ComicEditor() {
     accept: { 
       'image/*': [],
       'application/zip': ['.zip', '.cbz'],
-      'application/x-zip-compressed': ['.zip', '.cbz']
+      'application/x-zip-compressed': ['.zip', '.cbz'],
+      'application/pdf': ['.pdf'],
+      'application/epub+zip': ['.epub'],
+      'application/x-mobipocket-ebook': ['.mobi'],
+      'application/x-cbr': ['.cbr']
     },
     useFsAccessApi: false,
     multiple: true,
@@ -4322,9 +4337,10 @@ ${navItems}    </ol>
               </motion.div>
               EbookCC
             </h1>
-            <p className="text-muted-foreground text-lg">
-              Batch processing and export of your ebooks using AI-powered OCR tools.
+            <p className="text-muted-foreground text-lg font-bold">
+              All you need to create and convert ebook
             </p>
+            <Slideshow />
           </header>
 
           <div
@@ -4340,7 +4356,8 @@ ${navItems}    </ol>
                 <Layers className="w-10 h-10" />
               </div>
               <div>
-                <p className="text-xl font-medium">Drop comic pages, ZIP, or CBZ here</p>
+                <p className="text-xl font-medium">Drop files here</p>
+                <p className="text-sm text-muted-foreground mt-1">Supported: EPUB, CBZ, ZIP, PDF</p>
                 <p className="text-muted-foreground">or click to browse files</p>
               </div>
             </div>
@@ -5382,6 +5399,14 @@ ${navItems}    </ol>
                                 <p className="text-muted-foreground">3. qwen2.5-vl-7b-instruct</p>
                               </div>
 
+                              <div className="p-2.5 bg-red-500/5 border border-red-500/15 rounded-lg text-[10px] leading-relaxed">
+                                <span className="font-semibold text-red-600 dark:text-red-400 block mb-1">🧪 MiniCPM-V 2.6 & Custom Models Tip:</span>
+                                If you see a warning like <code className="bg-background px-1 rounded text-red-500 font-mono text-[9.5px]">Received channelSend for unknown channel (ID = 7)</code>, it means the model utilizes custom non-standard tokenizers or positional multi-crop vision structures not fully compliant with LM Studio's standard OpenAI channel API. 
+                                <br />
+                                <span className="block mt-1 font-bold">How to fix:</span>
+                                Use a standard, fully supported vision paradigm like <b>Qwen2.5-VL</b> or <b>Llama-3.2-Vision</b>, or ensure your LM Studio application is upgraded to the latest release channel supporting expanded custom multi-crop channels.
+                              </div>
+
                               <div className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400 p-2 rounded">
                                 <b>Direct Connection Tip:</b> Enter <code>http://127.0.0.1:1234/v1</code> as the Base URL. Browsers treat loopback URLs as secure context, completely bypassing any HTTPS mixed content blocks!
                               </div>
@@ -5834,11 +5859,11 @@ ${navItems}    </ol>
           rel="noopener noreferrer"
           whileHover={{ scale: 1.05, y: -2 }}
           whileTap={{ scale: 0.95 }}
-          className="flex items-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-medium py-3 px-5 rounded-full shadow-lg border border-[#ff3d3a] transition-all text-sm group pointer-events-auto"
+          className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-medium py-3 px-5 portrait:p-3 max-sm:p-3 rounded-full shadow-lg border border-[#ff3d3a] transition-all text-sm group pointer-events-auto"
         >
           <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
-          <span>Buy me a coffee</span>
-          <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
+          <span className="portrait:hidden max-sm:hidden">Buy me a coffee</span>
+          <Heart className="w-4 h-4 fill-white text-white animate-pulse portrait:hidden max-sm:hidden" />
         </motion.a>
       </div>
 

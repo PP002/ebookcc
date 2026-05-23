@@ -2,13 +2,15 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="32"
-   height="32"
-   viewBox="0 0 32 32"
+   width="28.983513"
+   height="20"
+   viewBox="0 0 28.983513 20"
    version="1.1"
    id="svg1"
    inkscape:export-batch-name="batch"
    inkscape:export-batch-path="/home/kollo/Pictures"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   sodipodi:docname="slide.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -22,30 +24,25 @@
      inkscape:pageopacity="0"
      inkscape:pagecheckerboard="1"
      inkscape:deskcolor="#505050"
-     inkscape:document-units="px" />
+     inkscape:document-units="px"
+     inkscape:zoom="26.53125"
+     inkscape:cx="15.981154"
+     inkscape:cy="16"
+     inkscape:window-width="2048"
+     inkscape:window-height="1076"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     inkscape:clip-to-page="true" />
   <defs
      id="defs1" />
   <g
      inkscape:groupmode="layer"
      id="layer3"
      inkscape:label="Reorganize Comics"
-     style="display:inline">
-    <rect
-       style="display:inline;fill:none"
-       id="rect1-3-5"
-       width="32"
-       height="32"
-       x="0"
-       y="0"
-       inkscape:label="rect" />
-    <rect
-       style="display:inline;fill:none"
-       id="rect14-9"
-       width="15"
-       height="20"
-       x="15.814003"
-       y="3.049"
-       inkscape:label="outline1" />
+     style="display:inline"
+     transform="translate(-0.81400001,-3.049)">
     <rect
        style="fill:#808080"
        id="rect20"

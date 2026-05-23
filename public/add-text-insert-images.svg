@@ -2,13 +2,15 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="32"
-   height="32"
-   viewBox="0 0 32 32"
+   width="28.135"
+   height="19.94346"
+   viewBox="0 0 28.135 19.943461"
    version="1.1"
    id="svg1"
    inkscape:export-batch-name="batch"
    inkscape:export-batch-path="/home/kollo/Pictures"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   sodipodi:docname="slide.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -22,49 +24,52 @@
      inkscape:pageopacity="0"
      inkscape:pagecheckerboard="1"
      inkscape:deskcolor="#505050"
-     inkscape:document-units="px" />
+     inkscape:document-units="px"
+     inkscape:zoom="26.53125"
+     inkscape:cx="15.981154"
+     inkscape:cy="16"
+     inkscape:window-width="2048"
+     inkscape:window-height="1076"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     inkscape:clip-to-page="true" />
   <defs
      id="defs1" />
   <g
      inkscape:label="Add text, Insert images"
      inkscape:groupmode="layer"
      id="layer1"
-     style="display:inline">
+     style="display:inline"
+     transform="translate(-1.665,-3.075)">
     <rect
-       style="fill:none"
-       id="rect1"
-       width="32"
-       height="32"
-       x="0"
-       y="0"
-       inkscape:label="rect" />
-    <rect
-       style="display:inline;fill:#808080;stroke-width:1.01435"
+       style="display:inline;fill:#808080;stroke-width:1.01434"
        id="rect3"
-       width="28"
+       width="27.99955"
        height="0.52767962"
-       x="1.959953"
-       y="20.128828" />
+       x="1.7604048"
+       y="19.828827" />
     <rect
-       style="fill:#808080;stroke-width:1.01788"
+       style="fill:#808080;stroke-width:1.01787"
        id="rect2"
-       width="28"
+       width="27.99955"
        height="12.325089"
-       x="1.9999995"
-       y="3.375" />
+       x="1.8004507"
+       y="3.075" />
     <rect
-       style="fill:#808080;stroke-width:0.958474"
+       style="fill:#808080;stroke-width:0.958466"
        id="rect3-3"
-       width="25"
+       width="24.999598"
        height="0.52767962"
-       x="1.9281498"
-       y="21.411514" />
+       x="1.7286021"
+       y="21.111513" />
     <rect
-       style="fill:#808080;stroke-width:0.606192"
+       style="fill:#808080;stroke-width:0.606187"
        id="rect3-1"
-       width="10"
+       width="9.9998388"
        height="0.52767962"
-       x="1.8645467"
-       y="22.790783" />
+       x="1.665"
+       y="22.490782" />
   </g>
 </svg>

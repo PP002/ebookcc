@@ -1,0 +1,20 @@
+[
+  {
+    "img": "/reorganize-comics.svg",
+    "alt": "Reorganize Comics",
+    "name": "Reorganize Comics",
+    "needsOutline": false
+  },
+  {
+    "img": "/create-comic.svg",
+    "alt": "Create Comic",
+    "name": "Create Comic",
+    "needsOutline": false
+  },
+  {
+    "img": "/add-text-insert-images.svg",
+    "alt": "Add text, Insert images",
+    "name": "Add text, Insert images",
+    "needsOutline": false
+  }
+]

@@ -6,15 +6,12 @@ All you need to create and convert ebook, try it on: https://ebookcc.com/
 
 ## Features
 
-- **AI-Powered OCR**: Automatically detect, read, and overlay clean, selectable and customizable text on comic speech bubbles.
-- **Interactive Speech Bubbles**: Easily add, resize, move, or style text annotations directly over panels.
-- **Flexible Exporters**: Seamless export of edited or annotated comic books to HTML, PDF, EPUB, or Plain Text.
-- **Double LLM Translation & OCR Engine Options**: Choose between the state-of-the-art cloud Cloud API or your own self-hosted local model.
-- **Robust Local LLM Integration**: Full support for Ollama, LM Studio, Llama.cpp, or any OpenAI-compatible API running directly on your computer.
-- **Interactive Local Configuration Guides**: Dynamic setup instructions for CORS configuration, custom base URLs, and loopback connectivity (such as `http://127.0.0.1:1234/v1`) to securely bypass browser cloud boundaries.
-- **Local Model Quality Analytics**: Embedded visual panels highlighting model behavior comparisons (parameter quantization size comparisons, spatial coordinate details) to help select perfect local vision systems like `gemma-2`, `llama3.2-vision`, or `qwen2.5-vision`.
-- **Gemini Engine Powered**: Deeply integrated Gemini API capabilities equipped with automatic retry patterns and intelligent rate-limiting wrappers.
-- **Responsive Workspace**: Hand-crafted editor dashboard accommodating dark and light visual modes, customizable font scaling, and effortless image batch-ingestion.
+- **Self-Trained YOLO26 Model**: Advanced panel and text detection utilizing a custom-trained YOLO26 neural network architecture to locate speech bubbles and panels with extreme accuracy.
+- **AI-Powered OCR**: Get high-precision text extraction with the Cloud Gemini API for the absolute best layout results, or seamlessly hook into your own self-hosted **Local LLM** (Ollama, LM Studio, or Llama.cpp) for 100% offline and private OCR context.
+- **Smart Panel Splitting**: Intelligently detect and slice comic panels into individual pages or guided-view blocks, making raw manga or graphic novels comfortable to read on small screens like mobile devices and e-readers.
+- **One-Click Ebook Generation**: Transform your personal comic scans or holiday photos into highly structured reflowable/fixed-layout eBooks with automated table-of-contents setups.
+- **Rich Editor Controls**: Easily overlay translation text layers, custom styling, speech bubbles, and insert illustrations or images directly on any page with standard drag-and-drop workspace controls.
+- **Interactive Local Setup Aids**: Fully customized reference manuals built inside the app settings to guide you through LM Studio/Ollama CORS variables, loopback connection steps, and custom vision model selection.
 
 ## Local Development
 

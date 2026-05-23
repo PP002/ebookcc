@@ -1,7 +1,7 @@
 # EbookCC
 
 Detect and edit comic speech bubbles with AI-powered OCR and selectable text overlays.
-
+All you need to create and convert ebook, try it on: https://ebookcc.com/
 ---
 
 ## Features
@@ -9,7 +9,10 @@ Detect and edit comic speech bubbles with AI-powered OCR and selectable text ove
 - **AI-Powered OCR**: Automatically detect, read, and overlay clean, selectable and customizable text on comic speech bubbles.
 - **Interactive Speech Bubbles**: Easily add, resize, move, or style text annotations directly over panels.
 - **Flexible Exporters**: Seamless export of edited or annotated comic books to HTML, PDF, EPUB, or Plain Text.
-- **Direct GitHub Sync**: Instantly push transcribed/translated comic dialogue as a beautifully formatted Markdown layout (such as a master `README.md` or ebook summary) straight into your GitHub repository!
+- **Double LLM Translation & OCR Engine Options**: Choose between the state-of-the-art cloud Cloud API or your own self-hosted local model.
+- **Robust Local LLM Integration**: Full support for Ollama, LM Studio, Llama.cpp, or any OpenAI-compatible API running directly on your computer.
+- **Interactive Local Configuration Guides**: Dynamic setup instructions for CORS configuration, custom base URLs, and loopback connectivity (such as `http://127.0.0.1:1234/v1`) to securely bypass browser cloud boundaries.
+- **Local Model Quality Analytics**: Embedded visual panels highlighting model behavior comparisons (parameter quantization size comparisons, spatial coordinate details) to help select perfect local vision systems like `gemma-2`, `llama3.2-vision`, or `qwen2.5-vision`.
 - **Gemini Engine Powered**: Deeply integrated Gemini API capabilities equipped with automatic retry patterns and intelligent rate-limiting wrappers.
 - **Responsive Workspace**: Hand-crafted editor dashboard accommodating dark and light visual modes, customizable font scaling, and effortless image batch-ingestion.
 

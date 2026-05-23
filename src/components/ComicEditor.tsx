@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -2375,6 +2375,8 @@ export default function ComicEditor() {
   const [localLlmModel, setLocalLlmModel] = useState(() => localStorage.getItem('local_llm_model') || "llama3");
   const [localLlmApiKey, setLocalLlmApiKey] = useState(() => localStorage.getItem('local_llm_api_key') || "");
   const [isTestingLocalLlm, setIsTestingLocalLlm] = useState(false);
+  const [showLocalLlmGuide, setShowLocalLlmGuide] = useState(false);
+  const [activeGuideTab, setActiveGuideTab] = useState<'comparison' | 'lmstudio' | 'ollama'>('comparison');
 
   const handleTestLocalLlm = async () => {
     setIsTestingLocalLlm(true);
@@ -2391,8 +2393,12 @@ export default function ComicEditor() {
       try {
         const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
         const isHttpUrl = url.toLowerCase().startsWith('http://');
+        // Loopback URLs (localhost/127.0.0.1) should NEVER go through the server-side proxy
+        // because the browser allows direct HTTP fetch from HTTPS contexts to localhost (secure contexts),
+        // whereas the cloud server proxy can never reach the user's local PC loopback.
+        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (isHttpsPage && isHttpUrl) {
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM Test] Redirecting to backend proxy to bypass HTTPS Mixed Content");
           res = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -2463,14 +2469,15 @@ export default function ComicEditor() {
         const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
         const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
         
-        if (isPrivateIp && isCloudHost && res.status === 500 && (errText.includes("ETIMEDOUT") || errText.includes("ENOTFOUND") || errText.includes("ECONNREFUSED") || errText.includes("Proxy failed"))) {
+        if (isPrivateIp && isCloudHost && (res.status === 405 || res.status === 403 || res.status === 500 || errText.includes("ETIMEDOUT") || errText.includes("ENOTFOUND") || errText.includes("ECONNREFUSED") || errText.includes("Proxy failed"))) {
           message = 
-            `💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED\n\n` +
-            `Your Cloud server-side proxy failed to connect to "${cleanBaseUrl}".\n\n` +
-            `Because EbookCC is hosted in the Cloud, its server cannot route to private RFC1918 class-C IPs in your home network (like 192.168.0.198).\n\n` +
-            `To fix this:\n` +
-            `1. [RECOMMENDED] Export EbookCC and launch it locally on your computer with 'npm run dev'. Once run on http://localhost:3000, your browser can directly connect to both private net IPs and secure public APIs seamlessly!\n\n` +
-            `2. Create an ngrok secure tunnel: run 'ngrok http 1234' on your computer and put the public https:// url in the input field!`;
+            `💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED (Status ${res.status})\n\n` +
+            `Because EbookCC is running on a secure cloud-hosted website, the server-side proxy cannot route to your private home network IP address "${cleanBaseUrl}".\n\n` +
+            `Since your local AI (such as LM Studio or Ollama) is running on the SAME computer, please update your configuration:\n\n` +
+            `👉 Change the base URL to:\n` +
+            `"http://127.0.0.1:1234/v1" or "http://localhost:1234/v1" (for LM Studio)\n` +
+            `"http://127.0.0.1:11434/v1" or "http://localhost:11434/v1" (for Ollama)\n\n` +
+            `Loopback addresses (localhost/127.0.0.1) are treated as secure contexts by the browser. EbookCC will connect to them DIRECTLY from your browser, completely bypassing the cloud proxy and working instantly!`;
         }
         
         throw new Error(message);
@@ -5100,7 +5107,7 @@ ${navItems}    </ol>
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-background border rounded-xl shadow-2xl p-6 max-w-lg w-full space-y-4 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
+              className="bg-background border rounded-xl shadow-2xl p-6 w-full space-y-4 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar max-w-xl"
             >
               <h2 className="text-xl font-bold mb-4">App Settings</h2>
 
@@ -5164,85 +5171,268 @@ ${navItems}    </ol>
                   </div>
                 ) : (
                   <div className="space-y-4 pt-2">
-                    <h3 className="font-semibold text-primary text-sm flex items-center gap-1.5">
-                      <Coffee className="w-4 h-4 text-amber-500" />
-                      Local LLM Translation & OCR Engine
-                    </h3>
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <div className="flex items-center gap-2">
+                        <Coffee className="w-4 h-4 text-sky-500" />
+                        <h3 className="font-semibold text-primary text-sm">
+                          Local LLM Translation & OCR Settings
+                        </h3>
+                      </div>
+                      <span className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400 font-semibold px-2 py-0.5 rounded-full border border-sky-500/20 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
+                        Self-Hosted Setup
+                      </span>
+                    </div>
+
                     <p className="text-muted-foreground text-xs leading-relaxed">
-                      Use a local LLM running on your computer for offline, private, and unlimited translations and comic OCR. Supports Ollama, LM Studio, Llama.cpp, or any OpenAI-compatible API.
+                      Run standard OpenAI-compatible APIs on your device (Ollama, LM Studio, or Llama.cpp) for secure, private translations and offline bubble text extraction.
                     </p>
 
-                    <div className="bg-muted rounded-lg p-3 border border-border text-xs text-foreground space-y-2 leading-relaxed shadow-sm">
-                      <span className="font-bold flex items-center gap-1.5 text-sky-700 dark:text-sky-400 text-[13px]">
-                        💡 Vision Model Required for OCR
-                      </span>
-                      <p className="text-foreground/90">
-                        To perform <b>OCR (Text Detection)</b>, you must run a <b>vision-enabled multimodal model</b> (such as <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llama3.2-vision</code>, <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">qwen2.5-vision</code>, or <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llava</code>).
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Plain text models like standard <code className="bg-background px-1.5 py-0.5 rounded font-mono text-[11px] text-foreground border border-border/80 shadow-sm">llama3</code> are perfect for translation but cannot analyze images for OCR.
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-semibold text-foreground">Local API Base URL</label>
-                        <input
-                          id="local-llm-url-input"
-                          type="text"
-                          value={localLlmUrl}
-                          onChange={(e) => setLocalLlmUrl(e.target.value)}
-                          placeholder="http://localhost:11434/v1"
-                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono"
-                        />
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          Enterprise/Ollama: <code className="bg-muted px-1 rounded">http://localhost:11434/v1</code>, LM Studio: <code className="bg-muted px-1 rounded">http://localhost:1234/v1</code>
-                        </p>
+                    <div className="space-y-5 pt-1">
+                      {/* Input Form Fields (Fully Stretched/Stacked in same-sized modal) */}
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                            Local API Base URL
+                          </label>
+                          <input
+                            id="local-llm-url-input"
+                            type="text"
+                            value={localLlmUrl}
+                            onChange={(e) => setLocalLlmUrl(e.target.value)}
+                            placeholder="http://localhost:11434/v1"
+                            className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono shadow-sm border-border/80"
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-1.5 flex flex-wrap gap-1 items-center">
+                            <span>Default:</span>
+                            <span className="bg-muted px-1.5 py-0.5 rounded font-mono text-[9px] text-foreground border shadow-sm">Ollama: :11434/v1</span>
+                            <span className="bg-muted px-1.5 py-0.5 rounded font-mono text-[9px] text-foreground border shadow-sm">LM Studio: :1234/v1</span>
+                          </p>
+                          {(() => {
+                            const isPrivateIp = localLlmUrl.includes("192.168.") || localLlmUrl.includes("10.") || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(localLlmUrl);
+                            const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+                            if (isPrivateIp && isCloudHost) {
+                              return (
+                                <div className="mt-2.5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-800 dark:text-red-400 text-[11px] leading-relaxed">
+                                  <span className="font-bold text-red-700 dark:text-red-400 block mb-1">⚠️ Cloud Request Restriction</span>
+                                  Because EbookCC is running on a secure cloud website, public servers cannot call private home IP addresses (like your computer's home LAN IP).
+                                  <br />
+                                  <span className="block mt-1 font-semibold">👉 Easy Fix:</span>
+                                  Change the Base URL to <b><code>http://127.0.0.1:1234/v1</code></b> instead! Your browser will resolve it directly as a secure loopback context.
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs font-semibold text-foreground">Model Name</label>
+                            <input
+                              id="local-llm-model-input"
+                              type="text"
+                              value={localLlmModel}
+                              onChange={(e) => setLocalLlmModel(e.target.value)}
+                              placeholder="llama3"
+                              className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans shadow-sm border-border/80"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-foreground">Local API Key (Optional)</label>
+                            <input
+                              id="local-llm-key-input"
+                              type="password"
+                              value={localLlmApiKey}
+                              onChange={(e) => setLocalLlmApiKey(e.target.value)}
+                              placeholder="Optional authentication token"
+                              className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans shadow-sm border-border/80"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="pt-1">
+                          <Button 
+                            id="btn-test-local-llm"
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs text-foreground bg-background hover:bg-muted font-medium py-2 rounded-lg"
+                            onClick={handleTestLocalLlm}
+                            disabled={isTestingLocalLlm}
+                          >
+                            {isTestingLocalLlm ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                Contacting local API...
+                              </>
+                            ) : (
+                              "Test Local LLM Connection"
+                            )}
+                          </Button>
+                        </div>
                       </div>
 
-                      <div>
-                        <label className="text-xs font-semibold text-foreground">Model Name</label>
-                        <input
-                          id="local-llm-model-input"
-                          type="text"
-                          value={localLlmModel}
-                          onChange={(e) => setLocalLlmModel(e.target.value)}
-                          placeholder="llama3"
-                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
-                        />
-                      </div>
+                      {/* Stacked Underneath Section: Setup Guides & Info */}
+                      <div className="flex flex-col bg-muted/40 border border-border/60 rounded-xl p-4 overflow-hidden select-none">
+                        <div className="flex items-center gap-1.5 font-bold text-[13px] text-foreground pb-2.5 border-b border-border/60">
+                          <BookOpen className="w-3.5 h-3.5 text-sky-500" />
+                          <span>Local Model Settings & Tips</span>
+                        </div>
 
-                      <div>
-                        <label className="text-xs font-semibold text-foreground">Local API Key (Optional)</label>
-                        <input
-                          id="local-llm-key-input"
-                          type="password"
-                          value={localLlmApiKey}
-                          onChange={(e) => setLocalLlmApiKey(e.target.value)}
-                          placeholder="If required by your local proxy/server"
-                          className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
-                        />
-                      </div>
+                        {/* Tabs */}
+                        <div className="flex bg-muted p-1 rounded-lg border border-border/60 my-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setActiveGuideTab('comparison')}
+                            className={cn(
+                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
+                              activeGuideTab === 'comparison'
+                                ? "bg-background text-foreground shadow-sm font-semibold"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            Cloud vs Local
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveGuideTab('lmstudio')}
+                            className={cn(
+                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
+                              activeGuideTab === 'lmstudio'
+                                ? "bg-background text-foreground shadow-sm font-semibold"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            LM Studio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveGuideTab('ollama')}
+                            className={cn(
+                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
+                              activeGuideTab === 'ollama'
+                                ? "bg-background text-foreground shadow-sm font-semibold"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            Ollama
+                          </button>
+                        </div>
 
-                      <div className="pt-2">
-                        <Button 
-                          id="btn-test-local-llm"
-                          type="button" 
-                          variant="outline" 
-                          size="sm" 
-                          className="w-full text-xs"
-                          onClick={handleTestLocalLlm}
-                          disabled={isTestingLocalLlm}
-                        >
-                          {isTestingLocalLlm ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                              Testing local endpoint...
-                            </>
-                          ) : (
-                            "Test Local LLM Connection"
+                        {/* Tab Content */}
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-[11px] leading-relaxed text-foreground/90 max-h-[220px] custom-scrollbar">
+                          {activeGuideTab === 'comparison' && (
+                            <div className="space-y-3 animate-fadeIn">
+                              <div className="p-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg text-foreground">
+                                <span className="font-bold flex items-center gap-1.5 text-sky-600 dark:text-sky-400 text-[11px]">
+                                  <Info className="w-3.5 h-3.5" />
+                                  Why are local results differences noticeable?
+                                </span>
+                                <p className="mt-1 text-[10px] leading-normal text-muted-foreground">
+                                  Your local model (like <b>gemma-4-e4b</b> or <b>llama3.2-vision</b>) is lightweight (4B-8B parameter weights) and typically compressed with <b>4-bit quantization (Q4_K_M)</b> to run on standard home consumer GPUs. 
+                                  Cloud engines like <b>Gemini Flash</b> use massive, non-quantized multimodality trained with deep spatial awareness for cartoon/document bubble layout matching!
+                                </p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <span className="font-bold block text-foreground">Capabilities Highlight:</span>
+                                <ul className="list-disc pl-4 space-y-1 text-muted-foreground text-[10.5px]">
+                                  <li>
+                                    <b className="text-foreground">Lesser Coordinate Detail:</b> Quantized weights lose spatial fine-tuning depth. This introduces noise, resulting in slightly offset text bounding boxes.
+                                  </li>
+                                  <li>
+                                    <b className="text-foreground">Stylized Font Hardness:</b> Artistic, handwritten, or distorted cartoon dialogue fonts are hard for 4B models to transcribe perfectly compared to cloud models.
+                                  </li>
+                                  <li>
+                                    <b className="text-foreground">OCR vs Translation:</b> Small models perform outstandingly for <b>Standard Translation</b>! Consider using Cloud APIs for OCR scans, then local LLMs for free translation steps!
+                                  </li>
+                                </ul>
+                              </div>
+                            </div>
                           )}
-                        </Button>
+
+                          {activeGuideTab === 'lmstudio' && (
+                            <div className="space-y-2.5 animate-fadeIn">
+                              <span className="font-bold text-foreground flex items-center gap-1.5">
+                                <Lightbulb className="w-3.5 h-3.5 text-sky-500" />
+                                LM Studio Best Practices
+                              </span>
+                              
+                              <p className="text-muted-foreground">
+                                LM Studio provides an OpenAI-compatible interface directly on port 1234.
+                              </p>
+
+                              <div className="space-y-2">
+                                <span className="font-semibold block text-red-600 dark:text-red-400 flex items-center gap-1">
+                                  ⚠️ Enable CORS Header (Crucial)
+                                </span>
+                                <p className="text-[10.5px] text-muted-foreground pl-1">
+                                  Go to the <b>Local Server Settings</b> panel (left-side menu tab with a computer icon) in LM Studio. Scroll down, find <b>CORS (Cross-Origin Resource Sharing)</b>, and toggle it <b>ON</b>.
+                                  <br />
+                                  <i>If disabled, your browser will block EbookCC requests with mixed-context policy blocks!</i>
+                                </p>
+                              </div>
+
+                              <div className="space-y-1 font-mono text-[10px] bg-muted/60 p-2 border rounded">
+                                <p className="text-xs font-sans font-semibold text-foreground mb-1">Recommended Local Vision Models:</p>
+                                <p className="text-muted-foreground">1. Google Gemma 2 (9B IT GGUF) - Excellent text</p>
+                                <p className="text-muted-foreground">2. llama-3.2-11b-vision-instruct</p>
+                                <p className="text-muted-foreground">3. qwen2.5-vl-7b-instruct</p>
+                              </div>
+
+                              <div className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400 p-2 rounded">
+                                <b>Direct Connection Tip:</b> Enter <code>http://127.0.0.1:1234/v1</code> as the Base URL. Browsers treat loopback URLs as secure context, completely bypassing any HTTPS mixed content blocks!
+                              </div>
+                            </div>
+                          )}
+
+                          {activeGuideTab === 'ollama' && (
+                            <div className="space-y-2.5 animate-fadeIn">
+                              <span className="font-bold text-foreground flex items-center gap-1.5">
+                                <Lightbulb className="w-3.5 h-3.5 text-sky-500" />
+                                Ollama CORS Options
+                              </span>
+                              
+                              <p className="text-muted-foreground">
+                                Ollama runs on port 11434 by default. Because of default server security, it blocks external frontend websites unless Origins is set properly.
+                              </p>
+
+                              <div className="space-y-2">
+                                <span className="font-semibold block text-foreground">How to run with OLLAMA_ORIGINS="*" :</span>
+                                
+                                <div className="space-y-1.5 pl-1 text-muted-foreground text-[10.5px]">
+                                  <div className="mb-2">
+                                    🪟 <b>Windows:</b> Quit Ollama from system tray first, then launch with PowerShell/CMD:
+                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
+                                      $env:OLLAMA_ORIGINS="*"<br />
+                                      ollama serve
+                                    </pre>
+                                  </div>
+                                  <div className="mb-2">
+                                    🍎 <b>macOS:</b> Close from status icon, then run Terminal command:
+                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
+                                      OLLAMA_ORIGINS="*" ollama serve
+                                    </pre>
+                                  </div>
+                                  <div>
+                                    🐧 <b>Linux:</b> Edit service with <code>systemctl edit ollama.service</code> and paste:
+                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
+                                      [Service]<br />
+                                      Environment="OLLAMA_ORIGINS=*"
+                                    </pre>
+                                    Reload with <code>systemctl daemon-reload && systemctl restart ollama</code>.
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="p-2 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                                <b>Required Multimodal Model:</b> Always pull vision-enabled engines like <code>ollama run llama3.2-vision</code> or <code>ollama pull qwen2.5-vision:7b</code> to scan panel imagery successfully.
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

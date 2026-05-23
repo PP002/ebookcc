@@ -269,8 +269,12 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
       try {
         const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
         const isHttpUrl = url.toLowerCase().startsWith('http://');
+        // Loopback URLs (localhost/127.0.0.1) should NEVER go through the server-side proxy
+        // because the browser allows direct HTTP fetch from HTTPS contexts to localhost (secure contexts),
+        // whereas the cloud server proxy can never reach the user's local PC loopback.
+        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (isHttpsPage && isHttpUrl) {
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -309,10 +313,11 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         if (isPrivateIp && isHttpsHost && isCloudHost) {
           customErrMessage += 
             `💡 CLOUD TO LOCAL NETWORK BOUNDARY DETECTED:\n\n` +
-            `You are currently running EbookCC on a secure cloud preview (${window.location.host}), but your LLM server was configured with a private local IP (${cleanBaseUrl}).\n\n` +
-            `To solve this:\n` +
-            `1. [RECOMMENDED] Download EbookCC and run it locally with 'npm run dev'. Browser connection limits vanish entirely on localhost:3000!\n` +
-            `2. Use an HTTPS tunnel (e.g. ngrok http 1234) on your machine and use the secure public ngrok HTTPS address here.`;
+            `You are currently running EbookCC on a secure cloud website (${window.location.host}), but your LLM server was configured with a private home LAN IP (${cleanBaseUrl}).\n\n` +
+            `Because cloud servers cannot connect to your private local home network, please change your Base URL configuration to:\n` +
+            `👉 "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1" (for LM Studio)\n` +
+            `👉 "http://127.0.0.1:11434/v1" or "http://localhost:11434/v1" (for Ollama)\n\n` +
+            `Loopback URLs are treated as secure contexts by the web browser, allowing direct, zero-delay communication right on your local PC!`;
         } else {
           customErrMessage +=
             `Please check that:\n` +
@@ -325,7 +330,18 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Local LLM OCR API error (${response.status}): ${errorText || response.statusText}`);
+        let message = `Local LLM OCR API error (${response.status}): ${errorText || response.statusText}`;
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+
+        if (isPrivateIp && isCloudHost && (response.status === 405 || response.status === 403 || response.status === 500)) {
+          message += 
+            `\n\n💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED:\n` +
+            `Because EbookCC is hosted on a secure cloud environment, the server-side proxy is blocked from routing to your LAN IP (192.168.0.198).\n\n` +
+            `👉 RESOLUTION:\n` +
+            `Change your local LLM Base URL configuration to "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1". Your web browser will then connect directly to LM Studio on your computer, bypassing any cloud restrictions!`;
+        }
+        throw new Error(message);
       }
 
       const data = await response.json();
@@ -531,8 +547,12 @@ export async function translateTexts(
       try {
         const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
         const isHttpUrl = url.toLowerCase().startsWith('http://');
+        // Loopback URLs (localhost/127.0.0.1) should NEVER go through the server-side proxy
+        // because the browser allows direct HTTP fetch from HTTPS contexts to localhost (secure contexts),
+        // whereas the cloud server proxy can never reach the user's local PC loopback.
+        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (isHttpsPage && isHttpUrl) {
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -588,12 +608,12 @@ export async function translateTexts(
 
         if (isPrivateIp && isHttpsHost && isCloudHost) {
           customErrMessage += 
-            `💡 NETWORK BOUNDARY DETECTED:\n` +
-            `You are currently running EbookCC on a secure cloud preview (${window.location.host}), but trying to connect directly to a private local server (${cleanBaseUrl}).\n\n` +
-            `Public cloud servers cannot reach your private home IP behind your router! To solve this:\n` +
-            `1. [RECOMMENDED] Download EbookCC and run it locally with 'npm run dev' on your machine. On http://localhost:3000, browser restrictions are lifted and it will connect instantly!\n` +
-            `2. Use an HTTPS Tunnel (e.g. ngrok http 1234) to expose your local port, then paste your public secure https:// url here!\n` +
-            `3. Ensure CORS is enabled on your local tool (Ollama: OLLAMA_ORIGINS="*" ollama serve).`;
+            `💡 CLOUD TO LOCAL NETWORK BOUNDARY DETECTED:\n\n` +
+            `You are currently running EbookCC on a secure cloud website (${window.location.host}), but trying to connect directly to a private local server (${cleanBaseUrl}).\n\n` +
+            `Because cloud servers cannot connect to your private local home network, please change your Base URL configuration to:\n` +
+            `👉 "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1" (for LM Studio)\n` +
+            `👉 "http://127.0.0.1:11434/v1" or "http://localhost:11434/v1" (for Ollama)\n\n` +
+            `Loopback URLs are treated as secure contexts by the web browser, allowing direct, zero-delay communication right on your local PC!`;
         } else {
           customErrMessage +=
             `Please check that:\n` +
@@ -610,7 +630,18 @@ export async function translateTexts(
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Local LLM API error (${response.status}): ${errorText || response.statusText}`);
+        let message = `Local LLM API error (${response.status}): ${errorText || response.statusText}`;
+        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
+
+        if (isPrivateIp && isCloudHost && (response.status === 405 || response.status === 403 || response.status === 500)) {
+          message += 
+            `\n\n💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED:\n` +
+            `Because EbookCC is hosted on a secure cloud environment, the server-side proxy is blocked from routing to your LAN IP (192.168.0.198).\n\n` +
+            `👉 RESOLUTION:\n` +
+            `Change your local LLM Base URL configuration to "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1". Your web browser will then connect directly to LM Studio on your computer, bypassing any cloud restrictions!`;
+        }
+        throw new Error(message);
       }
 
       const data = await response.json();

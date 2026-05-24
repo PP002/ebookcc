@@ -83,6 +83,10 @@
   }
 }
 
+div#root > div > div > div:nth-of-type(2) > div > div {
+  border: none !important;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

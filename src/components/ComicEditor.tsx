@@ -13,6 +13,10 @@ import { cn } from '@/lib/utils';
 import { Slideshow } from './Slideshow';
 import JSZip from 'jszip';
 import { useTheme } from 'next-themes';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const LANGUAGES = [
   "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chinese (Simplified)", "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "English", "Esperanto", "Estonian", "Finnish", "French", "Frisian", "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Kinyarwanda", "Korean", "Kurdish", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Myanmar (Burmese)", "Nepali", "Norwegian", "Nyanja (Chichewa)", "Odia (Oriya)", "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish", "Tagalog (Filipino)", "Tajik", "Tamil", "Tatar", "Telugu", "Thai", "Turkish", "Turkmen", "Ukrainian", "Urdu", "Uyghur", "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
@@ -1631,12 +1635,12 @@ const ImageItem = ({
 
             {/* Content Toolbar */}
             <div 
-              className="absolute -top-14 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white border border-gray-200 text-slate-800 shadow-md p-1.5 rounded-lg z-50 pointer-events-auto"
+              className="absolute -top-14 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-background text-foreground border border-border shadow-md p-1 rounded-xl z-50 pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <div className="relative flex items-center">
-                <Button size="icon" variant="ghost" className={cn("h-9 w-9 hover:bg-slate-100", !isColorFolded ? "text-blue-600 bg-slate-100" : "text-slate-700")} onClick={() => setIsColorFolded(!isColorFolded)} title="Colors">
+                <Button size="icon" variant="ghost" className={cn("h-8 w-8 hover:bg-muted shrink-0", !isColorFolded && "text-primary")} onClick={() => setIsColorFolded(!isColorFolded)} title="Colors">
                   <Palette className="h-4 w-4" />
                 </Button>
                 
@@ -1654,7 +1658,7 @@ const ImageItem = ({
                             key={c}
                             className={cn(
                               "w-5 h-5 rounded-full border shadow-sm transition-transform hover:scale-110",
-                              img.color === c ? "ring-2 ring-blue-600 ring-offset-1" : ""
+                              img.color === c ? "ring-2 ring-primary ring-offset-1" : ""
                             )}
                             style={{ backgroundColor: c }}
                             onClick={(e) => {
@@ -1671,28 +1675,28 @@ const ImageItem = ({
                 </AnimatePresence>
               </div>
 
-              <div className="w-px h-5 bg-gray-200 mx-1" />
+              <div className="w-px h-5 bg-border mx-0.5" />
 
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => updateImage({ isHighContrast: !img.isHighContrast })} title="High Contrast">
-                <Contrast className={cn("h-4 w-4", img.isHighContrast && "text-blue-600")} />
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => updateImage({ isHighContrast: !img.isHighContrast })} title="High Contrast">
+                <Contrast className={cn("h-4 w-4", img.isHighContrast && "text-primary")} />
               </Button>
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => updateImage({ hasOutline: !img.hasOutline })} title="Outline">
-                <Square className={cn("h-4 w-4", img.hasOutline && "text-blue-600")} />
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => updateImage({ hasOutline: !img.hasOutline })} title="Outline">
+                <Square className={cn("h-4 w-4", img.hasOutline && "text-primary")} />
               </Button>
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => moveLayer('up')} title="Layer Up (U)">
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => moveLayer('up')} title="Layer Up (U)">
                 <ArrowUp className="h-4 w-4" />
               </Button>
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onClick={() => moveLayer('down')} title="Layer Down (D)">
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => moveLayer('down')} title="Layer Down (D)">
                 <ArrowDown className="h-4 w-4" />
               </Button>
-              <Button size="icon" variant="ghost" className={cn("h-9 w-9", isCropping ? "bg-slate-200 text-slate-900 hover:bg-slate-300" : "text-slate-700 hover:bg-slate-100 hover:text-slate-900")} onClick={() => setIsCropping(!isCropping)} title="Crop">
+              <Button size="icon" variant="ghost" className={cn("h-8 w-8 shrink-0 hover:bg-muted", isCropping && "text-primary bg-muted")} onClick={() => setIsCropping(!isCropping)} title="Crop">
                 <Crop className="h-4 w-4" />
               </Button>
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-slate-700 hover:bg-slate-100 hover:text-slate-900" onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }} title="Move">
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }} title="Move">
                 <Move className="h-4 w-4" />
               </Button>
-              <div className="w-px h-5 bg-gray-200 mx-1" />
-              <Button size="icon" variant="ghost" className="h-9 w-9 text-red-500 hover:bg-red-50 hover:text-red-600" onClick={deleteItem} title="Delete">
+              <div className="w-px h-5 bg-border mx-0.5" />
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-destructive/10 text-destructive hover:text-destructive shrink-0" onClick={deleteItem} title="Delete">
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
@@ -2642,7 +2646,7 @@ export default function ComicEditor() {
     const file = acceptedFiles[0];
     
     try {
-      if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz')) {
+      if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.cbz') || file.name.toLowerCase().endsWith('.epub')) {
         setLoadingText("Unzipping Archive...");
         setUploadProgress(15);
         const zip = await JSZip.loadAsync(file);
@@ -2668,6 +2672,44 @@ export default function ComicEditor() {
           await new Promise(r => setTimeout(r, 10));
         }
         toast.success(`Extracted ${newPages.length} pages`);
+      } else if (file.name.toLowerCase().endsWith('.pdf')) {
+        setLoadingText("Loading PDF...");
+        setUploadProgress(15);
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        const totalPages = pdf.numPages;
+        
+        setLoadingText("Extracting Pages...");
+        setUploadProgress(30);
+        
+        for (let j = 1; j <= totalPages; j++) {
+            const page = await pdf.getPage(j);
+            const viewport = page.getViewport({ scale: 2.0 }); // High resolution
+            const canvas = document.createElement('canvas');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            const ctx = canvas.getContext('2d');
+            
+            if (ctx) {
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                const url = canvas.toDataURL('image/jpeg', 0.95);
+                const dims = await getImageDimensions(url);
+                const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
+                newPages.push({ 
+                    id: `pdf_page_${j}_${Date.now()}`, 
+                    filename: `Page_${j}.jpg`, 
+                    originalImage: processed.url, 
+                    cleanedImage: null, 
+                    detectedTexts: [], 
+                    status: 'pending', 
+                    width: processed.width, 
+                    height: processed.height 
+                });
+            }
+            setUploadProgress(Math.round(30 + (j / totalPages) * 65));
+            await new Promise(r => setTimeout(r, 10));
+        }
+        toast.success(`Extracted ${totalPages} pages from PDF`);
       } else {
         const sortedFiles = [...acceptedFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
         for (let i = 0; i < sortedFiles.length; i++) {
@@ -2710,10 +2752,10 @@ export default function ComicEditor() {
 
     const file = acceptedFiles[0];
     const fileNameLower = file.name.toLowerCase();
-    const isZip = fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.cbz');
-    const isEbook = fileNameLower.endsWith('.pdf') || fileNameLower.endsWith('.epub') || fileNameLower.endsWith('.mobi') || fileNameLower.endsWith('.cbr');
+    const isArchived = fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.cbz') || fileNameLower.endsWith('.epub') || fileNameLower.endsWith('.pdf');
+    const isEbook = fileNameLower.endsWith('.mobi') || fileNameLower.endsWith('.cbr');
     
-    // If it's an ebook, let user know it's detected but not yet processed
+    // If it's an unsupported ebook type, let user know it's detected but not yet processed
     if (isEbook) {
       toast.info("This feature is still in development. Please stay tuned!");
       setIsUploading(false);
@@ -2721,8 +2763,8 @@ export default function ComicEditor() {
       return;
     }
 
-    // If images are uploaded and it's not a zip, show collage modal
-    if (!isZip) {
+    // If images are uploaded and it's not a zip/pdf/epub, show collage modal
+    if (!isArchived) {
       setPendingFiles(acceptedFiles);
       setUploadProgress(100);
       setIsUploading(false);
@@ -4805,14 +4847,14 @@ ${navItems}    </ol>
                         id={`thumb-${idx}`}
                         onClick={() => setCurrentPageIndex(idx)}
                         className={cn(
-                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-white",
+                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-background",
                           currentPageIndex === idx 
                             ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" 
-                            : "border-black/20 hover:border-black/60 opacity-85 hover:opacity-100 outline outline-1 outline-black/10"
+                            : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
                         )}
                       >
                         <img src={page.originalImage} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
-                        <div className="absolute bottom-1 left-1 bg-black text-white text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
+                        <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
                           {idx + 1}
                         </div>
                         {page.status === 'done' && (
@@ -4866,13 +4908,13 @@ ${navItems}    </ol>
                                 setSelectedPages(newSelected);
                               }}
                               className={cn(
-                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-white",
-                                selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-black/30 hover:border-primary/50 hover:scale-[1.02]",
+                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-background",
+                                selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-border/50 hover:border-foreground/60 hover:scale-[1.02]",
                                 page.isIgnored && !selectedPages.has(idx) && "opacity-50"
                               )}
                             >
                               <img src={page.originalImage} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
-                              <div className="absolute top-2 left-2 bg-black text-white text-[10px] px-1.5 py-0.5 rounded-none font-mono">
+                              <div className="absolute top-2 left-2 bg-foreground text-background text-[10px] px-1.5 py-0.5 rounded-none font-mono">
                                 {(idx + 1).toString().padStart(2, '0')}
                               </div>
                               {page.isIgnored && (
@@ -5052,7 +5094,7 @@ ${navItems}    </ol>
                                         className={cn(
                                           "absolute group transition-all flex items-center justify-center overflow-hidden",
                                           viewMode === 'edit' && "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
-                                          editingIndex === idx && "border-primary bg-white z-10",
+                                          editingIndex === idx && "border-primary bg-background z-10",
                                           viewMode === 'preview' && "select-text"
                                         )}
                                         style={{ ...boxStyle, backgroundColor: 'transparent' }}
@@ -5065,10 +5107,10 @@ ${navItems}    </ol>
                                         }}
                                       >
                                         {editingIndex === idx ? (
-                                          <div className="w-full h-full flex flex-col p-1 bg-white">
+                                          <div className="w-full h-full flex flex-col p-1 bg-background rounded-sm">
                                             <textarea
                                               autoFocus
-                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-black text-center"
+                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-foreground text-center"
                                               style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
                                               value={tempText}
                                               onChange={(e) => setTempText(e.target.value)}
@@ -5079,12 +5121,12 @@ ${navItems}    </ol>
                                                 }
                                               }}
                                             />
-                                            <div className="absolute -bottom-8 right-0 flex gap-1 bg-white p-1 rounded border">
-                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleSaveEdit(idx)}>
-                                                <Check className="h-3 w-3 text-green-600" />
+                                            <div className="absolute -bottom-8 right-0 flex gap-1 bg-background p-1 rounded border border-border shadow-sm">
+                                              <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-muted" onClick={() => handleSaveEdit(idx)}>
+                                                <Check className="h-4 w-4 text-green-600" />
                                               </Button>
-                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingIndex(null)}>
-                                                <X className="h-3 w-3 text-red-600" />
+                                              <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-muted" onClick={() => setEditingIndex(null)}>
+                                                <X className="h-4 w-4 text-red-600" />
                                               </Button>
                                             </div>
                                           </div>

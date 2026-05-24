@@ -4267,21 +4267,18 @@ ${navItems}    </ol>
                     <Download className="w-4 h-4" /> <span className="whitespace-nowrap">Export</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48" align="center">
-                <DropdownMenuItem onClick={downloadText} className="cursor-pointer">
+              <DropdownMenuContent className="w-48 bg-background border-2 border-border rounded-none shadow-none text-foreground" align="center">
+                <DropdownMenuItem onClick={downloadText} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> TXT
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer">
+                <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> HTML
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer">
+                <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer">
+                <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer hover:bg-muted">
                   <Book className="w-4 h-4 mr-2" /> EPUB
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowGithubModal(true)} className="cursor-pointer text-sky-600 dark:text-sky-400 font-medium hover:text-sky-700 dark:hover:text-sky-300">
-                  <Github className="w-4 h-4 mr-2" /> Sync to GitHub
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -4346,15 +4343,13 @@ ${navItems}    </ol>
           <div
             {...getRootProps()}
             className={cn(
-              "max-w-4xl mx-auto w-full border-2 border-solid border-black dark:border-neutral-500 p-12 text-center cursor-pointer bg-transparent"
+              "max-w-4xl mx-auto w-full border-2 border-solid border-border p-12 text-center cursor-pointer bg-transparent"
             )}
           >
             <input {...getInputProps()} />
             <div className="flex flex-col items-center gap-4">
-              <div className="p-4 border-2 border-black dark:border-neutral-500">
-                <Layers className="w-10 h-10 text-black dark:text-white" />
-              </div>
-              <div>
+              <div className="p-4 border-2 border-border mb-4 bg-background">
+                <Layers className="w-12 h-12 text-foreground mx-auto mb-2" />
                 <p className="text-xl font-bold">Drop files here</p>
                 <p className="text-sm font-medium mt-1">Supported: EPUB, CBZ, ZIP, PDF, IMAGES</p>
                 <p className="text-sm text-neutral-600">or click to browse files</p>
@@ -4365,27 +4360,27 @@ ${navItems}    </ol>
           <section className="max-w-5xl mx-auto py-16 px-4" aria-labelledby="features-heading">
             <h2 id="features-heading" className="text-xl font-bold tracking-tight mb-8 text-center text-primary">Key Features</h2>
             <div className="grid md:grid-cols-3 gap-4">
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">Comic OCR & Extraction</h3>
                     <p className="text-[10px]">Advanced AI OCR (YOLO & Gemini) to extract text bubbles with high precision.</p>
                 </Card>
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">Hybrid AI OCR</h3>
                     <p className="text-[10px]">Flexible OCR powered by either Gemini Cloud API or local LLMs (Ollama, LM Studio, Llama.cpp).</p>
                 </Card>
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">Smart Panel Splitting</h3>
                     <p className="text-[10px]">Automated panel segmentation optimized for mobile-first reading experiences and e-reader guided view.</p>
                 </Card>
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">One-Click eBook Export</h3>
                     <p className="text-[10px]">Seamlessly convert ZIP/CBZ files to professional EPUB formats with a single click.</p>
                 </Card>
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">WYSIWYG Control Suite</h3>
                     <p className="text-[10px]">Powerful WYSIWYG editor featuring custom text overlays, font fine-tuning, and layout styling.</p>
                 </Card>
-                <Card className="p-4 border-2 border-black dark:border-neutral-500 rounded-none shadow-none bg-transparent">
+                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
                     <h3 className="text-sm font-bold mb-1">Local Infrastructure Aids</h3>
                     <p className="text-[10px]">Interactive diagnostic tools for automated CORS, environment, and local container setup.</p>
                 </Card>
@@ -4434,7 +4429,7 @@ ${navItems}    </ol>
                             <Sparkles className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-48">
+                        <DropdownMenuContent align="start" className="w-48 bg-background border-2 border-border rounded-none shadow-none text-foreground">
                           <DropdownMenuItem onClick={() => {
                             const input = document.createElement('input');
                             input.type = 'file';
@@ -5096,7 +5091,7 @@ ${navItems}    </ol>
                                         ) : (
                                           <div className="w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 opacity-100">
                                             <div 
-                                              className={cn("font-medium text-black whitespace-pre-wrap text-center", viewMode === 'preview' ? "" : "bg-white/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity")}
+                                              className={cn("font-medium text-foreground whitespace-pre-wrap text-center", viewMode === 'preview' ? "" : "bg-card/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity")}
                                               style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
                                             >
                                               {item.text}
@@ -5949,150 +5944,6 @@ ${navItems}    </ol>
                   onClick={() => setShowCoffeeModal(false)}
                 >
                   Maybe later
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* GitHub Sync Modal */}
-      <AnimatePresence>
-        {showGithubModal && (
-          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 overflow-y-auto">
-            <motion.div
-              id="github-sync-modal"
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-background border rounded-2xl shadow-2xl p-6 max-w-md w-full relative space-y-4 text-left"
-            >
-              {/* Close button */}
-              <button
-                id="close-github-modal-btn"
-                onClick={() => setShowGithubModal(false)}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3 border-b pb-3">
-                <div className="p-2.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                  <Github className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Sync to GitHub</h3>
-                  <p className="text-xs text-muted-foreground">Push transcribed comic markdown as a commit</p>
-                </div>
-              </div>
-
-              <div className="space-y-3 text-xs leading-relaxed">
-                <div className="space-y-1 bg-muted p-2 rounded border border-border text-[11px] text-muted-foreground leading-normal">
-                  💡 <b>Quick Setup Guide:</b> 
-                  <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                    <li>Generate a <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="underline hover:text-sky-500">Personal Access Token (PAT)</a> with <code className="bg-background px-1 rounded border border-border/50 text-foreground font-semibold">repo</code> scope.</li>
-                    <li>Specify your repository in <code className="bg-background px-1 rounded border border-border/50 text-foreground">owner/repo</code> format.</li>
-                  </ul>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-foreground flex items-center gap-1">
-                    GitHub Personal Access Token (PAT)
-                  </label>
-                  <input
-                    type="password"
-                    value={githubToken}
-                    onChange={(e) => setGithubToken(e.target.value)}
-                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground font-mono"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-foreground">
-                    Repository (owner/name)
-                  </label>
-                  <input
-                    type="text"
-                    value={githubRepo}
-                    onChange={(e) => setGithubRepo(e.target.value)}
-                    placeholder="kollolliver/comic-translations"
-                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-foreground">
-                      File Path in Repo
-                    </label>
-                    <input
-                      type="text"
-                      value={githubPath}
-                      onChange={(e) => setGithubPath(e.target.value)}
-                      placeholder="README.md"
-                      className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-foreground">
-                      Repository Branch
-                    </label>
-                    <input
-                      type="text"
-                      value={githubBranch}
-                      onChange={(e) => setGithubBranch(e.target.value)}
-                      placeholder="main"
-                      className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-semibold text-foreground">
-                    Commit Message
-                  </label>
-                  <input
-                    type="text"
-                    value={githubCommitMsg}
-                    onChange={(e) => setGithubCommitMsg(e.target.value)}
-                    placeholder="Sync transcribed comic to README.md via EbookCC"
-                    className="w-full px-3 py-2 border rounded-md bg-transparent focus:outline-none focus:ring-2 focus:ring-sky-500 text-foreground"
-                  />
-                </div>
-              </div>
-
-              <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/40 rounded-lg p-3 text-[11px] text-sky-800 dark:text-sky-300 flex items-start gap-2 leading-relaxed">
-                <span className="shrink-0 mt-0.5">ℹ️</span>
-                <p>
-                  Your current transcribed and translated comic dialogue will be formatted into a clean Markdown document (containing page segments and dialog bullet indices) and synced directly.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t text-sm">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowGithubModal(false)}
-                  disabled={isSyncingGithub}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSyncToGithub}
-                  disabled={isSyncingGithub}
-                  className="bg-sky-600 hover:bg-sky-700 text-white gap-2 font-semibold border-none"
-                >
-                  {isSyncingGithub ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Syncing...
-                    </>
-                  ) : (
-                    <>
-                      <Github className="w-4 h-4" />
-                      Sync to GitHub
-                    </>
-                  )}
                 </Button>
               </div>
             </motion.div>

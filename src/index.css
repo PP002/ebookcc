@@ -6,24 +6,24 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --color-background: rgb(230,226,188);
-  --color-foreground: oklch(0.145 0 0);
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.145 0 0);
-  --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.145 0 0);
-  --color-primary: oklch(0.205 0 0);
-  --color-primary-foreground: oklch(0.985 0 0);
+  --color-background: #fdf5e2;
+  --color-foreground: #000000;
+  --color-card: #fdf5e2;
+  --color-card-foreground: #000000;
+  --color-popover: #fdf5e2;
+  --color-popover-foreground: #000000;
+  --color-primary: #000000;
+  --color-primary-foreground: #fdf5e2;
   --color-secondary: oklch(0.97 0 0);
-  --color-secondary-foreground: oklch(0.205 0 0);
-  --color-muted: oklch(0.97 0 0);
-  --color-muted-foreground: oklch(0.556 0 0);
-  --color-accent: oklch(0.97 0 0);
-  --color-accent-foreground: oklch(0.205 0 0);
+  --color-secondary-foreground: #000000;
+  --color-muted: rgba(0, 0, 0, 0.05);
+  --color-muted-foreground: rgba(0, 0, 0, 0.7);
+  --color-accent: rgba(0, 0, 0, 0.05);
+  --color-accent-foreground: #000000;
   --color-destructive: oklch(0.577 0.245 27.325);
-  --color-border: oklch(0.922 0 0);
-  --color-input: oklch(0.922 0 0);
-  --color-ring: oklch(0.708 0 0);
+  --color-border: #000000;
+  --color-input: #000000;
+  --color-ring: #000000;
 
   --radius-sm: 0;
   --radius-md: 0;
@@ -35,24 +35,24 @@
 }
 
 .dark {
-  --color-background: oklch(0.145 0 0);
-  --color-foreground: oklch(0.985 0 0);
-  --color-card: oklch(0.145 0 0);
-  --color-card-foreground: oklch(0.985 0 0);
-  --color-popover: oklch(0.145 0 0);
-  --color-popover-foreground: oklch(0.985 0 0);
-  --color-primary: oklch(0.985 0 0);
-  --color-primary-foreground: oklch(0.205 0 0);
+  --color-background: #172430;
+  --color-foreground: #ffffff;
+  --color-card: #172430;
+  --color-card-foreground: #ffffff;
+  --color-popover: #172430;
+  --color-popover-foreground: #ffffff;
+  --color-primary: #ffffff;
+  --color-primary-foreground: #172430;
   --color-secondary: oklch(0.269 0 0);
-  --color-secondary-foreground: oklch(0.985 0 0);
-  --color-muted: oklch(0.269 0 0);
-  --color-muted-foreground: oklch(0.708 0 0);
-  --color-accent: oklch(0.269 0 0);
-  --color-accent-foreground: oklch(0.985 0 0);
+  --color-secondary-foreground: #ffffff;
+  --color-muted: rgba(255, 255, 255, 0.08);
+  --color-muted-foreground: rgba(255, 255, 255, 0.8);
+  --color-accent: rgba(255, 255, 255, 0.08);
+  --color-accent-foreground: #ffffff;
   --color-destructive: oklch(0.396 0.141 25.723);
-  --color-border: oklch(0.269 0 0);
-  --color-input: oklch(0.269 0 0);
-  --color-ring: oklch(0.439 0 0);
+  --color-border: #ffffff;
+  --color-input: #ffffff;
+  --color-ring: #ffffff;
 }
 
 @layer base {
@@ -61,7 +61,25 @@
     border-radius: 0 !important;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply text-foreground font-sans antialiased;
+  }
+  body, .bg-background, .bg-card, .bg-popover {
+    background-color: var(--color-background);
+    background-image: 
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2004/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E"),
+      radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.12) 1px, transparent 0),
+      radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.12) 1px, transparent 0);
+    background-size: 200px 200px, 6px 6px, 6px 6px;
+    background-position: 0 0, 0 0, 3px 3px;
+  }
+  .dark body, .dark .bg-background, .dark .bg-card, .dark .bg-popover {
+    background-color: var(--color-background);
+    background-image: 
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2004/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E"),
+      radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.5) 1px, transparent 0),
+      radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.5) 1px, transparent 0);
+    background-size: 200px 200px, 6px 6px, 6px 6px;
+    background-position: 0 0, 0 0, 3px 3px;
   }
 }
 

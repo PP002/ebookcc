@@ -14,6 +14,7 @@ import { Slideshow } from './Slideshow';
 import JSZip from 'jszip';
 import { useTheme } from 'next-themes';
 import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -64,6 +65,7 @@ interface PageData {
   hasOcrRun?: boolean;
   hasLayoutRun?: boolean;
   translatedLanguage?: string;
+  bgColor?: string | null;
 }
 
 // Helper to resize image for AI processing (reduces bandwidth and speed up detection)
@@ -97,6 +99,182 @@ async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<
       resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
     img.onerror = () => resolve(imgSrc);
+    img.src = imgSrc;
+  });
+}
+
+// Helper to scan border pixels, detect consistently identical background colors, and crop them
+async function autoCropImageBorders(imgSrc: string): Promise<{ url: string, width: number, height: number, bgColor: string, isCropped: boolean, origW?: number, origH?: number, padLeft?: number, padTop?: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return resolve(null);
+      ctx.drawImage(img, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      const w = canvas.width;
+      const h = canvas.height;
+
+      // 1. Find dominant background color by sampling only the outer edges (margins)
+      const counts: Record<string, number> = {};
+      let maxCount = 0;
+      let dominantBg = "rgb(255,255,255)";
+      let domR = 255, domG = 255, domB = 255;
+      
+      const borderX = Math.max(10, Math.floor(w * 0.05));
+      const borderY = Math.max(10, Math.floor(h * 0.05));
+      
+      const samplePixel = (x: number, y: number) => {
+          const i = (y * w + x) * 4;
+          // Group similar colors to handle noise
+          const r = Math.floor(data[i] / 10) * 10;
+          const g = Math.floor(data[i+1] / 10) * 10;
+          const b = Math.floor(data[i+2] / 10) * 10;
+          const key = `${r},${g},${b}`;
+          counts[key] = (counts[key] || 0) + 1;
+          if (counts[key] > maxCount) {
+              maxCount = counts[key];
+              dominantBg = `rgb(${r},${g},${b})`;
+              domR = r; domG = g; domB = b;
+          }
+      };
+
+      for (let y = 0; y < h; y += 4) {
+          for (let x = 0; x < w; x += 4) {
+              if (x < borderX || x > w - borderX || y < borderY || y > h - borderY) {
+                  samplePixel(x, y);
+              }
+          }
+      }
+
+      // 2. Find crop boundaries by looking for rows/cols that deviate significantly from background
+      // High tolerance to account for paper texture, dust, and scan artifacts
+      const colorDiffThreshold = 40; 
+      
+      // Require at least 2% of the row/col to be different from the background to consider it artwork
+      const contentToleranceX = Math.max(5, Math.floor(w * 0.02)); 
+      const contentToleranceY = Math.max(5, Math.floor(h * 0.02));
+
+      let top = 0;
+      for (let y = 0; y < h; y++) {
+          let diffCount = 0;
+          for (let x = 0; x < w; x++) {
+              const i = (y * w + x) * 4;
+              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
+                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
+                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
+                  diffCount++;
+              }
+          }
+          if (diffCount > contentToleranceX) { top = y; break; }
+      }
+
+      let bottom = h - 1;
+      for (let y = h - 1; y >= top; y--) {
+          let diffCount = 0;
+          for (let x = 0; x < w; x++) {
+              const i = (y * w + x) * 4;
+              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
+                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
+                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
+                  diffCount++;
+              }
+          }
+          if (diffCount > contentToleranceX) { bottom = y; break; }
+      }
+
+      let left = 0;
+      for (let x = 0; x < w; x++) {
+          let diffCount = 0;
+          for (let y = top; y <= bottom; y++) {
+              const i = (y * w + x) * 4;
+              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
+                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
+                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
+                  diffCount++;
+              }
+          }
+          if (diffCount > contentToleranceY) { left = x; break; }
+      }
+
+      let right = w - 1;
+      for (let x = w - 1; x >= left; x--) {
+          let diffCount = 0;
+          for (let y = top; y <= bottom; y++) {
+              const i = (y * w + x) * 4;
+              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
+                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
+                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
+                  diffCount++;
+              }
+          }
+          if (diffCount > contentToleranceY) { right = x; break; }
+      }
+
+      const cropW = right - left + 1;
+      const cropH = bottom - top + 1;
+      
+      // If no cropping could be done, or it found something weird like completely empty
+      if (cropW <= 0 || cropH <= 0 || (cropW === w && cropH === h)) {
+          resolve({
+              url: imgSrc,
+              width: w,
+              height: h,
+              bgColor: dominantBg,
+              isCropped: false
+          });
+          return;
+      }
+
+      // Add a tiny bit of padding back so we don't accidentally cut into artwork
+      const padding = Math.max(2, Math.floor(Math.min(w, h) * 0.015));
+      const paddedTop = Math.max(0, top - padding);
+      const paddedBottom = Math.min(h - 1, bottom + padding);
+      const paddedLeft = Math.max(0, left - padding);
+      const paddedRight = Math.min(w - 1, right + padding);
+      const paddedW = paddedRight - paddedLeft + 1;
+      const paddedH = paddedBottom - paddedTop + 1;
+
+      // Only crop if it's a significant reduction (e.g. saves at least a few pixels)
+      if (paddedW >= w - 10 && paddedH >= h - 10) {
+          resolve({
+              url: imgSrc,
+              width: w,
+              height: h,
+              bgColor: dominantBg,
+              isCropped: false
+          });
+          return;
+      }
+
+      const cropCanvas = document.createElement("canvas");
+      cropCanvas.width = paddedW;
+      cropCanvas.height = paddedH;
+      const cropCtx = cropCanvas.getContext("2d");
+      if (cropCtx) {
+          cropCtx.drawImage(canvas, paddedLeft, paddedTop, paddedW, paddedH, 0, 0, paddedW, paddedH);
+          resolve({ 
+              url: cropCanvas.toDataURL('image/jpeg', 0.95), 
+              width: paddedW, 
+              height: paddedH,
+              bgColor: dominantBg,
+              isCropped: true,
+              origW: w,
+              origH: h,
+              padLeft: paddedLeft,
+              padTop: paddedTop
+          });
+      } else {
+          resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
     img.src = imgSrc;
   });
 }
@@ -2371,6 +2549,7 @@ export default function ComicEditor() {
   };
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
+  const [detectBgDuringBatch, setDetectBgDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
@@ -2509,6 +2688,7 @@ export default function ComicEditor() {
     if (ocrDuringBatch && !p.hasOcrRun) return true;
     if (splitDuringBatch && !p.hasLayoutRun) return true;
     if (translateDuringBatch && p.translatedLanguage !== batchTargetLanguage) return true;
+    if (detectBgDuringBatch && !p.bgColor) return true;
     return false;
   };
   const [loadingText, setLoadingText] = useState("Uploading...");
@@ -2691,7 +2871,7 @@ export default function ComicEditor() {
             const ctx = canvas.getContext('2d');
             
             if (ctx) {
-                await page.render({ canvasContext: ctx, viewport }).promise;
+                await page.render({ canvasContext: ctx, viewport } as any).promise;
                 const url = canvas.toDataURL('image/jpeg', 0.95);
                 const dims = await getImageDimensions(url);
                 const processed = await rotateImageIfNeeded(url, dims.width, dims.height);
@@ -2953,17 +3133,20 @@ export default function ComicEditor() {
     const runOcr = ocrDuringBatch && !page.hasOcrRun;
     const runLayout = splitDuringBatch && !page.hasLayoutRun;
     const runTranslate = translateDuringBatch && (page.translatedLanguage !== batchTargetLanguage || runOcr);
+    const runBgDetection = detectBgDuringBatch && !page.bgColor;
 
     console.log(`[Batch] Processing page ${pageIndex + 1}/${pages.length}`, {
       ocrRequested: ocrDuringBatch,
       splitRequested: splitDuringBatch,
       translateRequested: translateDuringBatch,
+      bgDetectionRequested: detectBgDuringBatch,
       runOcr,
       runLayout,
-      runTranslate
+      runTranslate,
+      runBgDetection
     });
 
-    if (!runOcr && !runLayout && !runTranslate) {
+    if (!runOcr && !runLayout && !runTranslate && !runBgDetection) {
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'done' } : p));
       return;
     }
@@ -2980,11 +3163,59 @@ export default function ComicEditor() {
       let result: ComicText[] = [];
       let localTexts: any[] | undefined = page.yoloTexts;
       let localPanels: any[] | undefined = page.detectedPanels;
+      let localBgColor: string | null | undefined = page.bgColor;
+      let workingImageSrc = page.originalImage;
+      let newWidth = page.width;
+      let newHeight = page.height;
+
+      if (runBgDetection) {
+        const cropRes = await autoCropImageBorders(page.originalImage);
+        if (cropRes) {
+            localBgColor = cropRes.bgColor;
+            workingImageSrc = cropRes.url;
+            newWidth = cropRes.width;
+            newHeight = cropRes.height;
+            if (cropRes.isCropped && cropRes.origH && cropRes.origW) {
+                toast.success(`Found solid margins on page ${pageIndex + 1}! Cropped successfully.`);
+                
+                const adjustBox = (box: [number, number, number, number]): [number, number, number, number] => {
+                    const padTop = cropRes.padTop || 0;
+                    const padLeft = cropRes.padLeft || 0;
+                    const cropH = cropRes.height;
+                    const cropW = cropRes.width;
+                    const origH = cropRes.origH!;
+                    const origW = cropRes.origW!;
+
+                    const processVal = (val: number, origD: number, pad: number, cropD: number) => {
+                        return Math.max(0, Math.min(1000, ((val / 1000 * origD) - pad) / cropD * 1000));
+                    };
+                    return [
+                        processVal(box[0], origH, padTop, cropH),
+                        processVal(box[1], origW, padLeft, cropW),
+                        processVal(box[2], origH, padTop, cropH),
+                        processVal(box[3], origW, padLeft, cropW)
+                    ];
+                };
+
+                const adjustText = (t: any) => ({ ...t, box_2d: adjustBox(t.box_2d || t) });
+
+                if (localTexts) localTexts = localTexts.map(adjustText);
+                if (localPanels) localPanels = localPanels.map(adjustText);
+                if (page.detectedTexts) page.detectedTexts = page.detectedTexts.map(adjustText) as ComicText[];
+                if (page.manualTexts) page.manualTexts = page.manualTexts.map(adjustText) as ComicText[];
+
+            } else if (!runOcr && !runLayout && !runTranslate) {
+                toast.info(`No solid margins to crop on page ${pageIndex + 1}.`);
+            }
+        } else {
+            localBgColor = null; // No border found or image is 100% bg
+        }
+      }
       
       // Load full-res image once for processing
       const fullImg = new Image();
       fullImg.crossOrigin = "Anonymous";
-      fullImg.src = page.originalImage;
+      fullImg.src = workingImageSrc;
       await new Promise((resolve) => { fullImg.onload = resolve; fullImg.onerror = resolve; });
 
       const canvas = document.createElement('canvas');
@@ -2994,7 +3225,7 @@ export default function ComicEditor() {
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
-      const aiBase64 = await resizeImageForAI(page.originalImage, 1600);
+      const aiBase64 = await resizeImageForAI(workingImageSrc, 1600);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
       if (runLayout && (!localTexts || !localPanels)) {
@@ -3148,11 +3379,16 @@ export default function ComicEditor() {
         setPages(prev => prev.map((p, idx) => idx === pageIndex ? { 
           ...p, 
           status: 'done',
+          originalImage: workingImageSrc,
+          width: newWidth,
+          height: newHeight,
+          manualTexts: page.manualTexts || p.manualTexts,
+          bgColor: localBgColor !== undefined ? localBgColor : page.bgColor,
           hasOcrRun: page.hasOcrRun || ocrDuringBatch,
           hasLayoutRun: page.hasLayoutRun || splitDuringBatch,
           translatedLanguage: translateDuringBatch ? batchTargetLanguage : page.translatedLanguage
         } : p));
-        if (!hasPanels) {
+        if (!hasPanels && (runOcr || runLayout)) {
           toast.info("No panels or text detected on this page.");
         }
         return;
@@ -3232,9 +3468,14 @@ export default function ComicEditor() {
 
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { 
         ...p, 
-        detectedTexts: finalResults, 
+        originalImage: workingImageSrc,
+        width: newWidth,
+        height: newHeight,
+        detectedTexts: finalResults,
+        manualTexts: page.manualTexts || p.manualTexts,
         cleanedImage, 
         status: 'done',
+        bgColor: localBgColor !== undefined ? localBgColor : page.bgColor,
         isTextOnly: calculatedIsTextOnly,
         hasOcrRun: page.hasOcrRun || ocrDuringBatch,
         hasLayoutRun: page.hasLayoutRun || splitDuringBatch,
@@ -3295,13 +3536,8 @@ export default function ComicEditor() {
   };
 
   const handleBatchProcess = async () => {
-    // If no AI options are selected, skip batch processing and export directly
-    if (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) {
-      toast.info("No AI processing requested. Ready to export.");
-      // Just mark all pending pages as done
-      setPages(prev => prev.map(p => p.status === 'pending' ? { ...p, status: 'done' } : p));
-      // Trigger EPUB export as a default reasonable comic format
-      downloadEpub();
+    // If no AI options are selected, skip
+    if (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch) {
       return;
     }
 
@@ -3639,7 +3875,7 @@ export default function ComicEditor() {
       }
 
       pagesHtml += `
-    <div class="page-wrapper">
+    <div class="page-wrapper" style="background-color: ${page.bgColor || '#fff'};">
 ${panelsHtml}
     </div>\n`;
     }
@@ -4222,6 +4458,17 @@ ${navItems}    </ol>
             </div>
 
             <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-fit flex flex-col items-start">
+              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setDetectBgDuringBatch(!detectBgDuringBatch)}>
+                <Checkbox 
+                  checked={detectBgDuringBatch} 
+                  onCheckedChange={(c) => setDetectBgDuringBatch(!!c)}
+                  className="w-4 h-4 border-muted-foreground rounded-none"
+                />
+                <div className="flex flex-col w-fit">
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Crop Page Borders</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Detect and remove page margins</span>
+                </div>
+              </div>
               <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
                 <Checkbox 
                   checked={splitDuringBatch} 
@@ -4277,7 +4524,7 @@ ${navItems}    </ol>
             variant="ghost"
             className="w-fit gap-2 h-9" 
             onClick={() => processPage(currentPageIndex)} 
-            disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored}
+            disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
           >
             {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             <span className="whitespace-nowrap">Process Current Page</span>
@@ -4287,14 +4534,11 @@ ${navItems}    </ol>
             variant="ghost"
             className="w-fit gap-2 h-9" 
             onClick={handleBatchProcess} 
-            disabled={isBatchProcessing || pages.length === 0 || (pages.every(p => !needsPageProcessing(p)) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))}
+            disabled={isBatchProcessing || pages.length === 0 || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
           >
-            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch ? <Download className="w-4 h-4" /> : <Play className="w-4 h-4" />)}
+            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             <span className="whitespace-nowrap">
-              {(!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch) 
-                ? (selectedPages.size > 0 ? `Export Selected (${selectedPages.size})` : "Export Directly")
-                : (selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All")
-              }
+              {selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All"}
             </span>
           </Button>
           
@@ -4999,7 +5243,7 @@ ${navItems}    </ol>
                                 </div>
                               )}
                               {viewMode === 'preview' && activePage.isTextOnly ? (
-                                <div className="w-full h-auto bg-white p-8 sm:p-16 text-black flex flex-col gap-6" style={{ minHeight: '600px' }}>
+                                <div className="w-full h-auto p-8 sm:p-16 text-black flex flex-col gap-6" style={{ minHeight: '600px', backgroundColor: activePage.bgColor || 'white' }}>
                                   {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
                                     const fontSizeCqi = activePage.width > 0 ? (Math.max(16, activePage.width * 0.015) / activePage.width) * 100 : 2;
                                     return (
@@ -5054,10 +5298,11 @@ ${navItems}    </ol>
                                         ref={imageRef}
                                         src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
                                         alt={`Page ${currentPageIndex + 1}`}
-                                        className="max-h-[calc(100vh-3rem)] w-auto block bg-white border border-black mx-auto"
+                                        className="max-h-[calc(100vh-3rem)] w-auto block border border-black mx-auto"
+                                        style={{ backgroundColor: activePage.bgColor || 'white' }}
                                       />
                                       {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
-                                        <div className="mt-8 mb-12 p-8 bg-white text-black border-t text-left">
+                                        <div className="mt-8 mb-12 p-8 text-black border-t text-left" style={{ backgroundColor: activePage.bgColor || 'white' }}>
                                           <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
                                             <Book className="w-5 h-5 text-primary" /> Extracted Text
                                           </h3>

@@ -13,22 +13,94 @@
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [{
-        "@type": "Question",
-        "name": "What is EbookCC?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "EbookCC is an AI-powered tool that automates comic OCR, text translation, and eBook conversion, enabling seamless digital comic creation."
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "@id": "https://ebookcc.com/#webapp",
+          "name": "EbookCC",
+          "url": "https://ebookcc.com/",
+          "applicationCategory": "DesignApplication",
+          "operatingSystem": "All",
+          "browserRequirements": "Requires standard modern browser",
+          "description": "Free Online Comic Book & Manga Creator, AI Translator, and eBook Converter. Plan custom comic layouts, localize dialogue with high-precision AI OCR, and export high-res EPUB files.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0.00",
+            "priceCurrency": "USD"
+          },
+          "featureList": [
+            "AI Manga OCR & Dialogue Translation Tool",
+            "Interactive Speech Balloon Customizer",
+            "CBZ, ZIP, PNG to EPUB Conversion",
+            "Mobile-Optimized Guided Frame Splitter",
+            "Secure Offline Processing Container Solutions"
+          ]
+        },
+        {
+          "@type": "HowTo",
+          "@id": "https://ebookcc.com/#howto-make-comic",
+          "name": "How to Create and Convert Comics Online with EbookCC",
+          "description": "Designing, translating, and formatting your personal comics, manga chapters, and graphic novels is easy. Follow our simple offline-friendly guide to build professional eBooks.",
+          "totalTime": "PT5M",
+          "estimatedCost": {
+            "@type": "MonetaryAmount",
+            "currency": "USD",
+            "value": "0"
+          },
+          "step": [
+            {
+              "@type": "HowToStep",
+              "name": "Upload Media Files",
+              "text": "Import your drawn comic canvas, scanned cartoon frames, or manga archive files instantly into the converter screen.",
+              "url": "https://ebookcc.com/#step1",
+              "image": "https://ebookcc.com/logo.png"
+            },
+            {
+              "@type": "HowToStep",
+              "name": "Run AI OCR & Instantly Translate Balloon Text",
+              "text": "Execute advanced AI OCR models to auto-detect text bubbles. Wipe away the original language and place localized translations cleanly.",
+              "url": "https://ebookcc.com/#step2",
+              "image": "https://ebookcc.com/logo.png"
+            },
+            {
+              "@type": "HowToStep",
+              "name": "Fine-Tune Speech Bubbles & Custom Design",
+              "text": "Overlay classic, whispered, or loud dialogue tags. Format font families and align placements visually on custom graphic canvas panels.",
+              "url": "https://ebookcc.com/#step3",
+              "image": "https://ebookcc.com/logo.png"
+            },
+            {
+              "@type": "HowToStep",
+              "name": "Export EPUB Comic Book Format",
+              "text": "Click export to automatically package your graphic novel pages into structured, cross-compatible EPUB digital formats for Kindle or iPad.",
+              "url": "https://ebookcc.com/#step4",
+              "image": "https://ebookcc.com/logo.png"
+            }
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://ebookcc.com/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is EbookCC?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "EbookCC is an open-source, AI-powered online workspace built to translate raw manga, design comic strip panels, and format them into digital eBooks."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is EbookCC completely free to use?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, EbookCC is 100% free with fully customized cloud translations and optional local offline deployment models."
+              }
+            }
+          ]
         }
-      }, {
-        "@type": "Question",
-        "name": "Does EbookCC support OCR for comics?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes, EbookCC utilizes advanced AI models like YOLO and Gemini to perform precise OCR and text extraction from complex comic pages."
-        }
-      }]
+      ]
     }
     </script>
   </head>

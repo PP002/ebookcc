@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -104,7 +104,7 @@ async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<
 }
 
 // Helper to scan border pixels, detect consistently identical background colors, and crop them
-async function autoCropImageBorders(imgSrc: string): Promise<{ url: string, width: number, height: number, bgColor: string, isCropped: boolean, origW?: number, origH?: number, padLeft?: number, padTop?: number } | null> {
+export async function autoCropImageBorders(imgSrc: string): Promise<{ url: string, width: number, height: number, bgColor: string, isCropped: boolean, origW?: number, origH?: number, padLeft?: number, padTop?: number } | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -1201,23 +1201,25 @@ const PREDICT_URLS = [
   "https://predict-69ffb9909f770dcc9b69-dproatj77a-de.a.run.app/predict"
 ];
 
-async function runPredictAPI(base64Data: string): Promise<LayoutResult> {
-  const shuffledUrls = [...PREDICT_URLS].sort(() => Math.random() - 0.5);
-  let lastErr: any = null;
-  
-  for (const url of shuffledUrls) {
+export async function runPredictAPI(base64Data: string): Promise<LayoutResult> {
+  const promises = PREDICT_URLS.map(async (url) => {
     try {
       const result = await detectLayoutLocalYolo(base64Data, url, "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b", false, 1, 0);
       if (result && (result.panels.length > 0 || result.texts.length > 0)) {
         return result;
       }
+      throw new Error(`Empty result from ${url}`);
     } catch (err: any) {
       console.warn(`Predict API failed for ${url}:`, err);
-      lastErr = err;
+      throw err;
     }
+  });
+
+  try {
+    return await Promise.any(promises);
+  } catch (err) {
+    throw new Error("All predict API endpoints failed or returned empty results.");
   }
-  
-  throw lastErr || new Error("All predict API endpoints failed or returned empty results.");
 }
 
 const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => {
@@ -2321,9 +2323,34 @@ function b64EncodeUnicode(str: string) {
   }));
 }
 
-export default function ComicEditor() {
+export default function Convert({ 
+  setActiveView, 
+  onActiveStateChange 
+}: { 
+  setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void,
+  onActiveStateChange?: (active: boolean) => void
+}) {
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+
+  useEffect(() => {
+    if (onActiveStateChange) {
+      onActiveStateChange(pages.length > 0);
+    }
+  }, [pages.length, onActiveStateChange]);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('upload') === 'true' && pages.length === 0) {
+      window.history.replaceState(null, '', '/convert');
+      setTimeout(() => {
+        const inputEl = document.querySelector('input[type="file"]') as HTMLInputElement;
+        if (inputEl) {
+          inputEl.click();
+        }
+      }, 500);
+    }
+  }, [pages.length]);
   const [showCollageModal, setShowCollageModal] = useState(false);
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [isRandomMode, setIsRandomMode] = useState(false);
@@ -3943,72 +3970,28 @@ ${pagesHtml}</body>
         }
       };
 
-      const addTextWithCanvas = (textStr: string) => {
-        const fontSize = 12; // pt
-        const lineHeight = 16; // pt
-        const scale = 2; // retina display sharpness
-        
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        
-        ctx.font = `${fontSize * scale}px Helvetica, Arial, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif`;
-        
+      const addText = (textStr: string) => {
+        pdf.setFont("helvetica");
+        pdf.setFontSize(12);
+        const lineHeight = 16;
         const paragraphs = textStr.split('\n');
-        let lines: string[] = [];
         
         for (const p of paragraphs) {
-          if (!p.trim()) {
-            lines.push('');
-            continue;
-          }
-          let currentLine = '';
-          for (let i = 0; i < p.length; i++) {
-            const char = p[i];
-            const testLine = currentLine + char;
-            const w = ctx.measureText(testLine).width / scale;
-            if (w > contentWidth && i > 0) {
-              lines.push(currentLine);
-              currentLine = char;
-            } else {
-              currentLine = testLine;
-            }
-          }
-          lines.push(currentLine);
-        }
-        
-        // Render chunks
-        let chunkLines: string[] = [];
-        
-        const flushChunk = () => {
-           if (chunkLines.length === 0) return;
-           const h = chunkLines.length * lineHeight;
-           canvas.width = contentWidth * scale;
-           canvas.height = h * scale;
-           ctx.font = `${fontSize * scale}px Helvetica, Arial, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif`;
-           ctx.fillStyle = '#000000';
-           ctx.textBaseline = 'top';
-           ctx.clearRect(0,0, canvas.width, canvas.height);
-           
-           for (let i = 0; i < chunkLines.length; i++) {
-              ctx.fillText(chunkLines[i], 0, i * lineHeight * scale);
+           if (!p.trim()) {
+              currentY += lineHeight;
+              checkAddPage(lineHeight);
+              continue;
            }
-           
-           const dataUrl = canvas.toDataURL('image/png', 0.9);
-           pdf.addImage(dataUrl, 'PNG', margin, currentY, contentWidth, h);
-           currentY += h;
-           chunkLines = [];
-        };
-
-        for (const line of lines) {
-           if (currentY + (chunkLines.length * lineHeight) + lineHeight > pageHeight - margin) {
-              flushChunk();
-              pdf.addPage();
-              currentY = margin;
+           const lines = pdf.splitTextToSize(p, contentWidth) as string[];
+           for (const line of lines) {
+              if (currentY + lineHeight > pageHeight - margin) {
+                 pdf.addPage();
+                 currentY = margin;
+              }
+              pdf.text(line, margin, currentY + 12);
+              currentY += lineHeight;
            }
-           chunkLines.push(line);
         }
-        flushChunk();
       };
 
       for (let i = 0; i < exportPages.length; i++) {
@@ -4021,7 +4004,7 @@ ${pagesHtml}</body>
             const sortedTexts = sortTextsReadingOrder(allTexts);
             const textStr = sortedTexts.map(t => t.text.trim()).join('\n\n');
             if (textStr) {
-               addTextWithCanvas(textStr);
+               addText(textStr);
                currentY += 20;
             }
         } else {
@@ -4044,7 +4027,7 @@ ${pagesHtml}</body>
                  const sortedTexts = sortTextsReadingOrder(allTexts);
                  const textStr = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
                  if (textStr) {
-                    addTextWithCanvas(textStr);
+                    addText(textStr);
                     currentY += 20;
                  }
                }
@@ -4071,7 +4054,7 @@ ${pagesHtml}</body>
                      const sortedTexts = sortTextsReadingOrder(p.texts);
                      const textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
                      if (textContent) {
-                        addTextWithCanvas(textContent);
+                        addText(textContent);
                         currentY += 10; // extra spacing after text
                      }
                   }
@@ -4330,7 +4313,7 @@ ${ncxItems}  </navMap>
     <dc:title>Comic Book Export</dc:title>
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">${new Date().toISOString().replace(/\.[0-9]+Z$/, 'Z')}</meta>
-    ${isSplitOnly ? `
+    ${useReflowable ? `
     <meta property="rendition:layout">reflowable</meta>
     ` : `
     <!-- Fixed Layout Metadata -->
@@ -4597,82 +4580,34 @@ ${navItems}    </ol>
   return (
     <>
       {pages.length === 0 ? (
-        <div className="relative max-w-6xl mx-auto p-6 space-y-8">
-          <div className="fixed top-4 right-4 z-50 flex gap-2">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
-              className="w-10 h-10 rounded-full hover:bg-muted text-primary bg-transparent"
-              title="Toggle Dark Mode"
-            >
-              {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-            </Button>
-          </div>
-
-          <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-4 px-4">
-            <motion.div 
-              whileHover={{ scale: 1.05 }}
-              className="h-8 flex items-center justify-center"
-            >
-              <img src="/logo.png" alt="EbookCC Logo" aria-hidden="true" className="h-full w-auto block select-none" />
-            </motion.div>
-            <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground">
-              AI-Powered Comic OCR & eBook Converter
-            </h1>
-            <p className="text-muted-foreground text-sm md:text-base font-medium">
-              Transform your comic pages into high-quality digital eBooks with seamless AI-powered text extraction, translation, and automated formatting.
-            </p>
-            <Slideshow />
-          </header>
-
+        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-4xl mx-auto w-full min-h-[70vh]">
           <div
             {...getRootProps()}
             className={cn(
-              "max-w-4xl mx-auto w-full border-2 border-solid border-border p-12 text-center cursor-pointer bg-transparent"
+              "w-full border-4 border-dashed border-border p-16 text-center cursor-pointer bg-card hover:border-primary transition-all rounded-none min-h-[350px] flex flex-col justify-center items-center shadow-lg hover:shadow-xl",
+              isDragActive && "border-primary bg-primary/5"
             )}
+            style={{ outline: "none" }}
           >
             <input {...getInputProps()} />
-            <div className="flex flex-col items-center gap-4">
-              <div className="p-4 border-2 border-border mb-4 bg-background">
-                <Layers className="w-12 h-12 text-foreground mx-auto mb-2" />
-                <p className="text-xl font-bold">Drop files here</p>
-                <p className="text-sm font-medium mt-1">Supported: EPUB, CBZ, ZIP, PDF, IMAGES</p>
-                <p className="text-sm text-neutral-600">or click to browse files</p>
+            <div className="flex flex-col items-center gap-4 max-w-md">
+              <div className="p-4 bg-background rounded-none shrink-0 text-center">
+                <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
+                <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop Comic/eBook Files Here</h2>
+                <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
+                  Supported: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP</span>
+                </p>
+                <p className="text-[10px] text-muted-foreground/80 mt-1">
+                  or click inside this workspace block to browse local files
+                </p>
+              </div>
+
+              <div className="text-center font-semibold text-[11px] text-muted-foreground bg-muted p-2.5">
+                <Sparkles className="w-3.5 h-3.5 inline mr-1 text-primary animate-pulse" />
+                OCR scanning, panel splitting, translation & eBook packager will guide you step by step.
               </div>
             </div>
           </div>
-
-          <section className="max-w-5xl mx-auto py-16 px-4" aria-labelledby="features-heading">
-            <h2 id="features-heading" className="text-xl font-bold tracking-tight mb-8 text-center text-primary">Key Features</h2>
-            <div className="grid md:grid-cols-3 gap-4">
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">Comic OCR & Extraction</h3>
-                    <p className="text-[10px]">Advanced AI OCR (YOLO & Gemini) to extract text bubbles with high precision.</p>
-                </Card>
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">Hybrid AI OCR</h3>
-                    <p className="text-[10px]">Flexible OCR powered by either Gemini Cloud API or local LLMs (Ollama, LM Studio, Llama.cpp).</p>
-                </Card>
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">Smart Panel Splitting</h3>
-                    <p className="text-[10px]">Automated panel segmentation optimized for mobile-first reading experiences and e-reader guided view.</p>
-                </Card>
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">One-Click eBook Export</h3>
-                    <p className="text-[10px]">Seamlessly convert ZIP/CBZ files to professional EPUB formats with a single click.</p>
-                </Card>
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">WYSIWYG Control Suite</h3>
-                    <p className="text-[10px]">Powerful WYSIWYG editor featuring custom text overlays, font fine-tuning, and layout styling.</p>
-                </Card>
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-transparent">
-                    <h3 className="text-sm font-bold mb-1">Local Infrastructure Aids</h3>
-                    <p className="text-[10px]">Interactive diagnostic tools for automated CORS, environment, and local container setup.</p>
-                </Card>
-            </div>
-          </section>
-
         </div>
       ) : (
         <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -6162,22 +6097,7 @@ ${navItems}    </ol>
         </div>
       )}
 
-      {/* Floating Ko-fi Button */}
-      <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2">
-        <motion.a
-          id="ko-fi-float-btn"
-          href="https://ko-fi.com/kollolliver"
-          target="_blank"
-          rel="noopener noreferrer"
-          whileHover={{ scale: 1.05, y: -2 }}
-          whileTap={{ scale: 0.95 }}
-          className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-medium py-3 px-5 portrait:p-3 max-sm:p-3 rounded-full shadow-lg border border-[#ff3d3a] transition-all text-sm group pointer-events-auto"
-        >
-          <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
-          <span className="portrait:hidden max-sm:hidden">Buy me a coffee</span>
-          <Heart className="w-4 h-4 fill-white text-white animate-pulse portrait:hidden max-sm:hidden" />
-        </motion.a>
-      </div>
+
 
       {/* "Buy me a coffee" modal shown after export */}
       <AnimatePresence>

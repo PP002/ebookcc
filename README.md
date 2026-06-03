@@ -1,35 +1,43 @@
-# 📚 EbookCC: The Ultimate AI-Powered Comic OCR & Editor
+# 📚 EbookCC: Free Online Comic Book & Manga Creator, AI Translator, and eBook Converter
 
-⚡ **Detect, translate, and convert comic speech bubbles with cutting-edge AI OCR and selectable text overlays.** Transform raw manga scans, graphic novels, or personal photos into highly structured, mobile-friendly eBooks with one click.
+⚡ **Design custom comic layouts, localize dialogue with high-precision AI OCR, and convert RAW panels into professional eBooks.** EbookCC is a versatile, browser-based graphic editor and converter designed to turn raw manga pages, strip panels, and graphic novel projects into digital-ready eBooks with a single click.
 
 🚀 **Try it live now:** [https://ebookcc.com/](https://ebookcc.com/)
 
 ---
 
-## ✨ Features
+## ✨ Key Suite Capabilities & Online Tools
 
-### 🎯 Custom YOLO26 Comic Detection
-Utilizes an advanced, self-trained **YOLO26 neural network architecture** to detect manga panels and speech bubbles with pixel-perfect accuracy. No more manual cropping.
+### 🎨 Free Manga Reader & eBook Viewer
+Enjoy your digital bookshelf with an advanced online manga reader. Customize layouts, adjust zoom, and read seamlessly in dark, light, or sepia modes.
 
-### 🤖 Hybrid AI-Powered OCR (Cloud & Local)
-* **Cloud Power:** Seamless integration with Google **Cloud Gemini API** for state-of-the-art layout analysis and text extraction.
-* **100% Offline & Private:** Hook into your own self-hosted **Local LLMs** (`Ollama`, `LM Studio`, or `Llama.cpp`) to process sensitive content with zero data leakage.
+### ✍️ Online Comic Maker & Manga Creator
+Design stunning comic strips and manga panels. Add custom speech bubbles, dynamic dialogue, and action expressions for your graphic novel project.
 
-### 📱 Smart Panel Splitting (Guided View)
-Intelligently slices complex comic layouts into individual pages or guided-view blocks. Perfectly optimizes raw manga for comfortable reading on small screens like smartphones and Kindle/Kobo e-readers.
+### 🤖 AI Manga Translation Tool
+Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.
 
-### 🪄 One-Click eBook Generation
-Instantly convert your image directories, ZIP, or CBZ files into standard **reflowable or fixed-layout eBooks** with automated Table-of-Contents (ToC) generation.
+### 📲 Comic Panel Splitter
+Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.
+
+### 📦 CBZ to EPUB Converter
+Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.
+
+### 🔒 Private Local Processing Setup
+Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely processed offline.
 
 ---
 
 ## 🛠️ How It Works (Quick Overview)
 
-1. **Upload:** Drop your comic pages, ZIP, or CBZ files into EbookCC.
-2. **AI Detect & OCR:** The **YOLO26** model finds the panels and text bubbles, and **Gemini/Local LLM** extracts the text.
-3. **Edit/Translate:** Use the **Rich Editor** to translate, typeset, or adjust bubbles.
-4. **Export:** Export as a beautifully formatted eBook or images with text overlays.
-## Local Development
+1. **Upload Media Files:** Drop your comic pages, PNG canvas drawings, or compiled ZIP/CBZ files into the creator workstation.
+2. **AI Detect, Translate & OCR:** Detect speech balloons with precision. Execute advanced AI models to wipe out original Japanese or Korean graphics and layer localized text immediately.
+3. **Fine-Tune Speech Bubbles:** Lay down classic, whispered, or action-vibe balloon styles, tweak typographical fonts, and finalize visual canvas placements in our interactive editor.
+4. **Export EPUB Comic Book Format:** Generate beautifully organized, cross-platform eBooks or high-resolution graphic pages optimized for Kindle, Apple Books, and mobile devices.
+
+---
+
+## 🛠️ Local Development
 
 To run this application locally on your machine, check out these quick steps:
 
@@ -57,7 +65,7 @@ To run this application locally on your machine, check out these quick steps:
 
 ## ☕ Support the Project
 
-If **EbookCC** has saved you time and made your comic-reading or editing process smoother, please consider supporting the creator:
+If **EbookCC** has saved you time and made your comic-reading, translation, or editing process smoother, please consider supporting the creator, **Pierre Kollo**:
 
 [![Buy me a coffee](https://img.shields.io/badge/Buy_me_a_coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/kollolliver)
 

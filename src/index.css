@@ -98,3 +98,33 @@ div#root > div > div > div:nth-of-type(2) > div > div {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   @apply bg-muted-foreground/20 hover:bg-muted-foreground/40 transition-colors;
 }
+
+@media print {
+  body {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  .print-wrapper {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+}

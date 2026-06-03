@@ -3,6 +3,8 @@ import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import sharp from "sharp";
+import HTMLtoDOCX from 'html-to-docx';
+import Epub from 'epub-gen-memory';
 
 // ─────────────────────────────────────────────
 // Types
@@ -646,6 +648,89 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
     } catch (e: any) {
       console.error(e);
       return handleGeminiError(e, res);
+    }
+  });
+
+  app.post("/api/export/docx", async (req, res): Promise<any> => {
+    try {
+      const { html } = req.body;
+      if (!html) return res.status(400).send("HTML is required");
+      
+      const fileBuffer = await HTMLtoDOCX(html, null, {
+        table: { row: { cantSplit: true } },
+        footer: true,
+        pageNumber: true,
+      });
+
+      let buf = fileBuffer;
+      if (!Buffer.isBuffer(fileBuffer)) {
+          if (fileBuffer && typeof fileBuffer.arrayBuffer === 'function') {
+              buf = Buffer.from(await fileBuffer.arrayBuffer());
+          } else {
+              buf = Buffer.from(fileBuffer as any);
+          }
+      }
+
+      const base64Data = buf.toString('base64');
+      res.json({ data: base64Data, format: 'docx' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  const tempImageMap = new Map<string, string>();
+
+  app.get('/api/temp-image/:id', (req, res) => {
+    const dataUrl = tempImageMap.get(req.params.id);
+    if (!dataUrl) return res.status(404).end();
+    const parts = dataUrl.split(',');
+    const mime = parts[0].split(':')[1].split(';')[0];
+    const buffer = Buffer.from(parts[1], 'base64');
+    res.setHeader('Content-Type', mime);
+    res.end(buffer);
+  });
+
+  app.post("/api/export/epub", async (req, res): Promise<any> => {
+    try {
+      let { html, title } = req.body;
+      if (!html) return res.status(400).send("HTML is required");
+      
+      const imgRegex = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
+      html = html.replace(imgRegex, (match: string, p1: string) => {
+          const id = Math.random().toString(36).substring(7);
+          tempImageMap.set(id, p1);
+          return `src="http://127.0.0.1:3000/api/temp-image/${id}"`;
+      });
+
+      const epubFunc = typeof Epub === 'function' ? Epub : (Epub as any).default;
+      console.log('epub export requested', { title, htmlLength: html?.length, epubFuncType: typeof epubFunc });
+      const fileBuffer = await epubFunc({
+          title: title || "Document",
+          author: "Author",
+      }, [
+          { title: "Content", content: html }
+      ]);
+      
+      let buf = fileBuffer;
+      if (!Buffer.isBuffer(fileBuffer)) {
+          if (fileBuffer && typeof fileBuffer.arrayBuffer === 'function') {
+              buf = Buffer.from(await fileBuffer.arrayBuffer());
+          } else {
+              buf = Buffer.from(fileBuffer as any);
+          }
+      }
+
+      const base64Data = buf.toString('base64');
+      
+      // Cleanup temp images after epub generation
+      setTimeout(() => {
+          tempImageMap.clear();
+      }, 30000);
+
+      res.json({ data: base64Data, format: 'epub' });
+    } catch (e: any) {
+      console.log('EPUB Error', e);
+      res.status(500).json({ error: e.message, stack: e.stack });
     }
   });
 

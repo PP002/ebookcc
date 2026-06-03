@@ -132,17 +132,12 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
     headers["x-yolo-panel-class"] = yoloPanelClass.toString();
     headers["x-yolo-text-class"] = yoloTextClass.toString();
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
-    
     try {
       const res = await fetchWithRetry("/api/detectPanelsLocalYolo", {
         method: "POST",
         headers,
-        body: JSON.stringify({ base64Image }),
-        signal: controller.signal
+        body: JSON.stringify({ base64Image })
       });
-      clearTimeout(timeoutId);
       
       const text = await res.text();
       if (text.trim().startsWith('<')) {
@@ -160,7 +155,6 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
 
       return JSON.parse(text);
     } catch(err: any) {
-      clearTimeout(timeoutId);
       // Suppress redundant logs as the parent runPredictAPI handles the multi-url logic
       throw err;
     }

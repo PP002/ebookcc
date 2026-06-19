@@ -6,21 +6,27 @@
 import Convert from './components/Convert';
 import { Read } from './components/Read';
 import { Create } from './components/Create';
+import { AIAgentChat } from './components/AIAgentChat';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { useState, useEffect } from 'react';
-import { BookOpen, PenTool, Wrench, Heart, Sparkles, Coffee, Moon, Sun, X } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, Heart, Sparkles, Coffee, Moon, Sun, X, Settings } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slideshow } from './components/Slideshow';
+import { AppSettingsProvider, useAppSettings } from './context/AppSettingsContext';
+import { AppSettingsDialog } from './components/AppSettingsDialog';
 
 export default function App() {
   return (
     // @ts-ignore
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
-        <AppContent />
+        <AppSettingsProvider>
+          <AppContent />
+          <AppSettingsDialog />
+        </AppSettingsProvider>
       </TooltipProvider>
     </ThemeProvider>
   );
@@ -28,6 +34,7 @@ export default function App() {
 
 function AppContent() {
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setShowSettingsDialog } = useAppSettings();
   const [currentPath, setCurrentPath] = useState<'home' | 'read' | 'create' | 'convert'>(() => {
     const path = window.location.pathname.toLowerCase();
     if (path === '/read') return 'read';
@@ -50,6 +57,33 @@ function AppContent() {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const handleNav = (e: any) => {
+      const action = e.detail?.action as string;
+      if (action.startsWith('generate-comic:')) {
+        const prompt = decodeURIComponent(action.split('generate-comic:')[1] || "");
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-generate-full-comic', { detail: { prompt } })), 300);
+      } else if (action === 'open-create-script') {
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-ai-script-dialog')), 300);
+      } else if (action === 'open-draw-board') {
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-draw-mode')), 300);
+      } else if (action === 'open-converter') {
+        navigate('convert');
+      } else if (action === 'open-comic-creator') {
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-comic-creator')), 300);
+      } else if (action === 'open-story-writer') {
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-story-writer')), 300);
+      }
+    };
+    window.addEventListener('app-navigation', handleNav);
+    return () => window.removeEventListener('app-navigation', handleNav);
   }, []);
 
   const navigate = (view: 'home' | 'read' | 'create' | 'convert', query?: string) => {
@@ -108,6 +142,15 @@ function AppContent() {
 
             {/* Right Layout Controls */}
             <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSettingsDialog(true)}
+                className="w-8.5 h-8.5 rounded-none hover:bg-muted text-foreground/80"
+                title="App Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
               {/* Dark Mode switcher */}
               <Button
                 variant="ghost"
@@ -143,7 +186,7 @@ function AppContent() {
             <div className="grid md:grid-cols-3 gap-6 pt-4">
               {/* Read Card */}
               <Card 
-                className="p-6 border-2 border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
                 onClick={() => navigate('read')}
               >
                 <div className="space-y-4">
@@ -164,7 +207,7 @@ function AppContent() {
 
               {/* Create Card */}
               <Card 
-                className="p-6 border-2 border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
                 onClick={() => navigate('create')}
               >
                 <div className="space-y-4">
@@ -185,7 +228,7 @@ function AppContent() {
 
               {/* Convert Card */}
               <Card 
-                className="p-6 border-2 border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
                 onClick={() => navigate('convert', '?upload=true')}
               >
                 <div className="space-y-4">
@@ -208,50 +251,50 @@ function AppContent() {
             </div>
 
             {/* Restored Key Features list directly on landing page */}
-            <section className="max-w-4xl mx-auto py-12 border-t border-border/40" id="key-features">
-              <h2 className="text-sm font-extrabold tracking-tight mb-8 text-center text-primary uppercase font-mono">Key Suite Capabilities & Online Tools</h2>
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+            <section className="max-w-3xl mx-auto py-8 border-t border-border/30" id="key-features">
+              <h2 className="text-sm font-extrabold tracking-tight mb-6 text-center text-primary uppercase font-mono">Key Suite Capabilities & Online Tools</h2>
+              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> AI Manga Translation Tool
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.</p>
                 </Card>
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> Multi-Model OCR Support
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">Harness powerful optical character recognition with Google Gemini Cloud API or integrate locally hosted LLMs for private document processing.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Harness powerful optical character recognition with Google Gemini Cloud API or integrate locally hosted LLMs for private document processing.</p>
                 </Card>
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> Comic Panel Splitter
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.</p>
                 </Card>
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> CBZ to EPUB Converter
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.</p>
                 </Card>
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> Online Comic Editor
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">A robust WYSIWYG editor to overlay localized text, adjust typography, format dialogue balloons, and export high-res graphic novel pages.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">A robust WYSIWYG editor to overlay localized text, adjust typography, format dialogue balloons, and export high-res graphic novel pages.</p>
                 </Card>
-                <Card className="p-5 border-2 border-border rounded-none shadow-none bg-card hover:border-primary/50 transition-colors">
+                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
                   <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
                     <Sparkles className="w-3.5 h-3.5 text-primary" /> Private Local Processing
                   </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-2 font-medium">Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely processed offline.</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely processed offline.</p>
                 </Card>
               </div>
             </section>
 
             {/* Footer */}
-            <footer className="text-center text-xs text-muted-foreground pt-8 border-t border-border/40">
+            <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40">
               <p className="flex flex-col sm:flex-row items-center justify-center gap-2 font-medium">
                 <span>Made with <Heart className="w-3.5 h-3.5 inline text-rose-500 fill-rose-500" /> by Pierre Kollo. Powered by advanced AI.</span>
                 <span className="hidden sm:inline text-border">|</span>
@@ -269,14 +312,14 @@ function AppContent() {
 
       {/* Floating Global Ko-fi Button */}
       {!isFullscreen && (
-        <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2">
+        <div className="fixed bottom-[1%] right-[1%] z-[100] flex flex-col items-end gap-2">
           <button
             onClick={() => setShowCoffeeModal(true)}
-            className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-bold py-3 px-5 rounded-full shadow-lg border border-[#ff3d3a] transition-all text-sm group pointer-events-auto cursor-pointer"
+            className="flex items-center justify-center gap-1.5 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-semibold py-1.5 px-3 portrait:w-9 portrait:h-9 portrait:p-0 rounded shadow-sm border-0 transition-all text-xs group pointer-events-auto cursor-pointer"
           >
-            <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
+            <Coffee className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform duration-300" />
             <span className="portrait:hidden">Buy me a coffee</span>
-            <Heart className="w-4 h-4 fill-white text-white animate-pulse portrait:hidden" />
+            <Heart className="w-3 h-3 fill-white text-white animate-pulse portrait:hidden" />
           </button>
         </div>
       )}
@@ -284,7 +327,7 @@ function AppContent() {
       {/* Global "Buy me a coffee" Modal */}
       {showCoffeeModal && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-background/85 backdrop-blur-xs">
-          <div className="relative flex flex-col items-center gap-5 px-8 py-10 border-2 border-border bg-card shadow-2xl max-w-[450px] w-full mx-4 text-center rounded-none">
+          <div className="relative flex flex-col items-center gap-5 px-8 py-10 border border-border bg-card shadow-2xl max-w-[450px] w-full mx-4 text-center rounded-none">
             {/* Close Button */}
             <button
               onClick={() => setShowCoffeeModal(false)}
@@ -329,7 +372,8 @@ function AppContent() {
         </div>
       )}
       
-      <Toaster position="bottom-left" />
+      <AIAgentChat />
+      <Toaster position="bottom-left" toastOptions={{ className: 'z-[9999999]' }} style={{ zIndex: 9999999 }} />
     </div>
   );
 }

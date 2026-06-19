@@ -37,7 +37,7 @@ export const Slideshow: React.FC = () => {
             <img
               src={slide.img}
               alt={slide.alt}
-              className={`w-full h-full object-contain ${slide.needsOutline ? 'border-2 border-primary' : ''}`}
+              className={`w-full h-full object-contain ${slide.needsOutline ? 'border border-primary' : ''}`}
             />
           </motion.div>
         ))}

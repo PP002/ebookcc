@@ -65,11 +65,11 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
   return await fetch(url, options);
 }
 
-async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: string, responseSchema?: any) {
+async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: string, responseSchema?: any, modelNameOverride?: string) {
   if (!apiKey) throw new Error("An API Key must be set when running in a browser");
   
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = "gemini-flash-lite-latest"; 
+  const modelName = modelNameOverride || "gemini-2.5-flash"; 
   
   let retries = 10;
   let baseDelay = 5000;
@@ -215,9 +215,15 @@ export async function detectComicText(
   localLlmConfig?: LocalLlmConfig
 ): Promise<ComicText[]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine === 'local') {
-      const baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
-      const model = localLlmConfig.model || "llama3";
+    if (localLlmConfig && localLlmConfig.engine !== 'gemini') {
+      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
+      let model = localLlmConfig.model || "llama3";
+      
+      if (localLlmConfig.engine === 'pollinations') {
+        baseUrl = "https://text.pollinations.ai/";
+        model = "openai"; 
+      }
+      
       const localApiKey = localLlmConfig.apiKey || "";
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -226,7 +232,7 @@ export async function detectComicText(
       }
 
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = `${cleanBaseUrl}/chat/completions`;
+      const url = localLlmConfig.engine === 'pollinations' ? cleanBaseUrl : `${cleanBaseUrl}/chat/completions`;
 
       const promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes.
 
@@ -259,6 +265,28 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         }
       ];
 
+      const runPollinationsFetch = async (body: any, retries = 4) => {
+        const models = ["openai", "qwen-coder", "llama", "mistral"];
+        for (let i = 0; i < retries; i++) {
+          const res = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...body, jsonMode: true, model: models[i % models.length] })
+          });
+          if (res.ok) {
+            let text = await res.text();
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+          } else if (res.status === 429) {
+            if (i === retries - 1) return new Response(await res.text(), { status: 429, statusText: "Too Many Requests" });
+            await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+          } else {
+            if (i === retries - 1) return res;
+          }
+        }
+        return new Response("Failed", { status: 500 });
+      };
+
       let response;
       try {
         const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
@@ -268,7 +296,9 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         // whereas the cloud server proxy can never reach the user's local PC loopback.
         const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (isHttpsPage && isHttpUrl && !isLoopback) {
+        if (localLlmConfig?.engine === 'pollinations') {
+          response = await runPollinationsFetch({ model, messages, temperature: 0.1 });
+        } else if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -480,8 +510,9 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
           required: ["text", "box_2d"],
         },
       };
-
-      const text = await runGeminiDirect(customApiKey, promptText, rawBase64, schema);
+      
+      const modelOverride = localLlmConfig && localLlmConfig.engine === 'gemini' && localLlmConfig.model ? localLlmConfig.model : undefined;
+      const text = await runGeminiDirect(customApiKey, promptText, rawBase64, schema, modelOverride);
       return parseJsonSafely(text, []) || [];
     }
 
@@ -509,7 +540,7 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
 }
 
 export interface LocalLlmConfig {
-  engine: 'gemini' | 'local';
+  engine: 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen';
   url?: string;
   model?: string;
   apiKey?: string;
@@ -522,9 +553,15 @@ export async function translateTexts(
   localLlmConfig?: LocalLlmConfig
 ): Promise<string[]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine === 'local') {
-      const baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
-      const model = localLlmConfig.model || "llama3";
+    if (localLlmConfig && localLlmConfig.engine !== 'gemini') {
+      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
+      let model = localLlmConfig.model || "llama3";
+      
+      if (localLlmConfig.engine === 'pollinations') {
+        baseUrl = "https://text.pollinations.ai/";
+        model = "openai"; 
+      }
+      
       const localApiKey = localLlmConfig.apiKey || "";
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -533,9 +570,31 @@ export async function translateTexts(
       }
 
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = `${cleanBaseUrl}/chat/completions`;
+      const url = localLlmConfig.engine === 'pollinations' ? cleanBaseUrl : `${cleanBaseUrl}/chat/completions`;
 
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
+
+      const runPollinationsFetch = async (body: any, retries = 4) => {
+        const models = ["openai", "qwen-coder", "llama", "mistral"];
+        for (let i = 0; i < retries; i++) {
+          const res = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...body, jsonMode: true, model: models[i % models.length] })
+          });
+          if (res.ok) {
+            let text = await res.text();
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+          } else if (res.status === 429) {
+            if (i === retries - 1) return new Response(await res.text(), { status: 429, statusText: "Too Many Requests" });
+            await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+          } else {
+            if (i === retries - 1) return res;
+          }
+        }
+        return new Response("Failed", { status: 500 });
+      };
 
       let response;
       try {
@@ -546,7 +605,19 @@ export async function translateTexts(
         // whereas the cloud server proxy can never reach the user's local PC loopback.
         const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (isHttpsPage && isHttpUrl && !isLoopback) {
+        if (localLlmConfig?.engine === 'pollinations') {
+          response = await runPollinationsFetch({
+            model,
+            messages: [
+              {
+                role: "system",
+                content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
+              },
+              { role: "user", content: promptText }
+            ],
+            temperature: 0.2
+          });
+        } else if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -656,7 +727,9 @@ export async function translateTexts(
           type: Type.STRING
         }
       };
-      const text = await runGeminiDirect(customApiKey, promptText, undefined, schema);
+      
+      const modelOverride = localLlmConfig && localLlmConfig.engine === 'gemini' && localLlmConfig.model ? localLlmConfig.model : undefined;
+      const text = await runGeminiDirect(customApiKey, promptText, undefined, schema, modelOverride);
       return parseJsonSafely(text, texts) || texts;
     }
 

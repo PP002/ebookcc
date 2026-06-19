@@ -410,7 +410,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           <div
             {...getRootProps()}
             className={cn(
-              "w-full border-4 border-dashed border-border p-16 text-center cursor-pointer bg-card hover:border-primary transition-all rounded-none min-h-[350px] flex flex-col justify-center items-center shadow-lg hover:shadow-xl",
+              "w-full border border-dashed border-border/50 p-8 text-center cursor-pointer bg-card/50 hover:border-primary transition-all rounded-none min-h-[250px] flex flex-col justify-center items-center shadow-sm hover:shadow-md",
               isDragActive && "border-primary bg-primary/5"
             )}
             style={{ outline: "none" }}
@@ -660,9 +660,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           id={`thumb-${idx}`}
                           onClick={() => setCurrentPage(idx)}
                           className={cn(
-                            "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-background",
+                            "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-background",
                             currentPage === idx 
-                              ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" 
+                              ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
                               : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
                           )}
                         >
@@ -687,7 +687,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) ? (
                 <div className="absolute inset-0 z-0">
                   <ReactReader
-                    url={selectedBook.fileBuffer || selectedBook.file!}
+                    url={selectedBook.fileBuffer || (selectedBook.file as any)}
                     location={location}
                     locationChanged={(epubcition: string) => setLocation(epubcition)}
                   />

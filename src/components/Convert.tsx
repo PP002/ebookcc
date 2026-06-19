@@ -6,11 +6,13 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { ImageToolbar } from './ImageToolbar';
 import { Slideshow } from './Slideshow';
+import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
 import JSZip from 'jszip';
 import { useTheme } from 'next-themes';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -1197,7 +1199,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
 
 const PREDICT_URLS = [
   "https://predict-69ffb8299f770dcc9b69-dproatj77a-uw.a.run.app/predict",
-  "https://predict-69ffba709f770dcc9b69-dproatj77a-nw.a.run.app/predict",
+  "https://predict-6a357611bf962672c3ed-dproatj77a-ma.a.run.app/predict",
   "https://predict-69ffb9909f770dcc9b69-dproatj77a-de.a.run.app/predict"
 ];
 
@@ -1814,71 +1816,23 @@ const ImageItem = ({
             )}
 
             {/* Content Toolbar */}
-            <div 
-              className="absolute -top-14 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-background text-foreground border border-border shadow-md p-1 rounded-xl z-50 pointer-events-auto"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <div className="relative flex items-center">
-                <Button size="icon" variant="ghost" className={cn("h-8 w-8 hover:bg-muted shrink-0", !isColorFolded && "text-primary")} onClick={() => setIsColorFolded(!isColorFolded)} title="Colors">
-                  <Palette className="h-4 w-4" />
-                </Button>
-                
-                <AnimatePresence>
-                  {!isColorFolded && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute bottom-full left-0 mb-3 p-1.5 bg-background border border-border shadow-lg rounded-lg flex flex-row gap-1.5 items-center z-[110]"
-                    >
-                      <div className="flex flex-row gap-1.5">
-                        {['#000000', '#ffffff', '#ef4444', '#22c55e', '#3b82f6'].map(c => (
-                          <button
-                            key={c}
-                            className={cn(
-                              "w-5 h-5 rounded-full border shadow-sm transition-transform hover:scale-110",
-                              img.color === c ? "ring-2 ring-primary ring-offset-1" : ""
-                            )}
-                            style={{ backgroundColor: c }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateImage({ color: c, hasOutline: true });
-                              setIsColorFolded(true);
-                            }}
-                            title={c}
-                          />
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="w-px h-5 bg-border mx-0.5" />
-
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => updateImage({ isHighContrast: !img.isHighContrast })} title="High Contrast">
-                <Contrast className={cn("h-4 w-4", img.isHighContrast && "text-primary")} />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => updateImage({ hasOutline: !img.hasOutline })} title="Outline">
-                <Square className={cn("h-4 w-4", img.hasOutline && "text-primary")} />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => moveLayer('up')} title="Layer Up (U)">
-                <ArrowUp className="h-4 w-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => moveLayer('down')} title="Layer Down (D)">
-                <ArrowDown className="h-4 w-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className={cn("h-8 w-8 shrink-0 hover:bg-muted", isCropping && "text-primary bg-muted")} onClick={() => setIsCropping(!isCropping)} title="Crop">
-                <Crop className="h-4 w-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }} title="Move">
-                <Move className="h-4 w-4" />
-              </Button>
-              <div className="w-px h-5 bg-border mx-0.5" />
-              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-destructive/10 text-destructive hover:text-destructive shrink-0" onClick={deleteItem} title="Delete">
-                <Trash2 className="h-4 w-4" />
-              </Button>
+            <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-50">
+              <ImageToolbar 
+                color={img.color}
+                isHighContrast={img.isHighContrast}
+                hasOutline={img.hasOutline}
+                onUpdate={updateImage}
+                onDelete={deleteItem}
+                onMoveLayer={moveLayer}
+                onCropToggle={() => setIsCropping(!isCropping)}
+                isCropping={isCropping}
+                onPointerDownMove={(e) => { e.stopPropagation(); dragControls.start(e); }}
+                onClickAskAI={() => {
+                   window.dispatchEvent(new CustomEvent('quote-to-agent', {
+                      detail: { type: 'image', imageUrl: img.url }
+                   }));
+                }}
+              />
             </div>
           </>
         )}
@@ -2419,7 +2373,17 @@ export default function Convert({
     }
   }, [selectedManualTextId]);
 
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const {
+    llmEngine,
+    geminiApiKey: customApiKey,
+    setGeminiApiKey: setCustomApiKey,
+    localLlmUrl,
+    localLlmModel,
+    localLlmApiKey,
+    setShowSettingsDialog: setShowApiKeyModal,
+    showSettingsDialog: showApiKeyModal
+  } = useAppSettings();
+
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
   const [showGithubModal, setShowGithubModal] = useState(false);
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem('github_token') || "");
@@ -2574,17 +2538,12 @@ export default function Convert({
       setIsSyncingGithub(false);
     }
   };
-  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [detectBgDuringBatch, setDetectBgDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
 
-  const [llmEngine, setLlmEngine] = useState<'gemini' | 'local'>(() => (localStorage.getItem('llm_engine') || 'gemini') as 'gemini' | 'local');
-  const [localLlmUrl, setLocalLlmUrl] = useState(() => localStorage.getItem('local_llm_url') || "http://localhost:11434/v1");
-  const [localLlmModel, setLocalLlmModel] = useState(() => localStorage.getItem('local_llm_model') || "llama3");
-  const [localLlmApiKey, setLocalLlmApiKey] = useState(() => localStorage.getItem('local_llm_api_key') || "");
   const [isTestingLocalLlm, setIsTestingLocalLlm] = useState(false);
   const [showLocalLlmGuide, setShowLocalLlmGuide] = useState(false);
   const [activeGuideTab, setActiveGuideTab] = useState<'comparison' | 'lmstudio' | 'ollama'>('comparison');
@@ -3229,7 +3188,7 @@ export default function Convert({
                 if (localTexts) localTexts = localTexts.map(adjustText);
                 if (localPanels) localPanels = localPanels.map(adjustText);
                 if (page.detectedTexts) page.detectedTexts = page.detectedTexts.map(adjustText) as ComicText[];
-                if (page.manualTexts) page.manualTexts = page.manualTexts.map(adjustText) as ComicText[];
+                if (page.manualTexts) page.manualTexts = page.manualTexts.map(adjustText) as unknown as ManualText[];
 
             } else if (!runOcr && !runLayout && !runTranslate) {
                 toast.info(`No solid margins to crop on page ${pageIndex + 1}.`);
@@ -3535,24 +3494,13 @@ export default function Convert({
         }
       } catch(e) {}
 
-      if (errorMsg.toLowerCase().includes("quota") || error?.status === 429) {
+      if (handleApiError(errorMsg, setShowApiKeyModal, llmEngine) || (error?.status === 429)) {
         setIsBatchProcessing(false);
-        setShowApiKeyModal(true);
-        toast.error(isBatchProcessing ? "Batch stopped: Gemini API Quota Exceeded. Please provide your own API key." : "Gemini API Quota Exceeded. Please provide your own API key.");
         throw error;
       } else if (errorMsg.toLowerCase().includes("api key missing") || errorMsg.toLowerCase().includes("server missing gemini api key")) {
         setIsBatchProcessing(false);
         setShowApiKeyModal(true);
         toast.error(isBatchProcessing ? "Batch stopped: Gemini API Key is missing." : "Gemini API Key is missing. Please provide your own to continue.");
-        throw error;
-      } else if (errorMsg.toLowerCase().includes("api key not valid") || errorMsg.includes("API_KEY_INVALID")) {
-        setIsBatchProcessing(false);
-        toast.error("Invalid API Key. Please provide a valid Gemini API key.");
-        if (customApiKey) {
-           setCustomApiKey("");
-           localStorage.removeItem('gemini_api_key');
-        }
-        setShowApiKeyModal(true);
         throw error;
       } else {
         if (!isBatchProcessing) {
@@ -4536,7 +4484,7 @@ ${navItems}    </ol>
                     <Download className="w-4 h-4" /> <span className="whitespace-nowrap">Export</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48 bg-background border-2 border-border rounded-none shadow-none text-foreground" align="center">
+              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
                 <DropdownMenuItem onClick={downloadText} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> TXT
                 </DropdownMenuItem>
@@ -4584,7 +4532,7 @@ ${navItems}    </ol>
           <div
             {...getRootProps()}
             className={cn(
-              "w-full border-4 border-dashed border-border p-16 text-center cursor-pointer bg-card hover:border-primary transition-all rounded-none min-h-[350px] flex flex-col justify-center items-center shadow-lg hover:shadow-xl",
+              "w-full border border-dashed border-border/50 p-8 text-center cursor-pointer bg-card/50 hover:border-primary transition-all rounded-none min-h-[250px] flex flex-col justify-center items-center shadow-sm hover:shadow-md",
               isDragActive && "border-primary bg-primary/5"
             )}
             style={{ outline: "none" }}
@@ -4650,7 +4598,7 @@ ${navItems}    </ol>
                             <Sparkles className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-48 bg-background border-2 border-border rounded-none shadow-none text-foreground">
+                        <DropdownMenuContent align="start" className="w-48 bg-background border border-border rounded-none shadow-none text-foreground">
                           <DropdownMenuItem onClick={() => {
                             const input = document.createElement('input');
                             input.type = 'file';
@@ -5026,9 +4974,9 @@ ${navItems}    </ol>
                         id={`thumb-${idx}`}
                         onClick={() => setCurrentPageIndex(idx)}
                         className={cn(
-                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-background",
+                          "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-background",
                           currentPageIndex === idx 
-                            ? "border-primary shadow-md ring-2 ring-primary outline outline-2 outline-primary outline-offset-2" 
+                            ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
                             : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
                         )}
                       >
@@ -5063,7 +5011,7 @@ ${navItems}    </ol>
                   <div className={cn("w-full space-y-0", !isGridView && !isPortrait && "pr-4")}>
                     
                     {isGridView ? (
-                      <Card className="p-6 bg-foreground/5 rounded-none border-2 border-muted min-h-[500px] mt-4">
+                      <Card className="p-6 bg-foreground/5 rounded-none border border-muted min-h-[500px] mt-4">
                         <div className={cn("grid gap-4", isPortrait ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5")}>
                           {pages.map((page, idx) => (
                             <div
@@ -5087,7 +5035,7 @@ ${navItems}    </ol>
                                 setSelectedPages(newSelected);
                               }}
                               className={cn(
-                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border-2 transition-all bg-background",
+                                "relative aspect-[2/3] rounded-none overflow-hidden cursor-pointer border transition-all bg-background",
                                 selectedPages.has(idx) ? "border-primary shadow-lg scale-95" : "border-border/50 hover:border-foreground/60 hover:scale-[1.02]",
                                 page.isIgnored && !selectedPages.has(idx) && "opacity-50"
                               )}
@@ -5273,17 +5221,14 @@ ${navItems}    </ol>
                                         animate={{ opacity: 1, scale: 1 }}
                                         className={cn(
                                           "absolute group transition-all flex items-center justify-center overflow-hidden",
-                                          viewMode === 'edit' && "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
-                                          editingIndex === idx && "border-primary bg-background z-10",
-                                          viewMode === 'preview' && "select-text"
+                                          "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
+                                          editingIndex === idx && "border-primary bg-background z-10"
                                         )}
                                         style={{ ...boxStyle, backgroundColor: 'transparent' }}
                                         onClick={(e) => {
-                                          if (viewMode === 'edit') {
                                             e.stopPropagation();
                                             setEditingIndex(idx);
                                             setTempText(item.text);
-                                          }
                                         }}
                                       >
                                         {editingIndex === idx ? (
@@ -5313,7 +5258,7 @@ ${navItems}    </ol>
                                         ) : (
                                           <div className="w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 opacity-100">
                                             <div 
-                                              className={cn("font-medium text-foreground whitespace-pre-wrap text-center", viewMode === 'preview' ? "" : "bg-card/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity")}
+                                              className="font-medium text-foreground whitespace-pre-wrap text-center bg-card/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                               style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
                                             >
                                               {item.text}
@@ -5363,378 +5308,6 @@ ${navItems}    </ol>
           </main>
         </div>
       )}
-      {/* Settings Modal */}
-      <AnimatePresence>
-        {showApiKeyModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/50 backdrop-blur-sm p-4 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-background border rounded-xl shadow-2xl p-6 w-full space-y-4 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar max-w-xl"
-            >
-              <h2 className="text-xl font-bold mb-4">App Settings</h2>
-
-              <div className="space-y-4">
-                {/* Engine Selector Tab */}
-                <div className="flex bg-muted p-1 rounded-lg border border-border">
-                  <button
-                    id="engine-gemini-btn"
-                    onClick={() => setLlmEngine('gemini')}
-                    className={cn(
-                      "flex-1 text-center py-1.5 text-xs font-medium rounded-md transition-colors",
-                      llmEngine === 'gemini' 
-                        ? "bg-background text-foreground shadow-sm font-semibold" 
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Google Gemini (Cloud)
-                  </button>
-                  <button
-                    id="engine-local-btn"
-                    onClick={() => setLlmEngine('local')}
-                    className={cn(
-                      "flex-1 text-center py-1.5 text-xs font-medium rounded-md transition-colors",
-                      llmEngine === 'local' 
-                        ? "bg-background text-foreground shadow-sm font-semibold" 
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Local LLM (Ollama/LM Studio/OpenAI)
-                  </button>
-                </div>
-
-                {llmEngine === 'gemini' ? (
-                  <div className="space-y-4 pt-2">
-                    <h3 className="font-semibold text-primary text-sm flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-emerald-500 animate-pulse" />
-                      Gemini AI Cloud Engine
-                    </h3>
-                    <p className="text-muted-foreground text-xs leading-relaxed">
-                      We use <code className="bg-muted px-1 rounded">gemini-flash-lite-latest</code> for high-precision OCR and translation. 
-                      I've added <b>automatic retry logic</b> and <b>backoff</b> to handle free-tier rate limits, but a personal API key is recommended for large batches.
-                      <br />
-                      <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium">
-                        Get your free Gemini API Key here
-                      </a>
-                    </p>
-                    <div>
-                      <label className="text-xs font-semibold text-foreground">Gemini API Key</label>
-                      <input
-                        id="gemini-api-key-input"
-                        type="password"
-                        value={customApiKey}
-                        onChange={(e) => setCustomApiKey(e.target.value)}
-                        placeholder="AIzaSy..."
-                        className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        Your key is stored only in your browser's local storage.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <div className="flex items-center gap-2">
-                        <Coffee className="w-4 h-4 text-sky-500" />
-                        <h3 className="font-semibold text-primary text-sm">
-                          Local LLM Translation & OCR Settings
-                        </h3>
-                      </div>
-                      <span className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400 font-semibold px-2 py-0.5 rounded-full border border-sky-500/20 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
-                        Self-Hosted Setup
-                      </span>
-                    </div>
-
-                    <p className="text-muted-foreground text-xs leading-relaxed">
-                      Run standard OpenAI-compatible APIs on your device (Ollama, LM Studio, or Llama.cpp) for secure, private translations and offline bubble text extraction.
-                    </p>
-
-                    <div className="space-y-5 pt-1">
-                      {/* Input Form Fields (Fully Stretched/Stacked in same-sized modal) */}
-                      <div className="space-y-4">
-                        <div>
-                          <label className="text-xs font-semibold text-foreground flex items-center gap-1">
-                            Local API Base URL
-                          </label>
-                          <input
-                            id="local-llm-url-input"
-                            type="text"
-                            value={localLlmUrl}
-                            onChange={(e) => setLocalLlmUrl(e.target.value)}
-                            placeholder="http://localhost:11434/v1"
-                            className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono shadow-sm border-border/80"
-                          />
-                          <p className="text-[10px] text-muted-foreground mt-1.5 flex flex-wrap gap-1 items-center">
-                            <span>Default:</span>
-                            <span className="bg-muted px-1.5 py-0.5 rounded font-mono text-[9px] text-foreground border shadow-sm">Ollama: :11434/v1</span>
-                            <span className="bg-muted px-1.5 py-0.5 rounded font-mono text-[9px] text-foreground border shadow-sm">LM Studio: :1234/v1</span>
-                          </p>
-                          {(() => {
-                            const isPrivateIp = localLlmUrl.includes("192.168.") || localLlmUrl.includes("10.") || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(localLlmUrl);
-                            const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
-                            if (isPrivateIp && isCloudHost) {
-                              return (
-                                <div className="mt-2.5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-800 dark:text-red-400 text-[11px] leading-relaxed">
-                                  <span className="font-bold text-red-700 dark:text-red-400 block mb-1">⚠️ Cloud Request Restriction</span>
-                                  Because EbookCC is running on a secure cloud website, public servers cannot call private home IP addresses (like your computer's home LAN IP).
-                                  <br />
-                                  <span className="block mt-1 font-semibold">👉 Easy Fix:</span>
-                                  Change the Base URL to <b><code>http://127.0.0.1:1234/v1</code></b> instead! Your browser will resolve it directly as a secure loopback context.
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs font-semibold text-foreground">Model Name</label>
-                            <input
-                              id="local-llm-model-input"
-                              type="text"
-                              value={localLlmModel}
-                              onChange={(e) => setLocalLlmModel(e.target.value)}
-                              placeholder="llama3"
-                              className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans shadow-sm border-border/80"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-semibold text-foreground">Local API Key (Optional)</label>
-                            <input
-                              id="local-llm-key-input"
-                              type="password"
-                              value={localLlmApiKey}
-                              onChange={(e) => setLocalLlmApiKey(e.target.value)}
-                              placeholder="Optional authentication token"
-                              className="w-full mt-1.5 px-3 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm font-sans shadow-sm border-border/80"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="pt-1">
-                          <Button 
-                            id="btn-test-local-llm"
-                            type="button" 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full text-xs text-foreground bg-background hover:bg-muted font-medium py-2 rounded-lg"
-                            onClick={handleTestLocalLlm}
-                            disabled={isTestingLocalLlm}
-                          >
-                            {isTestingLocalLlm ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                                Contacting local API...
-                              </>
-                            ) : (
-                              "Test Local LLM Connection"
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Stacked Underneath Section: Setup Guides & Info */}
-                      <div className="flex flex-col bg-muted/40 border border-border/60 rounded-xl p-4 overflow-hidden select-none">
-                        <div className="flex items-center gap-1.5 font-bold text-[13px] text-foreground pb-2.5 border-b border-border/60">
-                          <BookOpen className="w-3.5 h-3.5 text-sky-500" />
-                          <span>Local Model Settings & Tips</span>
-                        </div>
-
-                        {/* Tabs */}
-                        <div className="flex bg-muted p-1 rounded-lg border border-border/60 my-2.5">
-                          <button
-                            type="button"
-                            onClick={() => setActiveGuideTab('comparison')}
-                            className={cn(
-                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
-                              activeGuideTab === 'comparison'
-                                ? "bg-background text-foreground shadow-sm font-semibold"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            Cloud vs Local
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveGuideTab('lmstudio')}
-                            className={cn(
-                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
-                              activeGuideTab === 'lmstudio'
-                                ? "bg-background text-foreground shadow-sm font-semibold"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            LM Studio
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveGuideTab('ollama')}
-                            className={cn(
-                              "flex-1 text-[11px] text-center py-1 font-medium rounded-md transition-colors",
-                              activeGuideTab === 'ollama'
-                                ? "bg-background text-foreground shadow-sm font-semibold"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            Ollama
-                          </button>
-                        </div>
-
-                        {/* Tab Content */}
-                        <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-[11px] leading-relaxed text-foreground/90 max-h-[220px] custom-scrollbar">
-                          {activeGuideTab === 'comparison' && (
-                            <div className="space-y-3 animate-fadeIn">
-                              <div className="p-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg text-foreground">
-                                <span className="font-bold flex items-center gap-1.5 text-sky-600 dark:text-sky-400 text-[11px]">
-                                  <Info className="w-3.5 h-3.5" />
-                                  Why are local results differences noticeable?
-                                </span>
-                                <p className="mt-1 text-[10px] leading-normal text-muted-foreground">
-                                  Your local model (like <b>gemma-4-e4b</b> or <b>llama3.2-vision</b>) is lightweight (4B-8B parameter weights) and typically compressed with <b>4-bit quantization (Q4_K_M)</b> to run on standard home consumer GPUs. 
-                                  Cloud engines like <b>Gemini Flash</b> use massive, non-quantized multimodality trained with deep spatial awareness for cartoon/document bubble layout matching!
-                                </p>
-                              </div>
-
-                              <div className="space-y-2">
-                                <span className="font-bold block text-foreground">Capabilities Highlight:</span>
-                                <ul className="list-disc pl-4 space-y-1 text-muted-foreground text-[10.5px]">
-                                  <li>
-                                    <b className="text-foreground">Lesser Coordinate Detail:</b> Quantized weights lose spatial fine-tuning depth. This introduces noise, resulting in slightly offset text bounding boxes.
-                                  </li>
-                                  <li>
-                                    <b className="text-foreground">Stylized Font Hardness:</b> Artistic, handwritten, or distorted cartoon dialogue fonts are hard for 4B models to transcribe perfectly compared to cloud models.
-                                  </li>
-                                  <li>
-                                    <b className="text-foreground">OCR vs Translation:</b> Small models perform outstandingly for <b>Standard Translation</b>! Consider using Cloud APIs for OCR scans, then local LLMs for free translation steps!
-                                  </li>
-                                </ul>
-                              </div>
-                            </div>
-                          )}
-
-                          {activeGuideTab === 'lmstudio' && (
-                            <div className="space-y-2.5 animate-fadeIn">
-                              <span className="font-bold text-foreground flex items-center gap-1.5">
-                                <Lightbulb className="w-3.5 h-3.5 text-sky-500" />
-                                LM Studio Best Practices
-                              </span>
-                              
-                              <p className="text-muted-foreground">
-                                LM Studio provides an OpenAI-compatible interface directly on port 1234.
-                              </p>
-
-                              <div className="space-y-2">
-                                <span className="font-semibold block text-red-600 dark:text-red-400 flex items-center gap-1">
-                                  ⚠️ Enable CORS Header (Crucial)
-                                </span>
-                                <p className="text-[10.5px] text-muted-foreground pl-1">
-                                  Go to the <b>Local Server Settings</b> panel (left-side menu tab with a computer icon) in LM Studio. Scroll down, find <b>CORS (Cross-Origin Resource Sharing)</b>, and toggle it <b>ON</b>.
-                                  <br />
-                                  <i>If disabled, your browser will block EbookCC requests with mixed-context policy blocks!</i>
-                                </p>
-                              </div>
-
-                              <div className="space-y-1 font-mono text-[10px] bg-muted/60 p-2 border rounded">
-                                <p className="text-xs font-sans font-semibold text-foreground mb-1">Recommended Local Vision Models:</p>
-                                <p className="text-muted-foreground">1. Google Gemma 2 (9B IT GGUF) - Excellent text</p>
-                                <p className="text-muted-foreground">2. llama-3.2-11b-vision-instruct</p>
-                                <p className="text-muted-foreground">3. qwen2.5-vl-7b-instruct</p>
-                              </div>
-
-                              <div className="p-2.5 bg-red-500/5 border border-red-500/15 rounded-lg text-[10px] leading-relaxed">
-                                <span className="font-semibold text-red-600 dark:text-red-400 block mb-1">🧪 MiniCPM-V 2.6 & Custom Models Tip:</span>
-                                If you see a warning like <code className="bg-background px-1 rounded text-red-500 font-mono text-[9.5px]">Received channelSend for unknown channel (ID = 7)</code>, it means the model utilizes custom non-standard tokenizers or positional multi-crop vision structures not fully compliant with LM Studio's standard OpenAI channel API. 
-                                <br />
-                                <span className="block mt-1 font-bold">How to fix:</span>
-                                Use a standard, fully supported vision paradigm like <b>Qwen2.5-VL</b> or <b>Llama-3.2-Vision</b>, or ensure your LM Studio application is upgraded to the latest release channel supporting expanded custom multi-crop channels.
-                              </div>
-
-                              <div className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400 p-2 rounded">
-                                <b>Direct Connection Tip:</b> Enter <code>http://127.0.0.1:1234/v1</code> as the Base URL. Browsers treat loopback URLs as secure context, completely bypassing any HTTPS mixed content blocks!
-                              </div>
-                            </div>
-                          )}
-
-                          {activeGuideTab === 'ollama' && (
-                            <div className="space-y-2.5 animate-fadeIn">
-                              <span className="font-bold text-foreground flex items-center gap-1.5">
-                                <Lightbulb className="w-3.5 h-3.5 text-sky-500" />
-                                Ollama CORS Options
-                              </span>
-                              
-                              <p className="text-muted-foreground">
-                                Ollama runs on port 11434 by default. Because of default server security, it blocks external frontend websites unless Origins is set properly.
-                              </p>
-
-                              <div className="space-y-2">
-                                <span className="font-semibold block text-foreground">How to run with OLLAMA_ORIGINS="*" :</span>
-                                
-                                <div className="space-y-1.5 pl-1 text-muted-foreground text-[10.5px]">
-                                  <div className="mb-2">
-                                    🪟 <b>Windows:</b> Quit Ollama from system tray first, then launch with PowerShell/CMD:
-                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
-                                      $env:OLLAMA_ORIGINS="*"<br />
-                                      ollama serve
-                                    </pre>
-                                  </div>
-                                  <div className="mb-2">
-                                    🍎 <b>macOS:</b> Close from status icon, then run Terminal command:
-                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
-                                      OLLAMA_ORIGINS="*" ollama serve
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    🐧 <b>Linux:</b> Edit service with <code>systemctl edit ollama.service</code> and paste:
-                                    <pre className="bg-muted p-1.5 rounded font-mono text-[9px] mt-1 text-foreground">
-                                      [Service]<br />
-                                      Environment="OLLAMA_ORIGINS=*"
-                                    </pre>
-                                    Reload with <code>systemctl daemon-reload && systemctl restart ollama</code>.
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="p-2 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400">
-                                <b>Required Multimodal Model:</b> Always pull vision-enabled engines like <code>ollama run llama3.2-vision</code> or <code>ollama pull qwen2.5-vision:7b</code> to scan panel imagery successfully.
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setShowApiKeyModal(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={() => {
-                  if (customApiKey.trim()) localStorage.setItem('gemini_api_key', customApiKey.trim());
-                  else localStorage.removeItem('gemini_api_key');
-                  
-                  localStorage.setItem('llm_engine', llmEngine);
-                  localStorage.setItem('local_llm_url', localLlmUrl.trim());
-                  localStorage.setItem('local_llm_model', localLlmModel.trim());
-                  localStorage.setItem('local_llm_api_key', localLlmApiKey.trim());
-
-                  setShowApiKeyModal(false);
-                  toast.success("Settings saved!");
-                }}>
-                  Save & Continue
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Collage Modal */}
       <AnimatePresence>
         {showCollageModal && (
@@ -5776,7 +5349,7 @@ ${navItems}    </ol>
                         );
                       }}
                       className={cn(
-                        "group relative aspect-[3/4] border-2 rounded-lg cursor-pointer transition-all p-1.5 flex flex-col items-center justify-center gap-1.5",
+                        "group relative aspect-[3/4] border rounded-lg cursor-pointer transition-all p-1.5 flex flex-col items-center justify-center gap-1.5",
                         selectedTemplates.includes(templateId) && !isRandomMode 
                           ? "border-primary bg-primary/10 shadow-md ring-2 ring-primary/20" 
                           : "border-transparent bg-card hover:border-muted-foreground/30 hover:bg-muted/30"

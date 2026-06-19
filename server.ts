@@ -4,7 +4,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import sharp from "sharp";
 import HTMLtoDOCX from 'html-to-docx';
-import Epub from 'epub-gen-memory';
 
 // ─────────────────────────────────────────────
 // Types
@@ -436,51 +435,83 @@ async function startServer() {
         }
       }
 
-      const ai = getAIClient();
-      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const promptText = "Analyze this comic page. Identify every major art panel/frame. Return ONLY the structural bounding boxes of panels (framed rectangular sections containing art). Do NOT include characters or faces. Return a JSON list: [[ymin, xmin, ymax, xmax], ...] with coordinates 0–1000. Empty list if no panels found.";
+      
+      let geminiFailed = false;
 
-      const cacheName = await getOrCreateGlossaryCache(ai);
-      let isCacheHit = false;
-
-      const result = await callWithRetry(() => {
-        const payload: any = {
-          model: "gemini-flash-lite-latest",
-          contents: [{
-            parts: [
-              {
-                text: "Analyze this comic page. Identify every major art panel/frame. Return ONLY the structural bounding boxes of panels (framed rectangular sections containing art). Do NOT include characters or faces. Return a JSON list: [[ymin, xmin, ymax, xmax], ...] with coordinates 0–1000. Empty list if no panels found."
-              },
-              { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
-            ]
-          }],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
-            }
+      if (ai) {
+        try {
+          const cacheName = await getOrCreateGlossaryCache(ai);
+          let isCacheHit = false;
+          const result = await callWithRetry(() => {
+            const payload: any = {
+              model: "gemini-flash-lite-latest",
+              contents: [{
+                parts: [
+                  { text: promptText },
+                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                ]
+              }],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+                }
+              }
+            };
+            if (cacheName) { payload.config.cachedContent = cacheName; isCacheHit = true; }
+            return ai.models.generateContent(payload);
+          }, res, "detectPanels");
+          if (result) {
+            let parsed = parseJsonSafely(result.text, []);
+            if (!parsed) parsed = [];
+            if (isCacheHit) res.setHeader("x-gemini-cache-hit", "true");
+            return res.json(parsed);
+          } else {
+            return;
           }
-        };
-
-        if (cacheName) {
-          payload.config.cachedContent = cacheName;
-          isCacheHit = true;
+        } catch (e: any) {
+          console.warn("[API detectPanels] Gemini failed, falling back to Pollinations...", e.message);
+          geminiFailed = true;
         }
-
-        return ai.models.generateContent(payload);
-      },
-        res, "detectPanels"
-      );
-      if (!result) return; // 429 already sent
-
-      let parsed = parseJsonSafely(result.text, []);
-      if (!parsed) { console.warn("[API] detectPanels parse failed. Raw:", result.text); parsed = []; }
-
-      if (isCacheHit) {
-        res.setHeader("x-gemini-cache-hit", "true");
-        console.log("[Gemini Cache] Used context cache for detectPanels call!");
       }
-      res.json(parsed);
+
+      if (!ai || geminiFailed) {
+        console.log("[API detectPanels] Using Pollinations AI fallback");
+        const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+        const openAiMessages = [
+          { role: "system", content: generateBaseGlossary() },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: promptText },
+              { type: "image_url", image_url: { url: fullBase64Url } }
+            ]
+          }
+        ];
+        
+        let lastError = null;
+        try {
+          const polRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: openAiMessages, model: "openai", jsonMode: true })
+          });
+          if (polRes.ok) {
+            const text = await polRes.text();
+            let parsed = parseJsonSafely(text, []);
+            return res.json(parsed || []);
+          } else {
+             throw new Error(`Pollinations API Error: ${polRes.status}`);
+          }
+        } catch (e: any) {
+          lastError = e;
+        }
+        throw lastError || new Error("Failed to generate response from Pollinations");
+      }
 
     } catch (e: any) {
       console.error(e);
@@ -491,8 +522,8 @@ async function startServer() {
   app.post("/api/detectText", async (req, res) => {
     console.log("[API] detectText request received");
     try {
-      const ai = getAIClient();
-      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
 
       const { base64Image, suggestedCount } = req.body;
       if (!base64Image || typeof base64Image !== 'string') {
@@ -519,50 +550,98 @@ Return ONLY a JSON array. If NO text is found, return an empty array [].
 Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
 
       const rawBase64 = base64Image.split(",")[1] || base64Image;
+      let geminiFailed = false;
+      let rawResultText = "";
 
-      const cacheName = await getOrCreateGlossaryCache(ai);
-      let isCacheHit = false;
+      if (ai) {
+        try {
+          const cacheName = await getOrCreateGlossaryCache(ai);
+          let isCacheHit = false;
 
-      const result = await callWithRetry(() => {
-        const payload: any = {
-          model: "gemini-flash-lite-latest",
-          contents: [{
-            parts: [
-              { text: promptText },
-              { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
-            ]
-          }],
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 8192,
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  text:   { type: Type.STRING },
-                  box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } }
-                },
-                required: ["text", "box_2d"]
+          const result = await callWithRetry(() => {
+            const payload: any = {
+              model: "gemini-flash-lite-latest",
+              contents: [{
+                parts: [
+                  { text: promptText },
+                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                ]
+              }],
+              config: {
+                responseMimeType: "application/json",
+                maxOutputTokens: 8192,
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      text:   { type: Type.STRING },
+                      box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+                    },
+                    required: ["text", "box_2d"]
+                  }
+                }
               }
+            };
+
+            if (cacheName) {
+              payload.config.cachedContent = cacheName;
+              isCacheHit = true;
             }
+
+            return ai.models.generateContent(payload);
+          }, res, "detectText");
+
+          if (result) {
+            rawResultText = result.text;
+            if (isCacheHit) {
+              res.setHeader("x-gemini-cache-hit", "true");
+              console.log("[Gemini Cache] Used context cache for detectText call!");
+            }
+          } else {
+            return;
           }
-        };
-
-        if (cacheName) {
-          payload.config.cachedContent = cacheName;
-          isCacheHit = true;
+        } catch (e: any) {
+          console.warn("[API detectText] Gemini failed, falling back to Pollinations...", e.message);
+          geminiFailed = true;
         }
+      }
 
-        return ai.models.generateContent(payload);
-      },
-        res, "detectText"
-      );
-      if (!result) return;
+      if (!ai || geminiFailed) {
+        console.log("[API detectText] Using Pollinations AI fallback");
+        const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+        const openAiMessages = [
+          { role: "system", content: generateBaseGlossary() },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: promptText },
+              { type: "image_url", image_url: { url: fullBase64Url } }
+            ]
+          }
+        ];
+        
+        let lastError = null;
+        try {
+          const polRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: openAiMessages, model: "openai", jsonMode: true })
+          });
+          if (polRes.ok) {
+            rawResultText = await polRes.text();
+          } else {
+             throw new Error(`Pollinations API Error: ${polRes.status}`);
+          }
+        } catch (e: any) {
+          lastError = e;
+        }
+        if (!rawResultText) throw lastError || new Error("Failed to generate response from Pollinations");
+      }
 
-      let parsed: TextBlock[] = parseJsonSafely(result.text, []);
+      let parsed: TextBlock[] = parseJsonSafely(rawResultText, []);
       if (!parsed) {
-        console.warn("[API] detectText parse failed. Raw:", result.text);
+        console.warn("[API] detectText parse failed. Raw:", rawResultText);
         parsed = [];
       }
 
@@ -574,10 +653,6 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       parsed = parsed.filter(block => block.text.length > 0);
       parsed = sortTextsReadingOrder(parsed);
 
-      if (isCacheHit) {
-        res.setHeader("x-gemini-cache-hit", "true");
-        console.log("[Gemini Cache] Used context cache for detectText call!");
-      }
       res.json(parsed);
 
     } catch (e: any) {
@@ -589,8 +664,8 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
   app.post("/api/translate", async (req, res) => {
     console.log("[API] translate request received");
     try {
-      const ai = getAIClient();
-      if (!ai) return res.status(500).json({ error: "GEMINI_API_KEY not set on server." });
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
 
       const { texts, targetLanguage } = req.body;
       if (!texts || !Array.isArray(texts)) {
@@ -601,48 +676,92 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       }
 
       console.log(`[API] Translating ${texts.length} items to ${targetLanguage}`);
+      
+      let geminiFailed = false;
+      let rawResultText = "";
 
-      const cacheName = await getOrCreateGlossaryCache(ai);
-      let isCacheHit = false;
+      if (ai) {
+        try {
+          const cacheName = await getOrCreateGlossaryCache(ai);
+          let isCacheHit = false;
 
-      const result = await callWithRetry(() => {
-        const payload: any = {
-          model: "gemini-flash-lite-latest",
-          contents: [{
-            parts: [
-              {
-                text: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.`
-              },
-              { text: JSON.stringify(texts) }
-            ]
-          }],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+          const result = await callWithRetry(() => {
+            const payload: any = {
+              model: "gemini-flash-lite-latest",
+              contents: [{
+                parts: [
+                  { text: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.` },
+                  { text: JSON.stringify(texts) }
+                ]
+              }],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+              }
+            };
+
+            if (cacheName) {
+              payload.config.cachedContent = cacheName;
+              isCacheHit = true;
+            }
+
+            return ai.models.generateContent(payload);
+          }, res, "translate");
+
+          if (result) {
+            rawResultText = result.text;
+            if (isCacheHit) {
+              res.setHeader("x-gemini-cache-hit", "true");
+              console.log("[Gemini Cache] Used context cache for translate call!");
+            }
+          } else {
+            return;
           }
-        };
-
-        if (cacheName) {
-          payload.config.cachedContent = cacheName;
-          isCacheHit = true;
+        } catch (e: any) {
+          console.warn("[API translate] Gemini failed, falling back to Pollinations...", e.message);
+          geminiFailed = true;
         }
+      }
 
-        return ai.models.generateContent(payload);
-      },
-        res, "translate"
-      );
-      if (!result) return;
+      if (!ai || geminiFailed) {
+        console.log("[API translate] Using Pollinations AI fallback");
+        const openAiMessages = [
+          { role: "system", content: generateBaseGlossary() },
+          { role: "user", content: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.\n\n${JSON.stringify(texts)}` }
+        ];
+        
+        let lastError = null;
+        const models = ["llama", "openai", "mistral"];
+        for (let i = 0; i < models.length; i++) {
+          try {
+            const model = models[i];
+            const polRes = await fetch("https://text.pollinations.ai/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messages: openAiMessages, model, jsonMode: true })
+            });
+            if (polRes.ok) {
+              rawResultText = await polRes.text();
+              break;
+            } else if (polRes.status === 429) {
+              lastError = new Error("Too Many Requests");
+              await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+            } else {
+              lastError = new Error(`Pollinations API Error: ${polRes.status}`);
+            }
+          } catch (e: any) {
+            lastError = e;
+          }
+        }
+        if (!rawResultText) throw lastError || new Error("Failed to generate response from Pollinations");
+      }
 
-      let parsed = parseJsonSafely(result.text, texts);
+      let parsed = parseJsonSafely(rawResultText, texts);
       if (!parsed || !Array.isArray(parsed)) {
-        console.warn("[API] translate parse failed, returning originals. Raw:", result.text);
+        console.warn("[API] translate parse failed, returning originals. Raw:", rawResultText);
         parsed = texts;
       }
 
-      if (isCacheHit) {
-        res.setHeader("x-gemini-cache-hit", "true");
-        console.log("[Gemini Cache] Used context cache for translate call!");
-      }
       res.json(parsed);
 
     } catch (e: any) {
@@ -702,7 +821,22 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
           return `src="http://127.0.0.1:3000/api/temp-image/${id}"`;
       });
 
-      const epubFunc = typeof Epub === 'function' ? Epub : (Epub as any).default;
+      if (typeof global.File === 'undefined') {
+        const { File: BufferFile } = await import("buffer");
+        (global as any).File = BufferFile || class File extends Blob {
+          name: string;
+          lastModified: number;
+          constructor(fileBits: any[], fileName: string, options?: any) {
+            super(fileBits, options);
+            this.name = fileName;
+            this.lastModified = options?.lastModified || Date.now();
+          }
+        } as any;
+      }
+
+      const epubModule = await import('epub-gen-memory');
+      const Epub = epubModule.default || epubModule;
+      const epubFunc = typeof Epub === 'function' ? Epub : (Epub as any).default || Epub;
       console.log('epub export requested', { title, htmlLength: html?.length, epubFuncType: typeof epubFunc });
       const fileBuffer = await epubFunc({
           title: title || "Document",
@@ -774,6 +908,326 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
     }
   });
 
+  app.post("/api/generate-image", async (req, res): Promise<any> => {
+    try {
+      const { prompt, aspectRatio } = req.body;
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+
+      let width = 1024;
+      let height = 1024;
+      
+      if (aspectRatio === "3:4" || aspectRatio === "4:5") {
+        width = 768; height = 1024;
+      } else if (aspectRatio === "16:9") {
+        width = 1024; height = 576;
+      } else if (aspectRatio === "9:16") {
+        width = 576; height = 1024;
+      } else if (aspectRatio === "3:2" || aspectRatio === "4:3") {
+        width = 1024; height = 768;
+      }
+
+      const seed = Math.floor(Math.random() * 100000000);
+      const encodedPrompt = encodeURIComponent(prompt);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+      
+      res.json({ imageUrl });
+    } catch (err: any) {
+      console.error("[API generate-image] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/generate-text", async (req, res): Promise<any> => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
+      let geminiFailed = false;
+
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { systemInstruction: sysPrompt }
+          });
+          const text = response.text || "";
+          return res.json({ text });
+        } catch (e: any) {
+          console.warn("[API generate-text] Gemini failed, falling back to Pollinations...", e.message);
+          geminiFailed = true;
+        }
+      }
+
+      if (!ai || geminiFailed) {
+        console.log("[API generate-text] Using Pollinations AI fallback");
+        const openAiMessages = [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: prompt }
+        ];
+        
+        let lastError = null;
+        const models = ["mistral", "llama", "openai"];
+        for (let i = 0; i < models.length; i++) {
+          try {
+            const polRes = await fetch("https://text.pollinations.ai/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messages: openAiMessages, model: models[i] })
+            });
+            if (polRes.ok) {
+              const text = await polRes.text();
+              return res.json({ text });
+            } else if (polRes.status === 429) {
+              lastError = new Error("Too Many Requests");
+              await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+            } else {
+              lastError = new Error(`Pollinations API Error: ${polRes.status}`);
+            }
+          } catch (e: any) {
+            lastError = e;
+          }
+        }
+        throw lastError || new Error("Failed to generate response from Pollinations");
+      }
+    } catch (err: any) {
+      console.error("[API generate-text] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/generate-comic-script", async (req, res): Promise<any> => {
+    try {
+      const { prompt, imageBase64, pagesCount = 1 } = req.body;
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      let geminiFailed = false;
+
+      const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 1 to 6 panels. Keep panel descriptions visual and concise. Keep dialogue short.`;
+
+      if (ai) {
+        const parts: any[] = [];
+        if (imageBase64) {
+          let cleanBase64 = imageBase64;
+          let mimeType = "image/jpeg";
+          const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
+          if (mimeTypeMatch) {
+            mimeType = mimeTypeMatch[1];
+            cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+          }
+          parts.push({
+            inlineData: { data: cleanBase64, mimeType }
+          });
+        }
+        parts.push({ text: userText });
+
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: parts,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "OBJECT",
+                properties: {
+                   pages: {
+                     type: "ARRAY",
+                     items: {
+                       type: "OBJECT",
+                       properties: {
+                         panels: {
+                           type: "ARRAY",
+                           items: {
+                             type: "OBJECT",
+                             properties: {
+                               imagePrompt: { type: "STRING" },
+                               dialogue: { type: "STRING" }
+                             }
+                           }
+                         }
+                       }
+                     }
+                   }
+                }
+              }
+            }
+          });
+          
+          const scriptText = response.text;
+          if (scriptText) {
+            const scriptData = JSON.parse(scriptText);
+            return res.json(scriptData);
+          }
+        } catch (geminiError: any) {
+          console.warn("[API generate-comic-script] Gemini failed, falling back to Pollinations...", geminiError.message);
+          geminiFailed = true;
+        }
+      }
+
+      if (!ai || geminiFailed) {
+        console.log("[API generate-comic-script] Using Pollinations AI fallback");
+        const openAiMessages = [
+          { role: "system", content: "You are an expert comic book script writer. Output only valid JSON with the format: {\"pages\": [{\"panels\": [{\"imagePrompt\": \"...\", \"dialogue\": \"...\"}]}]}." }
+        ];
+        
+        let content: any = userText;
+        if (imageBase64) {
+          let cleanBase64 = imageBase64;
+          let mimeType = "image/jpeg";
+          const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
+          if (mimeTypeMatch) {
+            mimeType = mimeTypeMatch[1];
+            cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+          }
+          content = [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${cleanBase64}` } }
+          ];
+        }
+        openAiMessages.push({ role: "user", content });
+
+        let lastError = null;
+        const models = ["qwen-coder", "openai", "llama"];
+        for (let i = 0; i < models.length; i++) {
+          try {
+            const polRes = await fetch("https://text.pollinations.ai/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messages: openAiMessages, model: models[i], jsonMode: true })
+            });
+            if (polRes.ok) {
+              const text = await polRes.text();
+              const parsed = parseJsonSafely(text, { pages: [] });
+              return res.json(parsed);
+            } else if (polRes.status === 429) {
+              lastError = new Error("Too Many Requests");
+              await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+            } else {
+              lastError = new Error(`Pollinations API Error: ${polRes.status}`);
+            }
+          } catch (e: any) {
+            lastError = e;
+          }
+        }
+        throw lastError || new Error("Failed to generate response from Pollinations");
+      }
+    } catch (err: any) {
+      console.error("[API generate-comic-script] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/agent-chat", async (req, res): Promise<any> => {
+    try {
+      const { messages, systemInstruction } = req.body;
+      if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array is required" });
+
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      
+      let pollinationsFailed = false;
+
+      console.log("[API agent-chat] Using Pollinations AI first");
+      const openAiMessages: any[] = [];
+      if (systemInstruction) {
+        openAiMessages.push({ role: "system", content: systemInstruction });
+      }
+      
+      messages.forEach((m: any) => {
+        const role = m.role === 'model' ? 'assistant' : 'user';
+        const parts = m.parts || [];
+        const content = parts.map((p: any) => {
+          if (p.text) return { type: 'text', text: p.text };
+          if (p.inlineData) {
+            return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+          }
+          return { type: 'text', text: '' };
+        });
+        openAiMessages.push({
+          role,
+          content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
+        });
+      });
+
+      const models = ["qwen-coder", "openai", "llama", "mistral"];
+      let lastError = null;
+      let pollinationsSuccess = false;
+      for (let i = 0; i < 4; i++) {
+        try {
+          const model = models[i % models.length];
+          let polRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: openAiMessages, model })
+          });
+
+          if (!polRes.ok && (polRes.status === 502 || polRes.status === 413 || polRes.status === 400)) {
+            console.log(`[API agent-chat] Pollinations failed with ${polRes.status}, retrying without images...`);
+            const textOnlyMessages = openAiMessages.map(m => {
+              if (Array.isArray(m.content)) {
+                 return { ...m, content: m.content.map((c: any) => c.text || '').filter(Boolean).join(" ") };
+              }
+              return m;
+            });
+            polRes = await fetch("https://text.pollinations.ai/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messages: textOnlyMessages, model })
+            });
+          }
+
+          if (polRes.ok) {
+            const text = await polRes.text();
+            pollinationsSuccess = true;
+            return res.json({ text });
+          } else if (polRes.status === 429) {
+            lastError = new Error("Too Many Requests");
+            await new Promise(r => setTimeout(r, 2000 * (i + 1))); 
+          } else {
+            lastError = new Error(`Pollinations API Error: ${polRes.status}`);
+          }
+        } catch (e: any) {
+          lastError = e;
+        }
+      }
+      
+      pollinationsFailed = !pollinationsSuccess;
+
+      if (pollinationsFailed && ai) {
+        console.warn("[API agent-chat] Pollinations failed, falling back to Gemini...", lastError?.message);
+        try {
+          const payload: any = {
+            model: "gemini-2.5-flash",
+            contents: messages,
+          };
+          
+          if (systemInstruction) {
+            payload.config = { systemInstruction };
+          }
+
+          const response = await ai.models.generateContent(payload);
+          const text = response.text || "";
+          return res.json({ text });
+        } catch (geminiError: any) {
+          console.warn("[API agent-chat] Gemini fallback failed...", geminiError.message);
+          throw geminiError;
+        }
+      }
+
+      if (pollinationsFailed && !ai) {
+        throw lastError || new Error("Failed to generate response from Pollinations");
+      }
+    } catch (err: any) {
+      console.error("[API agent-chat] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('Express Error:', err.message);
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Payload too large' });
@@ -796,4 +1250,3 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
 }
 
 startServer();
-

@@ -1,12 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { BookOpen, PenTool, Wrench, Plus, Trash2, Layout, Smile, Sparkles, Type, Image, Layers, Save, Check, ChevronLeft, Download, PanelLeftClose, PanelLeftOpen, ChevronDown, Heading1, Heading2, Minus, List, MessageSquare } from 'lucide-react';
+import { BookOpen, PenTool, Eraser, LassoSelect, MousePointer2, PaintBucket, Wrench, Plus, Trash2, Layout, Smile, Sparkles, Type, Image as ImageIcon, Layers, Save, Check, ChevronLeft, Download, PanelLeftClose, PanelLeftOpen, ChevronDown, Heading1, Heading2, Minus, List, MessageSquare, Bot, Contrast, Square, ArrowUp, ArrowDown, Crop, Move } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { ComicCanvas, createGridTree, TreeNode } from './ComicCanvas';
+import { ImageToolbar } from './ImageToolbar';
+import { ComicCanvas, createGridTree, fillFirstEmptyPanel, updatePanelImage, TreeNode } from './ComicCanvas';
 import JSZip from 'jszip';
+import { AIGeneratorDialog } from './AIGeneratorDialog';
+import { AIFullComicDialog } from './AIFullComicDialog';
 
 interface CreateProps {
   setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void;
@@ -92,14 +98,239 @@ const computePanels = (node: any, x: number, y: number, w: number, h: number): a
   }
 };
 
+const CanvasResizeOverlay = ({ imgElement, updateToc }: { imgElement: HTMLImageElement, updateToc: () => void }) => {
+  const [rect, setRect] = useState(imgElement.getBoundingClientRect());
+  
+  useEffect(() => {
+     const iv = setInterval(() => {
+         const newRect = imgElement.getBoundingClientRect();
+         if (newRect.width !== rect.width || newRect.height !== rect.height || newRect.top !== rect.top || newRect.left !== rect.left) {
+             setRect(newRect);
+         }
+     }, 30);
+     return () => clearInterval(iv);
+  }, [imgElement, rect]);
+
+  const handleResizeStart = (e: React.PointerEvent, handle: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = imgElement.clientWidth;
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+
+      const onPointerMove = (evt: PointerEvent) => {
+         let dx = evt.clientX - startX;
+         let newWidth = startWidth;
+         
+         if (handle.includes('e')) newWidth = startWidth + dx;
+         if (handle.includes('w')) newWidth = startWidth - dx;
+
+         // Calculate percentage width to be responsive
+         const parentWidth = imgElement.parentElement?.clientWidth || window.innerWidth;
+         const percentageW = (Math.max(20, newWidth) / parentWidth) * 100;
+         imgElement.style.width = percentageW + '%';
+         imgElement.style.height = 'auto';
+         setRect(imgElement.getBoundingClientRect());
+         updateToc();
+      };
+      
+      const onPointerUp = (evt: PointerEvent) => {
+         target.releasePointerCapture(evt.pointerId);
+         target.removeEventListener('pointermove', onPointerMove);
+         target.removeEventListener('pointerup', onPointerUp);
+      };
+      
+      target.addEventListener('pointermove', onPointerMove);
+      target.addEventListener('pointerup', onPointerUp);
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, height: rect.height, zIndex: 109, pointerEvents: 'none', outline: '2px solid black' }}>
+        {['nw', 'ne', 'sw', 'se'].map(h => (
+           <div 
+             key={h}
+             onPointerDown={(e) => handleResizeStart(e, h)}
+             className="absolute w-8 h-8 z-[120] flex items-center justify-center pointer-events-auto"
+             style={{
+                top: `${h.includes('n') ? 0 : 100}%`,
+                left: `${h.includes('w') ? 0 : 100}%`,
+                transform: 'translate(-50%, -50%)',
+                cursor: `${h}-resize`,
+                touchAction: 'none'
+             }}
+           >
+             <div className="w-3 h-3 border border-white rounded-full bg-black shadow-sm" />
+           </div>
+        ))}
+    </div>
+  );
+};
+
+const CanvasCropOverlay = ({ imgElement, onClose, updateToc }: { imgElement: HTMLImageElement, onClose: () => void, updateToc: () => void }) => {
+  const initCrop = { 
+    top: parseFloat(imgElement.dataset.cropTop || '0'), 
+    right: parseFloat(imgElement.dataset.cropRight || '0'), 
+    bottom: parseFloat(imgElement.dataset.cropBottom || '0'), 
+    left: parseFloat(imgElement.dataset.cropLeft || '0') 
+  };
+  const [crop, setCrop] = useState(initCrop);
+  const [rect, setRect] = useState(imgElement.getBoundingClientRect());
+  
+  useEffect(() => {
+     imgElement.style.opacity = '0';
+     return () => {
+         imgElement.style.opacity = '1';
+     };
+  }, [imgElement]);
+
+  useEffect(() => {
+     const iv = setInterval(() => setRect(imgElement.getBoundingClientRect()), 50);
+     return () => clearInterval(iv);
+  }, [imgElement]);
+
+  const origSrc = imgElement.dataset.origSrc || imgElement.src;
+
+  const origWidth = rect.width / (1 - (initCrop.left + initCrop.right) / 100);
+  const origHeight = rect.height / (1 - (initCrop.top + initCrop.bottom) / 100);
+  const origLeft = rect.left - (initCrop.left / 100) * origWidth;
+  const origTop = rect.top - (initCrop.top / 100) * origHeight;
+
+  const handlePointerDown = (e: React.PointerEvent, handle: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startCrop = { ...crop };
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+      
+      const onPointerMove = (evt: PointerEvent) => {
+         const dx = evt.clientX - startX;
+         const dy = evt.clientY - startY;
+         const dxPct = (dx / origWidth) * 100;
+         const dyPct = (dy / origHeight) * 100;
+         
+         const newCrop = { ...startCrop };
+         if (handle.includes('n')) newCrop.top = Math.max(0, Math.min(100 - newCrop.bottom - 5, startCrop.top + dyPct));
+         if (handle.includes('s')) newCrop.bottom = Math.max(0, Math.min(100 - newCrop.top - 5, startCrop.bottom - dyPct));
+         if (handle.includes('w')) newCrop.left = Math.max(0, Math.min(100 - newCrop.right - 5, startCrop.left + dxPct));
+         if (handle.includes('e')) newCrop.right = Math.max(0, Math.min(100 - newCrop.left - 5, startCrop.right - dxPct));
+         setCrop(newCrop);
+      };
+      
+      const onPointerUp = (evt: PointerEvent) => {
+         target.releasePointerCapture(evt.pointerId);
+         target.removeEventListener('pointermove', onPointerMove);
+         target.removeEventListener('pointerup', onPointerUp);
+      };
+      
+      target.addEventListener('pointermove', onPointerMove);
+      target.addEventListener('pointerup', onPointerUp);
+  };
+  
+  const applyCrop = () => {
+      imgElement.dataset.origSrc = origSrc;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const natW = img.naturalWidth;
+          const natH = img.naturalHeight;
+          const cLeft = (crop.left / 100) * natW;
+          const cTop = (crop.top / 100) * natH;
+          const cWidth = natW - cLeft - ((crop.right / 100) * natW);
+          const cHeight = natH - cTop - ((crop.bottom / 100) * natH);
+          
+          canvas.width = Math.max(1, cWidth);
+          canvas.height = Math.max(1, cHeight);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+             try {
+               ctx.drawImage(img, cLeft, cTop, cWidth, cHeight, 0, 0, canvas.width, canvas.height);
+               imgElement.src = canvas.toDataURL('image/png');
+               imgElement.dataset.cropLeft = crop.left.toString();
+               imgElement.dataset.cropTop = crop.top.toString();
+               imgElement.dataset.cropRight = crop.right.toString();
+               imgElement.dataset.cropBottom = crop.bottom.toString();
+               updateToc();
+             } catch(e) {
+               console.error('Failed to crop: ', e);
+             }
+          }
+          onClose();
+      };
+      img.src = origSrc;
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: origTop, left: origLeft, width: origWidth, height: origHeight, zIndex: 110, pointerEvents: 'none' }}>
+        <img src={origSrc} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', opacity: 0.5, pointerEvents: 'none', borderRadius: imgElement.style.borderRadius, outline: '2px solid black' }} alt="crop background" />
+        <div style={{ 
+            position: 'absolute', 
+            top: `${crop.top}%`, right: `${crop.right}%`, bottom: `${crop.bottom}%`, left: `${crop.left}%`,
+            outline: '2px solid black',
+            boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.4)',
+            overflow: 'hidden'
+        }}>
+            <img src={origSrc} style={{
+                position: 'absolute',
+                width: `${100 / (1 - (crop.left+crop.right)/100)}%`,
+                height: `${100 / (1 - (crop.top+crop.bottom)/100)}%`,
+                left: `-${crop.left / (1 - (crop.left+crop.right)/100)}%`,
+                top: `-${crop.top / (1 - (crop.top+crop.bottom)/100)}%`,
+                objectFit: 'fill',
+                maxWidth: 'none'
+            }} alt="crop overlay" />
+        </div>
+        
+        {['nw', 'ne', 'sw', 'se'].map(h => (
+           <div 
+             key={h}
+             onPointerDown={(e) => handlePointerDown(e, h)}
+             className={`absolute w-8 h-8 z-[120] pointer-events-auto cursor-${h}-resize`}
+             style={{
+                top: `${h.includes('n') ? crop.top : 100 - crop.bottom}%`,
+                left: `${h.includes('w') ? crop.left : 100 - crop.right}%`,
+                transform: `translate(${h.includes('w') ? '-2px' : '-30px'}, ${h.includes('n') ? '-2px' : '-30px'})`,
+                touchAction: 'none'
+             }}
+           >
+             <div className={`absolute ${h.includes('n') ? 'top-0' : 'bottom-0'} ${h.includes('w') ? 'left-0' : 'right-0'} w-6 h-[4px] bg-black`} />
+             <div className={`absolute ${h.includes('n') ? 'top-0' : 'bottom-0'} ${h.includes('w') ? 'left-0' : 'right-0'} w-[4px] h-6 bg-black`} />
+           </div>
+        ))}
+        
+        <div style={{ position: 'absolute', top: -40, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'auto', display: 'flex', gap: 8, zIndex: 120 }}>
+            <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onClose(); }}>Cancel</Button>
+            <Button size="sm" onClick={(e) => { e.stopPropagation(); applyCrop(); }}>Apply</Button>
+        </div>
+    </div>
+  );
+};
+
 export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChange }) => {
   const [createMode, setCreateMode] = useState<'select' | 'comic' | 'document'>('select');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBubbleSidebarOpen, setIsBubbleSidebarOpen] = useState(false);
+  const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
+  const [isAIFullComicDialogOpen, setIsAIFullComicDialogOpen] = useState(false);
+  const [aiFullComicPrompt, setAiFullComicPrompt] = useState("");
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [drawTool, setDrawTool] = useState<'pen'|'erase'|'select'|'fill'>('pen');
+  const [drawColor, setDrawColor] = useState('#000000');
+  const [drawRadius, setDrawRadius] = useState(2);
+  const [drawToolbarPos, setDrawToolbarPos] = useState({ x: window.innerWidth / 2 - 120, y: 16 });
+  const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
+  const dragToolbarStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+
   const [tocItems, setTocItems] = useState<{id: string, text: string, level: number}[]>([]);
 
   const [floatingMenuProps, setFloatingMenuProps] = useState<{ visible: boolean; top: number; left: number }>({ visible: false, top: 0, left: 0 });
-  const [comicPages, setComicPages] = useState<ComicPage[]>([
+  const [imageMenuProps, setImageMenuProps] = useState<{ visible: boolean; top: number; left: number; imgElement: HTMLImageElement | null }>({ visible: false, top: 0, left: 0, imgElement: null });
+  const [isImageCropping, setIsImageCropping] = useState(false);
+  const [isImageColorFolded, setIsImageColorFolded] = useState(true);
+  const [comicPages, setComicPagesState] = useState<ComicPage[]>([
     {
       id: Date.now().toString(),
       tree: createGridTree(3, 2),
@@ -110,10 +341,222 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     }
   ]);
   const [activePageIndex, setActivePageIndex] = useState(0);
+
+  const historyRef = useRef<ComicPage[][]>([]);
+  const historyIndexRef = useRef<number>(-1);
+
+  // Initialize history sync eagerly
+  if (historyRef.current.length === 0) {
+    historyRef.current = [comicPages];
+    historyIndexRef.current = 0;
+  }
+
+  const setComicPages = (newPagesOrUpdater: ComicPage[] | ((prev: ComicPage[]) => ComicPage[])) => {
+    setComicPagesState(prev => {
+      const nextPages = typeof newPagesOrUpdater === 'function' ? newPagesOrUpdater(prev) : newPagesOrUpdater;
+      const nextIndex = historyIndexRef.current + 1;
+      const newHistory = historyRef.current.slice(0, nextIndex);
+      newHistory.push(nextPages);
+      if (newHistory.length > 50) newHistory.shift();
+      historyRef.current = newHistory;
+      historyIndexRef.current = newHistory.length - 1;
+      return nextPages;
+    });
+  };
+
   
   const activePage = comicPages[activePageIndex] || comicPages[0];
   const comicTree = activePage.tree;
   const bubbles = activePage.bubbles;
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable) return;
+      
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            // REDO
+            if (historyIndexRef.current < historyRef.current.length - 1) {
+              historyIndexRef.current++;
+              setComicPagesState(historyRef.current[historyIndexRef.current]);
+            }
+          } else {
+            // UNDO
+            if (historyIndexRef.current > 0) {
+              historyIndexRef.current--;
+              setComicPagesState(historyRef.current[historyIndexRef.current]);
+            }
+          }
+          return;
+        }
+      }
+
+      if (createMode === 'comic') {
+        const key = e.key.toLowerCase();
+        if (key === 'd') {
+          setIsDrawingMode(prev => {
+            if (!prev) setDrawTool('pen');
+            return true;
+          });
+        }
+        if (isDrawingMode) {
+          if (key === 'e') setDrawTool('erase');
+          if (key === 'l') setDrawTool('select');
+          if (key === 'p') setDrawTool('pen');
+          if (key === 'f') setDrawTool('fill');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [createMode, isDrawingMode]);
+
+  useEffect(() => {
+    const handleUp = () => setIsDraggingToolbar(false);
+    const handleMove = (e: MouseEvent) => {
+      if (isDraggingToolbar) {
+        let newX = dragToolbarStartRef.current.posX + (e.clientX - dragToolbarStartRef.current.x);
+        let newY = dragToolbarStartRef.current.posY + (e.clientY - dragToolbarStartRef.current.y);
+        
+        // Boundaries
+        newX = Math.max(0, Math.min(newX, window.innerWidth - 300));
+        newY = Math.max(0, Math.min(newY, window.innerHeight - 60));
+        
+        setDrawToolbarPos({ x: newX, y: newY });
+      }
+    };
+
+    if (isDraggingToolbar) {
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDraggingToolbar]);
+
+  useEffect(() => {
+    const handleOpenAIGenerator = () => setIsAIGeneratorOpen(true);
+    const handleOpenDrawMode = () => setIsDrawingMode(true);
+    const handleOpenGenerateFullComic = (e: any) => {
+      setCreateMode('comic');
+      if (e.detail?.prompt) {
+        setAiFullComicPrompt(e.detail.prompt);
+        setIsAIFullComicDialogOpen(true);
+      }
+    };
+    
+    const handleOpenComicCreator = () => {
+      setCreateMode('comic');
+    };
+    
+    const handleOpenStoryWriter = () => {
+      setCreateMode('document');
+    };
+    
+    window.addEventListener('open-ai-script-dialog', handleOpenAIGenerator);
+    window.addEventListener('open-draw-mode', handleOpenDrawMode);
+    window.addEventListener('open-generate-full-comic', handleOpenGenerateFullComic);
+    window.addEventListener('open-comic-creator', handleOpenComicCreator);
+    window.addEventListener('open-story-writer', handleOpenStoryWriter);
+    
+    return () => {
+      window.removeEventListener('open-ai-script-dialog', handleOpenAIGenerator);
+      window.removeEventListener('open-draw-mode', handleOpenDrawMode);
+      window.removeEventListener('open-generate-full-comic', handleOpenGenerateFullComic);
+      window.removeEventListener('open-comic-creator', handleOpenComicCreator);
+      window.removeEventListener('open-story-writer', handleOpenStoryWriter);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleInsertImage = (e: any) => {
+      const imageUrl = e.detail?.imageUrl;
+      if (!imageUrl) return;
+      if (createMode === 'document') {
+        if (editorRef.current) {
+          editorRef.current.focus();
+          const img = document.createElement('img');
+          img.src = imageUrl;
+          img.style.width = '33.33%';
+          
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            range.insertNode(img);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            editorRef.current.appendChild(img);
+          }
+          updateToc();
+        }
+      } else if (createMode === 'comic') {
+        setComicPages(prev => {
+           let updatedPages = [...prev];
+          const page = updatedPages[activePageIndex];
+           if (page) {
+             const activePath = (window as any).activeComicPanelPath;
+             if (activePath) {
+               const replaceNodeByPath = (node: TreeNode, curPath: number[], url: string): TreeNode => {
+                 if (curPath.length === 0 && node.type === 'panel') {
+                    // When replacing a panel image from AI, we also clear drawings so they don't overlap awkwardly
+                    return { ...node, imageUrl: url, drawings: [] };
+                 }
+                 if (node.type !== 'panel') {
+                    const isFirst = curPath[0] === 0;
+                    const nextPath = curPath.slice(1);
+                    return {
+                       ...node,
+                       c1: isFirst ? replaceNodeByPath(node.c1, nextPath, url) : node.c1,
+                       c2: !isFirst ? replaceNodeByPath(node.c2, nextPath, url) : node.c2
+                    };
+                 }
+                 return node;
+               };
+               updatedPages[activePageIndex] = { ...page, tree: replaceNodeByPath(page.tree, activePath, imageUrl) };
+               setTimeout(() => toast.success("Image placed in selected panel!"), 0);
+             } else {
+               const { tree, updated } = fillFirstEmptyPanel(page.tree, imageUrl);
+               if (updated) {
+                 updatedPages[activePageIndex] = { ...page, tree };
+                 setTimeout(() => toast.success("Image added to comic!"), 0);
+               } else {
+                 setTimeout(() => toast.info("No empty panels on this page. Please add an empty panel first!"), 0);
+               }
+             }
+           }
+           return updatedPages;
+        });
+      }
+    };
+    
+    window.addEventListener('insert-comic-image', handleInsertImage);
+    
+    (window as any).getComicCanvasContext = async () => {
+       if (createMode === 'comic' && comicRef.current) {
+          try {
+             const { toPng } = await import('html-to-image');
+             const dataUrl = await toPng(comicRef.current, { quality: 0.8 });
+             return dataUrl;
+          } catch(e) {
+             console.error("toPng error", e);
+             return null;
+          }
+       }
+       return null;
+    };
+
+    return () => {
+      window.removeEventListener('insert-comic-image', handleInsertImage);
+      delete (window as any).getComicCanvasContext;
+    };
+  }, [createMode, activePageIndex]);
 
   const updateActivePageTree = (newTree: TreeNode) => {
     setComicPages(pages => pages.map((p, i) => i === activePageIndex ? { ...p, tree: newTree } : p));
@@ -121,6 +564,89 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
 
   const updateActivePageBubbles = (newBubbles: Bubble[]) => {
     setComicPages(pages => pages.map((p, i) => i === activePageIndex ? { ...p, bubbles: newBubbles } : p));
+  };
+
+  const handleFullComicGenerated = async (scriptData: any, sketch: string | null) => {
+    if (!scriptData || !scriptData.pages) return;
+    setIsAIFullComicDialogOpen(false);
+    
+    toast.info("Generating comic pages! This might take a minute...", { duration: 5000 });
+
+    const newPages: ComicPage[] = [];
+
+    for (let pIdx = 0; pIdx < scriptData.pages.length; pIdx++) {
+      const pageScript = scriptData.pages[pIdx];
+      const panelsCount = pageScript.panels ? pageScript.panels.length : 0;
+      
+      let rows = 1, cols = 1;
+      if (panelsCount === 2) { rows = 2; cols = 1; }
+      else if (panelsCount === 3 || panelsCount === 4) { rows = 2; cols = 2; }
+      else if (panelsCount >= 5) { rows = 3; cols = 2; }
+      
+      const tree = createGridTree(rows, cols);
+      const bubbles: Bubble[] = [];
+
+      let currentTree = tree;
+      
+      // Update state progressively
+      const newPageId = Date.now().toString() + pIdx;
+      setComicPages(prev => [...prev, { id: newPageId, tree: currentTree, bubbles }]);
+      setActivePageIndex(prev => pIdx === 0 ? 0 : prev);
+
+      for (let i = 0; i < panelsCount; i++) {
+        const panel = pageScript.panels[i];
+        if (!panel) continue;
+        const prompt = panel.imagePrompt;
+        
+        try {
+          const res = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: prompt + (sketch ? " consistent with sketch" : ""),
+              aspectRatio: "1:1",
+              imageBase64: sketch,
+              engine: "pollinations" // Force fast generator
+            })
+          });
+          
+          if (res.ok) {
+            const data = await res.json();
+            if (data.imageUrl) {
+               const { tree: newT, updated } = fillFirstEmptyPanel(currentTree, data.imageUrl);
+               if (updated) {
+                 currentTree = newT;
+                 setComicPages(prev => {
+                   const updatedPages = [...prev];
+                   const ptIdx = updatedPages.findIndex(p => p.id === newPageId);
+                   if (ptIdx !== -1) updatedPages[ptIdx] = { ...updatedPages[ptIdx], tree: currentTree };
+                   return updatedPages;
+                 });
+               }
+            }
+          }
+        } catch (e) {
+          console.error("Failed to generate panel image", e);
+        }
+
+        if (panel.dialogue) {
+           bubbles.push({
+             id: Math.random().toString(),
+             text: panel.dialogue,
+             x: 10 + ((i % cols) * 45),
+             y: 10 + (Math.floor(i / cols) * 40),
+             style: 'classic'
+           });
+           setComicPages(prev => {
+             const updatedPages = [...prev];
+             const ptIdx = updatedPages.findIndex(p => p.id === newPageId);
+             if (ptIdx !== -1) updatedPages[ptIdx] = { ...updatedPages[ptIdx], bubbles: [...bubbles] };
+             return updatedPages;
+           });
+        }
+      }
+    }
+    toast.success("Full comic generated!");
   };
 
   useEffect(() => {
@@ -131,7 +657,17 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       }
 
       const selection = window.getSelection();
-      if (selection && !selection.isCollapsed && editorRef.current && editorRef.current.contains(selection.anchorNode)) {
+      let hasTextContent = false;
+      if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const clone = range.cloneContents();
+        hasTextContent = clone.textContent?.trim().length ? true : false;
+        if (clone.querySelectorAll('img').length > 0 && clone.textContent?.trim().length === 0) {
+           hasTextContent = false;
+        }
+      }
+      
+      if (selection && hasTextContent && editorRef.current && editorRef.current.contains(selection.anchorNode)) {
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         setFloatingMenuProps({
@@ -157,9 +693,34 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
   const [newBubbleText, setNewBubbleText] = useState('Bubble dialogue...');
   const [bubbleStyle, setBubbleStyle] = useState<'classic' | 'action' | 'whisper'>('classic');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGeneratingText, setIsGeneratingText] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const comicRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const generateText = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsGeneratingText(true);
+    try {
+      const res = await fetch("/api/generate-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setNewBubbleText(data.text);
+      if (activeBubbleId) {
+        updateBubbleText(activeBubbleId, data.text);
+      }
+      toast.success("Dialogue generated!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate dialogue");
+    } finally {
+      setIsGeneratingText(false);
+    }
+  };
 
   const addBubble = () => {
     const freshBubble: Bubble = {
@@ -234,6 +795,26 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (imageMenuProps.visible && imageMenuProps.imgElement) {
+        e.preventDefault();
+        const p = document.createElement('p');
+        p.innerHTML = '<br>';
+        imageMenuProps.imgElement.parentNode?.insertBefore(p, imageMenuProps.imgElement);
+        
+        const sel = window.getSelection();
+        if (sel) {
+          const newRange = document.createRange();
+          newRange.setStart(p, 0);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+        
+        setImageMenuProps(prev => ({ ...prev, visible: false }));
+        setTimeout(() => updateToc(), 0);
+        return;
+      }
+
       const selection = window.getSelection();
       if (!selection || !selection.rangeCount) return;
       let node: Node | null = selection.anchorNode;
@@ -268,7 +849,21 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         reader.onload = (event) => {
           if (editorRef.current) {
             editorRef.current.focus();
-            document.execCommand('insertImage', false, event.target?.result as string);
+            const img = document.createElement('img');
+            img.src = event.target?.result as string;
+            img.style.width = '33.33%';
+            
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+              const range = sel.getRangeAt(0);
+              range.insertNode(img);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            } else {
+              editorRef.current.appendChild(img);
+            }
+            updateToc();
           }
         };
         reader.readAsDataURL(file);
@@ -280,11 +875,11 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
   const getBubbleStyleClass = (style: 'classic' | 'action' | 'whisper') => {
     switch (style) {
       case 'action':
-        return 'border-2 border-red-500 bg-yellow-100 text-red-600 font-extrabold uppercase rounded-none px-3 py-1.5 shadow-[2px_2px_0px_0px_rgba(239,68,68,1)]';
+        return 'border border-red-500 bg-yellow-100 text-red-600 font-extrabold uppercase rounded-none px-3 py-1.5 shadow-[2px_2px_0px_0px_rgba(239,68,68,1)]';
       case 'whisper':
-        return 'border-2 border-dashed border-zinc-400 bg-white text-zinc-600 rounded-full px-4 py-2 italic';
+        return 'border border-dashed border-zinc-400 bg-white text-zinc-600 rounded-full px-4 py-2 italic';
       default:
-        return 'border-2 border-foreground bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm';
+        return 'border border-foreground bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm';
     }
   };
 
@@ -725,7 +1320,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         </div>
         <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl">
           <Card 
-            className="p-6 border-2 border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
+            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
             onClick={() => setCreateMode('comic')}
           >
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary">
@@ -737,7 +1332,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             </div>
           </Card>
           <Card 
-            className="p-6 border-2 border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
+            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
             onClick={() => setCreateMode('document')}
           >
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary">
@@ -775,7 +1370,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
               <div className="w-px h-5 bg-border mx-1 hidden sm:block shrink-0" />
               <div className="flex items-center gap-0.5">
                 <Button variant="ghost" size="sm" className="gap-2 shrink-0" onClick={insertImageToDoc} title="Insert Image">
-                  <Image className="w-4 h-4" /> <span className="hidden sm:inline">Image</span>
+                  <ImageIcon className="w-4 h-4" /> <span className="hidden sm:inline">Image</span>
                 </Button>
               </div>
             </div>
@@ -801,9 +1396,110 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'H2')}><Heading2 className="w-3.5 h-3.5 mr-1.5"/> Subtitle</Button>
                 <div className="w-px h-4 bg-border mx-1" />
                 <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'P')}><Type className="w-3.5 h-3.5 mr-1.5"/> Text</Button>
+                <div className="w-px h-4 bg-border mx-1 border-r border-border" />
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-primary" onMouseDown={(e) => e.preventDefault()} onClick={() => {
+                  const selection = window.getSelection()?.toString();
+                  if (selection) {
+                    window.dispatchEvent(new CustomEvent('quote-to-agent', { detail: { type: 'text', text: selection } }));
+                  }
+                }}><Bot className="w-4 h-4 mr-1.5"/> Ask AI</Button>
               </motion.div>
             )}
           </AnimatePresence>
+          <AnimatePresence>
+            {imageMenuProps.visible && imageMenuProps.imgElement && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => e.stopPropagation()}
+                className="fixed z-[100] pointer-events-auto"
+                style={{ top: imageMenuProps.top, left: imageMenuProps.left, transform: 'translate(-50%, -100%) translateY(-10px)' }}
+              >
+                  <ImageToolbar 
+                    color={imageMenuProps.imgElement?.style.borderColor || '#000000'}
+                    isHighContrast={!!imageMenuProps.imgElement?.style.filter.includes('grayscale')}
+                    hasOutline={!!imageMenuProps.imgElement?.style.border}
+                    onUpdate={(updates) => {
+                       if (!imageMenuProps.imgElement) return;
+                       if (updates.color !== undefined || updates.hasOutline !== undefined) {
+                          if (updates.hasOutline !== false) {
+                            imageMenuProps.imgElement.style.border = `2px solid ${updates.color || imageMenuProps.imgElement.style.borderColor || '#000000'}`;
+                            imageMenuProps.imgElement.style.boxSizing = 'border-box';
+                          } else {
+                            imageMenuProps.imgElement.style.border = '';
+                          }
+                       }
+                       if (updates.isHighContrast !== undefined) {
+                           imageMenuProps.imgElement.style.filter = updates.isHighContrast ? 'grayscale(1) contrast(1.25)' : '';
+                       }
+                       if (updates.url !== undefined) {
+                           imageMenuProps.imgElement.src = updates.url;
+                       }
+                       updateToc();
+                       setImageMenuProps(prev => ({ ...prev }));
+                    }}
+                    onMoveLayer={(dir) => {
+                       if (!imageMenuProps.imgElement) return;
+                       if (dir === 'up' && imageMenuProps.imgElement.previousElementSibling) {
+                           imageMenuProps.imgElement.parentNode?.insertBefore(imageMenuProps.imgElement, imageMenuProps.imgElement.previousElementSibling);
+                       } else if (dir === 'down' && imageMenuProps.imgElement.nextElementSibling) {
+                           imageMenuProps.imgElement.parentNode?.insertBefore(imageMenuProps.imgElement.nextElementSibling, imageMenuProps.imgElement);
+                       }
+                       updateToc();
+                    }}
+                    onCropToggle={() => {
+                       setIsImageCropping(!isImageCropping);
+                    }}
+                    isCropping={isImageCropping}
+                    onDragStartMove={(e) => {
+                       if (!imageMenuProps.imgElement) return;
+                       e.dataTransfer.effectAllowed = 'copyMove';
+                       
+                       const originalId = imageMenuProps.imgElement.id || ('img-' + Date.now());
+                       imageMenuProps.imgElement.id = originalId;
+                       
+                       const clone = imageMenuProps.imgElement.cloneNode(true) as HTMLImageElement;
+                       clone.id = ''; 
+                       
+                       e.dataTransfer.setData('image-drag-id', originalId);
+                       e.dataTransfer.setData('text/html', clone.outerHTML);
+                       e.dataTransfer.setData('text/plain', ' ');
+                       e.dataTransfer.setDragImage(imageMenuProps.imgElement, 0, 0);
+                       setTimeout(() => setImageMenuProps(prev => ({...prev, visible: false})), 0);
+                    }}
+                    onClickAskAI={() => {
+                        if (!imageMenuProps.imgElement) return;
+                        window.dispatchEvent(new CustomEvent('quote-to-agent', {
+                           detail: { type: 'image', imageUrl: imageMenuProps.imgElement.src }
+                        }));
+                        setImageMenuProps(prev => ({ ...prev, visible: false }));
+                    }}
+                    onDelete={() => {
+                        if (!imageMenuProps.imgElement) return;
+                        imageMenuProps.imgElement.remove();
+                        updateToc();
+                        setImageMenuProps(prev => ({ ...prev, visible: false }));
+                    }}
+                  />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {isImageCropping && imageMenuProps.visible && imageMenuProps.imgElement && (
+            <CanvasCropOverlay 
+              imgElement={imageMenuProps.imgElement} 
+              onClose={() => setIsImageCropping(false)} 
+              updateToc={updateToc} 
+            />
+          )}
+          {!isImageCropping && imageMenuProps.visible && imageMenuProps.imgElement && (
+            <CanvasResizeOverlay 
+              imgElement={imageMenuProps.imgElement} 
+              updateToc={updateToc} 
+            />
+          )}
           <AnimatePresence initial={false}>
             {isSidebarOpen && (
               <>
@@ -853,6 +1549,83 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
              <div 
                ref={editorRef}
                onKeyDown={handleKeyDown}
+               onClick={(e) => {
+                 const target = e.target as HTMLElement;
+                 if (target.tagName === 'IMG') {
+                   const rect = target.getBoundingClientRect();
+                   setImageMenuProps({
+                     visible: true,
+                     top: rect.top,
+                     left: rect.left + rect.width / 2,
+                     imgElement: target as HTMLImageElement
+                   });
+                 } else {
+                   setImageMenuProps(prev => ({ ...prev, visible: false }));
+                   if (target === editorRef.current) {
+                     const sel = window.getSelection();
+                     if (sel) {
+                       let p = editorRef.current.lastElementChild;
+                       if (!p || p.tagName !== 'P' || (p.textContent?.trim() !== '' && !p.querySelector('br'))) {
+                         p = document.createElement('p');
+                         p.innerHTML = '<br>';
+                         editorRef.current.appendChild(p);
+                       }
+                       const range = document.createRange();
+                       range.selectNodeContents(p);
+                       range.collapse(false);
+                       sel.removeAllRanges();
+                       sel.addRange(range);
+                     }
+                   }
+                 }
+               }}
+               onDragOver={(e) => {
+                 const types = Array.from(e.dataTransfer.types);
+                 if (types.includes('image-drag-id') || types.includes('text/html')) {
+                   e.preventDefault();
+                   // @ts-ignore
+                   const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+                   if (range) {
+                     const sel = window.getSelection();
+                     sel?.removeAllRanges();
+                     sel?.addRange(range);
+                   }
+                 }
+               }}
+               onDrop={(e) => {
+                 const dragId = e.dataTransfer.getData('image-drag-id');
+                 if (dragId) {
+                   e.preventDefault();
+                   setImageMenuProps(prev => ({ ...prev, visible: false }));
+                   
+                   const oldImg = document.getElementById(dragId);
+                   if (oldImg) {
+                     // @ts-ignore
+                     const dropRange = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+                     
+                     if (dropRange) {
+                       dropRange.insertNode(oldImg);
+                       dropRange.collapse(false);
+                       const sel = window.getSelection();
+                       sel?.removeAllRanges();
+                       sel?.addRange(dropRange);
+                     } else {
+                       const sel = window.getSelection();
+                       if (sel && sel.rangeCount > 0) {
+                         const range = sel.getRangeAt(0);
+                         range.insertNode(oldImg);
+                         range.collapse(false);
+                         sel.removeAllRanges();
+                         sel.addRange(range);
+                       }
+                     }
+                   }
+                   
+                   setTimeout(() => {
+                     updateToc();
+                   }, 0);
+                 }
+               }}
                className="w-full max-w-4xl bg-card border shadow-sm p-8 md:p-12 overflow-y-auto font-serif text-lg leading-relaxed outline-none [&_img]:max-w-full [&_img]:my-4 [&_img]:rounded-md [&_h1]:text-4xl [&_h1]:font-extrabold [&_h1]:text-foreground [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-muted-foreground editor-doc h-full print-content" 
                contentEditable 
                suppressContentEditableWarning 
@@ -866,6 +1639,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             .editor-doc h1 { border-bottom: 2px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 0.5rem; }
             .editor-doc h2 { border-bottom: 1px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 1rem; }
             .editor-doc img { page-break-inside: avoid; break-inside: avoid; }
+            .editor-doc p { min-height: 1.5em; cursor: text; outline: none; }
             .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: 'Title'; color: #4b5563; pointer-events: none; opacity: 0.5; }
             .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: 'Subtitle'; color: #4b5563; pointer-events: none; opacity: 0.5; }
             .editor-doc:empty:before, .editor-doc:has(> br:only-child):before { content: 'Start writing your story...'; color: #4b5563; pointer-events: none; opacity: 0.5; }
@@ -897,7 +1671,15 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             </Button>
             <div className="w-px h-5 bg-border mx-2 shrink-0" />
             <div className="hidden sm:flex items-center gap-1">
-              {/* Toolbar intentionally kept minimal */}
+              <div className="flex items-center gap-2 px-3 shrink-0 transition-colors" title="Draw Mode (Hotkey: D)">
+                <Label htmlFor="draw-mode" className="text-xs font-semibold cursor-pointer text-muted-foreground flex items-center gap-1.5 hover:text-foreground">
+                  <PenTool className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Draw</span>
+                </Label>
+                <Switch id="draw-mode" checked={isDrawingMode} onCheckedChange={(val) => {
+                  setIsDrawingMode(val);
+                  if (val) setDrawTool('pen');
+                }} />
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 pr-2">
@@ -915,6 +1697,26 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       </header>
 
       <main className="flex-1 relative w-full overflow-hidden flex bg-background">
+        <AIGeneratorDialog 
+          open={isAIGeneratorOpen} 
+          onOpenChange={setIsAIGeneratorOpen} 
+          onGeneratorSuccess={(imageUrl) => {
+            const { tree, updated } = fillFirstEmptyPanel(comicTree, imageUrl);
+            if (updated) {
+              updateActivePageTree(tree);
+              toast.success("Image added to comic panel!");
+            } else {
+              toast.error("No empty panels available on the current page to insert the image.");
+            }
+          }}
+        />
+        <AIFullComicDialog 
+          open={isAIFullComicDialogOpen}
+          onOpenChange={setIsAIFullComicDialogOpen}
+          onComicGenerated={handleFullComicGenerated}
+          initialPrompt={aiFullComicPrompt}
+          autoSubmit={true}
+        />
         <AnimatePresence initial={false}>
           {isSidebarOpen && (
             <>
@@ -956,7 +1758,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                   <div 
                     key={page.id}
                     onClick={() => setActivePageIndex(idx)}
-                    className={`relative aspect-[3/4] w-full rounded-md border-2 overflow-hidden cursor-pointer bg-zinc-100 transition-all ${activePageIndex === idx ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
+                    className={`relative aspect-[3/4] w-full rounded-md border overflow-hidden cursor-pointer bg-zinc-100 transition-all ${activePageIndex === idx ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'}`}
                   >
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-1">
                        <span className="text-[9px] font-bold text-white shadow-sm">Page {idx + 1}</span>
@@ -992,7 +1794,36 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
              <div className="relative max-h-full max-w-full inline-flex justify-center items-center h-full">
                 <svg viewBox="0 0 3 4" className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none" />
                 <div ref={comicRef} className="absolute top-0 left-0 w-full h-full bg-background ring-1 ring-border shadow-2xl overflow-hidden">
-               <ComicCanvas tree={comicTree} onChange={updateActivePageTree} />
+               <ComicCanvas tree={comicTree} onChange={updateActivePageTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
+
+             {/* Drawing Mode Toolbar */}
+             {isDrawingMode && (
+               <div 
+                 className="fixed bg-background text-foreground border shadow-lg rounded-full flex items-center p-1.5 gap-1 z-50 backdrop-blur-md cursor-move select-none"
+                 style={{ left: drawToolbarPos.x, top: drawToolbarPos.y }}
+                 onMouseDown={(e) => {
+                   if ((e.target as HTMLElement).tagName.toLowerCase() === 'input' || (e.target as HTMLElement).closest('button')) return;
+                   setIsDraggingToolbar(true);
+                   dragToolbarStartRef.current = { x: e.clientX, y: e.clientY, posX: drawToolbarPos.x, posY: drawToolbarPos.y };
+                 }}
+               >
+                 <Button variant={drawTool === 'pen' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('pen')} title="Pen (P)">
+                   <PenTool className="w-4 h-4" />
+                 </Button>
+                 <Button variant={drawTool === 'erase' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('erase')} title="Erase (E)">
+                   <Eraser className="w-4 h-4" />
+                 </Button>
+                 <Button variant={drawTool === 'fill' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('fill')} title="Fill (F)">
+                   <PaintBucket className="w-4 h-4" />
+                 </Button>
+                 <Button variant={drawTool === 'select' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('select')} title="Lasso (L)">
+                   <LassoSelect className="w-4 h-4" />
+                 </Button>
+                 <div className="w-px h-6 bg-border mx-1" />
+                 <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer border-0 p-0" title="Color" />
+                 <input type="range" min="1" max="20" value={drawRadius} onChange={(e) => setDrawRadius(parseInt(e.target.value))} className="w-16 mx-2 cursor-pointer" title="Brush Size" />
+               </div>
+             )}
 
              {/* Bubble overlays layer */}
              {bubbles.map((b) => (
@@ -1053,7 +1884,23 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                        e.stopPropagation();
                        removeBubble(b.id);
                      }}
-                     onPointerDown={(e) => e.stopPropagation()}
+                     onPointerDown={(e) => {
+                       e.stopPropagation();
+                       (window as any)._bubbleLongPress = setTimeout(() => {
+                          window.dispatchEvent(new CustomEvent('quote-to-agent', {
+                             detail: { type: 'text', text: b.text }
+                          }));
+                       }, 500);
+                     }}
+                     onPointerUp={(e) => {
+                        if ((window as any)._bubbleLongPress) clearTimeout((window as any)._bubbleLongPress);
+                     }}
+                     onPointerLeave={(e) => {
+                        if ((window as any)._bubbleLongPress) clearTimeout((window as any)._bubbleLongPress);
+                     }}
+                     onPointerCancel={(e) => {
+                        if ((window as any)._bubbleLongPress) clearTimeout((window as any)._bubbleLongPress);
+                     }}
                      onBlur={(e) => {
                        const txt = e.currentTarget.innerText || '';
                        updateBubbleText(b.id, txt);
@@ -1098,11 +1945,33 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 transition={{ type: "spring", bounce: 0, duration: 0.3 }}
                 className="absolute right-0 top-0 bottom-0 w-[320px] shrink-0 border-l border-border bg-background/95 backdrop-blur-md shadow-2xl p-4 overflow-y-auto z-50 flex flex-col gap-4"
               >
-                <Card className="p-4 border-2 border-border rounded-none shadow-none bg-card space-y-4">
+                <Card className="p-4 border border-border rounded-none shadow-none bg-card space-y-4">
                   <h3 className="text-sm font-bold text-foreground">Bubble Creator Dialogue</h3>
             
             <div className="space-y-2">
-              <label className="text-[10px] font-mono font-bold text-muted-foreground block">TEXT VALUE</label>
+              <div className="flex justify-between items-center bg-muted/50 p-2 rounded-md border border-border">
+                <div className="flex flex-col flex-1 mr-2 gap-2">
+                  <span className="text-[10px] font-mono font-bold text-muted-foreground flex items-center gap-1"><Sparkles className="w-3 h-3 text-primary"/> AI WRITER</span>
+                  <input
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="E.g. Hero's dramatic entrance..."
+                    className="w-full text-xs p-1.5 border border-border bg-background rounded-sm outline-none focus:border-primary"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') generateText();
+                    }}
+                  />
+                </div>
+                <Button 
+                  size="sm" 
+                  onClick={generateText}
+                  disabled={isGeneratingText || !aiPrompt.trim()}
+                  className="h-8 text-[10px] mt-6"
+                >
+                  {isGeneratingText ? "..." : "Generate"}
+                </Button>
+              </div>
+              <label className="text-[10px] font-mono font-bold text-muted-foreground block mt-4">TEXT VALUE</label>
               <textarea
                 ref={textareaRef}
                 value={newBubbleText}
@@ -1110,7 +1979,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                   setNewBubbleText(e.target.value);
                   if (activeBubbleId) updateBubbleText(activeBubbleId, e.target.value);
                 }}
-                className="w-full text-xs font-semibold p-2 border-2 border-border bg-background h-16 resize-none rounded-none outline-none focus:border-primary"
+                className="w-full text-xs font-semibold p-2 border border-border bg-background h-16 resize-none rounded-none outline-none focus:border-primary"
               />
             </div>
 
@@ -1141,7 +2010,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
           </Card>
 
           {activeBubbleId && (
-            <Card className="p-4 border-2 border-border rounded-none shadow-none bg-card space-y-4 border-primary">
+            <Card className="p-4 border border-border rounded-none shadow-none bg-card space-y-4 border-primary">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-foreground">Bubble Settings</span>
                 <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeBubble(activeBubbleId)}>

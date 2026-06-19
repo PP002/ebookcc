@@ -215,7 +215,7 @@ function AppContent() {
                     <PenTool size={28} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-foreground">Online Comic Maker & Manga Creator</h3>
+                    <h3 className="text-base font-bold text-foreground">Online Comic Maker & Novel Writer</h3>
                     <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium">
                       Design stunning comic strips and manga panels. Add custom speech bubbles, dynamic dialogue, and action expressions for your graphic novel graphic.
                     </p>
@@ -237,7 +237,7 @@ function AppContent() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-foreground flex items-center gap-1.5">
-                      AI Comic Translator & eBook Converter <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000" />
+                      Comic&eBook Convert <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000" />
                     </h3>
                     <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium">
                       Convert raw manga pages to EPUB eBooks. Use AI OCR translation tools to automatically transcribe bubbles and strip Japanese or Korean text smoothly.

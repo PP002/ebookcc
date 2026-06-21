@@ -218,18 +218,89 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
         })()
       ];
 
-      const res = await fetch('/api/agent-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: geminiMessages, systemInstruction })
-      });
-      
-      if (!res.ok) {
-        throw new Error('Failed to fetch from our AI provider.');
+      let resultText = '';
+      try {
+        const res = await fetch('/api/agent-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: geminiMessages, systemInstruction })
+        });
+        
+        if (res.ok) {
+          const text = await res.text();
+          if (text.trim().startsWith('{')) {
+            const data = JSON.parse(text);
+            resultText = data.text || '';
+          } else {
+            console.warn("Backend /api/agent-chat returned non-JSON, likely 404 or index HTML");
+          }
+        }
+      } catch (err: any) {
+        console.warn("Backend /api/agent-chat failed, using client-side fallback directly to Pollinations:", err);
       }
-      
-      const data = await res.json();
-      const resultText = data.text || '';
+
+      if (!resultText) {
+        // Direct free Pollinations call
+        const openAiMessages: { role: string; content: any }[] = [];
+        if (systemInstruction) {
+          openAiMessages.push({ role: 'system', content: systemInstruction });
+        }
+        
+        // Convert existing conversation history to standard format
+        for (const m of messages) {
+          const contentParts: any[] = [];
+          if (m.text) contentParts.push({ type: 'text', text: m.text });
+          if (m.imageUrl) {
+            contentParts.push({
+              type: 'image_url',
+              image_url: { url: m.imageUrl }
+            });
+          }
+          if (contentParts.length > 0) {
+            openAiMessages.push({
+              role: m.role === 'agent' ? 'assistant' : 'user',
+              content: contentParts.length === 1 ? contentParts[0].text : contentParts
+            });
+          }
+        }
+        
+        // Include current message
+        const lastMsgParts: any[] = [];
+        if (userMessage.text) lastMsgParts.push({ type: 'text', text: userMessage.text });
+        if (userMessage.imageUrl) {
+          lastMsgParts.push({
+             type: 'image_url',
+             image_url: { url: userMessage.imageUrl }
+          });
+        }
+        if (lastMsgParts.length > 0) {
+          openAiMessages.push({
+            role: 'user',
+            content: lastMsgParts.length === 1 ? lastMsgParts[0].text : lastMsgParts
+          });
+        }
+
+        const models = ["mistral", "llama", "openai", "qwen-coder"];
+        for (let i = 0; i < models.length; i++) {
+          try {
+            const polRes = await fetch("https://text.pollinations.ai/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messages: openAiMessages, model: models[i] })
+            });
+            if (polRes.ok) {
+              resultText = await polRes.text();
+              break;
+            }
+          } catch (e) {
+            console.warn(`[Fallback] Pollinations model ${models[i]} failed client-side:`, e);
+          }
+        }
+      }
+
+      if (!resultText) {
+        throw new Error("Unable to get response from any free AI service.");
+      }
 
       setMessages(prev => [...prev, { id: Date.now().toString() + Math.random().toString(36).substring(2), role: 'agent', text: resultText }]);
 

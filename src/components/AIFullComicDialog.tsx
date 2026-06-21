@@ -133,23 +133,61 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
         textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
         scriptData = JSON.parse(textResult);
       } else {
-        const res = await fetch("/api/generate-comic-script", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            ...(geminiApiKey ? { "x-gemini-api-key": geminiApiKey } : {})
-          },
-          body: JSON.stringify({
-            prompt,
-            pagesCount: parseInt(pagesCount) || 1,
-            imageBase64: sketch,
-            engine: llmEngine
-          })
-        });
+        try {
+          const res = await fetch("/api/generate-comic-script", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              ...(geminiApiKey ? { "x-gemini-api-key": geminiApiKey } : {})
+            },
+            body: JSON.stringify({
+              prompt,
+              pagesCount: parseInt(pagesCount) || 1,
+              imageBase64: sketch,
+              engine: llmEngine
+            })
+          });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to generate comic script");
-        scriptData = data;
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || "Backend returned failure status code");
+          }
+          const data = await res.json();
+          scriptData = data;
+        } catch (fetchErr: any) {
+          console.warn("Backend /api/generate-comic-script failed. Falling back to free client-side Pollinations generator...", fetchErr);
+          
+          let textResult = "";
+          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 1 to 6 panels. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
+          const models = ["openai", "qwen-coder", "llama", "mistral"];
+          
+          let lastErr = null;
+          for (let i = 0; i < 4; i++) {
+            try {
+              const seed = Math.floor(Math.random() * 100000);
+              const pollRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent(textPrompt)}?json=true&model=${models[i % models.length]}&seed=${seed}`);
+              
+              if (pollRes.ok) {
+                textResult = await pollRes.text();
+                break;
+              } else if (pollRes.status === 429 && i < 3) {
+                 await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+              } else if (i === 3) {
+                 throw new Error("Free public LLM tier is temporarily busy. Try adding a custom Gemini key in settings.");
+              }
+            } catch(e: any) {
+              lastErr = e;
+              if (i === 3) throw e;
+            }
+          }
+          
+          try {
+            textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+            scriptData = JSON.parse(textResult);
+          } catch (jsonErr) {
+            throw new Error(`Failed to parse AI response. Try again, or specify your own key in settings.`);
+          }
+        }
       }
 
       onOpenChange(false);

@@ -599,32 +599,44 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         const prompt = panel.imagePrompt;
         
         try {
-          const res = await fetch("/api/generate-image", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: prompt + (sketch ? " consistent with sketch" : ""),
-              aspectRatio: "1:1",
-              imageBase64: sketch,
-              engine: "pollinations" // Force fast generator
-            })
-          });
-          
-          if (res.ok) {
-            const data = await res.json();
-            if (data.imageUrl) {
-               const { tree: newT, updated } = fillFirstEmptyPanel(currentTree, data.imageUrl);
-               if (updated) {
-                 currentTree = newT;
-                 setComicPages(prev => {
-                   const updatedPages = [...prev];
+          let imageUrl = null;
+          try {
+            const res = await fetch("/api/generate-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                prompt: prompt + (sketch ? " consistent with sketch" : ""),
+                aspectRatio: "1:1",
+                imageBase64: sketch,
+                engine: "pollinations" // Force fast generator
+              })
+            });
+            
+            if (res.ok) {
+              const data = await res.json();
+              imageUrl = data.imageUrl;
+            } else {
+              throw new Error("Backend failed");
+            }
+          } catch (e: any) {
+            console.warn("Falling back to client-side proxy-less generation...", e);
+            const seed = Math.floor(Math.random() * 100000000);
+            const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
+            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${seed}`;
+          }
+
+          if (imageUrl) {
+             const { tree: newT, updated } = fillFirstEmptyPanel(currentTree, imageUrl);
+             if (updated) {
+               currentTree = newT;
+               setComicPages(prev => {
+                 const updatedPages = [...prev];
                    const ptIdx = updatedPages.findIndex(p => p.id === newPageId);
                    if (ptIdx !== -1) updatedPages[ptIdx] = { ...updatedPages[ptIdx], tree: currentTree };
                    return updatedPages;
                  });
                }
             }
-          }
         } catch (e) {
           console.error("Failed to generate panel image", e);
         }
@@ -703,16 +715,38 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     if (!aiPrompt.trim()) return;
     setIsGeneratingText(true);
     try {
-      const res = await fetch("/api/generate-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setNewBubbleText(data.text);
+      let generatedText = "";
+      try {
+        const res = await fetch("/api/generate-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: aiPrompt })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          generatedText = data.text;
+        } else {
+          throw new Error("Backend text gen failed");
+        }
+      } catch (e: any) {
+        console.warn("Falling back to client-side proxy-less text generation...", e);
+        const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
+        const openAiMessages = [
+          { role: "system", content: sysPrompt },
+          { role: "user", content: aiPrompt }
+        ];
+        const polRes = await fetch("https://text.pollinations.ai/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: openAiMessages, model: "openai" })
+        });
+        if (!polRes.ok) throw new Error("Fallback text generation failed");
+        generatedText = await polRes.text();
+      }
+
+      setNewBubbleText(generatedText);
       if (activeBubbleId) {
-        updateBubbleText(activeBubbleId, data.text);
+        updateBubbleText(activeBubbleId, generatedText);
       }
       toast.success("Dialogue generated!");
     } catch (err: any) {

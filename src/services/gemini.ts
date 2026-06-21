@@ -185,21 +185,57 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
     if (customYoloKey) headers["x-yolo-key"] = customYoloKey;
 
-    const res = await fetchWithRetry("/api/detectPanels", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ base64Image }),
-    });
-    const text = await res.text();
-    if (text.trim().startsWith('<')) {
-      throw new Error("Server is restarting or returning HTML");
+    let jsonResult;
+    let backendFailed = false;
+
+    try {
+      const res = await fetch("/api/detectPanels", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ base64Image }),
+      });
+      const text = await res.text();
+      if (text.trim().startsWith('<') || !res.ok) {
+        throw new Error(text || "Backend failed");
+      }
+      jsonResult = JSON.parse(text);
+    } catch (e) {
+      backendFailed = true;
+      console.warn("Backend detectPanels failed, falling back to Pollinations Vision...");
     }
-    if (!res.ok) {
-      const err: any = new Error(text);
-      err.status = res.status;
-      throw err;
+
+    if (backendFailed) {
+      const promptText = `Find all comic panels in this image.
+Return ONLY a JSON array of bounding boxes for each panel.
+Format: [[ymin, xmin, ymax, xmax], ...]
+Ensure coordinates are 0-1000.`;
+
+      const messages = [{
+        role: "user",
+        content: [
+          { type: "text", text: promptText },
+          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
+        ]
+      }];
+
+      let textResult = "";
+      const models = ["openai", "qwen-coder"];
+      for (let i = 0; i < 4; i++) {
+        try {
+          const pollRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
+          });
+          if (pollRes.ok) { textResult = await pollRes.text(); break; }
+        } catch(e) {}
+      }
+      if (!textResult) throw new Error("Failed to detect panels with fallback engines.");
+      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+      jsonResult = parseJsonSafely(textResult, []) || [];
     }
-    return JSON.parse(text);
+
+    return jsonResult;
   } catch (error) {
     console.error("Error detecting comic panels:", error);
     return [];
@@ -517,22 +553,59 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+    let jsonResult;
+    let backendFailed = false;
 
-    const res = await fetchWithRetry("/api/detectText", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ base64Image, suggestedCount }),
-    });
-    const text = await res.text();
-    if (text.trim().startsWith('<')) {
-      throw new Error("Server is restarting or returning HTML");
+    try {
+      const res = await fetch("/api/detectText", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ base64Image, suggestedCount }),
+      });
+      const text = await res.text();
+      if (text.trim().startsWith('<') || !res.ok) {
+        throw new Error(text || "Backend failed");
+      }
+      jsonResult = JSON.parse(text);
+    } catch (e) {
+      backendFailed = true;
+      console.warn("Backend detectText failed, falling back to Pollinations Vision...");
     }
-    if (!res.ok) {
-      const err: any = new Error(text);
-      err.status = res.status;
-      throw err;
+
+    if (backendFailed) {
+      const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
+
+STRICT RULES:
+1. Extract EVERY visible piece of text in this image.
+2. Provide bounding box [ymin, xmin, ymax, xmax] scaled to 0-1000.
+Return ONLY a JSON array. Return [] if no text. Example: [{"text": "hello", "box_2d": [0,0,100,100]}]`;
+
+      const messages = [{
+        role: "user",
+        content: [
+          { type: "text", text: promptText },
+          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
+        ]
+      }];
+
+      let textResult = "";
+      const models = ["openai", "qwen-coder"];
+      for (let i = 0; i < 4; i++) {
+        try {
+          const pollRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
+          });
+          if (pollRes.ok) { textResult = await pollRes.text(); break; }
+        } catch(e) {}
+      }
+      if (!textResult) throw new Error("Failed to detect text with fallback engines.");
+      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+      jsonResult = parseJsonSafely(textResult, []) || [];
     }
-    return JSON.parse(text);
+
+    return jsonResult;
   } catch (error) {
     console.error("Error detecting comic text:", error);
     throw error;
@@ -734,22 +807,49 @@ export async function translateTexts(
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+    let jsonResult;
+    let backendFailed = false;
 
-    const res = await fetchWithRetry("/api/translate", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ texts, targetLanguage }),
-    });
-    const text = await res.text();
-    if (text.trim().startsWith('<')) {
-      throw new Error("Server is restarting or returning HTML");
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ texts, targetLanguage }),
+      });
+      const text = await res.text();
+      if (text.trim().startsWith('<') || !res.ok) {
+        throw new Error(text || "Backend failed");
+      }
+      jsonResult = JSON.parse(text);
+    } catch (e) {
+      backendFailed = true;
+      console.warn("Backend translate failed, falling back to Pollinations...");
     }
-    if (!res.ok) {
-      const err: any = new Error(text);
-      err.status = res.status;
-      throw err;
+
+    if (backendFailed) {
+      let textResult = "";
+      const models = ["openai", "qwen-coder", "llama", "mistral"];
+      const messages = [
+        { role: "system", content: "You are a professional comic translator. Translate the array of strings and return ONLY a JSON array of strings in the exact same order." },
+        { role: "user", content: `Translate this array of strings to ${targetLanguage}: ${JSON.stringify(texts)}` }
+      ];
+      
+      for (let i = 0; i < 4; i++) {
+        try {
+          const pollRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
+          });
+          if (pollRes.ok) { textResult = await pollRes.text(); break; }
+        } catch(e) {}
+      }
+      if (!textResult) throw new Error("Failed to translate with fallback engines.");
+      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+      jsonResult = parseJsonSafely(textResult, texts) || texts;
     }
-    return JSON.parse(text);
+
+    return jsonResult;
   } catch (error) {
     console.error("Error translating text:", error);
     throw error;

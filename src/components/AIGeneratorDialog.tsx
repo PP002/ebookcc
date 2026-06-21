@@ -51,24 +51,45 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
     setGeneratedImage(null);
 
     try {
-      const res = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(stabilityApiKey ? { "x-stability-api-key": stabilityApiKey } : {})
-        },
-        body: JSON.stringify({
-          prompt,
-          aspectRatio,
-          imageBase64: sketch
-        })
-      });
+      let imageUrl = null;
+      try {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(stabilityApiKey ? { "x-stability-api-key": stabilityApiKey } : {})
+          },
+          body: JSON.stringify({
+            prompt,
+            aspectRatio,
+            imageBase64: sketch
+          })
+        });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to generate image");
+        if (res.ok) {
+          const data = await res.json();
+          imageUrl = data.imageUrl;
+        } else {
+          throw new Error("Backend image gen failed");
+        }
+      } catch (e: any) {
+        console.warn("Falling back to client-side proxy-less generation...", e);
+        let width = 1024;
+        let height = 1024;
+        if (aspectRatio === "3:4" || aspectRatio === "4:5") { width = 768; height = 1024; }
+        else if (aspectRatio === "16:9") { width = 1024; height = 576; }
+        else if (aspectRatio === "9:16") { width = 576; height = 1024; }
+        else if (aspectRatio === "3:2" || aspectRatio === "4:3") { width = 1024; height = 768; }
 
-      setGeneratedImage(data.imageUrl);
-      if (onGeneratorSuccess) onGeneratorSuccess(data.imageUrl);
+        const seed = Math.floor(Math.random() * 100000000);
+        const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
+        imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+      }
+
+      if (!imageUrl) throw new Error("Failed to generate image from any source.");
+
+      setGeneratedImage(imageUrl);
+      if (onGeneratorSuccess) onGeneratorSuccess(imageUrl);
       setSketch(null);
     } catch (err: any) {
       if (!handleApiError(err, setShowSettingsDialog, llmEngine)) {

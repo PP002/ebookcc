@@ -71,7 +71,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
           // If sketch is provided, we must use POST because GET url would be too long
           const messages: any[] = [];
           const content: any[] = [];
-          content.push({ type: "text", text: `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 1 to 6 panels. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}` });
+          content.push({ type: "text", text: `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}` });
 
           content.push({
             type: "image_url",
@@ -108,7 +108,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
           }
         } else {
           // For text only, use GET to bypass Pollinations strict POST rate limits
-          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 1 to 6 panels. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
+          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
           const models = ["openai", "qwen-coder", "llama", "mistral"];
           
           for (let i = 0; i < 4; i++) {
@@ -158,7 +158,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
           console.warn("Backend /api/generate-comic-script failed. Falling back to free client-side Pollinations generator...", fetchErr);
           
           let textResult = "";
-          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 1 to 6 panels. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
+          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
           const models = ["openai", "qwen-coder", "llama", "mistral"];
           
           let lastErr = null;
@@ -181,10 +181,34 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
             }
           }
           
+          let parsed;
           try {
             textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-            scriptData = JSON.parse(textResult);
+            // Handle cases where the text starts before the JSON or has extra trailing text
+            const firstBrace = textResult.indexOf('{');
+            const firstBracket = textResult.indexOf('[');
+            if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+               textResult = textResult.slice(firstBrace, textResult.lastIndexOf('}') + 1);
+            } else if (firstBracket !== -1) {
+               textResult = textResult.slice(firstBracket, textResult.lastIndexOf(']') + 1);
+            }
+            parsed = JSON.parse(textResult);
+            
+            if (Array.isArray(parsed)) {
+               if (parsed[0]?.panels) { scriptData = { pages: parsed }; }
+               else if (parsed[0]?.imagePrompt) { scriptData = { pages: [{ panels: parsed }] }; }
+               else { scriptData = { pages: [{ panels: [] }] }; }
+            } else if (parsed?.pages) {
+               scriptData = parsed;
+            } else if (parsed?.panels) {
+               scriptData = { pages: [parsed] };
+            } else if (parsed?.imagePrompt) {
+               scriptData = { pages: [{ panels: [parsed] }] };
+            } else {
+               throw new Error("Invalid structure");
+            }
           } catch (jsonErr) {
+            console.error("AI response:", textResult);
             throw new Error(`Failed to parse AI response. Try again, or specify your own key in settings.`);
           }
         }

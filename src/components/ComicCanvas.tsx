@@ -1102,6 +1102,18 @@ const PanelView: React.FC<{ node: PanelNode; path: number[]; onChange: (t: TreeN
                       }));
                       setShowAiIcon(false);
                   }}
+                  onRegenerate={() => {
+                     const match = node.imageUrl?.match(/prompt\/([^?]+)/);
+                     if (match) {
+                       try {
+                         const prompt = decodeURIComponent(match[1]);
+                         const newSeed = Math.floor(Math.random() * 100000000);
+                         const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${newSeed}&model=flux`;
+                         onChange(replaceNode(rootTree, path, { ...node, imageUrl: url }));
+                       } catch(e) {}
+                     }
+                     setShowAiIcon(false);
+                  }}
                   onDelete={() => {
                       onChange(replaceNode(rootTree, path, { ...node, imageUrl: undefined }));
                       setShowAiIcon(false);

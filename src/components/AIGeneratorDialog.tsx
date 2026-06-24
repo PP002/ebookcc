@@ -83,7 +83,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
 
         const seed = Math.floor(Math.random() * 100000000);
         const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
-        imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+        imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
       }
 
       if (!imageUrl) throw new Error("Failed to generate image from any source.");

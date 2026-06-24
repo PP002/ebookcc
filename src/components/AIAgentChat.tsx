@@ -82,7 +82,18 @@ export function AIAgentChat() {
     const handleQuote = (e: any) => {
       setIsOpen(true);
       if (e.detail?.type === 'image') {
-        setPendingImage(e.detail.imageUrl);
+        const url = e.detail.imageUrl;
+        setPendingImage(url);
+        
+        let extractedPrompt = "";
+        const match = url?.match(/prompt\/([^?]+)/);
+        if (match) {
+          try { extractedPrompt = decodeURIComponent(match[1]); } catch(e) {}
+        }
+        
+        if (extractedPrompt) {
+            setInput(`Regenerate with same style: "${extractedPrompt}"`);
+        }
       } else if (e.detail?.type === 'text') {
         setInput(prev => prev ? prev + ' ' + `"${e.detail.text}"` : `"${e.detail.text}"`);
       }
@@ -148,7 +159,7 @@ export function AIAgentChat() {
       if (lowerInput.includes('generate image') || lowerInput.includes('draw')) {
         const imageSeed = Math.floor(Math.random() * 100000);
         const encodedPrompt = encodeURIComponent(userMessage.text);
-        const imgUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${imageSeed}&nologo=true`;
+        const imgUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${imageSeed}&nologo=true&model=flux`;
         setMessages(prev => [...prev, { 
           id: Date.now().toString() + Math.random().toString(36).substring(2), 
           role: 'agent', 
@@ -164,7 +175,7 @@ You have access to multiple text and image models. When generating text, format 
 
 PROFESSIONAL COMIC CREATION GUIDELINES:
 1. **Character & Art Consistency (Text-to-Image)**: When creating a new comic or character, ALWAYS start by generating a "Character Reference Sheet" (including multiple poses and facial expressions). Instruct the user to keep this reference in mind. Suggest using a consistent seed or a highly specific visual description (e.g. "seed=123456") to maintain art style and background consistency across the rest of the page.
-2. **Sketch-to-Image / Modification**: When the user provides a sketch, canvas image, or asks to modify an image, you MUST ALWAYS provide 3 DIFFERENT options (using different models or slight prompt variations) for the user to choose from. Ensure you maintain the established art style in all 3 options.
+2. **Sketch-to-Image / Modification**: When the user provides a canvas image, or asks to modify an image (e.g. Regenerate with same style), you MUST ALWAYS provide 3 DIFFERENT options (using different models or slight prompt variations) for the user to choose from. IF the user provides an original prompt, you MUST reuse it exactly and only apply the modifications they asked for (e.g., if they asked to fix hands, keep the prompt identical but add 'perfect hands' or adjust the action). Ensure you maintain the established art style in all 3 options.
 3. **Rich Text / Script Illustrations**: When illustrating a rich text document or article, ensure the generated images closely relate to the specific content, context, and mood of the text.
 
 IMAGE GENERATION INSTRUCTIONS:

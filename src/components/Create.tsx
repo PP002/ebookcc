@@ -572,6 +572,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     
     toast.info("Generating comic pages! This might take a minute...", { duration: 5000 });
 
+    const sharedConsistencySeed = Math.floor(Math.random() * 100000000);
     const newPages: ComicPage[] = [];
 
     for (let pIdx = 0; pIdx < scriptData.pages.length; pIdx++) {
@@ -590,16 +591,28 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       
       // Update state progressively
       const newPageId = Date.now().toString() + pIdx;
-      setComicPages(prev => [...prev, { id: newPageId, tree: currentTree, bubbles }]);
-      setActivePageIndex(prev => pIdx === 0 ? 0 : prev);
+      setComicPages(prev => {
+        const isDefault = prev.length === 1 && prev[0].bubbles?.length === 2 && prev[0].bubbles[0].text === 'HELLO WORLD!';
+        const newPages = isDefault && pIdx === 0 ? [{ id: newPageId, tree: currentTree, bubbles }] : [...prev, { id: newPageId, tree: currentTree, bubbles }];
+        if (pIdx === 0) {
+            const idx = newPages.findIndex(p => p.id === newPageId);
+            requestAnimationFrame(() => setActivePageIndex(idx !== -1 ? idx : 0));
+        }
+        return newPages;
+      });
 
       for (let i = 0; i < panelsCount; i++) {
         const panel = pageScript.panels[i];
         if (!panel) continue;
-        const prompt = panel.imagePrompt;
+        const prompt = panel.imagePrompt + ", comic book art style, graphic novel, vivid colors, inked lines, cel shaded";
         
         try {
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 800)); // Small delay to avoid rate limiting
+          }
           let imageUrl = null;
+          toast.loading(`Generating artwork for panel ${i + 1} of ${panelsCount}...`);
+
           try {
             const res = await fetch("/api/generate-image", {
               method: "POST",
@@ -608,7 +621,8 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 prompt: prompt + (sketch ? " consistent with sketch" : ""),
                 aspectRatio: "1:1",
                 imageBase64: sketch,
-                engine: "pollinations" // Force fast generator
+                engine: "pollinations", // Force fast generator
+                seed: sharedConsistencySeed
               })
             });
             
@@ -620,12 +634,23 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             }
           } catch (e: any) {
             console.warn("Falling back to client-side proxy-less generation...", e);
-            const seed = Math.floor(Math.random() * 100000000);
             const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
-            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${seed}`;
+            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${sharedConsistencySeed}&model=flux`;
           }
 
           if (imageUrl) {
+             // Pre-fetch to ensure the generation completes before we attempt to render
+             try {
+                const imgResult = await fetch(imageUrl);
+                if (imgResult.ok) {
+                   const contentType = imgResult.headers.get('content-type');
+                   if (contentType && contentType.startsWith('image/')) {
+                      const imgBlob = await imgResult.blob();
+                      imageUrl = URL.createObjectURL(imgBlob);
+                   }
+                }
+             } catch(e) {}
+             
              const { tree: newT, updated } = fillFirstEmptyPanel(currentTree, imageUrl);
              if (updated) {
                currentTree = newT;
@@ -640,6 +665,8 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         } catch (e) {
           console.error("Failed to generate panel image", e);
         }
+        
+        toast.dismiss();
 
         if (panel.dialogue) {
            bubbles.push({
@@ -658,6 +685,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         }
       }
     }
+    toast.dismiss();
     toast.success("Full comic generated!");
   };
 
@@ -1510,6 +1538,20 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                            detail: { type: 'image', imageUrl: imageMenuProps.imgElement.src }
                         }));
                         setImageMenuProps(prev => ({ ...prev, visible: false }));
+                    }}
+                    onRegenerate={() => {
+                       if (!imageMenuProps.imgElement) return;
+                       const match = imageMenuProps.imgElement.src.match(/prompt\/([^?]+)/);
+                       if (match) {
+                          try {
+                             const prompt = decodeURIComponent(match[1]);
+                             const newSeed = Math.floor(Math.random() * 100000000);
+                             const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${newSeed}&model=flux`;
+                             imageMenuProps.imgElement.src = url;
+                             updateToc();
+                          } catch(e) {}
+                       }
+                       setImageMenuProps(prev => ({ ...prev, visible: false }));
                     }}
                     onDelete={() => {
                         if (!imageMenuProps.imgElement) return;

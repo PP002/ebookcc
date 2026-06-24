@@ -32,7 +32,7 @@ export function AppSettingsDialog() {
       setLocalUrl(localLlmUrl);
       setLocalModel(localLlmModel);
       setLocalApiKey(localLlmApiKey);
-      setLocalEngine(llmEngine === 'pollinations' ? 'gemini' : llmEngine);
+      setLocalEngine(llmEngine);
     }
   }, [showSettingsDialog, geminiApiKey, stabilityApiKey, localLlmUrl, localLlmModel, localLlmApiKey, llmEngine]);
 
@@ -87,6 +87,7 @@ export function AppSettingsDialog() {
               }}
               className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
             >
+              <option className="bg-background text-foreground" value="pollinations">Free AI (Default)</option>
               <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
               <option className="bg-background text-foreground" value="openai">OpenAI</option>
               <option className="bg-background text-foreground" value="claude">Claude</option>
@@ -118,15 +119,26 @@ export function AppSettingsDialog() {
                 
                 <label className="text-xs font-bold block text-foreground mt-3">Model Name</label>
                 <select
-                  value={['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash'].includes(localModel) ? localModel : 'gemini-2.5-flash'}
+                  value={['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-flash-latest'].includes(localModel) ? localModel : 'gemini-2.5-flash'}
                   onChange={(e) => setLocalModel(e.target.value)}
                   className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-emerald-500 shadow-sm h-9"
                 >
                   <option className="bg-background text-foreground" value="gemini-2.5-flash">gemini-2.5-flash (Default, Fast OCR)</option>
-                  <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Next Gen High Quality)</option>
-                  <option className="bg-background text-foreground" value="gemini-1.5-pro">gemini-1.5-pro (High Quality OCR)</option>
-                  <option className="bg-background text-foreground" value="gemini-1.5-flash">gemini-1.5-flash (Fast)</option>
+                  <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Complex Tasks)</option>
+                  <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Fastest)</option>
+                  <option className="bg-background text-foreground" value="gemini-flash-latest">gemini-flash-latest (Latest Flash)</option>
                 </select>
+              </div>
+            </div>
+          ) : localEngine === 'pollinations' ? (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="p-3 bg-muted/60 border rounded-md">
+                <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
+                  <Sparkles className="w-3.5 h-3.5" /> Free AI (Pollinations)
+                </h4>
+                <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
+                  Enjoy completely free AI logic processing through Pollinations.ai. You do not need to configure any API keys or models. This is recommended for all new users!
+                </p>
               </div>
             </div>
           ) : (

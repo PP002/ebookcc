@@ -14,6 +14,7 @@ import { ImageToolbar } from './ImageToolbar';
 import { Slideshow } from './Slideshow';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
 import JSZip from 'jszip';
+import Tesseract from 'tesseract.js';
 import { useTheme } from 'next-themes';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
@@ -74,7 +75,9 @@ interface PageData {
 async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = "Anonymous";
+    if (imgSrc && !imgSrc.startsWith('blob:') && !imgSrc.startsWith('data:')) {
+      img.crossOrigin = "Anonymous";
+    }
     img.onload = () => {
       const canvas = document.createElement('canvas');
       let { width, height } = img;
@@ -109,7 +112,9 @@ async function resizeImageForAI(imgSrc: string, maxDim: number = 1024): Promise<
 export async function autoCropImageBorders(imgSrc: string): Promise<{ url: string, width: number, height: number, bgColor: string, isCropped: boolean, origW?: number, origH?: number, padLeft?: number, padTop?: number } | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = "Anonymous";
+    if (imgSrc && !imgSrc.startsWith('blob:') && !imgSrc.startsWith('data:')) {
+      img.crossOrigin = "Anonymous";
+    }
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = img.width;
@@ -523,7 +528,9 @@ async function generateCleanedImageFromElement(img: HTMLImageElement, texts: Com
 async function isPageLikelyBlank(imgSrc: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = "Anonymous";
+    if (imgSrc && !imgSrc.startsWith('blob:') && !imgSrc.startsWith('data:')) {
+      img.crossOrigin = "Anonymous";
+    }
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const size = 32;
@@ -568,7 +575,9 @@ const getImageDimensions = (url: string): Promise<{width: number, height: number
 const rotateImageIfNeeded = async (url: string, width: number, height: number): Promise<{url: string, width: number, height: number}> => {
   if (width > height) {
     const img = new Image();
-    img.crossOrigin = "Anonymous";
+    if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
+      img.crossOrigin = "Anonymous";
+    }
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
@@ -635,6 +644,16 @@ const panelsCache = new Map<string, ExportPanel[]>();
   const cacheKey = `${page.id}_split_${splitEnabled}_im_${imgHash}_${JSON.stringify(page.detectedTexts || [])}_${JSON.stringify(page.manualTexts || [])}_${JSON.stringify(page.manualImages || [])}`;
   if (panelsCache.has(cacheKey)) {
     return panelsCache.get(cacheKey)!;
+  }
+
+  // Ensure image is not too large for external YOLO API endpoints
+  const engineConfig = { engine: 'pollinations', url: 'http://localhost:11434/v1', model: 'llama3', apiKey: '' };
+  let aiBase64 = base64Data;
+  try {
+     const maxDim = 800;
+     aiBase64 = await resizeImageForAI(base64Data, maxDim);
+  } catch (e) {
+     console.warn("Failed to resize image for panel detection", e);
   }
 
   if (!splitEnabled) {
@@ -945,28 +964,25 @@ const panelsCache = new Map<string, ExportPanel[]>();
   try {
     let aiPanels: any[] | null = page.detectedPanels || null;
     
-    if (!aiPanels) {
-      // 1. Attempt Server-Side ONNX inference or TFJS inference
+    if (!aiPanels || aiPanels.length === 0) {
       try {
         let layoutResult = null;
         console.log("Running Cloud Predict API first...");
         try {
-          layoutResult = await runPredictAPI(base64Data);
+          layoutResult = await runPredictAPI(aiBase64);
         } catch (apiErr) {
           console.warn("Predict API failed:", apiErr);
+          throw apiErr;
         }
         
         if (layoutResult) {
           aiPanels = layoutResult.panels;
           yoloTexts = layoutResult.texts;
         }
-      } catch (err) {
-        console.error("Server ONNX detection failed", err);
+      } catch (err: any) {
+        console.error("YOLO Predict API failed", err);
+        throw new Error("Could not detect panels using YOLO. " + err.message);
       }
-    }
-
-    if (!aiPanels) {
-      aiPanels = await detectComicPanels(base64Data, customApiKey);
     }
 
     if (aiPanels && aiPanels.length > 0) {
@@ -1203,7 +1219,18 @@ const PREDICT_URLS = [
   "https://predict-69ffb9909f770dcc9b69-dproatj77a-de.a.run.app/predict"
 ];
 
-export async function runPredictAPI(base64Data: string): Promise<LayoutResult> {
+export async function runPredictAPI(base64Data: string, customYoloUrl?: string, customYoloKey?: string): Promise<LayoutResult> {
+  if (customYoloUrl) {
+    try {
+      const result = await detectLayoutLocalYolo(base64Data, customYoloUrl, customYoloKey, false, 1, 0);
+      if (result && (result.panels.length > 0 || result.texts.length > 0)) return result;
+      throw new Error(`Custom YOLO returned empty results for ${customYoloUrl}`);
+    } catch (err: any) {
+      console.warn(`Custom YOLO Predict API failed for ${customYoloUrl}:`, err);
+      throw err; // DO NOT fallback to default endpoints if custom throws
+    }
+  }
+
   const promises = PREDICT_URLS.map(async (url) => {
     try {
       const result = await detectLayoutLocalYolo(base64Data, url, "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b", false, 1, 0);
@@ -1224,8 +1251,108 @@ export async function runPredictAPI(base64Data: string): Promise<LayoutResult> {
   }
 }
 
+export async function transcribeTextsViaPuterPieces(
+  fullImg: HTMLImageElement,
+  yoloTexts: any[]
+): Promise<ComicText[]> {
+  if (!yoloTexts || yoloTexts.length === 0) return [];
+  
+  const pieces: string[] = [];
+  
+  for (const item of yoloTexts) {
+    const box = item.box_2d || item;
+    const yMin = Math.max(0, (box[0] / 1000) * fullImg.naturalHeight);
+    const xMin = Math.max(0, (box[1] / 1000) * fullImg.naturalWidth);
+    const yMax = Math.min(fullImg.naturalHeight, (box[2] / 1000) * fullImg.naturalHeight);
+    const xMax = Math.min(fullImg.naturalWidth, (box[3] / 1000) * fullImg.naturalWidth);
+    
+    let w = Math.round(xMax - xMin);
+    let h = Math.round(yMax - yMin);
+    if (w <= 0) w = 1;
+    if (h <= 0) h = 1;
+
+    // Create a small temp canvas for this crop
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = w;
+    tempCanvas.height = h;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (tempCtx) {
+      tempCtx.fillStyle = '#ffffff';
+      tempCtx.fillRect(0, 0, w, h);
+      tempCtx.drawImage(fullImg, Math.round(xMin), Math.round(yMin), w, h, 0, 0, w, h);
+      pieces.push(tempCanvas.toDataURL('image/jpeg', 0.9));
+    } else {
+      pieces.push("");
+    }
+  }
+
+  const ocrResults: { text: string; index: number }[] = [];
+  
+  for (let i = 0; i < pieces.length; i++) {
+    const pieceBase64 = pieces[i];
+    if (!pieceBase64) {
+      ocrResults.push({ text: "", index: i });
+      continue;
+    }
+    
+    let resultText = "";
+    let tesseractSuccess = false;
+    
+    // Attempt 1: Tesseract.js
+    console.log(`[Frontend] Using Tesseract.js for piece ${i}`);
+    try {
+        const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
+        if (result && result.data && result.data.text) {
+            resultText = result.data.text.trim();
+            if (resultText.length > 0) {
+                tesseractSuccess = true;
+            }
+        }
+    } catch (err) {
+        console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
+    }
+    
+    // Attempt 2: Fallback to Puter.js with mistral/pixtral
+    if (!tesseractSuccess && typeof window !== 'undefined' && (window as any).puter?.ai?.chat) {
+        try {
+            console.log(`[Frontend] Trying Puter.js OCR fallback for piece ${i}`);
+            const prompt = "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string.";
+            const res = await (window as any).puter.ai.chat(
+                [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: prompt },
+                        { type: 'image_url', image_url: { url: pieceBase64 } }
+                    ]
+                }]
+            );
+            
+            if (res && res.message && typeof res.message.content === 'string') {
+               resultText = res.message.content.trim();
+            } else if (res && typeof res === 'string') {
+               resultText = res.trim();
+            }
+        } catch (err) {
+            console.warn(`[Frontend] Puter.js OCR fallback failed for piece ${i}:`, err);
+        }
+    }
+    
+    ocrResults.push({ text: resultText, index: i });
+  }
+  
+  return yoloTexts.map((item, idx) => {
+    const box = item.box_2d || item;
+    const foundOcr = ocrResults.find(r => r.index === idx);
+    return {
+      text: foundOcr ? foundOcr.text : "",
+      box_2d: [box[0], box[1], box[2], box[3]],
+      panelIdx: item.panelIdx
+    };
+  });
+}
+
 const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => {
-  if (!texts || texts.length === 0) return [];
+  if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   if (texts.length === 1) return texts;
 
   // Auto-detect Manga mode if >= 15% of text boxes are vertical OR if CJK characters are present
@@ -1831,6 +1958,17 @@ const ImageItem = ({
                    window.dispatchEvent(new CustomEvent('quote-to-agent', {
                       detail: { type: 'image', imageUrl: img.url }
                    }));
+                }}
+                onRegenerate={() => {
+                  const match = img.url?.match(/prompt\/([^?]+)/);
+                  if (match) {
+                     try {
+                        const prompt = decodeURIComponent(match[1]);
+                        const newSeed = Math.floor(Math.random() * 100000000);
+                        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${newSeed}&model=flux`;
+                        updateImage({ url });
+                     } catch(e) {}
+                  }
                 }}
               />
             </div>
@@ -3137,12 +3275,6 @@ export default function Convert({
       return;
     }
 
-    if (llmEngine === 'gemini' && !customApiKey && (runOcr || runTranslate)) {
-      setIsBatchProcessing(false);
-      setShowApiKeyModal(true);
-      return;
-    }
-
     setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'processing' } : p));
     
     try {
@@ -3200,7 +3332,9 @@ export default function Convert({
       
       // Load full-res image once for processing
       const fullImg = new Image();
-      fullImg.crossOrigin = "Anonymous";
+      if (workingImageSrc && !workingImageSrc.startsWith('blob:') && !workingImageSrc.startsWith('data:')) {
+        fullImg.crossOrigin = "Anonymous";
+      }
       fullImg.src = workingImageSrc;
       await new Promise((resolve) => { fullImg.onload = resolve; fullImg.onerror = resolve; });
 
@@ -3211,23 +3345,39 @@ export default function Convert({
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
-      const aiBase64 = await resizeImageForAI(workingImageSrc, 1600);
+      const maxDim = llmEngine === 'pollinations' ? 800 : 1600;
+      const aiBase64 = await resizeImageForAI(workingImageSrc, maxDim);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
-      if (runLayout && (!localTexts || !localPanels)) {
+      const needYolo = runLayout || (llmEngine === 'pollinations' && runOcr);
+      if (needYolo && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
+          // Pass the resized/properly-formatted aiBase64 straight to YOLO API
           const layoutResult = await runPredictAPI(aiBase64);
           if (layoutResult) {
             localTexts = layoutResult.texts || [];
             localPanels = layoutResult.panels || [];
+          } else {
+            throw new Error("YOLO API returned no results.");
           }
         } catch (apiErr) {
           console.log("Predict API failed:", apiErr);
+          toast.error(`YOLO Failed for Page ${pageIndex + 1}: ${String(apiErr)}`);
         }
       }
 
       const hasLayoutPanels = localPanels && localPanels.length > 0;
+
+      let pollinationsOcrTexts: ComicText[] = [];
+      if (llmEngine === 'pollinations' && runOcr && localTexts && localTexts.length > 0) {
+        try {
+          toast.info(`Extracting ${localTexts.length} text blocks using Free AI pieces...`);
+          pollinationsOcrTexts = await transcribeTextsViaPuterPieces(fullImg, localTexts);
+        } catch (pollErr) {
+          console.error("Pollinations piece-transcription failed:", pollErr);
+        }
+      }
 
       // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
       if (splitDuringBatch && hasLayoutPanels) {
@@ -3245,83 +3395,148 @@ export default function Convert({
         const finalResults: ComicText[] = [];
         
         if (runOcr) {
-          for (let i = 0; i < sortedPanels.length; i++) {
-            const panel = sortedPanels[i];
-            const box = panel.box_2d || panel;
-            
-            // Crop panel for OCR with a small margin for context
-            const margin = 20; // 2% margin
-            const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
-            const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
-            const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
-            const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
-            
-            const pCanvas = document.createElement('canvas');
-            pCanvas.width = pSw;
-            pCanvas.height = pSh;
-            const pCtx = pCanvas.getContext('2d');
-            if (pCtx) {
-              pCtx.fillStyle = '#ffffff';
-              pCtx.fillRect(0, 0, pSw, pSh);
-              pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
-              const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
-              
-              // Wait slightly between panels to help avoid early rate limiting
-              if (i > 0) await new Promise(r => setTimeout(r, 1000));
-
-              // Run OCR on panel with panel-hint (-1) (Gemini or Local LLM)
-              const panelTexts = await detectComicText(
-                pBase64,
-                customApiKey,
-                -1,
-                'gemini',
-                undefined,
-                {
-                  engine: llmEngine,
-                  url: localLlmUrl,
-                  model: localLlmModel,
-                  apiKey: localLlmApiKey
-                }
-              );
-              
-              // Transform panel coordinates back to page coordinates
-              // Note: we need to account for the margin we added during cropping
-              panelTexts.forEach(pt => {
-                const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
-                
-                // Local coords in the crop (0-1000) mapped to the crop's width/height
-                const cropLocalXMin = (pxMin / 1000) * pSw;
-                const cropLocalYMin = (pyMin / 1000) * pSh;
-                const cropLocalXMax = (pxMax / 1000) * pSw;
-                const cropLocalYMax = (pyMax / 1000) * pSh;
-                
-                // Map crop local pixels to fullImg pixels
-                const fullImgPixelXMin = pSx + cropLocalXMin;
-                const fullImgPixelYMin = pSy + cropLocalYMin;
-                const fullImgPixelXMax = pSx + cropLocalXMax;
-                const fullImgPixelYMax = pSy + cropLocalYMax;
-                
-                // Map fullImg pixels back to page-relative units (0-1000)
-                const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
-                const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
-                const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
-                const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
-                
-                const tXCenter = (xMin + xMax) / 2;
-                const tYCenter = (yMin + yMax) / 2;
-                
-                // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
-                const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
-                                tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
-                
+          if (llmEngine === 'pollinations' && pollinationsOcrTexts.length > 0) {
+            localPanels.forEach((panel, pIdx) => {
+              const pBox = panel.box_2d || panel;
+              pollinationsOcrTexts.forEach(pt => {
+                const box = pt.box_2d;
+                const tXCenter = (box[1] + box[3]) / 2;
+                const tYCenter = (box[0] + box[2]) / 2;
+                const isInside = tXCenter >= pBox[1] - 5 && tXCenter <= pBox[3] + 5 &&
+                                tYCenter >= pBox[0] - 5 && tYCenter <= pBox[2] + 5;
                 if (isInside) {
-                  finalResults.push({ 
-                    ...pt, 
-                    box_2d: [yMin, xMin, yMax, xMax],
-                    panelIdx: localPanels.indexOf(panel)
+                  finalResults.push({
+                    ...pt,
+                    panelIdx: pIdx
                   });
                 }
               });
+            });
+          } else {
+            for (let i = 0; i < sortedPanels.length; i++) {
+              const panel = sortedPanels[i];
+              const box = panel.box_2d || panel;
+              
+              // Crop panel for OCR with a small margin for context
+              const margin = 20; // 2% margin
+              const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
+              const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
+              const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
+              const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
+              
+              const pCanvas = document.createElement('canvas');
+              pCanvas.width = pSw;
+              pCanvas.height = pSh;
+              const pCtx = pCanvas.getContext('2d');
+              if (pCtx) {
+                pCtx.fillStyle = '#ffffff';
+                pCtx.fillRect(0, 0, pSw, pSh);
+                pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
+                const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
+                
+                // Wait slightly between panels to help avoid early rate limiting
+                if (i > 0) await new Promise(r => setTimeout(r, 1000));
+
+                // Find YOLO text blocks that belong to this panel, and scale them to the panel crop's 0-1000 bounds
+                const panelYoloTexts: any[] = [];
+                if (localTexts && localTexts.length > 0) {
+                  const pBox = panel.box_2d || panel;
+                  const pXMin = pBox[1];
+                  const pYMin = pBox[0];
+                  const pXMax = pBox[3];
+                  const pYMax = pBox[2];
+
+                  // Crop bounds in page coordinates
+                  const cropYMin = Math.max(0, pYMin - margin);
+                  const cropXMin = Math.max(0, pXMin - margin);
+                  const cropYMax = Math.min(1000, pYMax + margin);
+                  const cropXMax = Math.min(1000, pXMax + margin);
+
+                  const cropW = cropXMax - cropXMin;
+                  const cropH = cropYMax - cropYMin;
+
+                  if (cropW > 0 && cropH > 0) {
+                    localTexts.forEach((t: any) => {
+                      const tBox = t.box_2d || t;
+                      const tyMin = tBox[0], txMin = tBox[1], tyMax = tBox[2], txMax = tBox[3];
+                      const tXCenter = (txMin + txMax) / 2;
+                      const tYCenter = (tyMin + tyMax) / 2;
+
+                      // Is this text center inside our panel box (with some small tolerance)?
+                      const isInside = tXCenter >= pXMin - 5 && tXCenter <= pXMax + 5 &&
+                                      tYCenter >= pYMin - 5 && tYCenter <= pYMax + 5;
+
+                      if (isInside) {
+                        // Map the text coordinates from page scale to relative crop scale (0-1000)
+                        const relXMin = Math.max(0, Math.min(1000, ((txMin - cropXMin) / cropW) * 1000));
+                        const relYMin = Math.max(0, Math.min(1000, ((tyMin - cropYMin) / cropH) * 1000));
+                        const relXMax = Math.max(0, Math.min(1000, ((txMax - cropXMin) / cropW) * 1000));
+                        const relYMax = Math.max(0, Math.min(1000, ((tyMax - cropYMin) / cropH) * 1000));
+
+                        panelYoloTexts.push({
+                          ...t,
+                          box_2d: [relYMin, relXMin, relYMax, relXMax]
+                        });
+                      }
+                    });
+                  }
+                }
+
+                // Run OCR on panel with panel-hint (-1) (Gemini or Local LLM)
+                const panelTexts = await detectComicText(
+                  pBase64,
+                  customApiKey,
+                  -1,
+                  'gemini',
+                  undefined,
+                  {
+                    engine: llmEngine,
+                    url: localLlmUrl,
+                    model: localLlmModel,
+                    apiKey: localLlmApiKey
+                  },
+                  panelYoloTexts
+                );
+                
+                // Transform panel coordinates back to page coordinates
+                // Note: we need to account for the margin we added during cropping
+                panelTexts.forEach(pt => {
+                  const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
+                  
+                  // Local coords in the crop (0-1000) mapped to the crop's width/height
+                  const cropLocalXMin = (pxMin / 1000) * pSw;
+                  const cropLocalYMin = (pyMin / 1000) * pSh;
+                  const cropLocalXMax = (pxMax / 1000) * pSw;
+                  const cropLocalYMax = (pyMax / 1000) * pSh;
+                  
+                  // Map crop local pixels to fullImg pixels
+                  const fullImgPixelXMin = pSx + cropLocalXMin;
+                  const fullImgPixelYMin = pSy + cropLocalYMin;
+                  const fullImgPixelXMax = pSx + cropLocalXMax;
+                  const fullImgPixelYMax = pSy + cropLocalYMax;
+                  
+                  // Map fullImg pixels back to page-relative units (0-1000)
+                  const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
+                  const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
+                  const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
+                  const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
+                  
+                  const tXCenter = (xMin + xMax) / 2;
+                  const tYCenter = (yMin + yMax) / 2;
+                  
+                  // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
+                  const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
+                                  tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
+                  
+                  if (isInside) {
+                    finalResults.push({ 
+                      ...pt, 
+                      box_2d: [yMin, xMin, yMax, xMax],
+                      panelIdx: localPanels.indexOf(panel)
+                    });
+                  }
+                });
+              }
             }
           }
           result = finalResults;
@@ -3332,23 +3547,47 @@ export default function Convert({
       // Branch B: No Panels detected or split disabled -> Regular Book Mode
       else {
         if (runOcr) {
-          toast.info("Analyzing layout and extracting text...");
-          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
-          const rawResult = await detectComicText(
-            aiBase64,
-            customApiKey,
-            localTexts?.length || 0,
-            'gemini',
-            undefined,
-            {
-              engine: llmEngine,
-              url: localLlmUrl,
-              model: localLlmModel,
-              apiKey: localLlmApiKey
+          if (llmEngine === 'pollinations') {
+            if (pollinationsOcrTexts.length > 0) {
+              result = sortTextsReadingOrder(pollinationsOcrTexts);
+            } else {
+              toast.info("No YOLO texts detected; trying Free AI context-OCR fallback...");
+              const rawResult = await detectComicText(
+                aiBase64,
+                customApiKey,
+                0,
+                'gemini',
+                undefined,
+                {
+                  engine: llmEngine,
+                  url: localLlmUrl,
+                  model: localLlmModel,
+                  apiKey: localLlmApiKey
+                },
+                []
+              );
+              result = sortTextsReadingOrder(rawResult);
             }
-          );
-          // Canonical sort for the book page
-          result = sortTextsReadingOrder(rawResult);
+          } else {
+            toast.info("Analyzing layout and extracting text...");
+            // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
+            const rawResult = await detectComicText(
+              aiBase64,
+              customApiKey,
+              localTexts?.length || 0,
+              'gemini',
+              undefined,
+              {
+                engine: llmEngine,
+                url: localLlmUrl,
+                model: localLlmModel,
+                apiKey: localLlmApiKey
+              },
+              localTexts
+            );
+            // Canonical sort for the book page
+            result = sortTextsReadingOrder(rawResult);
+          }
         } else {
           result = page.detectedTexts || []; // Keep existing if no OCR requested
         }
@@ -3668,7 +3907,9 @@ export default function Convert({
     return new Promise(async (resolve) => {
       const sourceUrl = page.cleanedImage || page.originalImage;
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      if (sourceUrl && !sourceUrl.startsWith('blob:') && !sourceUrl.startsWith('data:')) {
+        img.crossOrigin = "anonymous";
+      }
       img.src = sourceUrl;
       
       try {
@@ -3702,7 +3943,9 @@ export default function Convert({
         for (const mImg of page.manualImages) {
           try {
             const overlayImg = new Image();
-            overlayImg.crossOrigin = "anonymous";
+            if (mImg.url && !mImg.url.startsWith('blob:') && !mImg.url.startsWith('data:')) {
+              overlayImg.crossOrigin = "anonymous";
+            }
             overlayImg.src = mImg.url;
             await new Promise((res, rej) => {
               overlayImg.onload = res;

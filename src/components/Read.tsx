@@ -96,7 +96,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           const base64Source = await new Promise<string>((resolve) => {
               if (imgToProcess.startsWith('data:')) return resolve(imgToProcess);
               const img = new Image();
-              img.crossOrigin = 'Anonymous';
+              if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
+                  img.crossOrigin = 'Anonymous';
+              }
               img.onload = () => {
                   if (!isActive || !gridView) return;
                   const canvas = document.createElement('canvas');
@@ -132,7 +134,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               const base64Panels = await new Promise<string[]>((resolve) => {
                  const img = new Image();
                  img.src = imgToProcess;
-                 img.crossOrigin = 'Anonymous';
+                 if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
+                     img.crossOrigin = 'Anonymous';
+                 }
                  img.onload = () => {
                      if (!isActive || !gridView) return resolve([imgToProcess]);
                      const canvas = document.createElement('canvas');

@@ -16,16 +16,87 @@ export interface LayoutResult {
 function parseJsonSafely(text: string | undefined, defaultValue: any) {
   if (!text) return defaultValue;
   try {
-    let cleanText = text.trim();
-    const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    let clean = text.trim();
+    
+    // 1. Remove markdown backticks if they exist
+    const match = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (match) {
-      cleanText = match[1].trim();
+      clean = match[1].trim();
     } else {
-      cleanText = cleanText.replace(/^```json/i, "").replace(/```$/i, "").trim();
+      clean = clean.replace(/^```json/i, "").replace(/```$/i, "").trim();
     }
-    return JSON.parse(cleanText);
-  } catch (e) {
-    return null;
+
+    // 2. Locate outermost JSON boundaries to strip leading/trailing conversational fluff
+    const firstBracket = clean.indexOf('[');
+    const lastBracket = clean.lastIndexOf(']');
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+
+    let startIdx = -1;
+    let endIdx = -1;
+
+    if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+      startIdx = firstBracket;
+      endIdx = lastBracket;
+    } else if (firstBrace !== -1) {
+      startIdx = firstBrace;
+      endIdx = lastBrace;
+    }
+
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      clean = clean.substring(startIdx, endIdx + 1);
+    }
+
+    // 3. Try parsing directly first
+    try {
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+        return defaultValue;
+      }
+      return parsed ?? defaultValue;
+    } catch {}
+
+    // 4. Clean trailing commas inside arrays or objects (e.g., [1, 2, ] or {"a": 1, })
+    clean = clean
+      .replace(/,\s*\]/g, ']')
+      .replace(/,\s*\}/g, '}');
+
+    // 5. Fix raw unescaped newlines in JSON strings (convert raw newlines inside quotes to literal \n)
+    let s = "";
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < clean.length; i++) {
+      const char = clean[i];
+      if (char === '"' && !escape) {
+        inString = !inString;
+        s += char;
+      } else if (char === '\\' && inString) {
+        escape = !escape;
+        s += char;
+      } else {
+        escape = false;
+        if (inString && (char === '\n' || char === '\r')) {
+          s += "\\n";
+        } else {
+          s += char;
+        }
+      }
+    }
+    clean = s;
+
+    // 6. Final parsing attempt
+    try {
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+        return defaultValue;
+      }
+      return parsed ?? defaultValue;
+    } catch (err: any) {
+      console.warn("[parseJsonSafely] Final JSON parsing failed:", err.message);
+      return defaultValue;
+    }
+  } catch {
+    return defaultValue;
   }
 }
 
@@ -69,7 +140,11 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
   if (!apiKey) throw new Error("An API Key must be set when running in a browser");
   
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = modelNameOverride || "gemini-2.5-flash"; 
+  
+  let modelName = modelNameOverride || "gemini-2.5-flash";
+  if (modelName.includes("gemini-1.5") || modelName.includes("gemini-2.0-flash") || modelName === "gemini-flash-lite-latest" || modelName === "gemini-2.0-pro-exp-02-05") {
+    modelName = "gemini-2.5-flash";
+  }
   
   let retries = 10;
   let baseDelay = 5000;
@@ -163,9 +238,79 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
   }
 }
 
-export async function detectComicPanels(base64Image: string, customApiKey?: string, customYoloUrl?: string, customYoloKey?: string): Promise<[number, number, number, number][]> {
+export async function detectComicPanels(
+  base64Image: string,
+  customApiKey?: string,
+  customYoloUrl?: string,
+  customYoloKey?: string,
+  localLlmConfig?: LocalLlmConfig
+): Promise<[number, number, number, number][]> {
   try {
-    if (customApiKey) {
+    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
+      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
+      let model = localLlmConfig.model || "llama3";
+      
+      const localApiKey = localLlmConfig.apiKey || "";
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (localApiKey) {
+        headers["Authorization"] = `Bearer ${localApiKey}`;
+      }
+
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const url = `${cleanBaseUrl}/chat/completions`;
+
+      const promptText = `Find all comic panels in this image.
+Return ONLY a JSON array of bounding boxes for each panel.
+Format: [[ymin, xmin, ymax, xmax], ...]
+Ensure coordinates are 0-1000.`;
+
+      const messages = [{
+        role: "user",
+        content: [
+          { type: "text", text: promptText },
+          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
+        ]
+      }];
+
+      try {
+        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        const isHttpUrl = url.toLowerCase().startsWith('http://');
+        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
+
+        let response;
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
+          response = await fetch("/api/local-llm-proxy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url,
+              method: "POST",
+              headers,
+              body: { model, messages, temperature: 0.1 }
+            })
+          });
+        } else {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ model, messages, temperature: 0.1 })
+          });
+        }
+
+        if (!response.ok) throw new Error(`Local LLM failed: ${response.statusText}`);
+        const data = await response.json();
+        const text = data.choices[0]?.message?.content;
+        return parseJsonSafely(text?.replace(/```json/g, '').replace(/```/g, '').trim(), []) || [];
+      } catch (err) {
+        console.error("Local LLM panel detection failed, returning empty", err);
+        return [];
+      }
+    }
+
+    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+
+    if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running detectPanels locally to bypass server limits");
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       const promptText = "Analyze this complex comic page layout. Identify the strict rectangular boundaries for every major art panel/frame on the page. Only return the structural bounding boxes of the panels themselves, not individual characters or faces. A panel is a framed rectangular section containing art. Return a JSON list of bounding boxes: [[ymin, xmin, ymax, xmax], ...]. The coordinates should be between 0 and 1000. If no panels are found, output an empty JSON list: [].";
@@ -192,7 +337,10 @@ export async function detectComicPanels(base64Image: string, customApiKey?: stri
       const res = await fetch("/api/detectPanels", {
         method: "POST",
         headers,
-        body: JSON.stringify({ base64Image }),
+        body: JSON.stringify({
+          base64Image,
+          engine: localLlmConfig?.engine || 'pollinations'
+        }),
       });
       const text = await res.text();
       if (text.trim().startsWith('<') || !res.ok) {
@@ -219,16 +367,21 @@ Ensure coordinates are 0-1000.`;
       }];
 
       let textResult = "";
-      const models = ["openai", "qwen-coder"];
       for (let i = 0; i < 4; i++) {
         try {
           const pollRes = await fetch("https://text.pollinations.ai/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
+            body: JSON.stringify({ messages, model: "openai", jsonMode: true })
           });
-          if (pollRes.ok) { textResult = await pollRes.text(); break; }
-        } catch(e) {}
+          if (pollRes.ok) { 
+            textResult = await pollRes.text(); 
+            break; 
+          }
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        } catch(e) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        }
       }
       if (!textResult) throw new Error("Failed to detect panels with fallback engines.");
       textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -248,17 +401,13 @@ export async function detectComicText(
   suggestedCount?: number,
   ocrProvider: 'gemini' | 'vision' = 'gemini',
   visionApiKey?: string,
-  localLlmConfig?: LocalLlmConfig
+  localLlmConfig?: LocalLlmConfig,
+  yoloTexts?: any[]
 ): Promise<ComicText[]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine !== 'gemini') {
+    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
       let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
       let model = localLlmConfig.model || "llama3";
-      
-      if (localLlmConfig.engine === 'pollinations') {
-        baseUrl = "https://text.pollinations.ai/";
-        model = "openai"; 
-      }
       
       const localApiKey = localLlmConfig.apiKey || "";
 
@@ -268,7 +417,7 @@ export async function detectComicText(
       }
 
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = localLlmConfig.engine === 'pollinations' ? cleanBaseUrl : `${cleanBaseUrl}/chat/completions`;
+      const url = `${cleanBaseUrl}/chat/completions`;
 
       const promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes.
 
@@ -301,28 +450,6 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         }
       ];
 
-      const runPollinationsFetch = async (body: any, retries = 4) => {
-        const models = ["openai", "qwen-coder", "llama", "mistral"];
-        for (let i = 0; i < retries; i++) {
-          const res = await fetch("https://text.pollinations.ai/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...body, jsonMode: true, model: models[i % models.length] })
-          });
-          if (res.ok) {
-            let text = await res.text();
-            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
-          } else if (res.status === 429) {
-            if (i === retries - 1) return new Response(await res.text(), { status: 429, statusText: "Too Many Requests" });
-            await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
-          } else {
-            if (i === retries - 1) return res;
-          }
-        }
-        return new Response("Failed", { status: 500 });
-      };
-
       let response;
       try {
         const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
@@ -332,9 +459,7 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         // whereas the cloud server proxy can never reach the user's local PC loopback.
         const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (localLlmConfig?.engine === 'pollinations') {
-          response = await runPollinationsFetch({ model, messages, temperature: 0.1 });
-        } else if (isHttpsPage && isHttpUrl && !isLoopback) {
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -511,7 +636,9 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
       return texts;
     }
 
-    if (customApiKey) {
+    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+
+    if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running detectText locally to bypass server limits");
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       
@@ -531,6 +658,32 @@ ${suggestedCount !== undefined && suggestedCount > 0 ? `Hint: approximately ${su
 
 Return ONLY a JSON array. If NO text is found, return an empty array [].
 Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
+
+      let finalPrompt = promptText;
+      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+        const boxesStr = yoloTexts.map((item: any, i: number) => {
+          const box = item.box_2d || item;
+          if (Array.isArray(box) && box.length === 4) {
+            return `Box #${i}: [${box.map(v => Math.round(Number(v))).join(', ')}]`;
+          }
+          return null;
+        }).filter(Boolean).join('\n');
+
+        if (boxesStr) {
+          finalPrompt = `You are a precise OCR and comic translation assistant.
+A local high-precision layout detector (YOLO) has already pre-detected exactly ${yoloTexts.length} text blocks/speech bubbles/caption boxes in this image.
+Your ONLY job is to transcribe the EXACT text inside each of those bounding boxes. Do NOT detect any new boxes, and do NOT alter the coordinates.
+
+Here are the pre-detected bounding boxes (scaled from 0 to 1000, formatted as [ymin, xmin, ymax, xmax]):
+${boxesStr}
+
+STRICT INSTRUCTIONS:
+1. For each bounding box listed above, examine the image in that specific region and transcribe the exact text inside it.
+2. If there are multiple lines of text in that region, join them with a space.
+3. Preserve the box coordinates EXACTLY. Return the transcribed text paired with the exact coordinate array from the list above.
+4. Output MUST be a JSON array of objects with "text" and "box_2d" (the original coordinates).`;
+        }
+      }
       
       const schema = {
         type: Type.ARRAY,
@@ -548,7 +701,7 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       };
       
       const modelOverride = localLlmConfig && localLlmConfig.engine === 'gemini' && localLlmConfig.model ? localLlmConfig.model : undefined;
-      const text = await runGeminiDirect(customApiKey, promptText, rawBase64, schema, modelOverride);
+      const text = await runGeminiDirect(customApiKey, finalPrompt, rawBase64, schema, modelOverride);
       return parseJsonSafely(text, []) || [];
     }
 
@@ -560,7 +713,12 @@ Example format: [{"text": "transcribed text here", "box_2d": [ymin, xmin, ymax, 
       const res = await fetch("/api/detectText", {
         method: "POST",
         headers,
-        body: JSON.stringify({ base64Image, suggestedCount }),
+        body: JSON.stringify({
+          base64Image,
+          suggestedCount,
+          engine: localLlmConfig?.engine || 'pollinations',
+          yoloTexts
+        }),
       });
       const text = await res.text();
       if (text.trim().startsWith('<') || !res.ok) {
@@ -580,25 +738,56 @@ STRICT RULES:
 2. Provide bounding box [ymin, xmin, ymax, xmax] scaled to 0-1000.
 Return ONLY a JSON array. Return [] if no text. Example: [{"text": "hello", "box_2d": [0,0,100,100]}]`;
 
+      let finalPrompt = promptText;
+      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+        const boxesStr = yoloTexts.map((item: any, i: number) => {
+          const box = item.box_2d || item;
+          if (Array.isArray(box) && box.length === 4) {
+            return `Box #${i}: [${box.map(v => Math.round(Number(v))).join(', ')}]`;
+          }
+          return null;
+        }).filter(Boolean).join('\n');
+
+        if (boxesStr) {
+          finalPrompt = `You are a precise OCR and comic translation assistant.
+A local high-precision layout detector (YOLO) has already pre-detected exactly ${yoloTexts.length} text blocks/speech bubbles/caption boxes in this image.
+Your ONLY job is to transcribe the EXACT text inside each of those bounding boxes. Do NOT detect any new boxes, and do NOT alter the coordinates.
+
+Here are the pre-detected bounding boxes (scaled from 0 to 1000, formatted as [ymin, xmin, ymax, xmax]):
+${boxesStr}
+
+STRICT INSTRUCTIONS:
+1. For each bounding box listed above, examine the image in that specific region and transcribe the exact text inside it.
+2. If there are multiple lines of text in that region, join them with a space.
+3. Preserve the box coordinates EXACTLY. Return the transcribed text paired with the exact coordinate array from the list above.
+4. Output MUST be a JSON array of objects with "text" and "box_2d" (the original coordinates).`;
+        }
+      }
+
       const messages = [{
         role: "user",
         content: [
-          { type: "text", text: promptText },
+          { type: "text", text: finalPrompt },
           { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
         ]
       }];
 
       let textResult = "";
-      const models = ["openai", "qwen-coder"];
       for (let i = 0; i < 4; i++) {
         try {
           const pollRes = await fetch("https://text.pollinations.ai/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
+            body: JSON.stringify({ messages, model: "openai", jsonMode: true })
           });
-          if (pollRes.ok) { textResult = await pollRes.text(); break; }
-        } catch(e) {}
+          if (pollRes.ok) { 
+            textResult = await pollRes.text(); 
+            break; 
+          }
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        } catch(e) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
+        }
       }
       if (!textResult) throw new Error("Failed to detect text with fallback engines.");
       textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -625,15 +814,11 @@ export async function translateTexts(
   customApiKey?: string,
   localLlmConfig?: LocalLlmConfig
 ): Promise<string[]> {
+  if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   try {
-    if (localLlmConfig && localLlmConfig.engine !== 'gemini') {
+    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
       let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
       let model = localLlmConfig.model || "llama3";
-      
-      if (localLlmConfig.engine === 'pollinations') {
-        baseUrl = "https://text.pollinations.ai/";
-        model = "openai"; 
-      }
       
       const localApiKey = localLlmConfig.apiKey || "";
 
@@ -643,31 +828,9 @@ export async function translateTexts(
       }
 
       const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = localLlmConfig.engine === 'pollinations' ? cleanBaseUrl : `${cleanBaseUrl}/chat/completions`;
+      const url = `${cleanBaseUrl}/chat/completions`;
 
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
-
-      const runPollinationsFetch = async (body: any, retries = 4) => {
-        const models = ["openai", "qwen-coder", "llama", "mistral"];
-        for (let i = 0; i < retries; i++) {
-          const res = await fetch("https://text.pollinations.ai/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...body, jsonMode: true, model: models[i % models.length] })
-          });
-          if (res.ok) {
-            let text = await res.text();
-            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
-          } else if (res.status === 429) {
-            if (i === retries - 1) return new Response(await res.text(), { status: 429, statusText: "Too Many Requests" });
-            await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
-          } else {
-            if (i === retries - 1) return res;
-          }
-        }
-        return new Response("Failed", { status: 500 });
-      };
 
       let response;
       try {
@@ -678,19 +841,7 @@ export async function translateTexts(
         // whereas the cloud server proxy can never reach the user's local PC loopback.
         const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
 
-        if (localLlmConfig?.engine === 'pollinations') {
-          response = await runPollinationsFetch({
-            model,
-            messages: [
-              {
-                role: "system",
-                content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
-              },
-              { role: "user", content: promptText }
-            ],
-            temperature: 0.2
-          });
-        } else if (isHttpsPage && isHttpUrl && !isLoopback) {
+        if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
           response = await fetch("/api/local-llm-proxy", {
             method: "POST",
@@ -791,7 +942,9 @@ export async function translateTexts(
       return texts;
     }
 
-    if (customApiKey) {
+    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+
+    if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running translate locally to bypass server limits");
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
       const schema = {
@@ -814,7 +967,11 @@ export async function translateTexts(
       const res = await fetch("/api/translate", {
         method: "POST",
         headers,
-        body: JSON.stringify({ texts, targetLanguage }),
+        body: JSON.stringify({
+          texts,
+          targetLanguage,
+          engine: localLlmConfig?.engine || 'pollinations'
+        }),
       });
       const text = await res.text();
       if (text.trim().startsWith('<') || !res.ok) {

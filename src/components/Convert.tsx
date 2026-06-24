@@ -1251,9 +1251,10 @@ export async function runPredictAPI(base64Data: string, customYoloUrl?: string, 
   }
 }
 
-export async function transcribeTextsViaPuterPieces(
+export async function transcribeTextsViaPieces(
   fullImg: HTMLImageElement,
-  yoloTexts: any[]
+  yoloTexts: any[],
+  engine: string
 ): Promise<ComicText[]> {
   if (!yoloTexts || yoloTexts.length === 0) return [];
   
@@ -1296,45 +1297,53 @@ export async function transcribeTextsViaPuterPieces(
     }
     
     let resultText = "";
-    let tesseractSuccess = false;
     
-    // Attempt 1: Tesseract.js
-    console.log(`[Frontend] Using Tesseract.js for piece ${i}`);
-    try {
-        const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
-        if (result && result.data && result.data.text) {
-            resultText = result.data.text.trim();
-            if (resultText.length > 0) {
-                tesseractSuccess = true;
-            }
-        }
-    } catch (err) {
-        console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
-    }
-    
-    // Attempt 2: Fallback to Puter.js with mistral/pixtral
-    if (!tesseractSuccess && typeof window !== 'undefined' && (window as any).puter?.ai?.chat) {
+    if (engine === 'pollinations') {
+      // Attempt 1: Tesseract.js (Pollinations default)
+      console.log(`[Frontend] Using Tesseract.js for piece ${i}`);
+      try {
+          const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
+          if (result && result.data && result.data.text) {
+              resultText = result.data.text.trim();
+          }
+      } catch (err) {
+          console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
+      }
+    } else if (engine === 'puter') {
+      // Attempt: Puter.js with mistral/pixtral
+      if (typeof window !== 'undefined' && (window as any).puter?.ai?.chat) {
+          try {
+              console.log(`[Frontend] Trying Puter.js OCR for piece ${i}`);
+              const prompt = "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string.";
+              const res = await (window as any).puter.ai.chat(
+                  [{
+                      role: 'user',
+                      content: [
+                          { type: 'text', text: prompt },
+                          { type: 'image_url', image_url: { url: pieceBase64 } }
+                      ]
+                  }]
+              );
+              
+              if (res && res.message && typeof res.message.content === 'string') {
+                 resultText = res.message.content.trim();
+              } else if (res && typeof res === 'string') {
+                 resultText = res.trim();
+              }
+          } catch (err) {
+              console.warn(`[Frontend] Puter.js OCR failed for piece ${i}:`, err);
+          }
+      } else {
+        console.warn(`[Frontend] Puter.js not available, falling back to Tesseract`);
         try {
-            console.log(`[Frontend] Trying Puter.js OCR fallback for piece ${i}`);
-            const prompt = "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string.";
-            const res = await (window as any).puter.ai.chat(
-                [{
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: prompt },
-                        { type: 'image_url', image_url: { url: pieceBase64 } }
-                    ]
-                }]
-            );
-            
-            if (res && res.message && typeof res.message.content === 'string') {
-               resultText = res.message.content.trim();
-            } else if (res && typeof res === 'string') {
-               resultText = res.trim();
+            const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
+            if (result && result.data && result.data.text) {
+                resultText = result.data.text.trim();
             }
         } catch (err) {
-            console.warn(`[Frontend] Puter.js OCR fallback failed for piece ${i}:`, err);
+            console.error(`[Frontend] Tesseract.js fallback failed for piece ${i}:`, err);
         }
+      }
     }
     
     ocrResults.push({ text: resultText, index: i });
@@ -3345,11 +3354,11 @@ export default function Convert({
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
-      const maxDim = llmEngine === 'pollinations' ? 800 : 1600;
+      const maxDim = (llmEngine === 'pollinations' || llmEngine === 'puter') ? 800 : 1600;
       const aiBase64 = await resizeImageForAI(workingImageSrc, maxDim);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
-      const needYolo = runLayout || (llmEngine === 'pollinations' && runOcr);
+      const needYolo = runLayout || ((llmEngine === 'pollinations' || llmEngine === 'puter') && runOcr);
       if (needYolo && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
@@ -3370,10 +3379,10 @@ export default function Convert({
       const hasLayoutPanels = localPanels && localPanels.length > 0;
 
       let pollinationsOcrTexts: ComicText[] = [];
-      if (llmEngine === 'pollinations' && runOcr && localTexts && localTexts.length > 0) {
+      if ((llmEngine === 'pollinations' || llmEngine === 'puter') && runOcr && localTexts && localTexts.length > 0) {
         try {
           toast.info(`Extracting ${localTexts.length} text blocks using Free AI pieces...`);
-          pollinationsOcrTexts = await transcribeTextsViaPuterPieces(fullImg, localTexts);
+          pollinationsOcrTexts = await transcribeTextsViaPieces(fullImg, localTexts, llmEngine);
         } catch (pollErr) {
           console.error("Pollinations piece-transcription failed:", pollErr);
         }
@@ -3395,7 +3404,7 @@ export default function Convert({
         const finalResults: ComicText[] = [];
         
         if (runOcr) {
-          if (llmEngine === 'pollinations' && pollinationsOcrTexts.length > 0) {
+          if ((llmEngine === 'pollinations' || llmEngine === 'puter') && pollinationsOcrTexts.length > 0) {
             localPanels.forEach((panel, pIdx) => {
               const pBox = panel.box_2d || panel;
               pollinationsOcrTexts.forEach(pt => {
@@ -3547,7 +3556,7 @@ export default function Convert({
       // Branch B: No Panels detected or split disabled -> Regular Book Mode
       else {
         if (runOcr) {
-          if (llmEngine === 'pollinations') {
+          if (llmEngine === 'pollinations' || llmEngine === 'puter') {
             if (pollinationsOcrTexts.length > 0) {
               result = sortTextsReadingOrder(pollinationsOcrTexts);
             } else {

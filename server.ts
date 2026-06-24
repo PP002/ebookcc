@@ -89,11 +89,14 @@ async function startServer() {
   // Helpers
   // ─────────────────────────────────────────────
 
-  function getAIClient() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
+  function getAIClient(customKey?: string) {
+    let key = customKey || process.env.GEMINI_API_KEY;
+    if (key && key.startsWith("Bearer ")) {
+      key = key.replace("Bearer ", "").trim();
+    }
+    if (!key) return null;
     return new GoogleGenAI({
-      apiKey,
+      apiKey: key,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build'
@@ -154,7 +157,9 @@ async function startServer() {
     return padded;
   }
 
-  async function getOrCreateGlossaryCache(ai: any): Promise<string | null> {
+  async function getOrCreateGlossaryCache(ai: any, isCustomKey: boolean = false): Promise<string | null> {
+    if (isCustomKey) return null; // Bypass caching for custom keys to prevent 403 Permission Denied errors
+
     const now = Date.now();
     if (glossaryCacheName && now < glossaryExpiry) {
       console.log(`[Gemini Cache] Reusing existing glossary cache: ${glossaryCacheName}`);
@@ -599,10 +604,10 @@ async function startServer() {
 
       const { engine } = req.body;
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
       const promptText = "Analyze this comic page. Identify every major art panel/frame. Return ONLY the structural bounding boxes of panels (framed rectangular sections containing art). Do NOT include characters or faces. Return a JSON list: [[ymin, xmin, ymax, xmax], ...] with coordinates 0–1000. Empty list if no panels found.";
       
-      const usePollinationsFirst = (engine === 'pollinations') || !engine;
+      const usePollinationsFirst = (engine === 'pollinations' || engine === 'puter') || !engine;
       let panelsFound: any[] | null = null;
       let errorOccurred: any = null;
 
@@ -640,7 +645,7 @@ async function startServer() {
       if (!panelsFound && ai && engine === 'gemini') {
         try {
           console.log("[API detectPanels] Querying Google Gemini...");
-          const cacheName = await getOrCreateGlossaryCache(ai);
+          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey);
           let isCacheHit = false;
           const result = await callWithRetry(() => {
             const payload: any = {
@@ -757,7 +762,7 @@ async function startServer() {
 
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
 
       const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
 
@@ -802,7 +807,7 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      const usePollinationsFirst = (engine === 'pollinations') || !engine;
+      const usePollinationsFirst = (engine === 'pollinations' || engine === 'puter') || !engine;
       let textResultText = "";
       let textFound: TextBlock[] | null = null;
       let errorOccurred: any = null;
@@ -841,7 +846,7 @@ STRICT INSTRUCTIONS:
       if (!textFound && ai && engine === 'gemini') {
         try {
           console.log("[API detectText] Querying Google Gemini...");
-          const cacheName = await getOrCreateGlossaryCache(ai);
+          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey);
           let isCacheHit = false;
 
           const result = await callWithRetry(() => {
@@ -932,9 +937,9 @@ STRICT INSTRUCTIONS:
       console.log(`[API translate] Translating ${texts.length} items to ${targetLanguage}, engine: ${engine}`);
       
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
 
-      const usePollinationsFirst = (engine === 'pollinations') || !engine;
+      const usePollinationsFirst = (engine === 'pollinations' || engine === 'puter') || !engine;
       let rawResultText = "";
       let translationResult: string[] | null = null;
       let errorOccurred: any = null;
@@ -976,7 +981,7 @@ STRICT INSTRUCTIONS:
       if (!translationResult && ai && engine === 'gemini') {
         try {
           console.log("[API translate] Querying Google Gemini...");
-          const cacheName = await getOrCreateGlossaryCache(ai);
+          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey);
           let isCacheHit = false;
 
           const result = await callWithRetry(() => {
@@ -1207,7 +1212,7 @@ STRICT INSTRUCTIONS:
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
       const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
       let geminiFailed = false;
 
@@ -1269,7 +1274,7 @@ STRICT INSTRUCTIONS:
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
       let geminiFailed = false;
 
       const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.`;
@@ -1392,7 +1397,7 @@ STRICT INSTRUCTIONS:
       if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = customKey ? new GoogleGenAI({ apiKey: customKey }) : getAIClient();
+      const ai = getAIClient(customKey);
       
       let pollinationsFailed = false;
 

@@ -139,10 +139,15 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
 async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: string, responseSchema?: any, modelNameOverride?: string) {
   if (!apiKey) throw new Error("An API Key must be set when running in a browser");
   
-  const ai = new GoogleGenAI({ apiKey });
+  let key = apiKey;
+  if (key.startsWith("Bearer ")) {
+    key = key.replace("Bearer ", "").trim();
+  }
+  
+  const ai = new GoogleGenAI({ apiKey: key });
   
   let modelName = modelNameOverride || "gemini-2.5-flash";
-  if (modelName.includes("gemini-1.5") || modelName.includes("gemini-2.0-flash") || modelName === "gemini-flash-lite-latest" || modelName === "gemini-2.0-pro-exp-02-05") {
+  if (modelName.includes("gemini-1.5") || modelName.includes("gemini-2.5-flash") || modelName === "gemini-flash-lite-latest" || modelName === "gemini-2.5-pro") {
     modelName = "gemini-2.5-flash";
   }
   
@@ -802,7 +807,7 @@ STRICT INSTRUCTIONS:
 }
 
 export interface LocalLlmConfig {
-  engine: 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen';
+  engine: 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen' | 'puter';
   url?: string;
   model?: string;
   apiKey?: string;

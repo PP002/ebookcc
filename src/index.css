@@ -128,3 +128,13 @@ div#root > div > div > div:nth-of-type(2) > div > div {
     overflow: visible !important;
   }
 }
+
+/* Center all toast notifications horizontally and vertically on the screen */
+[data-sonner-toaster] {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  bottom: auto !important;
+  right: auto !important;
+}
+

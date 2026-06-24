@@ -372,8 +372,8 @@ function AppContent() {
         </div>
       )}
       
-      <AIAgentChat />
-      <Toaster position="bottom-left" toastOptions={{ className: 'z-[9999999]' }} style={{ zIndex: 9999999 }} />
+      <AIAgentChat isFullscreen={isFullscreen} />
+      <Toaster position="top-center" toastOptions={{ className: 'z-[9999999]' }} style={{ zIndex: 9999999 }} />
     </div>
   );
 }

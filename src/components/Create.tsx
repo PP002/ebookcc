@@ -1746,10 +1746,10 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
               <ChevronLeft className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Back</span>
             </Button>
             <div className="w-px h-5 bg-border mx-2 shrink-0" />
-            <div className="hidden sm:flex items-center gap-1">
+            <div className="flex items-center gap-1">
               <div className="flex items-center gap-2 px-3 shrink-0 transition-colors" title="Draw Mode (Hotkey: D)">
                 <Label htmlFor="draw-mode" className="text-xs font-semibold cursor-pointer text-muted-foreground flex items-center gap-1.5 hover:text-foreground">
-                  <PenTool className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Draw</span>
+                  <PenTool className="w-3.5 h-3.5" /> <span>Draw</span>
                 </Label>
                 <Switch id="draw-mode" checked={isDrawingMode} onCheckedChange={(val) => {
                   setIsDrawingMode(val);

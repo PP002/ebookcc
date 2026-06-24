@@ -82,7 +82,7 @@ export function AppSettingsDialog() {
                     setLocalModel('llama3');
                   }
                 } else if (engine === 'gemini') {
-                  setLocalModel('gemini-2.5-flash');
+                  setLocalModel('gemini-flash-latest');
                 }
               }}
               className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
@@ -103,7 +103,7 @@ export function AppSettingsDialog() {
                 <Sparkles className="w-4 h-4" /> Gemini AI Cloud Engine
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                We use <code className="bg-muted px-1 py-0.5 rounded text-[10px]">gemini-2.5-flash</code> by default. You need a personal API key to process images or run translations.
+                We use <code className="bg-muted px-1 py-0.5 rounded text-[10px]">gemini-flash-latest</code> by default. You need a personal API key to process images or run translations.
                 <br/><strong className="text-emerald-500 font-semibold mt-1 inline-block"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline">🔥 Get your free Gemini API Key here (15 requests per minute free)</a></strong>
               </p>
               
@@ -119,15 +119,16 @@ export function AppSettingsDialog() {
                 <p className="text-[10px] text-muted-foreground mt-1 mb-2">Your key is stored only in your browser's local storage.</p>
                 
                 <label className="text-xs font-bold block text-foreground mt-3">Model Name</label>
-                <select
-                  value={['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-flash-latest'].includes(localModel) ? localModel : 'gemini-2.5-flash'}
+                 <select
+                  value={['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'].includes(localModel) ? localModel : 'gemini-flash-latest'}
                   onChange={(e) => setLocalModel(e.target.value)}
                   className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-emerald-500 shadow-sm h-9"
                 >
-                  <option className="bg-background text-foreground" value="gemini-2.5-flash">gemini-2.5-flash (Default, Fast OCR)</option>
+                  <option className="bg-background text-foreground" value="gemini-flash-latest">gemini-flash-latest (Default, Stable Flash)</option>
+                  <option className="bg-background text-foreground" value="gemini-flash-lite-latest">gemini-flash-lite-latest (Stable Light)</option>
+                  <option className="bg-background text-foreground" value="gemini-2.5-flash">gemini-2.5-flash (Experimental Fast)</option>
                   <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Complex Tasks)</option>
-                  <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Fastest)</option>
-                  <option className="bg-background text-foreground" value="gemini-flash-latest">gemini-flash-latest (Latest Flash)</option>
+                  <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Experimental Light)</option>
                 </select>
               </div>
             </div>

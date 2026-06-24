@@ -13,7 +13,9 @@ interface ChatMessage {
   imageUrl?: string;
 }
 
-export function AIAgentChat() {
+export function AIAgentChat({ isFullscreen = false }: { isFullscreen?: boolean }) {
+  if (isFullscreen) return null;
+
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');

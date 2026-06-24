@@ -146,10 +146,7 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
   
   const ai = new GoogleGenAI({ apiKey: key });
   
-  let modelName = modelNameOverride || "gemini-2.5-flash";
-  if (modelName.includes("gemini-1.5") || modelName.includes("gemini-2.5-flash") || modelName === "gemini-flash-lite-latest" || modelName === "gemini-2.5-pro") {
-    modelName = "gemini-2.5-flash";
-  }
+  let modelName = modelNameOverride || "gemini-flash-latest";
   
   let retries = 10;
   let baseDelay = 5000;
@@ -327,7 +324,8 @@ Ensure coordinates are 0-1000.`;
           description: "[ymin, xmin, ymax, xmax] for a comic panel"
         }
       };
-      const text = await runGeminiDirect(customApiKey, promptText, rawBase64, schema);
+      const modelOverride = localLlmConfig && localLlmConfig.engine === 'gemini' && localLlmConfig.model ? localLlmConfig.model : undefined;
+      const text = await runGeminiDirect(customApiKey, promptText, rawBase64, schema, modelOverride);
       return parseJsonSafely(text, []) || [];
     }
 
@@ -344,7 +342,8 @@ Ensure coordinates are 0-1000.`;
         headers,
         body: JSON.stringify({
           base64Image,
-          engine: localLlmConfig?.engine || 'pollinations'
+          engine: localLlmConfig?.engine || 'pollinations',
+          model: localLlmConfig?.model
         }),
       });
       const text = await res.text();
@@ -722,6 +721,7 @@ STRICT INSTRUCTIONS:
           base64Image,
           suggestedCount,
           engine: localLlmConfig?.engine || 'pollinations',
+          model: localLlmConfig?.model,
           yoloTexts
         }),
       });
@@ -975,7 +975,8 @@ export async function translateTexts(
         body: JSON.stringify({
           texts,
           targetLanguage,
-          engine: localLlmConfig?.engine || 'pollinations'
+          engine: localLlmConfig?.engine || 'pollinations',
+          model: localLlmConfig?.model
         }),
       });
       const text = await res.text();

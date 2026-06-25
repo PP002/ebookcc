@@ -360,17 +360,17 @@ const Gutter: React.FC<{ dir: Direction; percent: number; onDrag: (p: number) =>
       }}
     >
       <div className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity absolute flex gap-1 pointer-events-none text-white z-20" data-export-ignore="true">
-        <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md" onPointerDown={(e) => { e.stopPropagation(); onPlus(); }} onClick={(e) => e.stopPropagation()}>
+        <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlus(); }}>
             <Plus className="w-4 h-4" />
         </Button>
         {showAi && (
-          <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md bg-[#2DC6CF] hover:bg-[#20b2ba]" onPointerDown={(e) => { 
+          <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md bg-[#2DC6CF] hover:bg-[#20b2ba]" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { 
               e.stopPropagation(); 
               window.dispatchEvent(new CustomEvent('quote-to-agent', {
                   detail: { type: 'text', text: 'How should I divide this comic panel layout?' }
               }));
               setShowAi(false);
-          }} onClick={(e) => e.stopPropagation()}>
+          }}>
               <Bot className="w-3.5 h-3.5 text-black" />
           </Button>
         )}

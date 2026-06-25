@@ -1760,15 +1760,19 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
-              <div className="flex items-center gap-1 px-1 shrink-0 transition-colors" title="Draw Mode (Hotkey: D)">
-                <Label htmlFor="draw-mode" className="text-xs font-semibold cursor-pointer text-muted-foreground flex items-center gap-1 hover:text-foreground">
-                  <PenTool className="w-3.5 h-3.5" /> <span>Draw</span>
-                </Label>
-                <Switch id="draw-mode" checked={isDrawingMode} onCheckedChange={(val) => {
+              <Button
+                variant={isDrawingMode ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  const val = !isDrawingMode;
                   setIsDrawingMode(val);
                   if (val) setDrawTool('pen');
-                }} className="scale-75 origin-left" />
-              </div>
+                }}
+                className={`gap-1 px-2 text-xs font-semibold ${isDrawingMode ? 'bg-primary/20 text-primary hover:bg-primary/30' : 'text-muted-foreground hover:text-foreground'}`}
+                title="Draw Mode (Hotkey: D)"
+              >
+                <PenTool className="w-4 h-4" /> <span className="hidden sm:inline">Draw</span>
+              </Button>
             </div>
           </div>
           <div className="flex items-center gap-2 pr-2">
@@ -1965,15 +1969,17 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                      } : bubble));
                    };
 
-                   const onPointerUp = () => {
-                     window.removeEventListener('pointermove', onPointerMove);
-                     window.removeEventListener('pointerup', onPointerUp);
+                   const onPointerUp = (ev: PointerEvent) => {
+                     target.releasePointerCapture(ev.pointerId);
+                     target.removeEventListener('pointermove', onPointerMove);
+                     target.removeEventListener('pointerup', onPointerUp);
                    };
 
-                   window.addEventListener('pointermove', onPointerMove);
-                   window.addEventListener('pointerup', onPointerUp);
+                   target.setPointerCapture(e.pointerId);
+                   target.addEventListener('pointermove', onPointerMove);
+                   target.addEventListener('pointerup', onPointerUp);
                  }}
-                 className={`bubble-overlay absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none ${
+                 className={`bubble-overlay absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none touch-none ${
                    activeBubbleId === b.id ? 'ring-2 ring-primary ring-offset-2 z-30' : 'z-20'
                  }`}
                >

@@ -316,6 +316,8 @@ const Gutter: React.FC<{ dir: Direction; percent: number; onDrag: (p: number) =>
     }
 
     const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+
     const parent = target.parentElement!;
     const rect = parent.getBoundingClientRect();
     
@@ -334,20 +336,21 @@ const Gutter: React.FC<{ dir: Direction; percent: number; onDrag: (p: number) =>
       onDrag(p);
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (ev: PointerEvent) => {
       if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
+      target.releasePointerCapture(ev.pointerId);
+      target.removeEventListener('pointermove', onPointerMove);
+      target.removeEventListener('pointerup', onPointerUp);
     };
 
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
+    target.addEventListener('pointermove', onPointerMove);
+    target.addEventListener('pointerup', onPointerUp);
   };
 
   return (
     <div 
-      className={`absolute z-10 flex items-center justify-center bg-transparent hover:bg-primary transition-colors cursor-resize group ${
-        isRow ? 'w-2 h-full -ml-1 top-0 cursor-col-resize' : 'h-2 w-full -mt-1 left-0 cursor-row-resize'
+      className={`absolute z-10 flex items-center justify-center bg-transparent hover:bg-primary transition-colors group touch-none select-none ${
+        isRow ? 'w-4 h-full -ml-2 top-0 cursor-col-resize' : 'h-4 w-full -mt-2 left-0 cursor-row-resize'
       }`}
       style={{ [isRow ? 'left' : 'top']: `${percent}%` }}
       onPointerDown={handlePointerDown}
@@ -356,18 +359,18 @@ const Gutter: React.FC<{ dir: Direction; percent: number; onDrag: (p: number) =>
          setShowAi(false);
       }}
     >
-      <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute flex gap-1 pointer-events-none text-white z-20" data-export-ignore="true">
-        <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md" onClick={(e) => { e.stopPropagation(); onPlus(); }}>
+      <div className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity absolute flex gap-1 pointer-events-none text-white z-20" data-export-ignore="true">
+        <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md" onPointerDown={(e) => { e.stopPropagation(); onPlus(); }} onClick={(e) => e.stopPropagation()}>
             <Plus className="w-4 h-4" />
         </Button>
         {showAi && (
-          <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md bg-[#2DC6CF] hover:bg-[#20b2ba]" onClick={(e) => { 
+          <Button size="icon" variant="default" className="w-6 h-6 rounded-full pointer-events-auto shadow-md bg-[#2DC6CF] hover:bg-[#20b2ba]" onPointerDown={(e) => { 
               e.stopPropagation(); 
               window.dispatchEvent(new CustomEvent('quote-to-agent', {
                   detail: { type: 'text', text: 'How should I divide this comic panel layout?' }
               }));
               setShowAi(false);
-          }}>
+          }} onClick={(e) => e.stopPropagation()}>
               <Bot className="w-3.5 h-3.5 text-black" />
           </Button>
         )}

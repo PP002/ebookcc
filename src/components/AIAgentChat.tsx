@@ -14,8 +14,6 @@ interface ChatMessage {
 }
 
 export function AIAgentChat({ isFullscreen = false }: { isFullscreen?: boolean }) {
-  if (isFullscreen) return null;
-
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -189,7 +187,11 @@ Where {MODEL} is one of: flux, flux-anime, flux-3d, any-dark, turbo. For sketch 
 
 APP NAVIGATION (Quick Links):
 Use these markdown links to help the user navigate to app features rapidly:
+If the user wants to create a comic book, use:
 [Generate Full Comic from this Summary](#action:generate-comic:{URL_ENCODED_SUMMARY})
+If the user wants to write a novel or story, use:
+[Generate Full Novel from this Summary](#action:generate-story:{URL_ENCODED_SUMMARY})
+Other tools:
 [Create Comic Script](#action:open-create-script)
 [Open Drawing Board](#action:open-draw-board)
 [Open Converter/Reader](#action:open-converter)
@@ -328,7 +330,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
   };
 
   return (
-    <div className="fixed bottom-[1%] left-[1%] z-[999] flex flex-col items-start">
+    <div className="fixed bottom-[1%] left-[1%] z-[999] flex flex-col items-start" style={{ display: isFullscreen ? 'none' : 'flex' }}>
       {isOpen && (
         <div ref={chatRef} style={{ width: size.width, height: size.height }} className="bg-background border rounded-xl shadow-xl mb-2 flex flex-col overflow-hidden transition-opacity animate-in relative slide-in-from-bottom-2">
           

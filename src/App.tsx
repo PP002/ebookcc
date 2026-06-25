@@ -66,6 +66,10 @@ function AppContent() {
         const prompt = decodeURIComponent(action.split('generate-comic:')[1] || "");
         navigate('create');
         setTimeout(() => window.dispatchEvent(new CustomEvent('open-generate-full-comic', { detail: { prompt } })), 300);
+      } else if (action.startsWith('generate-story:')) {
+        const prompt = decodeURIComponent(action.split('generate-story:')[1] || "");
+        navigate('create');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('open-generate-full-story', { detail: { prompt } })), 300);
       } else if (action === 'open-create-script') {
         navigate('create');
         setTimeout(() => window.dispatchEvent(new CustomEvent('open-ai-script-dialog')), 300);

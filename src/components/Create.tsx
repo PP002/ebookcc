@@ -13,6 +13,7 @@ import { ComicCanvas, createGridTree, fillFirstEmptyPanel, updatePanelImage, Tre
 import JSZip from 'jszip';
 import { AIGeneratorDialog } from './AIGeneratorDialog';
 import { AIFullComicDialog } from './AIFullComicDialog';
+import { AIFullStoryDialog } from './AIFullStoryDialog';
 
 interface CreateProps {
   setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void;
@@ -316,6 +317,8 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
   const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
   const [isAIFullComicDialogOpen, setIsAIFullComicDialogOpen] = useState(false);
   const [aiFullComicPrompt, setAiFullComicPrompt] = useState("");
+  const [isAIFullStoryDialogOpen, setIsAIFullStoryDialogOpen] = useState(false);
+  const [aiFullStoryPrompt, setAiFullStoryPrompt] = useState("");
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawTool, setDrawTool] = useState<'pen'|'erase'|'select'|'fill'>('pen');
   const [drawColor, setDrawColor] = useState('#000000');
@@ -450,6 +453,14 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       }
     };
     
+    const handleOpenGenerateFullStory = (e: any) => {
+      setCreateMode('document');
+      if (e.detail?.prompt) {
+        setAiFullStoryPrompt(e.detail.prompt);
+        setIsAIFullStoryDialogOpen(true);
+      }
+    };
+    
     const handleOpenComicCreator = () => {
       setCreateMode('comic');
     };
@@ -461,6 +472,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     window.addEventListener('open-ai-script-dialog', handleOpenAIGenerator);
     window.addEventListener('open-draw-mode', handleOpenDrawMode);
     window.addEventListener('open-generate-full-comic', handleOpenGenerateFullComic);
+    window.addEventListener('open-generate-full-story', handleOpenGenerateFullStory);
     window.addEventListener('open-comic-creator', handleOpenComicCreator);
     window.addEventListener('open-story-writer', handleOpenStoryWriter);
     
@@ -468,6 +480,7 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       window.removeEventListener('open-ai-script-dialog', handleOpenAIGenerator);
       window.removeEventListener('open-draw-mode', handleOpenDrawMode);
       window.removeEventListener('open-generate-full-comic', handleOpenGenerateFullComic);
+      window.removeEventListener('open-generate-full-story', handleOpenGenerateFullStory);
       window.removeEventListener('open-comic-creator', handleOpenComicCreator);
       window.removeEventListener('open-story-writer', handleOpenStoryWriter);
     };
@@ -1742,19 +1755,19 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
-            <Button variant="ghost" size="sm" onClick={() => setCreateMode('select')} className="gap-2 text-xs font-semibold px-3 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setCreateMode('select')} className="gap-1 text-xs font-semibold px-2 shrink-0">
               <ChevronLeft className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Back</span>
             </Button>
-            <div className="w-px h-5 bg-border mx-2 shrink-0" />
-            <div className="flex items-center gap-1">
-              <div className="flex items-center gap-2 px-3 shrink-0 transition-colors" title="Draw Mode (Hotkey: D)">
-                <Label htmlFor="draw-mode" className="text-xs font-semibold cursor-pointer text-muted-foreground flex items-center gap-1.5 hover:text-foreground">
+            <div className="w-px h-5 bg-border mx-1 shrink-0" />
+            <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1 px-1 shrink-0 transition-colors" title="Draw Mode (Hotkey: D)">
+                <Label htmlFor="draw-mode" className="text-xs font-semibold cursor-pointer text-muted-foreground flex items-center gap-1 hover:text-foreground">
                   <PenTool className="w-3.5 h-3.5" /> <span>Draw</span>
                 </Label>
                 <Switch id="draw-mode" checked={isDrawingMode} onCheckedChange={(val) => {
                   setIsDrawingMode(val);
                   if (val) setDrawTool('pen');
-                }} />
+                }} className="scale-75 origin-left" />
               </div>
             </div>
           </div>
@@ -1792,6 +1805,19 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
           onComicGenerated={handleFullComicGenerated}
           initialPrompt={aiFullComicPrompt}
           autoSubmit={true}
+        />
+        <AIFullStoryDialog
+          open={isAIFullStoryDialogOpen}
+          onOpenChange={setIsAIFullStoryDialogOpen}
+          initialPrompt={aiFullStoryPrompt}
+          autoSubmit={true}
+          onStoryGenerated={(htmlContent) => {
+            setIsAIFullStoryDialogOpen(false);
+            if (editorRef.current) {
+               editorRef.current.innerHTML = htmlContent;
+               toast.success("Story generated successfully!");
+            }
+          }}
         />
         <AnimatePresence initial={false}>
           {isSidebarOpen && (

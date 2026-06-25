@@ -11,9 +11,17 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { useState, useEffect } from 'react';
-import { BookOpen, PenTool, Wrench, Heart, Sparkles, Coffee, Moon, Sun, X, Settings } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, Heart, Sparkles, Coffee, Moon, Sun, X, Settings, Languages, Bot, LayoutGrid, FileArchive, Wand2, Server, Files, MessageCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import mangaBg from '@/assets/images/manga_translate_60s_1782418679545.jpg';
+import multiAiBg from '@/assets/images/multi_ai_60s_1782418692728.jpg';
+import panelSplitterBg from '@/assets/images/panel_splitter_60s_1782418708020.jpg';
+import cbzConverterBg from '@/assets/images/cbz_epub_60s_1782418723537.jpg';
+import aiAgentBg from '@/assets/images/ai_agent_60s_1782418736325.jpg';
+import localProcessingBg from '@/assets/images/local_process_60s_1782418748849.jpg';
+import formatSupportBg from '@/assets/images/format_support_60s_1782418761615.jpg';
+import balloonStylingBg from '@/assets/images/speech_balloon_60s_1782418775088.jpg';
 import { Slideshow } from './components/Slideshow';
 import { AppSettingsProvider, useAppSettings } from './context/AppSettingsContext';
 import { AppSettingsDialog } from './components/AppSettingsDialog';
@@ -177,10 +185,10 @@ function AppContent() {
           <div className="max-w-6xl mx-auto py-8 px-4 space-y-12 w-full h-full">
             <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-2 px-4">
               <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground mt-4 uppercase font-mono">
-                AI Comic OCR Scanner, Manga Translator & eBook Converter
+                Your Ultimate All-in-One E-book & Comic Suite
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground font-semibold max-w-2xl mt-1 leading-relaxed">
-                Transform your comic pages and manga panels into high-quality digital eBooks with seamless AI-powered text extraction, instant translation, and automated EPUB formatting.
+                Read, convert, and create dynamic comics, text novels, or media-rich PDFs. Optimized for mobile, desktop, and E-ink devices.
               </p>
               <div className="w-full mt-6">
                 <Slideshow />
@@ -198,9 +206,9 @@ function AppContent() {
                     <BookOpen size={28} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-foreground">Free Manga Reader & eBook Viewer</h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium">
-                      Enjoy your digital bookshelf with an advanced online manga reader. Customize layouts, adjust zoom, and read seamlessly in dark, light, or sepia modes.
+                    <h3 className="text-base font-bold text-foreground truncate" title="Guided Reading: Comics & Text Optimized">Guided Reading: Comics & Text Optimized</h3>
+                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                      Optimized for mobile and E-ink screens. Focuses on comic panels for manga, or reflows dense book layouts so you can stop pinching and squinting.
                     </p>
                   </div>
                 </div>
@@ -219,9 +227,9 @@ function AppContent() {
                     <PenTool size={28} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-foreground">Online Comic Maker & Novel Writer</h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium">
-                      Design stunning comic strips and manga panels. Add custom speech bubbles, dynamic dialogue, and action expressions for your graphic novel graphic.
+                    <h3 className="text-base font-bold text-foreground truncate" title="Online Comic Maker & Novel Writer">Online Comic Maker & Novel Writer</h3>
+                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                      An intuitive rich-text workspace. Author traditional e-book novels, compile script outlines, or design multi-panel comic strips and overlay balloons.
                     </p>
                   </div>
                 </div>
@@ -240,11 +248,11 @@ function AppContent() {
                     <Wrench size={28} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-foreground flex items-center gap-1.5">
-                      Comic&eBook Convert <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000" />
+                    <h3 className="text-base font-bold text-foreground flex items-center gap-1.5 truncate" title="Universal E-book Converter">
+                      Universal E-book Converter <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000 shrink-0" />
                     </h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium">
-                      Convert raw manga pages to EPUB eBooks. Use AI OCR translation tools to automatically transcribe bubbles and strip Japanese or Korean text smoothly.
+                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                      Effortlessly batch-convert CBZ, CBR, PDF, EPUB, and DjVu files. Compresses graphic novels and formats textbook layouts into Kindle-ready EPUBs.
                     </p>
                   </div>
                 </div>
@@ -255,44 +263,135 @@ function AppContent() {
             </div>
 
             {/* Restored Key Features list directly on landing page */}
-            <section className="max-w-3xl mx-auto py-8 border-t border-border/30" id="key-features">
+            <section className="max-w-5xl mx-auto py-8 border-t border-border/30" id="key-features">
               <h2 className="text-sm font-extrabold tracking-tight mb-6 text-center text-primary uppercase font-mono">Key Suite Capabilities & Online Tools</h2>
-              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> AI Manga Translation Tool
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.</p>
+              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={mangaBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="AI Manga Translation Tool">
+                        <Languages className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">AI Manga Translation Tool</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> Multi-Model OCR Support
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Harness powerful optical character recognition with Google Gemini Cloud API or integrate locally hosted LLMs for private document processing.</p>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={multiAiBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Choose Multi-AI Provider">
+                        <Bot className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Choose Multi-AI Provider</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Choose from free models, Gemini, OpenAI, Claude, or local LLMs for flexible text translation, OCR processing, and generation.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> Comic Panel Splitter
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.</p>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={panelSplitterBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Comic Panel Splitter">
+                        <LayoutGrid className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Comic Panel Splitter</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> CBZ to EPUB Converter
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.</p>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={cbzConverterBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="CBZ to EPUB Converter">
+                        <FileArchive className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">CBZ to EPUB Converter</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> Online Comic Editor
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">A robust WYSIWYG editor to overlay localized text, adjust typography, format dialogue balloons, and export high-res graphic novel pages.</p>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={aiAgentBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Create with AI Agent">
+                        <Wand2 className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Create with AI Agent</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Collaborate with an AI agent to generate storylines, format dialogue balloons, brainstorm comic panel layouts, and structure e-books.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-                <Card className="p-4 border border-border/60 rounded-none shadow-sm bg-card hover:border-primary/50 transition-colors">
-                  <h3 className="text-xs font-extrabold mb-1 flex items-center gap-1.5 uppercase font-mono text-foreground">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" /> Private Local Processing
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 font-medium">Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely processed offline.</p>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={localProcessingBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Private Local Processing">
+                        <Server className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Private Local Processing</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely offline.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={formatSupportBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Universal Format Support">
+                        <Files className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Universal Format Support</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DjVu, DOCX, TXT, WEBP, and HTML files with clean responsive rendering.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
+                  <img src={balloonStylingBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="absolute inset-0 flex flex-col justify-end">
+                    <div className="bg-card p-3 border-t border-border/60">
+                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Speech Balloon Styling">
+                        <MessageCircle className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Speech Balloon Styling</span>
+                      </h3>
+                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+                          <span className="block pt-2">Overlay classic, action, or whisper dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </Card>
               </div>
             </section>

@@ -1403,7 +1403,6 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             </div>
             <div>
               <h3 className="font-bold mb-1">Free Online Comic Book & Manga Creator</h3>
-              <p className="text-xs text-muted-foreground">Design custom comic strips, multi-panel manga layouts, and graphic novels with dynamic speech bubbles and high-quality exports.</p>
             </div>
           </Card>
           <Card 
@@ -1415,7 +1414,6 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
             </div>
             <div>
               <h3 className="font-bold mb-1">Rich Text Script & Document Editor</h3>
-              <p className="text-xs text-muted-foreground">Author professional screenplays, outline narratives, and format text documents with our intuitive browser-based WYSIWYG editor.</p>
             </div>
           </Card>
         </div>

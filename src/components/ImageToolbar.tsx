@@ -55,7 +55,7 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
 
   return (
     <div 
-      className="flex items-center gap-0.5 bg-background text-foreground border border-border shadow-md p-1 rounded-xl z-50 pointer-events-auto"
+      className="flex flex-wrap items-center justify-center gap-0.5 bg-background text-foreground border border-border shadow-md p-1 z-50 pointer-events-auto w-full max-w-full"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >

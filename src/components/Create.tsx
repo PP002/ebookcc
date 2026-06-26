@@ -419,13 +419,18 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
 
   useEffect(() => {
     const handleUp = () => setIsDraggingToolbar(false);
-    const handleMove = (e: MouseEvent) => {
+    const handleMove = (e: MouseEvent | TouchEvent) => {
       if (isDraggingToolbar) {
-        let newX = dragToolbarStartRef.current.posX + (e.clientX - dragToolbarStartRef.current.x);
-        let newY = dragToolbarStartRef.current.posY + (e.clientY - dragToolbarStartRef.current.y);
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+        let newX = dragToolbarStartRef.current.posX + (clientX - dragToolbarStartRef.current.x);
+        let newY = dragToolbarStartRef.current.posY + (clientY - dragToolbarStartRef.current.y);
         
         // Boundaries
-        newX = Math.max(0, Math.min(newX, window.innerWidth - 300));
+        newX = Math.max(0, Math.min(newX, window.innerWidth - 320));
         newY = Math.max(0, Math.min(newY, window.innerHeight - 60));
         
         setDrawToolbarPos({ x: newX, y: newY });
@@ -435,10 +440,14 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     if (isDraggingToolbar) {
       window.addEventListener('mousemove', handleMove);
       window.addEventListener('mouseup', handleUp);
+      window.addEventListener('touchmove', handleMove, { passive: false });
+      window.addEventListener('touchend', handleUp);
     }
     return () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
     };
   }, [isDraggingToolbar]);
 
@@ -702,10 +711,17 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
     toast.success("Full comic generated!");
   };
 
+  const isPointerDown = useRef(false);
+
   useEffect(() => {
     const handleSelectionChange = () => {
       if (createMode !== 'document') {
-        if (floatingMenuProps.visible) setFloatingMenuProps(prev => ({ ...prev, visible: false }));
+        setFloatingMenuProps(prev => prev.visible ? { ...prev, visible: false } : prev);
+        return;
+      }
+
+      if (isPointerDown.current) {
+        setFloatingMenuProps(prev => prev.visible ? { ...prev, visible: false } : prev);
         return;
       }
 
@@ -722,20 +738,40 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
       
       if (selection && hasTextContent && editorRef.current && editorRef.current.contains(selection.anchorNode)) {
         const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        setFloatingMenuProps({
-          visible: true,
-          top: rect.top - 40,
-          left: rect.left + rect.width / 2,
-        });
+        const rects = range.getClientRects();
+        if (rects.length > 0) {
+          const rect = rects[0];
+          setFloatingMenuProps({
+            visible: true,
+            top: Math.max(10, rect.top - 46),
+            left: Math.max(10, Math.min(rect.left + rect.width / 2, window.innerWidth - 100)),
+          });
+        }
       } else {
-        setFloatingMenuProps(prev => ({ ...prev, visible: false }));
+        setFloatingMenuProps(prev => prev.visible ? { ...prev, visible: false } : prev);
       }
     };
 
+    const handlePointerDown = (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest('.floating-toolbar')) return;
+      isPointerDown.current = true;
+      setFloatingMenuProps(prev => prev.visible ? { ...prev, visible: false } : prev);
+    };
+
+    const handlePointerUp = () => {
+      isPointerDown.current = false;
+      setTimeout(handleSelectionChange, 10);
+    };
+
     document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, [createMode, floatingMenuProps.visible]);
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [createMode]);
 
   useEffect(() => {
     if (onActiveStateChange) {
@@ -906,6 +942,11 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         e.preventDefault();
         document.execCommand('insertParagraph', false);
         document.execCommand('formatBlock', false, `<${isHeader}>`);
+      } else {
+        // For mobile and touch keyboards where default Enter behavior is inconsistent
+        if (e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        document.execCommand('insertParagraph', false);
       }
       setTimeout(() => updateToc(), 0);
     } else {
@@ -1462,20 +1503,20 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 exit={{ opacity: 0, y: 5 }}
                 transition={{ duration: 0.15 }}
                 onMouseDown={(e) => e.preventDefault()}
-                className="fixed z-[100] flex items-center gap-1 p-1 bg-background border shadow-lg rounded-md no-print"
+                className="floating-toolbar fixed z-[100] flex flex-wrap justify-center items-center gap-1 p-1 bg-background border shadow-lg rounded-md no-print w-fit max-w-[90vw]"
                 style={{ top: floatingMenuProps.top, left: floatingMenuProps.left, transform: 'translateX(-50%)' }}
               >
-                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'H1')}><Heading1 className="w-3.5 h-3.5 mr-1.5"/> Title</Button>
-                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'H2')}><Heading2 className="w-3.5 h-3.5 mr-1.5"/> Subtitle</Button>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'H1')}><Heading1 className="w-3.5 h-3.5 md:mr-1.5"/> <span className="hidden md:inline">Title</span></Button>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'H2')}><Heading2 className="w-3.5 h-3.5 md:mr-1.5"/> <span className="hidden md:inline">Subtitle</span></Button>
                 <div className="w-px h-4 bg-border mx-1" />
-                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'P')}><Type className="w-3.5 h-3.5 mr-1.5"/> Text</Button>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => execDocCommand('formatBlock', 'P')}><Type className="w-3.5 h-3.5 md:mr-1.5"/> <span className="hidden md:inline">Text</span></Button>
                 <div className="w-px h-4 bg-border mx-1 border-r border-border" />
                 <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-primary" onMouseDown={(e) => e.preventDefault()} onClick={() => {
                   const selection = window.getSelection()?.toString();
                   if (selection) {
                     window.dispatchEvent(new CustomEvent('quote-to-agent', { detail: { type: 'text', text: selection } }));
                   }
-                }}><Bot className="w-4 h-4 mr-1.5"/> Ask AI</Button>
+                }}><Bot className="w-4 h-4 md:mr-1.5"/> <span className="hidden md:inline">Ask AI</span></Button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1635,6 +1676,23 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
            <div className="flex-1 p-2 md:p-6 overflow-hidden flex flex-col items-center print-wrapper">
              <div 
                ref={editorRef}
+               onScroll={() => {
+                 if (floatingMenuProps.visible) {
+                    const selection = window.getSelection();
+                    if (selection && selection.rangeCount > 0) {
+                      const range = selection.getRangeAt(0);
+                      const rects = range.getClientRects();
+                      if (rects.length > 0) {
+                        const rect = rects[0];
+                        setFloatingMenuProps(prev => ({ ...prev, top: Math.max(10, rect.top - 46), left: Math.max(10, Math.min(rect.left + rect.width / 2, window.innerWidth - 100)) }));
+                      }
+                    }
+                 }
+                 if (imageMenuProps.visible && imageMenuProps.imgElement) {
+                    const rect = imageMenuProps.imgElement.getBoundingClientRect();
+                    setImageMenuProps(prev => ({ ...prev, top: rect.top, left: rect.left + rect.width / 2 }));
+                 }
+               }}
                onKeyDown={handleKeyDown}
                onClick={(e) => {
                  const target = e.target as HTMLElement;
@@ -1900,35 +1958,6 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
                 <div ref={comicRef} className="absolute top-0 left-0 w-full h-full bg-background ring-1 ring-border shadow-2xl overflow-hidden">
                <ComicCanvas tree={comicTree} onChange={updateActivePageTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
 
-             {/* Drawing Mode Toolbar */}
-             {isDrawingMode && (
-               <div 
-                 className="fixed bg-background text-foreground border shadow-lg rounded-full flex items-center p-1.5 gap-1 z-50 backdrop-blur-md cursor-move select-none"
-                 style={{ left: drawToolbarPos.x, top: drawToolbarPos.y }}
-                 onMouseDown={(e) => {
-                   if ((e.target as HTMLElement).tagName.toLowerCase() === 'input' || (e.target as HTMLElement).closest('button')) return;
-                   setIsDraggingToolbar(true);
-                   dragToolbarStartRef.current = { x: e.clientX, y: e.clientY, posX: drawToolbarPos.x, posY: drawToolbarPos.y };
-                 }}
-               >
-                 <Button variant={drawTool === 'pen' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('pen')} title="Pen (P)">
-                   <PenTool className="w-4 h-4" />
-                 </Button>
-                 <Button variant={drawTool === 'erase' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('erase')} title="Erase (E)">
-                   <Eraser className="w-4 h-4" />
-                 </Button>
-                 <Button variant={drawTool === 'fill' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('fill')} title="Fill (F)">
-                   <PaintBucket className="w-4 h-4" />
-                 </Button>
-                 <Button variant={drawTool === 'select' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('select')} title="Lasso (L)">
-                   <LassoSelect className="w-4 h-4" />
-                 </Button>
-                 <div className="w-px h-6 bg-border mx-1" />
-                 <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer border-0 p-0" title="Color" />
-                 <input type="range" min="1" max="20" value={drawRadius} onChange={(e) => setDrawRadius(parseInt(e.target.value))} className="w-16 mx-2 cursor-pointer" title="Brush Size" />
-               </div>
-             )}
-
              {/* Bubble overlays layer */}
              {bubbles.map((b) => (
                <div
@@ -2140,6 +2169,40 @@ export const Create: React.FC<CreateProps> = ({ setActiveView, onActiveStateChan
         )}
         </AnimatePresence>
         </div>
+        
+        {/* Drawing Mode Toolbar */}
+        {isDrawingMode && (
+          <div 
+            className="fixed bg-background text-foreground border shadow-lg rounded-2xl md:rounded-full flex flex-wrap items-center justify-center p-1.5 gap-1 z-50 backdrop-blur-md cursor-move select-none w-fit max-w-[90vw]"
+            style={{ left: Math.max(0, Math.min(drawToolbarPos.x, window.innerWidth - 320)), top: Math.max(10, drawToolbarPos.y), touchAction: 'none' }}
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).tagName.toLowerCase() === 'input' || (e.target as HTMLElement).closest('button')) return;
+              setIsDraggingToolbar(true);
+              dragToolbarStartRef.current = { x: e.clientX, y: e.clientY, posX: drawToolbarPos.x, posY: drawToolbarPos.y };
+            }}
+            onTouchStart={(e) => {
+              if ((e.target as HTMLElement).tagName.toLowerCase() === 'input' || (e.target as HTMLElement).closest('button')) return;
+              setIsDraggingToolbar(true);
+              dragToolbarStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, posX: drawToolbarPos.x, posY: drawToolbarPos.y };
+            }}
+          >
+            <Button variant={drawTool === 'pen' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('pen')} title="Pen (P)">
+              <PenTool className="w-4 h-4" />
+            </Button>
+            <Button variant={drawTool === 'erase' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('erase')} title="Erase (E)">
+              <Eraser className="w-4 h-4" />
+            </Button>
+            <Button variant={drawTool === 'fill' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('fill')} title="Fill (F)">
+              <PaintBucket className="w-4 h-4" />
+            </Button>
+            <Button variant={drawTool === 'select' ? 'secondary' : 'ghost'} size="icon" className="w-8 h-8 rounded-full" onClick={() => setDrawTool('select')} title="Lasso (L)">
+              <LassoSelect className="w-4 h-4" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer border-0 p-0" title="Color" />
+            <input type="range" min="1" max="20" value={drawRadius} onChange={(e) => setDrawRadius(parseInt(e.target.value))} className="w-16 mx-2 cursor-pointer" title="Brush Size" />
+          </div>
+        )}
       </main>
     </div>
   );

@@ -1216,7 +1216,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
 const PREDICT_URLS = [
   "https://predict-69ffb8299f770dcc9b69-dproatj77a-uw.a.run.app/predict",
   "https://predict-6a357611bf962672c3ed-dproatj77a-ma.a.run.app/predict",
-  "https://predict-69ffb9909f770dcc9b69-dproatj77a-de.a.run.app/predict"
+  "https://predict-6a3e50cc7bb4eb8eaaa5-dproatj77a-dt.a.run.app/predict"
 ];
 
 export async function runPredictAPI(base64Data: string, customYoloUrl?: string, customYoloKey?: string): Promise<LayoutResult> {

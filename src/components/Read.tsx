@@ -6,7 +6,7 @@ import { useDropzone } from 'react-dropzone';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from 'next-themes';
-import { ReactReader } from 'react-reader';
+import { ReactReader, ReactReaderStyle } from 'react-reader';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -399,7 +399,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'text/plain': ['.txt'],
       'text/html': ['.html'],
-      'image/vnd.djvu': ['.djvu'],
       'application/x-fictionbook+xml': ['.fb2']
     },
     useFsAccessApi: false,
@@ -425,7 +424,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
                 <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop eBook Files Here</h2>
                 <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
-                  Supported: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, DjVu, FB2</span>
+                  Supported: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, FB2</span>
                 </p>
                 <p className="text-[10px] text-muted-foreground/80 mt-1">
                   or click inside this workspace block to browse local files
@@ -694,6 +693,65 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     url={selectedBook.fileBuffer || (selectedBook.file as any)}
                     location={location}
                     locationChanged={(epubcition: string) => setLocation(epubcition)}
+                    showToc={false}
+                    styles={{
+                      ...ReactReaderStyle,
+                      container: {
+                        ...ReactReaderStyle.container,
+                        backgroundColor: 'transparent'
+                      },
+                      readerArea: { 
+                        ...ReactReaderStyle.readerArea,
+                        backgroundColor: 'transparent'
+                      },
+                      reader: {
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        right: 0
+                      },
+                      titleArea: { display: 'none' },
+                      prev: { display: 'none' },
+                      next: { display: 'none' },
+                      arrow: { display: 'none' },
+                      tocAreaButton: { display: 'none' }
+                    }}
+                    epubOptions={{
+                      flow: "paginated",
+                      width: "100%",
+                      height: "100%",
+                    }}
+                    swipeable={true}
+                    getRendition={(rendition: any) => {
+                      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                      rendition.themes.default({
+                        'html': {
+                          'background': 'transparent !important',
+                        },
+                        'body': { 
+                          'padding': '0 !important', 
+                          'margin': '0 !important',
+                          'background': 'transparent !important',
+                          'color': isDark ? '#f8fafc !important' : '#0f172a !important'
+                        },
+                        'p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote': {
+                          'color': isDark ? '#f8fafc !important' : '#0f172a !important'
+                        },
+                        'img': {
+                          'max-width': '100% !important',
+                          'height': 'auto !important'
+                        }
+                      });
+                      rendition.on('click', (e: any) => {
+                        const width = e.view ? e.view.innerWidth : window.innerWidth;
+                        if (e.clientX > width / 2) {
+                          rendition.next();
+                        } else {
+                          rendition.prev();
+                        }
+                      });
+                    }}
                   />
                 </div>
               ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (

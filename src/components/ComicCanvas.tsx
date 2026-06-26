@@ -1084,7 +1084,7 @@ const PanelView: React.FC<{ node: PanelNode; path: number[]; onChange: (t: TreeN
             </div>
         )}
         {showAiIcon && node.imageUrl && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-[100] animate-in fade-in" data-export-ignore="true" onClick={(e) => { e.stopPropagation(); setShowAiIcon(false); }}>
+            <div className="absolute inset-0 flex items-start justify-center bg-black/40 z-[100] animate-in fade-in" data-export-ignore="true" onClick={(e) => { e.stopPropagation(); setShowAiIcon(false); }}>
                 <ImageToolbar 
                   color={node.color || '#000000'}
                   isHighContrast={node.isHighContrast}

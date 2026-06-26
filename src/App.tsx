@@ -252,7 +252,7 @@ function AppContent() {
                       Universal E-book Converter <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000 shrink-0" />
                     </h3>
                     <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                      Effortlessly batch-convert CBZ, CBR, PDF, EPUB, and DjVu files. Compresses graphic novels and formats textbook layouts into Kindle-ready EPUBs.
+                      Effortlessly batch-convert CBZ, CBR, PDF, and EPUB files. Compresses graphic novels and formats textbook layouts into Kindle-ready EPUBs.
                     </p>
                   </div>
                 </div>
@@ -371,7 +371,7 @@ function AppContent() {
                       </h3>
                       <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
                         <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DjVu, DOCX, TXT, WEBP, and HTML files with clean responsive rendering.</span>
+                          <span className="block pt-2">Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DOCX, TXT, WEBP, and HTML files with clean responsive rendering.</span>
                         </p>
                       </div>
                     </div>

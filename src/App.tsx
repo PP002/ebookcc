@@ -3,28 +3,100 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import Convert from './components/Convert';
-import { Read } from './components/Read';
-import { Create } from './components/Create';
-import { AIAgentChat } from './components/AIAgentChat';
-import { Toaster } from '@/components/ui/sonner';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import { ThemeProvider, useTheme } from 'next-themes';
-import { useState, useEffect } from 'react';
-import { BookOpen, PenTool, Wrench, Heart, Sparkles, Coffee, Moon, Sun, X, Settings, Languages, Bot, LayoutGrid, FileArchive, Wand2, Server, Files, MessageCircle } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import mangaBg from '@/assets/images/manga_translate_60s_1782418679545.jpg';
-import multiAiBg from '@/assets/images/multi_ai_60s_1782418692728.jpg';
-import panelSplitterBg from '@/assets/images/panel_splitter_60s_1782418708020.jpg';
-import cbzConverterBg from '@/assets/images/cbz_epub_60s_1782418723537.jpg';
-import aiAgentBg from '@/assets/images/ai_agent_60s_1782418736325.jpg';
-import localProcessingBg from '@/assets/images/local_process_60s_1782418748849.jpg';
-import formatSupportBg from '@/assets/images/format_support_60s_1782418761615.jpg';
-import balloonStylingBg from '@/assets/images/speech_balloon_60s_1782418775088.jpg';
-import { Slideshow } from './components/Slideshow';
-import { AppSettingsProvider, useAppSettings } from './context/AppSettingsContext';
-import { AppSettingsDialog } from './components/AppSettingsDialog';
+import Convert from "./components/Convert";
+import { Read } from "./components/Read";
+import { Create } from "./components/Create";
+import { AIAgentChat } from "./components/AIAgentChat";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider, useTheme } from "next-themes";
+import { useState, useEffect } from "react";
+import {
+  BookOpen,
+  PenTool,
+  Wrench,
+  Heart,
+  Sparkles,
+  Coffee,
+  Moon,
+  Sun,
+  X,
+  Settings,
+  Languages,
+  Bot,
+  LayoutGrid,
+  FileArchive,
+  Wand2,
+  Server,
+  Files,
+  MessageCircle,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+const mangaBg = "/features/manga-translation.png";
+const multiAiBg = "/features/multi-ai.png";
+const panelSplitterBg = "/features/panel-splitter.png";
+const cbzConverterBg = "/features/cbz-converter.png";
+const aiAgentBg = "/features/ai-agent.png";
+const localProcessingBg = "/features/local-processing.png";
+const formatSupportBg = "/features/format-support.png";
+const balloonStylingBg = "/features/balloon-styling.png";
+import { Slideshow } from "./components/Slideshow";
+import {
+  AppSettingsProvider,
+  useAppSettings,
+} from "./context/AppSettingsContext";
+import { AppSettingsDialog } from "./components/AppSettingsDialog";
+
+function FeatureCard({
+  bg,
+  icon: Icon,
+  title,
+  description,
+}: {
+  bg: string;
+  icon: any;
+  title: string;
+  description: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card
+      onClick={() => setExpanded((prev) => !prev)}
+      className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors cursor-pointer"
+    >
+      <img
+        src={bg}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover"
+        referrerPolicy="no-referrer"
+      />
+      <div className="absolute inset-0 flex flex-col justify-end">
+        <div className="bg-card p-3 border-t border-border/60">
+          <h3
+            className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5"
+            title={title}
+          >
+            <Icon className="w-4 h-4 text-primary shrink-0" />{" "}
+            <span className="truncate">{title}</span>
+          </h3>
+          <div
+            className={cn(
+              "grid transition-[grid-template-rows] duration-300 ease-in-out w-full text-center group-hover:grid-rows-[1fr]",
+              expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+            )}
+          >
+            <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
+              <span className="block pt-2">{description}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default function App() {
   return (
@@ -43,12 +115,14 @@ export default function App() {
 function AppContent() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { setShowSettingsDialog } = useAppSettings();
-  const [currentPath, setCurrentPath] = useState<'home' | 'read' | 'create' | 'convert'>(() => {
+  const [currentPath, setCurrentPath] = useState<
+    "home" | "read" | "create" | "convert"
+  >(() => {
     const path = window.location.pathname.toLowerCase();
-    if (path === '/read') return 'read';
-    if (path === '/create') return 'create';
-    if (path === '/convert') return 'convert';
-    return 'home';
+    if (path === "/read") return "read";
+    if (path === "/create") return "create";
+    if (path === "/convert") return "convert";
+    return "home";
   });
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
@@ -57,50 +131,85 @@ function AppContent() {
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname.toLowerCase();
-      if (path === '/read') setCurrentPath('read');
-      else if (path === '/create') setCurrentPath('create');
-      else if (path === '/convert') setCurrentPath('convert');
-      else setCurrentPath('home');
+      if (path === "/read") setCurrentPath("read");
+      else if (path === "/create") setCurrentPath("create");
+      else if (path === "/convert") setCurrentPath("convert");
+      else setCurrentPath("home");
       setHeaderHidden(false);
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   useEffect(() => {
     const handleNav = (e: any) => {
       const action = e.detail?.action as string;
-      if (action.startsWith('generate-comic:')) {
-        const prompt = decodeURIComponent(action.split('generate-comic:')[1] || "");
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-generate-full-comic', { detail: { prompt } })), 300);
-      } else if (action.startsWith('generate-story:')) {
-        const prompt = decodeURIComponent(action.split('generate-story:')[1] || "");
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-generate-full-story', { detail: { prompt } })), 300);
-      } else if (action === 'open-create-script') {
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-ai-script-dialog')), 300);
-      } else if (action === 'open-draw-board') {
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-draw-mode')), 300);
-      } else if (action === 'open-converter') {
-        navigate('convert');
-      } else if (action === 'open-comic-creator') {
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-comic-creator')), 300);
-      } else if (action === 'open-story-writer') {
-        navigate('create');
-        setTimeout(() => window.dispatchEvent(new CustomEvent('open-story-writer')), 300);
+      if (action.startsWith("generate-comic:")) {
+        const prompt = decodeURIComponent(
+          action.split("generate-comic:")[1] || "",
+        );
+        navigate("create");
+        setTimeout(
+          () =>
+            window.dispatchEvent(
+              new CustomEvent("open-generate-full-comic", {
+                detail: { prompt },
+              }),
+            ),
+          300,
+        );
+      } else if (action.startsWith("generate-story:")) {
+        const prompt = decodeURIComponent(
+          action.split("generate-story:")[1] || "",
+        );
+        navigate("create");
+        setTimeout(
+          () =>
+            window.dispatchEvent(
+              new CustomEvent("open-generate-full-story", {
+                detail: { prompt },
+              }),
+            ),
+          300,
+        );
+      } else if (action === "open-create-script") {
+        navigate("create");
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("open-ai-script-dialog")),
+          300,
+        );
+      } else if (action === "open-draw-board") {
+        navigate("create");
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("open-draw-mode")),
+          300,
+        );
+      } else if (action === "open-converter") {
+        navigate("convert");
+      } else if (action === "open-comic-creator") {
+        navigate("create");
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("open-comic-creator")),
+          300,
+        );
+      } else if (action === "open-story-writer") {
+        navigate("create");
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("open-story-writer")),
+          300,
+        );
       }
     };
-    window.addEventListener('app-navigation', handleNav);
-    return () => window.removeEventListener('app-navigation', handleNav);
+    window.addEventListener("app-navigation", handleNav);
+    return () => window.removeEventListener("app-navigation", handleNav);
   }, []);
 
-  const navigate = (view: 'home' | 'read' | 'create' | 'convert', query?: string) => {
-    const path = view === 'home' ? '/' : `/${view}${query || ''}`;
-    window.history.pushState(null, '', path);
+  const navigate = (
+    view: "home" | "read" | "create" | "convert",
+    query?: string,
+  ) => {
+    const path = view === "home" ? "/" : `/${view}${query || ""}`;
+    window.history.pushState(null, "", path);
     setCurrentPath(view);
     setHeaderHidden(false);
   };
@@ -112,43 +221,58 @@ function AppContent() {
         <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">
           <div className="w-full px-4 h-14 flex items-center justify-between gap-4">
             {/* Logo Brand */}
-            <div 
-              onClick={() => navigate('home')}
+            <div
+              onClick={() => navigate("home")}
               className="flex items-center gap-2 cursor-pointer select-none shrink-0"
               title="Back to Home"
             >
-              <img src="/logo.png" alt="EbookCC/Manga Logo" aria-hidden="true" className="h-6 w-auto block select-none" />
-              <span className="font-sans font-extrabold text-sm tracking-tighter text-foreground portrait:hidden">EBookCC</span>
+              <img
+                src="/logo.png"
+                alt="EbookCC/Manga Logo"
+                aria-hidden="true"
+                className="h-6 w-auto block select-none"
+              />
+              <span className="font-sans font-extrabold text-sm tracking-tighter text-foreground portrait:hidden">
+                EBookCC
+              </span>
             </div>
 
             {/* Navigational Tabs */}
             <nav className="flex items-center gap-1 sm:gap-2">
-              <Button 
-                variant={currentPath === 'read' ? 'default' : 'ghost'} 
-                size="sm" 
+              <Button
+                variant={currentPath === "read" ? "default" : "ghost"}
+                size="sm"
                 className="h-8.5 text-xs font-bold gap-1 rounded-none px-2.5 sm:px-3"
-                onClick={() => navigate('read')}
+                onClick={() => navigate("read")}
               >
-                <BookOpen className={`w-3.5 h-3.5 ${currentPath === 'read' ? 'text-primary-foreground' : 'text-primary'}`} />
+                <BookOpen
+                  className={`w-3.5 h-3.5 ${currentPath === "read" ? "text-primary-foreground" : "text-primary"}`}
+                />
                 <span className="hidden sm:inline portrait:hidden">Read</span>
               </Button>
-              <Button 
-                variant={currentPath === 'create' ? 'default' : 'ghost'} 
-                size="sm" 
+              <Button
+                variant={currentPath === "create" ? "default" : "ghost"}
+                size="sm"
                 className="h-8.5 text-xs font-bold gap-1 rounded-none px-2.5 sm:px-3"
-                onClick={() => navigate('create')}
+                onClick={() => navigate("create")}
               >
-                <PenTool className={`w-3.5 h-3.5 ${currentPath === 'create' ? 'text-primary-foreground' : 'text-primary'}`} />
+                <PenTool
+                  className={`w-3.5 h-3.5 ${currentPath === "create" ? "text-primary-foreground" : "text-primary"}`}
+                />
                 <span className="hidden sm:inline portrait:hidden">Create</span>
               </Button>
-              <Button 
-                variant={currentPath === 'convert' ? 'default' : 'ghost'} 
-                size="sm" 
+              <Button
+                variant={currentPath === "convert" ? "default" : "ghost"}
+                size="sm"
                 className="h-8.5 text-xs font-bold gap-1 rounded-none px-2.5 sm:px-3"
-                onClick={() => navigate('convert')}
+                onClick={() => navigate("convert")}
               >
-                <Wrench className={`w-3.5 h-3.5 ${currentPath === 'convert' ? 'text-primary-foreground' : 'text-primary'}`} />
-                <span className="hidden sm:inline portrait:hidden">Convert</span>
+                <Wrench
+                  className={`w-3.5 h-3.5 ${currentPath === "convert" ? "text-primary-foreground" : "text-primary"}`}
+                />
+                <span className="hidden sm:inline portrait:hidden">
+                  Convert
+                </span>
               </Button>
             </nav>
 
@@ -167,11 +291,17 @@ function AppContent() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
                 className="w-8.5 h-8.5 rounded-none hover:bg-muted text-foreground/80"
                 title="Toggle theme"
               >
-                {resolvedTheme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-700" />}
+                {resolvedTheme === "dark" ? (
+                  <Sun className="w-4 h-4 text-amber-400" />
+                ) : (
+                  <Moon className="w-4 h-4 text-indigo-700" />
+                )}
               </Button>
             </div>
           </div>
@@ -180,237 +310,220 @@ function AppContent() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-h-0">
-        {currentPath === 'home' && (
+        {currentPath === "home" && (
           <div className="w-full overflow-y-auto h-full no-scrollbar">
-          <div className="max-w-6xl mx-auto py-8 px-4 space-y-12 w-full h-full">
-            <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-2 px-4">
-              <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground mt-4 uppercase font-mono">
-                Your Ultimate All-in-One E-book & Comic Suite
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground font-semibold max-w-2xl mt-1 leading-relaxed">
-                Read, convert, and create dynamic comics, text novels, or media-rich PDFs. Optimized for mobile, desktop, and E-ink devices.
-              </p>
-              <div className="w-full mt-6">
-                <Slideshow />
+            <div className="max-w-6xl mx-auto py-8 px-4 space-y-12 w-full h-full">
+              <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-2 px-4">
+                <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground mt-4 uppercase font-mono">
+                  Your Ultimate All-in-One E-book & Comic Suite
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground font-semibold max-w-2xl mt-1 leading-relaxed">
+                  Read, convert, and create dynamic comics, text novels, or
+                  media-rich PDFs. Optimized for mobile, desktop, and E-ink
+                  devices.
+                </p>
+                <div className="w-full mt-6">
+                  <Slideshow />
+                </div>
+              </header>
+
+              <div className="grid md:grid-cols-3 gap-6 pt-4">
+                {/* Read Card */}
+                <Card
+                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  onClick={() => navigate("read")}
+                >
+                  <div className="space-y-4">
+                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <BookOpen size={28} />
+                    </div>
+                    <div>
+                      <h3
+                        className="text-base font-bold text-foreground truncate"
+                        title="Guided Reading: Comics & Text Optimized"
+                      >
+                        Guided Reading: Comics & Text Optimized
+                      </h3>
+                      <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                        Optimized for mobile and E-ink screens. Focuses on comic
+                        panels for manga, or reflows dense book layouts so you
+                        can stop pinching and squinting.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
+                    Access Bookshelf &rarr;
+                  </div>
+                </Card>
+
+                {/* Create Card */}
+                <Card
+                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  onClick={() => navigate("create")}
+                >
+                  <div className="space-y-4">
+                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <PenTool size={28} />
+                    </div>
+                    <div>
+                      <h3
+                        className="text-base font-bold text-foreground truncate"
+                        title="Online Comic Maker & Novel Writer"
+                      >
+                        Online Comic Maker & Novel Writer
+                      </h3>
+                      <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                        An intuitive rich-text workspace. Author traditional
+                        e-book novels, compile script outlines, or design
+                        multi-panel comic strips and overlay balloons.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
+                    Launch Canvas Creator &rarr;
+                  </div>
+                </Card>
+
+                {/* Convert Card */}
+                <Card
+                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  onClick={() => navigate("convert", "?upload=true")}
+                >
+                  <div className="space-y-4">
+                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <Wrench size={28} />
+                    </div>
+                    <div>
+                      <h3
+                        className="text-base font-bold text-foreground flex items-center gap-1.5 truncate"
+                        title="Universal E-book Converter"
+                      >
+                        Universal E-book Converter{" "}
+                        <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000 shrink-0" />
+                      </h3>
+                      <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
+                        Effortlessly batch-convert CBZ, CBR, PDF, and EPUB
+                        files. Compresses graphic novels and formats textbook
+                        layouts into Kindle-ready EPUBs.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
+                    Upload & Convert Now &rarr;
+                  </div>
+                </Card>
               </div>
-            </header>
 
-            <div className="grid md:grid-cols-3 gap-6 pt-4">
-              {/* Read Card */}
-              <Card 
-                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
-                onClick={() => navigate('read')}
+              {/* Restored Key Features list directly on landing page */}
+              <section
+                className="max-w-5xl mx-auto py-8 border-t border-border/30"
+                id="key-features"
               >
-                <div className="space-y-4">
-                  <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <BookOpen size={28} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-foreground truncate" title="Guided Reading: Comics & Text Optimized">Guided Reading: Comics & Text Optimized</h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                      Optimized for mobile and E-ink screens. Focuses on comic panels for manga, or reflows dense book layouts so you can stop pinching and squinting.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                  Access Bookshelf &rarr;
-                </div>
-              </Card>
+                <h2 className="text-sm font-extrabold tracking-tight mb-6 text-center text-primary uppercase font-mono">
+                  Key Suite Capabilities & Online Tools
+                </h2>
+                <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <FeatureCard
+                    bg={mangaBg}
+                    icon={Languages}
+                    title="AI Manga Translation Tool"
+                    description="Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online."
+                  />
 
-              {/* Create Card */}
-              <Card 
-                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
-                onClick={() => navigate('create')}
-              >
-                <div className="space-y-4">
-                  <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <PenTool size={28} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-foreground truncate" title="Online Comic Maker & Novel Writer">Online Comic Maker & Novel Writer</h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                      An intuitive rich-text workspace. Author traditional e-book novels, compile script outlines, or design multi-panel comic strips and overlay balloons.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                  Launch Canvas Creator &rarr;
-                </div>
-              </Card>
+                  <FeatureCard
+                    bg={multiAiBg}
+                    icon={Bot}
+                    title="Choose Multi-AI Provider"
+                    description="Choose from free models, Gemini, OpenAI, Claude, or local LLMs for flexible text translation, OCR processing, and generation."
+                  />
 
-              {/* Convert Card */}
-              <Card 
-                className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
-                onClick={() => navigate('convert', '?upload=true')}
-              >
-                <div className="space-y-4">
-                  <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <Wrench size={28} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-foreground flex items-center gap-1.5 truncate" title="Universal E-book Converter">
-                      Universal E-book Converter <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000 shrink-0" />
-                    </h3>
-                    <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                      Effortlessly batch-convert CBZ, CBR, PDF, and EPUB files. Compresses graphic novels and formats textbook layouts into Kindle-ready EPUBs.
-                    </p>
-                  </div>
+                  <FeatureCard
+                    bg={panelSplitterBg}
+                    icon={LayoutGrid}
+                    title="Comic Panel Splitter"
+                    description="Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device."
+                  />
+
+                  <FeatureCard
+                    bg={cbzConverterBg}
+                    icon={FileArchive}
+                    title="CBZ to EPUB Converter"
+                    description="Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers."
+                  />
+
+                  <FeatureCard
+                    bg={aiAgentBg}
+                    icon={Wand2}
+                    title="Create with AI Agent"
+                    description="Collaborate with an AI agent to generate storylines, format dialogue balloons, brainstorm comic panel layouts, and structure e-books."
+                  />
+
+                  <FeatureCard
+                    bg={localProcessingBg}
+                    icon={Server}
+                    title="Private Local Processing"
+                    description="Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely offline."
+                  />
+
+                  <FeatureCard
+                    bg={formatSupportBg}
+                    icon={Files}
+                    title="Universal Format Support"
+                    description="Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DOCX, TXT, WEBP, and HTML files with clean responsive rendering."
+                  />
+
+                  <FeatureCard
+                    bg={balloonStylingBg}
+                    icon={MessageCircle}
+                    title="Speech Balloon Styling"
+                    description="Overlay classic, action, or whisper dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling."
+                  />
                 </div>
-                <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                  Upload & Convert Now &rarr;
-                </div>
-              </Card>
+              </section>
+
+              {/* Footer */}
+              <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40">
+                <p className="flex flex-col sm:flex-row items-center justify-center gap-2 font-medium">
+                  <span>
+                    Made with{" "}
+                    <Heart className="w-3.5 h-3.5 inline text-rose-500 fill-rose-500" />{" "}
+                    by Pierre Kollo. Powered by advanced AI.
+                  </span>
+                  <span className="hidden sm:inline text-border">|</span>
+                  <span>
+                    Contact:{" "}
+                    <a
+                      href="mailto:support@ebookcc.com"
+                      className="underline hover:text-primary transition-colors"
+                    >
+                      support@ebookcc.com
+                    </a>
+                  </span>
+                </p>
+              </footer>
             </div>
-
-            {/* Restored Key Features list directly on landing page */}
-            <section className="max-w-5xl mx-auto py-8 border-t border-border/30" id="key-features">
-              <h2 className="text-sm font-extrabold tracking-tight mb-6 text-center text-primary uppercase font-mono">Key Suite Capabilities & Online Tools</h2>
-              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={mangaBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="AI Manga Translation Tool">
-                        <Languages className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">AI Manga Translation Tool</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={multiAiBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Choose Multi-AI Provider">
-                        <Bot className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Choose Multi-AI Provider</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Choose from free models, Gemini, OpenAI, Claude, or local LLMs for flexible text translation, OCR processing, and generation.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={panelSplitterBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Comic Panel Splitter">
-                        <LayoutGrid className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Comic Panel Splitter</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={cbzConverterBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="CBZ to EPUB Converter">
-                        <FileArchive className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">CBZ to EPUB Converter</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={aiAgentBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Create with AI Agent">
-                        <Wand2 className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Create with AI Agent</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Collaborate with an AI agent to generate storylines, format dialogue balloons, brainstorm comic panel layouts, and structure e-books.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={localProcessingBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Private Local Processing">
-                        <Server className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Private Local Processing</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely offline.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={formatSupportBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Universal Format Support">
-                        <Files className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Universal Format Support</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DOCX, TXT, WEBP, and HTML files with clean responsive rendering.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors">
-                  <img src={balloonStylingBg} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 flex flex-col justify-end">
-                    <div className="bg-card p-3 border-t border-border/60">
-                      <h3 className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5" title="Speech Balloon Styling">
-                        <MessageCircle className="w-4 h-4 text-primary shrink-0" /> <span className="truncate">Speech Balloon Styling</span>
-                      </h3>
-                      <div className="grid grid-rows-[0fr] group-hover:grid-rows-[1fr] transition-[grid-template-rows] duration-300 ease-in-out w-full text-center">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-                          <span className="block pt-2">Overlay classic, action, or whisper dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            </section>
-
-            {/* Footer */}
-            <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40">
-              <p className="flex flex-col sm:flex-row items-center justify-center gap-2 font-medium">
-                <span>Made with <Heart className="w-3.5 h-3.5 inline text-rose-500 fill-rose-500" /> by Pierre Kollo. Powered by advanced AI.</span>
-                <span className="hidden sm:inline text-border">|</span>
-                <span>Contact: <a href="mailto:support@ebookcc.com" className="underline hover:text-primary transition-colors">support@ebookcc.com</a></span>
-              </p>
-            </footer>
-          </div>
           </div>
         )}
 
-        {currentPath === 'read' && <Read setActiveView={(view) => navigate(view)} onActiveStateChange={setHeaderHidden} onFullscreenChange={setIsFullscreen} />}
-        {currentPath === 'create' && <Create setActiveView={(view) => navigate(view)} onActiveStateChange={setHeaderHidden} />}
-        {currentPath === 'convert' && <Convert setActiveView={(view) => navigate(view)} onActiveStateChange={setHeaderHidden} />}
+        {currentPath === "read" && (
+          <Read
+            setActiveView={(view) => navigate(view)}
+            onActiveStateChange={setHeaderHidden}
+            onFullscreenChange={setIsFullscreen}
+          />
+        )}
+        {currentPath === "create" && (
+          <Create
+            setActiveView={(view) => navigate(view)}
+            onActiveStateChange={setHeaderHidden}
+          />
+        )}
+        {currentPath === "convert" && (
+          <Convert
+            setActiveView={(view) => navigate(view)}
+            onActiveStateChange={setHeaderHidden}
+          />
+        )}
       </main>
 
       {/* Floating Global Ko-fi Button */}
@@ -444,9 +557,13 @@ function AppContent() {
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-xl font-extrabold uppercase font-mono text-foreground">Support EBookCC! 🎉</h3>
+              <h3 className="text-xl font-extrabold uppercase font-mono text-foreground">
+                Support EBookCC! 🎉
+              </h3>
               <p className="text-muted-foreground text-xs leading-relaxed font-semibold">
-                Thank you for using EbookCC! If this tool made your reading and editing experience better, please consider supporting the creator with a coffee. Every support keeps the servers ticking!
+                Thank you for using EbookCC! If this tool made your reading and
+                editing experience better, please consider supporting the
+                creator with a coffee. Every support keeps the servers ticking!
               </p>
             </div>
 
@@ -462,7 +579,7 @@ function AppContent() {
                 <span>Support on Ko-fi</span>
                 <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
               </a>
-              
+
               <Button
                 variant="ghost"
                 className="rounded-none py-3 text-muted-foreground hover:text-foreground hover:bg-muted text-xs uppercase font-bold"
@@ -474,9 +591,13 @@ function AppContent() {
           </div>
         </div>
       )}
-      
+
       <AIAgentChat isFullscreen={isFullscreen} />
-      <Toaster position="top-center" toastOptions={{ className: 'z-[9999999]' }} style={{ zIndex: 9999999 }} />
+      <Toaster
+        position="top-center"
+        toastOptions={{ className: "z-[9999999]" }}
+        style={{ zIndex: 9999999 }}
+      />
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
+import { useAppSettings } from "@/context/AppSettingsContext";
 
 interface ChatMessage {
   id: string;
@@ -45,6 +46,7 @@ export function AIAgentChat({
 }: {
   isFullscreen?: boolean;
 }) {
+  const { llmEngine, geminiApiKey } = useAppSettings();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -73,20 +75,26 @@ export function AIAgentChat({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    const target = e.currentTarget as HTMLElement;
+    if (target.setPointerCapture) {
+      target.setPointerCapture(e.pointerId);
+    }
+
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
       startW: size.width,
       startH: size.height,
     };
+    
     const handlePointerMove = (ev: PointerEvent) => {
       if (!dragRef.current) return;
       let newW = dragRef.current.startW;
       let newH = dragRef.current.startH;
 
       if (dir.includes("r")) newW += ev.clientX - dragRef.current.startX;
-      if (dir.includes("l")) newW += dragRef.current.startX - ev.clientX; // growing to the left means increasing width if anchored right, but we are anchored left... wait, if anchored left, increasing width pushes right.
-      // Actually because we use 'left-4' anchor, resizing left would look weird if we don't adjust 'left'. But let's just make width change.
+      if (dir.includes("l")) newW += dragRef.current.startX - ev.clientX;
       if (dir.includes("t")) newH -= ev.clientY - dragRef.current.startY;
 
       setSize({
@@ -94,15 +102,20 @@ export function AIAgentChat({
         height: Math.max(300, Math.min(newH, window.innerHeight - 32)),
       });
     };
-    const handlePointerUp = () => {
+    
+    const handlePointerUp = (ev: PointerEvent) => {
+      if (target.releasePointerCapture) {
+        target.releasePointerCapture(ev.pointerId);
+      }
       dragRef.current = null;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
+      target.removeEventListener("pointermove", handlePointerMove);
+      target.removeEventListener("pointerup", handlePointerUp);
       document.body.style.userSelect = "";
     };
+    
     document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
+    target.addEventListener("pointermove", handlePointerMove);
+    target.addEventListener("pointerup", handlePointerUp);
   };
   const chatRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -309,14 +322,14 @@ PROFESSIONAL COMIC CREATION GUIDELINES:
 IMAGE GENERATION INSTRUCTIONS:
 If the user asks to generate images for specific panels on their canvas, you can directly place them in the canvas without showing them in the chat. 
 To do this, use the following exact markdown format:
-[Fill Panel {PANEL_ID}](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&model={MODEL}&seed={SEED})
+[Fill Panel {PANEL_ID}](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&safe=nsfw&model={MODEL}&seed={SEED})
 
 Make sure to replace {PANEL_ID} with the ID of the panel from the context provided.
 When you use this command, do not use the ![Alt](URL) image format for that image. Just use the [Fill Panel ...] link format. 
 The system will automatically intercept it and place it directly on the user's canvas.
 
 If the user is NOT asking to fill specific panels, use this exact format to show images in chat:
-![Option 1](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&model={MODEL}&seed={SEED})
+![Option 1](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&safe=nsfw&model={MODEL}&seed={SEED})
 
 Where {MODEL} is one of: flux, flux-anime, flux-3d, any-dark, turbo. Provide a very detailed prompt for {URL_ENCODED_DETAILED_PROMPT}. Ensure {SEED} is a consistent number if preserving character continuity, or different seeds for variations.
 
@@ -367,10 +380,14 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
 
       let resultText = "";
       try {
+        const headers: any = { "Content-Type": "application/json" };
+        if (geminiApiKey) {
+          headers["x-gemini-api-key"] = geminiApiKey;
+        }
         const res = await fetch("/api/agent-chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: geminiMessages, systemInstruction }),
+          headers,
+          body: JSON.stringify({ messages: geminiMessages, systemInstruction, engine: llmEngine }),
         });
 
         if (res.ok) {
@@ -501,23 +518,23 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
         >
           {/* Resize handles */}
           <div
-            className="absolute top-0 left-4 right-4 h-2 hover:bg-primary/20 cursor-ns-resize z-50"
+            className="absolute top-0 left-4 right-4 h-2 hover:bg-primary/20 cursor-ns-resize z-50 touch-none"
             onPointerDown={(e) => startResize(e, "t")}
           />
           <div
-            className="absolute top-4 right-0 bottom-4 w-2 hover:bg-primary/20 cursor-ew-resize z-50"
+            className="absolute top-4 right-0 bottom-4 w-2 hover:bg-primary/20 cursor-ew-resize z-50 touch-none"
             onPointerDown={(e) => startResize(e, "r")}
           />
           <div
-            className="absolute top-4 left-0 bottom-4 w-2 hover:bg-primary/20 cursor-ew-resize z-50"
+            className="absolute top-4 left-0 bottom-4 w-2 hover:bg-primary/20 cursor-ew-resize z-50 touch-none"
             onPointerDown={(e) => startResize(e, "l")}
           />
           <div
-            className="absolute top-0 right-0 w-6 h-6 hover:bg-primary/20 cursor-nesw-resize z-50"
+            className="absolute top-0 right-0 w-6 h-6 hover:bg-primary/20 cursor-nesw-resize z-50 touch-none"
             onPointerDown={(e) => startResize(e, "tr")}
           />
           <div
-            className="absolute top-0 left-0 w-6 h-6 hover:bg-primary/20 cursor-nwse-resize z-50"
+            className="absolute top-0 left-0 w-6 h-6 hover:bg-primary/20 cursor-nwse-resize z-50 touch-none"
             onPointerDown={(e) => startResize(e, "tl")}
           />
 
@@ -679,13 +696,15 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                                   />
                                   <Button
                                     size="sm"
-                                    className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => {
+                                    className="absolute bottom-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-md"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       window.dispatchEvent(
                                         new CustomEvent("insert-comic-image", {
                                           detail: { imageUrl: src },
                                         }),
                                       );
+                                      setIsOpen(false);
                                     }}
                                   >
                                     Insert into Project

@@ -94,7 +94,7 @@ async function startServer() {
     if (key && key.startsWith("Bearer ")) {
       key = key.replace("Bearer ", "").trim();
     }
-    if (!key) return null;
+    if (!key || key === "MY_GEMINI_API_KEY" || key.includes("YOUR_API_KEY") || key.length < 10) return null;
     return new GoogleGenAI({
       apiKey: key,
       httpOptions: {
@@ -514,7 +514,7 @@ async function startServer() {
             }
           }
         } catch (err: any) {
-          console.error("[API] detectPanelsLocalYolo: External YOLO failed.", err.message);
+          console.log("[API] detectPanelsLocalYolo: External YOLO failed.", err.message);
           // Don't just swallow the error if we had a yoloUrl. Fall through will return 400 with this error.
           return res.status(502).json({ error: `External YOLO connectivity error: ${err.message}` });
         }
@@ -598,7 +598,7 @@ async function startServer() {
             }
           }
         } catch (err) {
-          console.error("[API] YOLO failed.", err);
+          console.log("[API] YOLO failed.", err);
         }
       }
 
@@ -648,7 +648,7 @@ async function startServer() {
             }
           }
         } catch (gemError: any) {
-          console.error("[API detectPanels] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API detectPanels] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -679,7 +679,7 @@ async function startServer() {
           }
         } catch (pollError: any) {
           errorOccurred = pollError;
-          console.warn("[API detectPanels] Free AI failed...", pollError.message);
+          console.log("[API detectPanels] Free AI failed...", pollError.message);
         }
       }
 
@@ -719,7 +719,7 @@ async function startServer() {
             }
           }
         } catch (gemError: any) {
-          console.error("[API detectPanels] Gemini secondary fallback failed:", gemError.message);
+          console.log("[API detectPanels] Gemini secondary fallback failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -785,7 +785,7 @@ async function startServer() {
 
       return res.json(results);
     } catch (e: any) {
-      console.error("[API transcribePieces] unexpected error:", e);
+      console.log("[API transcribePieces] unexpected error:", e);
       return res.status(500).json({ error: e.message || "An unexpected error occurred during transcription." });
     }
   });
@@ -906,7 +906,7 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.error("[API detectText] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API detectText] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -937,7 +937,7 @@ STRICT INSTRUCTIONS:
           }
         } catch (pollError: any) {
           errorOccurred = pollError;
-          console.warn("[API detectText] Free AI failed...", pollError.message);
+          console.log("[API detectText] Free AI failed...", pollError.message);
         }
       }
 
@@ -994,7 +994,7 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.error("[API detectText] Gemini secondary fallback failed:", gemError.message);
+          console.log("[API detectText] Gemini secondary fallback failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -1084,7 +1084,7 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.error("[API translate] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API translate] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -1118,7 +1118,7 @@ STRICT INSTRUCTIONS:
           }
         } catch (pollError: any) {
           errorOccurred = pollError;
-          console.warn("[API translate] Free AI failed...", pollError.message);
+          console.log("[API translate] Free AI failed...", pollError.message);
         }
       }
 
@@ -1164,7 +1164,7 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.error("[API translate] Gemini secondary fallback failed:", gemError.message);
+          console.log("[API translate] Gemini secondary fallback failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -1344,14 +1344,14 @@ STRICT INSTRUCTIONS:
       
       res.json({ imageUrl });
     } catch (err: any) {
-      console.error("[API generate-image] Error:", err.message);
+      console.log("[API generate-image] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.post("/api/generate-text", async (req, res): Promise<any> => {
     try {
-      const { prompt } = req.body;
+      const { prompt, engine } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
@@ -1359,7 +1359,9 @@ STRICT INSTRUCTIONS:
       const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
       let geminiFailed = false;
 
-      if (ai) {
+      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
+
+      if (useGeminiFirst) {
         try {
           const response = await ai.models.generateContent({
             model: "gemini-flash-latest",
@@ -1369,7 +1371,7 @@ STRICT INSTRUCTIONS:
           const text = response.text || "";
           return res.json({ text });
         } catch (e: any) {
-          console.warn("[API generate-text] Gemini failed, falling back to Pollinations...", e.message);
+          console.log("[API generate-text] Gemini failed, falling back to Pollinations...", e.message);
           geminiFailed = true;
         }
       }
@@ -1406,14 +1408,14 @@ STRICT INSTRUCTIONS:
         throw lastError || new Error("Failed to generate response from Pollinations");
       }
     } catch (err: any) {
-      console.error("[API generate-text] Error:", err.message);
+      console.log("[API generate-text] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.post("/api/generate-comic-script", async (req, res): Promise<any> => {
     try {
-      const { prompt, imageBase64, pagesCount = 1 } = req.body;
+      const { prompt, imageBase64, pagesCount = 1, engine } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
@@ -1422,7 +1424,9 @@ STRICT INSTRUCTIONS:
 
       const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.`;
 
-      if (ai) {
+      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
+
+      if (useGeminiFirst) {
         const parts: any[] = [];
         if (imageBase64) {
           let cleanBase64 = imageBase64;
@@ -1476,7 +1480,7 @@ STRICT INSTRUCTIONS:
             return res.json(scriptData);
           }
         } catch (geminiError: any) {
-          console.warn("[API generate-comic-script] Gemini failed, falling back to Pollinations...", geminiError.message);
+          console.log("[API generate-comic-script] Gemini failed, falling back to Pollinations...", geminiError.message);
           geminiFailed = true;
         }
       }
@@ -1529,14 +1533,14 @@ STRICT INSTRUCTIONS:
         throw lastError || new Error("Failed to generate response from Pollinations");
       }
     } catch (err: any) {
-      console.error("[API generate-comic-script] Error:", err.message);
+      console.log("[API generate-comic-script] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.post("/api/agent-chat", async (req, res): Promise<any> => {
     try {
-      const { messages, systemInstruction } = req.body;
+      const { messages, systemInstruction, engine } = req.body;
       if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
@@ -1545,8 +1549,10 @@ STRICT INSTRUCTIONS:
       let agentChatResponse: string | null = null;
       let lastError = null;
 
-      // If ai is available, we prioritize Google Gemini (the official SDK)
-      if (ai) {
+      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
+
+      // If ai is available, we prioritize Google Gemini (the official SDK) unless pollinations or puter is requested
+      if (useGeminiFirst) {
         try {
           console.log("[API agent-chat] Querying Google Gemini first (Official SDK)...");
           const payload: any = {
@@ -1565,7 +1571,7 @@ STRICT INSTRUCTIONS:
             console.log("[API agent-chat] Gemini successfully answered agent chat first!");
           }
         } catch (geminiError: any) {
-          console.warn("[API agent-chat] Google Gemini first-attempt failed, falling back to Pollinations...", geminiError.message);
+          console.log("[API agent-chat] Google Gemini first-attempt failed, falling back to Pollinations...", geminiError.message);
           lastError = geminiError;
         }
       }
@@ -1654,7 +1660,7 @@ STRICT INSTRUCTIONS:
             agentChatResponse = text;
           }
         } catch (geminiError: any) {
-          console.error("[API agent-chat] Gemini secondary fallback failed:", geminiError.message);
+          console.log("[API agent-chat] Gemini secondary fallback failed:", geminiError.message);
           throw geminiError;
         }
       }
@@ -1665,7 +1671,7 @@ STRICT INSTRUCTIONS:
 
       return res.json({ text: agentChatResponse });
     } catch (err: any) {
-      console.error("[API agent-chat] Error:", err.message);
+      console.log("[API agent-chat] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });

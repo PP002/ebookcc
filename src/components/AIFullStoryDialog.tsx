@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAppSettings } from "@/context/AppSettingsContext";
 
 interface AIFullStoryDialogProps {
   open: boolean;
@@ -14,6 +15,7 @@ interface AIFullStoryDialogProps {
 }
 
 export function AIFullStoryDialog({ open, onOpenChange, onStoryGenerated, initialPrompt = "", autoSubmit = false }: AIFullStoryDialogProps) {
+  const { llmEngine, geminiApiKey } = useAppSettings();
   const [prompt, setPrompt] = useState(initialPrompt);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -35,10 +37,13 @@ export function AIFullStoryDialog({ open, onOpenChange, onStoryGenerated, initia
     try {
       const messages = [{ role: 'user', parts: [{ text: `Write a detailed novel or story chapter based on this prompt. Format it nicely using ONLY raw HTML tags (like <h1>, <h2>, <p>, <b>, <i>). Do not use markdown backticks. Prompt: ${prompt}` }] }];
       
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (geminiApiKey) headers['x-gemini-api-key'] = geminiApiKey;
+
       const res = await fetch('/api/agent-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, systemInstruction: "You are an expert story writer. Output ONLY raw HTML. No markdown formatting blocks." })
+        headers,
+        body: JSON.stringify({ messages, systemInstruction: "You are an expert story writer. Output ONLY raw HTML. No markdown formatting blocks.", engine: llmEngine })
       });
       
       if (res.ok) {

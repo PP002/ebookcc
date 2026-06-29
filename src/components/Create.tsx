@@ -61,6 +61,7 @@ import JSZip from "jszip";
 import { AIGeneratorDialog } from "./AIGeneratorDialog";
 import { AIFullComicDialog } from "./AIFullComicDialog";
 import { AIFullStoryDialog } from "./AIFullStoryDialog";
+import { useAppSettings } from "@/context/AppSettingsContext";
 
 interface CreateProps {
   setActiveView: (view: "home" | "read" | "create" | "convert") => void;
@@ -495,6 +496,7 @@ export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
 }) => {
+  const { llmEngine, geminiApiKey } = useAppSettings();
   const [createMode, setCreateMode] = useState<"select" | "comic" | "document">(
     "select",
   );
@@ -992,7 +994,7 @@ export const Create: React.FC<CreateProps> = ({
             const encodedPrompt = encodeURIComponent(
               prompt + (sketch ? " consistent with sketch" : ""),
             );
-            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&seed=${sharedConsistencySeed}&model=flux`;
+            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&safe=nsfw&seed=${sharedConsistencySeed}&model=flux`;
           }
 
           if (imageUrl) {
@@ -1161,10 +1163,14 @@ export const Create: React.FC<CreateProps> = ({
     try {
       let generatedText = "";
       try {
+        const headers: any = { "Content-Type": "application/json" };
+        if (geminiApiKey) {
+          headers["x-gemini-api-key"] = geminiApiKey;
+        }
         const res = await fetch("/api/generate-text", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: aiPrompt }),
+          headers,
+          body: JSON.stringify({ prompt: aiPrompt, engine: llmEngine }),
         });
         if (res.ok) {
           const data = await res.json();
@@ -2180,7 +2186,7 @@ export const Create: React.FC<CreateProps> = ({
                       try {
                         const prompt = decodeURIComponent(match[1]);
                         const newSeed = Math.floor(Math.random() * 100000000);
-                        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${newSeed}&model=flux`;
+                        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&safe=nsfw&seed=${newSeed}&model=flux`;
                         imageMenuProps.imgElement.src = url;
                         updateToc();
                       } catch (e) {}

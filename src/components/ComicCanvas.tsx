@@ -4,10 +4,67 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageToolbar } from './ImageToolbar';
+import { getStroke } from 'perfect-freehand';
 
-export type Point = { x: number, y: number };
+export type Point = { 
+  x: number; 
+  y: number; 
+  pressure?: number;
+  tiltX?: number;
+  tiltY?: number;
+  pointerType?: string;
+};
 
 const hitMapCache = new Map<string, { data: Uint8ClampedArray, width: number, height: number }>();
+
+export function getSvgPathFromPoints(points: Point[], brushRadius: number) {
+  if (points.length === 0) return '';
+  
+  const isPen = points.some(p => p.pointerType === 'pen');
+  
+  const strokePoints = getStroke(
+    points.map(p => {
+      let pressure = p.pressure;
+      if (isPen) {
+        if (pressure === undefined || pressure < 0.01) {
+          pressure = 0.5;
+        }
+        if (p.tiltX !== undefined && p.tiltY !== undefined) {
+          const maxTilt = Math.max(Math.abs(p.tiltX), Math.abs(p.tiltY));
+          if (maxTilt > 0) {
+            pressure = Math.min(1.0, pressure * (1 + (maxTilt / 90) * 0.35));
+          }
+        }
+      }
+      return [
+        p.x,
+        p.y,
+        isPen ? pressure : undefined
+      ];
+    }),
+    {
+      size: brushRadius,
+      thinning: 0.6,
+      smoothing: 0.5,
+      streamline: 0.5,
+      simulatePressure: !isPen,
+    }
+  );
+  
+  if (strokePoints.length === 0) return '';
+  
+  let d = `M ${strokePoints[0][0].toFixed(2)} ${strokePoints[0][1].toFixed(2)}`;
+  for (let i = 0; i < strokePoints.length - 1; i++) {
+    const p0 = strokePoints[i];
+    const p1 = strokePoints[i + 1];
+    const midX = (p0[0] + p1[0]) / 2;
+    const midY = (p0[1] + p1[1]) / 2;
+    d += ` Q ${p0[0].toFixed(2)} ${p0[1].toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
+  }
+  d += ' Z';
+  return d;
+}
+
 export type Stroke = { 
   id: string, 
   type?: 'stroke' | 'fill',
@@ -140,9 +197,20 @@ interface ComicCanvasProps {
   drawTool?: 'pen'|'erase'|'select'|'fill';
   drawColor?: string;
   drawRadius?: number;
+  touchOff?: boolean;
+  setTouchOff?: (val: boolean) => void;
 }
 
-export const ComicCanvas: React.FC<ComicCanvasProps> = ({ tree, onChange, isDrawingMode = false, drawTool = 'pen', drawColor = '#000000', drawRadius = 2 }) => {
+export const ComicCanvas: React.FC<ComicCanvasProps> = ({ 
+  tree, 
+  onChange, 
+  isDrawingMode = false, 
+  drawTool = 'pen', 
+  drawColor = '#000000', 
+  drawRadius = 2,
+  touchOff = false,
+  setTouchOff
+}) => {
   const addAtEdge = (edge: 'top' | 'bottom' | 'left' | 'right') => {
     let newTree: TreeNode;
     if (edge === 'left') {
@@ -187,7 +255,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({ tree, onChange, isDraw
 
   return (
     <div className="w-full h-full bg-white relative select-none group/canvas">
-      <SplitView node={tree} path={[]} onChange={onChange} rootTree={tree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
+      <SplitView node={tree} path={[]} onChange={onChange} rootTree={tree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} />
 
       {/* Top Edge Plus Button */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity" data-export-ignore="true">
@@ -244,9 +312,31 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({ tree, onChange, isDraw
   );
 };
 
-const SplitView: React.FC<{ node: TreeNode; path: number[]; onChange: (t: TreeNode) => void; rootTree: TreeNode; isDrawingMode: boolean; drawTool: 'pen'|'erase'|'select'|'fill'; drawColor: string; drawRadius: number; }> = ({ node, path, onChange, rootTree, isDrawingMode, drawTool, drawColor, drawRadius }) => {
+const SplitView: React.FC<{ 
+  node: TreeNode; 
+  path: number[]; 
+  onChange: (t: TreeNode) => void; 
+  rootTree: TreeNode; 
+  isDrawingMode: boolean; 
+  drawTool: 'pen'|'erase'|'select'|'fill'; 
+  drawColor: string; 
+  drawRadius: number; 
+  touchOff?: boolean;
+  setTouchOff?: (val: boolean) => void;
+}> = ({ 
+  node, 
+  path, 
+  onChange, 
+  rootTree, 
+  isDrawingMode, 
+  drawTool, 
+  drawColor, 
+  drawRadius,
+  touchOff,
+  setTouchOff
+}) => {
   if (node.type === 'panel') {
-    return <PanelView node={node} path={path} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />;
+    return <PanelView node={node} path={path} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} />;
   }
 
   const { dir, percent, c1, c2 } = node;
@@ -282,11 +372,11 @@ const SplitView: React.FC<{ node: TreeNode; path: number[]; onChange: (t: TreeNo
   return (
     <div className={`relative flex w-full h-full ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} />
       </div>
       <Gutter dir={dir} percent={percent} onDrag={setPercent} onPlus={handlePlus} />
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} />
       </div>
     </div>
   );
@@ -467,7 +557,18 @@ const DrawingCanvas: React.FC<{
   drawTool: 'pen'|'erase'|'select'|'fill';
   drawColor: string;
   drawRadius: number;
-}> = ({ drawings, onChange, isDrawingMode, drawTool, drawColor, drawRadius }) => {
+  touchOff?: boolean;
+  setTouchOff?: (val: boolean) => void;
+}> = ({ 
+  drawings, 
+  onChange, 
+  isDrawingMode, 
+  drawTool, 
+  drawColor, 
+  drawRadius,
+  touchOff = false,
+  setTouchOff
+}) => {
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
   const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -475,6 +576,7 @@ const DrawingCanvas: React.FC<{
   const [dragType, setDragType] = useState<'move' | 'erase_drag' | 'scale' | null>(null);
   const [isFilling, setIsFilling] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  const lastPenTimeRef = useRef<number>(0);
 
   useEffect(() => {
     drawings.forEach(s => {
@@ -551,11 +653,31 @@ const DrawingCanvas: React.FC<{
     return {
       x: ((e.clientX - rect.left) / rect.width) * 100,
       y: ((e.clientY - rect.top) / rect.height) * 100,
+      pressure: e.pressure ?? 0.5,
+      tiltX: e.tiltX ?? 0,
+      tiltY: e.tiltY ?? 0,
+      pointerType: e.pointerType,
     };
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!isDrawingMode) return;
+
+    if (e.pointerType === 'pen') {
+      lastPenTimeRef.current = Date.now();
+      if (!touchOff && setTouchOff) {
+        setTouchOff(true);
+      }
+    }
+
+    if (e.pointerType === 'touch') {
+      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+
     (e.target as Element).releasePointerCapture(e.pointerId);
     const pt = getPt(e);
 
@@ -738,11 +860,25 @@ const DrawingCanvas: React.FC<{
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!isDrawingMode) return;
+
+    if (e.pointerType === 'pen') {
+      lastPenTimeRef.current = Date.now();
+    }
+
+    if (e.pointerType === 'touch') {
+      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+
     const pt = getPt(e);
 
     if (drawTool === 'pen' && currentStroke) {
       const lastPt = currentStroke.points[currentStroke.points.length - 1];
-      if (Math.abs(pt.x - lastPt.x) > 0.5 || Math.abs(pt.y - lastPt.y) > 0.5) {
+      // Capture at a higher resolution (0.1 threshold instead of 0.5) for high-precision stylus support
+      if (Math.abs(pt.x - lastPt.x) > 0.1 || Math.abs(pt.y - lastPt.y) > 0.1) {
         setCurrentStroke(prev => prev ? { ...prev, points: [...prev.points, pt] } : null);
       }
     } else if (drawTool === 'erase' && dragType === 'erase_drag') {
@@ -801,7 +937,19 @@ const DrawingCanvas: React.FC<{
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'pen') {
+      lastPenTimeRef.current = Date.now();
+    }
+    
+    if (e.pointerType === 'touch') {
+      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+
     if (currentStroke && currentStroke.points.length > 0) {
       onChange([...drawings, currentStroke]);
     }
@@ -840,30 +988,29 @@ const DrawingCanvas: React.FC<{
     }
     if (!s.points || s.points.length === 0) return null;
     
-    let d = '';
-    if (s.points.length === 1) {
-      d = `M ${s.points[0].x} ${s.points[0].y} L ${s.points[0].x} ${s.points[0].y}`;
-    } else {
-      d = `M ${s.points[0].x} ${s.points[0].y}`;
-      let i = 1;
-      for (; i < s.points.length - 1; i++) {
-        const p1 = s.points[i];
-        const p2 = s.points[i + 1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
-      }
-      if (i < s.points.length) {
-        d += ` L ${s.points[i].x} ${s.points[i].y}`;
-      }
-    }
+    const d = getSvgPathFromPoints(s.points, s.brushRadius);
+    if (!d) return null;
 
     // When erasing, show strokes slightly faded so users know what tool they're using
     const opacity = (drawTool === 'erase' && isDrawingMode) ? 0.7 : 1;
     return (
       <g key={s.id + (isSelected ? '-sel' : '')}>
-        {isSelected && <path d={d} stroke="#3b82f6" strokeWidth={s.brushRadius + 4} fill={s.fill || "none"} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={0.3} />}
-        <path d={d} stroke={s.color} strokeWidth={s.brushRadius} fill={s.fill || "none"} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={opacity} />
+        {isSelected && (
+          <path 
+            d={d} 
+            fill={s.color} 
+            stroke="#3b82f6" 
+            strokeWidth={2} 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            opacity={0.4} 
+          />
+        )}
+        <path 
+          d={d} 
+          fill={s.color} 
+          opacity={opacity} 
+        />
       </g>
     );
   };
@@ -967,7 +1114,29 @@ const DrawingCanvas: React.FC<{
   );
 };
 
-const PanelView: React.FC<{ node: PanelNode; path: number[]; onChange: (t: TreeNode) => void; rootTree: TreeNode; isDrawingMode: boolean; drawTool: 'pen'|'erase'|'select'|'fill'; drawColor: string; drawRadius: number; }> = ({ node, path, onChange, rootTree, isDrawingMode, drawTool, drawColor, drawRadius }) => {
+const PanelView: React.FC<{ 
+  node: PanelNode; 
+  path: number[]; 
+  onChange: (t: TreeNode) => void; 
+  rootTree: TreeNode; 
+  isDrawingMode: boolean; 
+  drawTool: 'pen'|'erase'|'select'|'fill'; 
+  drawColor: string; 
+  drawRadius: number; 
+  touchOff?: boolean;
+  setTouchOff?: (val: boolean) => void;
+}> = ({ 
+  node, 
+  path, 
+  onChange, 
+  rootTree, 
+  isDrawingMode, 
+  drawTool, 
+  drawColor, 
+  drawRadius,
+  touchOff,
+  setTouchOff
+}) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isColorFolded, setIsColorFolded] = useState(true);
   const [isCropping, setIsCropping] = useState(false);
@@ -1124,7 +1293,7 @@ const PanelView: React.FC<{ node: PanelNode; path: number[]; onChange: (t: TreeN
                 />
             </div>
         )}
-        <DrawingCanvas drawings={node.drawings || []} onChange={handleDrawingsChange} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} />
+        <DrawingCanvas drawings={node.drawings || []} onChange={handleDrawingsChange} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} />
         <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
       </div>
     </div>

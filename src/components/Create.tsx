@@ -34,6 +34,7 @@ import {
   ArrowDown,
   Crop,
   Move,
+  Hand,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -508,6 +509,7 @@ export const Create: React.FC<CreateProps> = ({
   const [isAIFullStoryDialogOpen, setIsAIFullStoryDialogOpen] = useState(false);
   const [aiFullStoryPrompt, setAiFullStoryPrompt] = useState("");
   const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [touchOff, setTouchOff] = useState(false);
   const [drawTool, setDrawTool] = useState<"pen" | "erase" | "select" | "fill">(
     "pen",
   );
@@ -2629,6 +2631,8 @@ export const Create: React.FC<CreateProps> = ({
                   drawTool={drawTool}
                   drawColor={drawColor}
                   drawRadius={drawRadius}
+                  touchOff={touchOff}
+                  setTouchOff={setTouchOff}
                 />
 
                 {/* Bubble overlays layer */}
@@ -2974,6 +2978,19 @@ export const Create: React.FC<CreateProps> = ({
               title="Lasso (L)"
             >
               <LassoSelect className="w-4 h-4" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            <Button
+              variant={touchOff ? "secondary" : "ghost"}
+              size="icon"
+              className={cn(
+                "w-8 h-8 rounded-full transition-all",
+                touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+              )}
+              onClick={() => setTouchOff(!touchOff)}
+              title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
+            >
+              <Hand className="w-4 h-4" />
             </Button>
             <div className="w-px h-6 bg-border mx-1" />
             <input

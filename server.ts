@@ -1020,6 +1020,102 @@ STRICT INSTRUCTIONS:
     }
   });
 
+  app.post("/api/readHandwriting", async (req, res) => {
+    console.log("[API] readHandwriting request received");
+    try {
+      const { base64Image, engine, model: clientModel } = req.body;
+      const targetModel = clientModel || "gemini-flash-latest";
+      if (!base64Image || typeof base64Image !== 'string') {
+        return res.status(400).json({ error: 'base64Image is required' });
+      }
+
+      const rawBase64 = base64Image.split(",")[1] || base64Image;
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = getAIClient(customKey);
+
+      let transcribedText = "";
+
+      // Try Pollinations first by default to avoid API Key issues
+      const tryPollinationsFirst = engine !== 'gemini';
+
+      if (tryPollinationsFirst) {
+        try {
+          console.log("[API readHandwriting] Trying Free AI (Pollinations) first...");
+          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+          const openAiMessages = [
+            { role: "system", content: "You are a precise handwriting transcriber. Transcribe all text visible in this image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting." },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: fullBase64Url } }
+              ]
+            }
+          ];
+
+          const resText = await callPollinations(openAiMessages, "openai", false, 3);
+          transcribedText = resText ? resText.trim() : "";
+          console.log("[API readHandwriting] Free AI read handwriting successfully:", transcribedText);
+        } catch (pollError: any) {
+          console.log("[API readHandwriting] Free AI failed, falling back if possible...", pollError.message);
+        }
+      }
+
+      // If Pollinations failed or we explicitly want Gemini first
+      if (!transcribedText && ai) {
+        try {
+          console.log(`[API readHandwriting] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
+          const promptText = "You are an expert handwriting reader and transcriber. In this cropped section of a hand-drawn comic, there is some handwritten text. Please transcribe the handwritten text EXACTLY as written. Output ONLY the plain transcribed text with no markdown, no quotes, no explanations, and no extra conversation. If you don't find any text, return an empty string.";
+          
+          const result = await callWithRetry(() => {
+            return ai.models.generateContent({
+              model: targetModel,
+              contents: [{
+                parts: [
+                  { text: promptText },
+                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                ]
+              }]
+            });
+          }, res, "readHandwriting");
+
+          if (result && result.text) {
+            transcribedText = result.text.trim();
+            console.log("[API readHandwriting] Gemini read handwriting successfully:", transcribedText);
+          }
+        } catch (gemError: any) {
+          console.log("[API readHandwriting] Gemini fallback failed:", gemError.message);
+        }
+      }
+
+      // Last-chance fallback if both failed but we haven't tried Pollinations yet
+      if (!transcribedText && !tryPollinationsFirst) {
+        try {
+          console.log("[API readHandwriting] Trying Pollinations fallback...");
+          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+          const openAiMessages = [
+            { role: "system", content: "You are a precise handwriting transcriber. Transcribe all text visible in this image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting." },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: fullBase64Url } }
+              ]
+            }
+          ];
+          const resText = await callPollinations(openAiMessages, "openai", false, 3);
+          transcribedText = resText ? resText.trim() : "";
+        } catch (err: any) {
+          console.log("[API readHandwriting] Pollinations fallback failed:", err.message);
+        }
+      }
+
+      return res.json({ text: transcribedText });
+
+    } catch (e: any) {
+      console.error(e);
+      return res.status(500).json({ error: String(e.message || e) });
+    }
+  });
+
   app.post("/api/translate", async (req, res) => {
     console.log("[API] translate request received");
     try {

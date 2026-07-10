@@ -57,6 +57,7 @@ import {
   fillFirstEmptyPanel,
   updatePanelImage,
   TreeNode,
+  Stroke,
 } from "./ComicCanvas";
 import JSZip from "jszip";
 import { AIGeneratorDialog } from "./AIGeneratorDialog";
@@ -74,7 +75,8 @@ interface Bubble {
   text: string;
   x: number;
   y: number;
-  style: "classic" | "action" | "whisper";
+  style: "classic" | "action" | "freehand";
+  points?: { x: number; y: number }[];
 }
 
 interface ComicPage {
@@ -89,6 +91,41 @@ interface Panel {
   bgImageUrl?: string;
   bgColor: string;
 }
+
+const getSvgPathFromNormalizedPoints = (points: { x: number; y: number }[]): string => {
+  if (!points || points.length === 0) return "";
+  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  let i = 1;
+  for (; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    d += ` Q ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+  }
+  if (i < points.length) {
+    d += ` L ${points[i].x.toFixed(1)} ${points[i].y.toFixed(1)}`;
+  }
+  d += " Z";
+  return d;
+};
+
+const smoothPoints = (points: { x: number; y: number }[]): { x: number; y: number }[] => {
+  if (!points || points.length < 3) return points;
+  const smoothed: { x: number; y: number }[] = [];
+  smoothed.push({ ...points[0] });
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+    smoothed.push({
+      x: (prev.x + curr.x * 2 + next.x) / 4,
+      y: (prev.y + curr.y * 2 + next.y) / 4
+    });
+  }
+  smoothed.push({ ...points[points.length - 1] });
+  return smoothed;
+};
 
 const cropImageToCover = async (
   dataUrl: string,
@@ -1151,13 +1188,279 @@ export const Create: React.FC<CreateProps> = ({
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
   const [newBubbleText, setNewBubbleText] = useState("Bubble dialogue...");
   const [bubbleStyle, setBubbleStyle] = useState<
-    "classic" | "action" | "whisper"
+    "classic" | "action" | "freehand"
   >("classic");
   const [aiPrompt, setAiPrompt] = useState("");
   const [isGeneratingText, setIsGeneratingText] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const comicRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
+  interface PanelLayout {
+    id: string;
+    x: number; // 0..100
+    y: number; // 0..100
+    w: number; // 0..100
+    h: number; // 0..100
+    drawings: Stroke[];
+  }
+
+  const getPanelLayouts = (node: TreeNode, x = 0, y = 0, w = 100, h = 100): PanelLayout[] => {
+    if (node.type === 'panel') {
+      return [{
+        id: node.id,
+        x, y, w, h,
+        drawings: node.drawings || []
+      }];
+    } else if (node.type === 'split') {
+      const { dir, percent, c1, c2 } = node;
+      if (dir === 'row') {
+        const w1 = w * (percent / 100);
+        const w2 = w * ((100 - percent) / 100);
+        return [
+          ...getPanelLayouts(c1, x, y, w1, h),
+          ...getPanelLayouts(c2, x + w1, y, w2, h)
+        ];
+      } else {
+        const h1 = h * (percent / 100);
+        const h2 = h * ((100 - percent) / 100);
+        return [
+          ...getPanelLayouts(c1, x, y, w, h1),
+          ...getPanelLayouts(c2, x, y + h1, w, h2)
+        ];
+      }
+    }
+    return [];
+  };
+
+  const detectBubbleAndHandwriting = (drawings: Stroke[]) => {
+    if (!drawings || drawings.length === 0) return null;
+
+    // Calculate bounding box and area for each stroke
+    const strokeInfos = drawings.map(s => {
+      const xs = s.points.map(p => p.x);
+      const ys = s.points.map(p => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const w = maxX - minX;
+      const h = maxY - minY;
+      const area = w * h;
+      return {
+        stroke: s,
+        minX, maxX, minY, maxY, w, h, area
+      };
+    });
+
+    // We look for a stroke that actually contains other smaller strokes inside it.
+    // The bubble outline should be reasonably large.
+    for (let i = 0; i < strokeInfos.length; i++) {
+      const candidate = strokeInfos[i];
+      if (candidate.w < 6 || candidate.h < 6) continue;
+
+      const insideStrokes = strokeInfos.filter((other, idx) => {
+        if (idx === i) return false;
+        
+        // Check if other stroke's center is inside the candidate
+        const otherCenterX = other.minX + other.w / 2;
+        const otherCenterY = other.minY + other.h / 2;
+        
+        return (
+          otherCenterX >= candidate.minX &&
+          otherCenterX <= candidate.maxX &&
+          otherCenterY >= candidate.minY &&
+          otherCenterY <= candidate.maxY
+        );
+      });
+
+      if (insideStrokes.length > 0) {
+        return {
+          bubbleOutline: candidate,
+          handwriting: insideStrokes,
+          allInvolvedIds: [candidate.stroke.id, ...insideStrokes.map(h => h.stroke.id)]
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const convertDrawnBubble = async () => {
+    const layouts = getPanelLayouts(comicTree);
+    let targetPanelId: string | null = null;
+    let targetLayout: PanelLayout | null = null;
+    let detection: ReturnType<typeof detectBubbleAndHandwriting> = null;
+
+    for (const layout of layouts) {
+      if (layout.drawings && layout.drawings.length > 0) {
+        const det = detectBubbleAndHandwriting(layout.drawings);
+        if (det) {
+          detection = det;
+          targetPanelId = layout.id;
+          targetLayout = layout;
+          break;
+        }
+      }
+    }
+
+    if (!detection || !targetPanelId || !targetLayout) {
+      toast.info("No speech bubble drawing with handwritten text detected. Draw a speech bubble outline and write some text inside it with the pen!");
+      return;
+    }
+
+    const pts = detection.bubbleOutline.stroke.points;
+    if (!pts || pts.length === 0) {
+      toast.info("No points found in the detected bubble outline.");
+      return;
+    }
+
+    const minX = detection.bubbleOutline.minX;
+    const maxX = detection.bubbleOutline.maxX;
+    const minY = detection.bubbleOutline.minY;
+    const maxY = detection.bubbleOutline.maxY;
+
+    const strokeW = maxX - minX;
+    const strokeH = maxY - minY;
+
+    if (strokeW < 1 && strokeH < 1) {
+      toast.warning("The drawn shape is too small. Draw a larger speech bubble!");
+      return;
+    }
+
+    const panelRelativeCenterX = minX + strokeW / 2;
+    const panelRelativeCenterY = minY + strokeH / 2;
+
+    const pageX = targetLayout.x + (panelRelativeCenterX / 100) * targetLayout.w;
+    const pageY = targetLayout.y + (panelRelativeCenterY / 100) * targetLayout.h;
+
+    const bubbleId = Math.random().toString(36).substring(2, 9);
+
+    const removeStrokesFromTree = (node: TreeNode): TreeNode => {
+      if (node.type === 'panel') {
+        if (node.id === targetPanelId) {
+          const involvedIds = detection!.allInvolvedIds;
+          return {
+            ...node,
+            drawings: (node.drawings || []).filter(s => !involvedIds.includes(s.id))
+          };
+        }
+        return node;
+      } else {
+        return {
+          ...node,
+          c1: removeStrokesFromTree(node.c1),
+          c2: removeStrokesFromTree(node.c2)
+        };
+      }
+    };
+
+    const updatedTree = removeStrokesFromTree(comicTree);
+    updateActivePageTree(updatedTree);
+
+    // Normalize outline points relative to bounding box
+    let normalizedPoints = pts.map(p => ({
+      x: ((p.x - minX) / (strokeW || 1)) * 100,
+      y: ((p.y - minY) / (strokeH || 1)) * 100
+    }));
+
+    // Smooth the hand-drawn points to make the outline extremely smooth and professional, retaining its custom shape
+    for (let i = 0; i < 4; i++) {
+      normalizedPoints = smoothPoints(normalizedPoints);
+    }
+
+    const newBubble: Bubble = {
+      id: bubbleId,
+      text: "Converting writing to text...",
+      x: pageX,
+      y: pageY,
+      style: "freehand",
+      points: normalizedPoints
+    };
+
+    const currentBubbles = [...bubbles, newBubble];
+    updateActivePageBubbles(currentBubbles);
+    setActiveBubbleId(bubbleId);
+    setBubbleStyle("freehand");
+
+    setIsTranscribing(true);
+    try {
+      const { toPng } = await import("html-to-image");
+      if (!comicRef.current) throw new Error("Comic container not found");
+
+      await new Promise(r => setTimeout(r, 150));
+
+      const dataUrl = await toPng(comicRef.current, { pixelRatio: 1.5 });
+
+      const cropImage = (srcDataUrl: string, pctX: number, pctY: number, pctW: number, pctH: number): Promise<string> => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              resolve(srcDataUrl);
+              return;
+            }
+            const realW = img.width;
+            const realH = img.height;
+
+            const padPct = 5;
+            const px = Math.max(0, (pctX - padPct) / 100) * realW;
+            const py = Math.max(0, (pctY - padPct) / 100) * realH;
+            const pw = Math.min(100, (pctW + padPct * 2) / 100) * realW;
+            const ph = Math.min(100, (pctH + padPct * 2) / 100) * realH;
+
+            canvas.width = pw;
+            canvas.height = ph;
+            ctx.drawImage(img, px, py, pw, ph, 0, 0, pw, ph);
+            resolve(canvas.toDataURL("image/jpeg", 0.9));
+          };
+          img.src = srcDataUrl;
+        });
+      };
+
+      const pageBoxX = targetLayout.x + (minX / 100) * targetLayout.w;
+      const pageBoxY = targetLayout.y + (minY / 100) * targetLayout.h;
+      const pageBoxW = (strokeW / 100) * targetLayout.w;
+      const pageBoxH = (strokeH / 100) * targetLayout.h;
+
+      const croppedBase64 = await cropImage(dataUrl, pageBoxX, pageBoxY, pageBoxW, pageBoxH);
+
+      const apiRes = await fetch("/api/readHandwriting", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base64Image: croppedBase64 })
+      });
+
+      if (!apiRes.ok) {
+        throw new Error("Transcribing endpoint failed");
+      }
+
+      const resData = await apiRes.json();
+      const transcribedText = resData.text ? resData.text.trim() : "";
+
+      const finalTxt = transcribedText || "Drawn bubble dialogue";
+
+      updateActivePageBubbles(
+        currentBubbles.map(b => b.id === bubbleId ? { ...b, text: finalTxt } : b)
+      );
+      setNewBubbleText(finalTxt);
+      toast.success("Handwriting transcribed successfully!");
+
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Handwriting transcribing failed: " + err.message);
+      updateActivePageBubbles(
+        currentBubbles.map(b => b.id === bubbleId ? { ...b, text: "Drawn bubble dialogue" } : b)
+      );
+      setNewBubbleText("Drawn bubble dialogue");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
 
   const generateText = async () => {
     if (!aiPrompt.trim()) return;
@@ -1376,12 +1679,15 @@ export const Create: React.FC<CreateProps> = ({
     input.click();
   };
 
-  const getBubbleStyleClass = (style: "classic" | "action" | "whisper") => {
+  const getBubbleStyleClass = (style: "classic" | "action" | "freehand", hasPoints?: boolean) => {
     switch (style) {
       case "action":
         return "border border-red-500 bg-yellow-100 text-red-600 font-extrabold uppercase rounded-none px-3 py-1.5 shadow-[2px_2px_0px_0px_rgba(239,68,68,1)]";
-      case "whisper":
-        return "border border-dashed border-zinc-400 bg-white text-zinc-600 rounded-full px-4 py-2 italic";
+      case "freehand":
+        if (hasPoints) {
+          return "relative px-8 py-6 italic font-serif text-slate-900";
+        }
+        return "border-2 border-slate-800 bg-amber-50 text-slate-900 rounded-[35%_65%_60%_40%_/_50%_60%_40%_50%] px-4 py-2 italic font-serif shadow-md";
       default:
         return "border border-foreground bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm";
     }
@@ -1616,11 +1922,11 @@ export const Create: React.FC<CreateProps> = ({
                   ],
                   absolutePosition: { x: 0, y: 0 },
                 });
-              } else if (b.style === "whisper") {
-                isDashed = true;
-                lineColor = "#a1a1aa";
-                textColor = "#52525b";
-                borderRadius = Math.min(pdfW, pdfH) / 2;
+              } else if (b.style === "freehand") {
+                lineColor = "#1e293b";
+                bgColor = "#fffbeb";
+                textColor = "#0f172a";
+                borderRadius = 12;
                 fontItalic = true;
               }
 
@@ -2436,7 +2742,8 @@ export const Create: React.FC<CreateProps> = ({
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-[100dvh]">
       <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
-          <div className="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar py-1">
+          {/* Left Actions */}
+          <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar py-1 shrink-0">
             <Button
               variant="ghost"
               size="icon"
@@ -2478,7 +2785,83 @@ export const Create: React.FC<CreateProps> = ({
               </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2 pr-2">
+
+          {/* Centered Draw Toolbar */}
+          <div className="flex-1 flex items-center justify-center">
+            {isDrawingMode && (
+              <div className="flex items-center justify-center bg-muted/60 dark:bg-muted/30 rounded-full p-1 border border-border/40 gap-0.5 max-h-[34px]">
+                <Button
+                  variant={drawTool === "pen" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="w-7 h-7 rounded-full"
+                  onClick={() => setDrawTool("pen")}
+                  title="Pen (P)"
+                >
+                  <PenTool className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={drawTool === "erase" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="w-7 h-7 rounded-full"
+                  onClick={() => setDrawTool("erase")}
+                  title="Erase (E)"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={drawTool === "fill" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="w-7 h-7 rounded-full"
+                  onClick={() => setDrawTool("fill")}
+                  title="Fill (F)"
+                >
+                  <PaintBucket className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant={drawTool === "select" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="w-7 h-7 rounded-full"
+                  onClick={() => setDrawTool("select")}
+                  title="Lasso (L)"
+                >
+                  <LassoSelect className="w-3.5 h-3.5" />
+                </Button>
+                <div className="w-px h-4 bg-border mx-1" />
+                <Button
+                  variant={touchOff ? "secondary" : "ghost"}
+                  size="icon"
+                  className={cn(
+                    "w-7 h-7 rounded-full transition-all",
+                    touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                  )}
+                  onClick={() => setTouchOff(!touchOff)}
+                  title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
+                >
+                  <Hand className="w-3.5 h-3.5" />
+                </Button>
+                <div className="w-px h-4 bg-border mx-1" />
+                <input
+                  type="color"
+                  value={drawColor}
+                  onChange={(e) => setDrawColor(e.target.value)}
+                  className="w-5 h-5 rounded cursor-pointer border-0 p-0"
+                  title="Color"
+                />
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  value={drawRadius}
+                  onChange={(e) => setDrawRadius(parseInt(e.target.value))}
+                  className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
+                  title="Brush Size"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right Actions */}
+          <div className="flex items-center gap-2 pr-2 shrink-0">
             {renderExportMenu()}
             <Button
               variant="ghost"
@@ -2699,11 +3082,29 @@ export const Create: React.FC<CreateProps> = ({
                     }}
                     className={`bubble-overlay absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none touch-none ${
                       activeBubbleId === b.id
-                        ? "ring-2 ring-primary ring-offset-2 z-30"
+                        ? b.style === "freehand"
+                          ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-30"
+                          : "ring-2 ring-primary ring-offset-2 z-30"
                         : "z-20"
                     }`}
                   >
-                    <div className={getBubbleStyleClass(b.style)}>
+                    <div className={getBubbleStyleClass(b.style, !!b.points)}>
+                      {b.style === "freehand" && b.points && (
+                        <svg
+                          className="absolute inset-0 w-full h-full -z-10 overflow-visible"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
+                        >
+                          <path
+                            d={getSvgPathFromNormalizedPoints(b.points)}
+                            fill="#fffbeb"
+                            stroke="#0f172a"
+                            strokeWidth={3}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
                       <div
                         contentEditable
                         suppressContentEditableWarning
@@ -2829,7 +3230,7 @@ export const Create: React.FC<CreateProps> = ({
                         BUBBLE EXPRESSION STYLE
                       </label>
                       <div className="grid grid-cols-3 gap-2">
-                        {(["classic", "action", "whisper"] as const).map(
+                        {(["classic", "action", "freehand"] as const).map(
                           (style) => (
                             <Button
                               key={style}
@@ -2847,6 +3248,8 @@ export const Create: React.FC<CreateProps> = ({
                                         : b,
                                     ),
                                   );
+                                } else if (style === "freehand") {
+                                  convertDrawnBubble();
                                 }
                               }}
                             >
@@ -2856,6 +3259,31 @@ export const Create: React.FC<CreateProps> = ({
                         )}
                       </div>
                     </div>
+
+                    {bubbleStyle === "freehand" && (
+                      <div className="p-2 border border-amber-200 bg-amber-50/50 rounded-none space-y-1.5 transition-all">
+                        <p className="text-[10px] text-amber-800 leading-tight">
+                          ✍️ <strong>Freehand Mode:</strong> Draw a bubble outline on any panel using the pen tool, then click convert to transform it into an interactive bubble overlay with AI text transcription.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={convertDrawnBubble}
+                          disabled={isTranscribing}
+                          className="w-full text-[10px] h-7 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold border border-amber-300 rounded-none flex items-center justify-center gap-1.5"
+                        >
+                          {isTranscribing ? (
+                            <>
+                              <span className="animate-spin text-amber-600">🌀</span> Transcribing Handwriting...
+                            </>
+                          ) : (
+                            <>
+                              🪄 Convert Hand-Drawn Bubble
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
 
                     <Button
                       onClick={addBubble}
@@ -2902,115 +3330,7 @@ export const Create: React.FC<CreateProps> = ({
           </AnimatePresence>
         </div>
 
-        {/* Drawing Mode Toolbar */}
-        {isDrawingMode && (
-          <div
-            className="fixed bg-background text-foreground border shadow-lg rounded-2xl md:rounded-full flex flex-wrap items-center justify-center p-1.5 gap-1 z-50 backdrop-blur-md cursor-move select-none w-fit max-w-[90vw]"
-            style={{
-              left: Math.max(
-                0,
-                Math.min(drawToolbarPos.x, window.innerWidth - 320),
-              ),
-              top: Math.max(10, drawToolbarPos.y),
-              touchAction: "none",
-            }}
-            onMouseDown={(e) => {
-              if (
-                (e.target as HTMLElement).tagName.toLowerCase() === "input" ||
-                (e.target as HTMLElement).closest("button")
-              )
-                return;
-              setIsDraggingToolbar(true);
-              dragToolbarStartRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-                posX: drawToolbarPos.x,
-                posY: drawToolbarPos.y,
-              };
-            }}
-            onTouchStart={(e) => {
-              if (
-                (e.target as HTMLElement).tagName.toLowerCase() === "input" ||
-                (e.target as HTMLElement).closest("button")
-              )
-                return;
-              setIsDraggingToolbar(true);
-              dragToolbarStartRef.current = {
-                x: e.touches[0].clientX,
-                y: e.touches[0].clientY,
-                posX: drawToolbarPos.x,
-                posY: drawToolbarPos.y,
-              };
-            }}
-          >
-            <Button
-              variant={drawTool === "pen" ? "secondary" : "ghost"}
-              size="icon"
-              className="w-8 h-8 rounded-full"
-              onClick={() => setDrawTool("pen")}
-              title="Pen (P)"
-            >
-              <PenTool className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawTool === "erase" ? "secondary" : "ghost"}
-              size="icon"
-              className="w-8 h-8 rounded-full"
-              onClick={() => setDrawTool("erase")}
-              title="Erase (E)"
-            >
-              <Eraser className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawTool === "fill" ? "secondary" : "ghost"}
-              size="icon"
-              className="w-8 h-8 rounded-full"
-              onClick={() => setDrawTool("fill")}
-              title="Fill (F)"
-            >
-              <PaintBucket className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawTool === "select" ? "secondary" : "ghost"}
-              size="icon"
-              className="w-8 h-8 rounded-full"
-              onClick={() => setDrawTool("select")}
-              title="Lasso (L)"
-            >
-              <LassoSelect className="w-4 h-4" />
-            </Button>
-            <div className="w-px h-6 bg-border mx-1" />
-            <Button
-              variant={touchOff ? "secondary" : "ghost"}
-              size="icon"
-              className={cn(
-                "w-8 h-8 rounded-full transition-all",
-                touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-              )}
-              onClick={() => setTouchOff(!touchOff)}
-              title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
-            >
-              <Hand className="w-4 h-4" />
-            </Button>
-            <div className="w-px h-6 bg-border mx-1" />
-            <input
-              type="color"
-              value={drawColor}
-              onChange={(e) => setDrawColor(e.target.value)}
-              className="w-6 h-6 rounded cursor-pointer border-0 p-0"
-              title="Color"
-            />
-            <input
-              type="range"
-              min="1"
-              max="20"
-              value={drawRadius}
-              onChange={(e) => setDrawRadius(parseInt(e.target.value))}
-              className="w-16 mx-2 cursor-pointer"
-              title="Brush Size"
-            />
-          </div>
-        )}
+        {/* Drawing Mode Toolbar moved to top header bar */}
       </main>
     </div>
   );

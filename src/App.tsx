@@ -63,38 +63,44 @@ function FeatureCard({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card
+    <div
       onClick={() => setExpanded((prev) => !prev)}
-      className="group relative overflow-hidden h-[180px] border border-border/60 rounded-none shadow-sm bg-card transition-colors cursor-pointer"
+      className="group relative overflow-hidden w-full border border-border/60 rounded-none bg-transparent flex flex-col cursor-pointer select-none"
     >
-      <img
-        src={bg}
-        alt=""
-        className="absolute inset-0 w-full h-full object-cover"
-        referrerPolicy="no-referrer"
-      />
-      <div className="absolute inset-0 flex flex-col justify-end">
-        <div className="bg-card p-3 border-t border-border/60">
-          <h3
-            className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5"
-            title={title}
-          >
-            <Icon className="w-4 h-4 text-primary shrink-0" />{" "}
-            <span className="truncate">{title}</span>
-          </h3>
-          <div
-            className={cn(
-              "grid transition-[grid-template-rows] duration-300 ease-in-out w-full text-center group-hover:grid-rows-[1fr]",
-              expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-            )}
-          >
-            <p className="text-[11px] text-muted-foreground leading-relaxed font-medium overflow-hidden">
-              <span className="block pt-2">{description}</span>
-            </p>
-          </div>
+      {/* 16:9 Image Area */}
+      <div className="relative w-full aspect-video overflow-hidden select-none bg-transparent">
+        <img
+          src={bg}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+        />
+        {/* Unfold Upward Description Overlay */}
+        <div
+          className={cn(
+            "absolute inset-x-0 bottom-0 bg-background/95 backdrop-blur-xs p-3 border-t border-border/40 transition-all duration-300 ease-out transform flex items-center justify-center min-h-full",
+            expanded 
+              ? "translate-y-0 opacity-100" 
+              : "translate-y-full opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
+          )}
+        >
+          <p className="text-[11px] text-muted-foreground leading-relaxed font-medium text-center">
+            {description}
+          </p>
         </div>
       </div>
-    </Card>
+
+      {/* Title Area */}
+      <div className="bg-transparent py-1 px-3 border-t border-border/60 z-10 relative flex items-center justify-center h-fit min-h-[24px]">
+        <h3
+          className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5 w-full leading-none"
+          title={title}
+        >
+          <Icon className="w-3.5 h-3.5 text-primary shrink-0" />{" "}
+          <span className="truncate leading-none">{title}</span>
+        </h3>
+      </div>
+    </div>
   );
 }
 
@@ -426,7 +432,7 @@ function AppContent() {
                   <FeatureCard
                     bg={mangaBg}
                     icon={Languages}
-                    title="AI Manga Translation Tool"
+                    title="AI Translation Tool"
                     description="Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online."
                   />
 
@@ -476,7 +482,7 @@ function AppContent() {
                     bg={balloonStylingBg}
                     icon={MessageCircle}
                     title="Speech Balloon Styling"
-                    description="Overlay classic, action, or whisper dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling."
+                    description="Overlay classic, action, or freehand dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling."
                   />
                 </div>
               </section>

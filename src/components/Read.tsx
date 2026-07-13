@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -15,6 +15,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import JSZip from 'jszip';
 import { runPredictAPI, autoCropImageBorders } from '@/components/Convert';
 import { toast } from 'sonner';
+import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -48,6 +49,62 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { theme, setTheme } = useTheme();
+
+  const [recentBooks, setRecentBooks] = useState<RecentBookMetadata[]>([]);
+
+  useEffect(() => {
+    if (!selectedBook) {
+      setRecentBooks(getRecentBooksMeta());
+    }
+  }, [selectedBook]);
+
+  useEffect(() => {
+    if (selectedBook) {
+       const timer = setTimeout(() => {
+         saveRecentBook({
+           ...selectedBook,
+           fileType: selectedBook.fileType || "images"
+         }, currentPage, location);
+       }, 500);
+       return () => clearTimeout(timer);
+    }
+  }, [selectedBook, currentPage, location]);
+
+  const handleOpenRecent = async (meta: RecentBookMetadata) => {
+    try {
+      const fullBook = await getFullBookFile(meta.id);
+      if (fullBook) {
+        setSelectedBook({
+          id: fullBook.id,
+          title: fullBook.title,
+          author: fullBook.author || 'Local File',
+          cover: fullBook.cover,
+          chapters: 1,
+          rating: 0,
+          pages: fullBook.pages && fullBook.pages.length > 0 ? fullBook.pages : [fullBook.cover],
+          fileType: fullBook.fileType,
+          file: fullBook.file,
+          fileBuffer: fullBook.fileBuffer
+        });
+        setCurrentPage(fullBook.lastReadPage || 0);
+        setLocation(fullBook.lastReadLocation || 0);
+        toast.success(`Resumed reading: ${fullBook.title}`);
+      } else {
+        toast.error("Book data not found in cache.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load book from history.");
+    }
+  };
+
+  const handleDeleteRecent = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    await deleteRecentBook(id);
+    setRecentBooks(getRecentBooksMeta());
+    toast.success("Removed book from history.");
+  };
+
   useEffect(() => {
     if (onFullscreenChange) {
       onFullscreenChange(isFullscreen);
@@ -410,34 +467,127 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     <div className={cn("relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2" : "max-w-none p-0 overflow-hidden")}>
       {/* Active Component Area */}
       {!selectedBook ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-4xl mx-auto w-full min-h-[70vh]">
+        <div className="flex-1 flex flex-col items-stretch max-w-5xl mx-auto w-full py-8 px-4 space-y-8">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">eBook & Comic Reader</h1>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">Open books, PDFs, and comics completely locally in your browser.</p>
+          </div>
+
           <div
             {...getRootProps()}
             className={cn(
-              "w-full border border-dashed border-border/50 p-8 text-center cursor-pointer bg-card/50 hover:border-primary transition-all rounded-none min-h-[250px] flex flex-col justify-center items-center shadow-sm hover:shadow-md",
+              "w-full border border-dashed border-border/50 p-8 text-center cursor-pointer bg-card/50 hover:border-primary transition-all rounded-none min-h-[200px] flex flex-col justify-center items-center shadow-sm hover:shadow-md",
               isDragActive && "border-primary bg-primary/5"
             )}
             style={{ outline: "none" }}
           >
             <input {...getInputProps()} />
-            <div className="flex flex-col items-center gap-4 max-w-md">
-              <div className="p-4 bg-background rounded-none shrink-0 text-center">
-                <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
-                <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop eBook Files Here</h2>
-                <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
-                  Supported: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, FB2</span>
-                </p>
-                <p className="text-[10px] text-muted-foreground/80 mt-1">
-                  or click inside this workspace block to browse local files
-                </p>
-              </div>
-
-              <div className="text-center font-semibold text-[11px] text-muted-foreground bg-muted p-2.5">
-                <Sparkles className="w-3.5 h-3.5 inline mr-1 text-primary animate-pulse" />
-                Your private local reader. No files are uploaded to the cloud.
-              </div>
+            <div className="flex flex-col items-center gap-2 max-w-md">
+              <Layers className="w-10 h-10 text-primary mb-2" />
+              <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop eBook Files Here</h2>
+              <p className="text-[11px] text-muted-foreground font-semibold mt-1 leading-relaxed">
+                Supported: <span className="text-foreground font-bold">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, FB2</span>
+              </p>
+              <p className="text-[10px] text-muted-foreground/70">
+                or click inside this workspace block to browse local files
+              </p>
             </div>
           </div>
+
+          {recentBooks.length > 0 && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-primary" />
+                  <h3 className="text-lg font-bold tracking-tight text-foreground">Recently Read</h3>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={async () => {
+                    if (confirm("Are you sure you want to clear your reading history?")) {
+                      await clearAllHistory();
+                      setRecentBooks([]);
+                      toast.success("History cleared.");
+                    }
+                  }}
+                  className="text-xs text-muted-foreground hover:text-destructive h-8"
+                >
+                  Clear History
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {recentBooks.map((book) => (
+                  <Card 
+                    key={book.id} 
+                    onClick={() => handleOpenRecent(book)}
+                    className="group relative flex flex-col bg-card hover:bg-accent/35 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm hover:shadow"
+                  >
+                    {/* Cover Preview - only for images (comic), others just text/icon */}
+                    {book.fileType === "images" ? (
+                      <div className="relative aspect-[3/4] bg-muted/20 overflow-hidden flex items-center justify-center border-b">
+                        <img 
+                          src={book.cover} 
+                          alt={book.title}
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                          </div>
+                        </div>
+                        <span className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none">
+                          Comic
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="relative aspect-[3/4] bg-accent/40 overflow-hidden flex flex-col items-center justify-center border-b p-4 select-none">
+                        <div className="text-muted-foreground/45 font-mono text-xs uppercase tracking-widest font-black mb-1">
+                          {book.fileType}
+                        </div>
+                        <BookOpen className="w-8 h-8 text-muted-foreground/50 mb-1" />
+                        <span className="text-[10px] text-muted-foreground/70 font-mono text-center line-clamp-2 max-w-full px-1">
+                          {book.title}
+                        </span>
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Book Metadata */}
+                    <div className="p-3 flex-1 flex flex-col justify-between space-y-1">
+                      <div>
+                        <h4 className="text-xs font-bold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
+                          {book.title}
+                        </h4>
+                        <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5">
+                          {book.author}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
+                        <span className="text-[10px] text-primary font-bold">
+                          Page {book.lastReadPage + 1}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => handleDeleteRecent(e, book.id)}
+                          className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">

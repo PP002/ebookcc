@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,12 @@ import JSZip from 'jszip';
 import Tesseract from 'tesseract.js';
 import { useTheme } from 'next-themes';
 import * as pdfjsLib from 'pdfjs-dist';
+import {
+  addConversionHistory,
+  getConversionHistory,
+  deleteConversionLog,
+  ConversionLog
+} from '@/lib/historyCache';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -2433,6 +2439,13 @@ export default function Convert({
 }) {
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
+
+  useEffect(() => {
+    if (pages.length === 0) {
+      getConversionHistory().then(setConversionLogs);
+    }
+  }, [pages.length]);
 
   useEffect(() => {
     if (onActiveStateChange) {
@@ -3038,6 +3051,18 @@ export default function Convert({
       }
       
       setPages(prev => [...prev, ...newPages]);
+      const leadFile = acceptedFiles[0];
+      if (leadFile) {
+        addConversionHistory({
+          id: 'conv-' + Date.now(),
+          sourceFileName: leadFile.name,
+          targetFormat: leadFile.name.substring(leadFile.name.lastIndexOf('.') + 1).toUpperCase() || 'Pages',
+          status: 'completed',
+          size: (leadFile.size / (1024 * 1024)).toFixed(2) + ' MB'
+        }).then(() => {
+          getConversionHistory().then(setConversionLogs);
+        });
+      }
       if (pages.length === 0 && newPages.length > 0) {
         setCurrentPageIndex(0);
         setViewMode('edit');
@@ -4134,6 +4159,15 @@ ${pagesHtml}</body>
     a.href = url;
     a.download = 'comic_export.html';
     a.click();
+    addConversionHistory({
+      id: 'conv-' + Date.now(),
+      sourceFileName: pages[0]?.filename || 'Comic Project',
+      targetFormat: 'HTML',
+      status: 'completed',
+      size: (blob.size / 1024).toFixed(1) + ' KB'
+    }).then(() => {
+      getConversionHistory().then(setConversionLogs);
+    });
     toast.success("HTML generated successfully!", { icon: "!" });
     setShowCoffeeModal(true);
     setTimeout(() => {
@@ -4264,6 +4298,15 @@ ${pagesHtml}</body>
       }
 
       pdf.save('comic_export.pdf');
+      addConversionHistory({
+        id: 'conv-' + Date.now(),
+        sourceFileName: pages[0]?.filename || 'Comic Project',
+        targetFormat: 'PDF',
+        status: 'completed',
+        size: 'N/A'
+      }).then(() => {
+        getConversionHistory().then(setConversionLogs);
+      });
       toast.success("PDF generated successfully!");
       setShowCoffeeModal(true);
     } catch (error) {
@@ -4553,6 +4596,15 @@ ${navItems}    </ol>
     a.href = url;
     a.download = 'comic_book.epub';
     a.click();
+    addConversionHistory({
+      id: 'conv-' + Date.now(),
+      sourceFileName: pages[0]?.filename || 'Comic Project',
+      targetFormat: 'EPUB',
+      status: 'completed',
+      size: (content.size / 1024).toFixed(1) + ' KB'
+    }).then(() => {
+      getConversionHistory().then(setConversionLogs);
+    });
     toast.success("EPUB generated successfully!");
     setShowCoffeeModal(true);
   };
@@ -4586,6 +4638,15 @@ ${navItems}    </ol>
     a.download = 'comic_text.txt';
     a.click();
     URL.revokeObjectURL(url);
+    addConversionHistory({
+      id: 'conv-' + Date.now(),
+      sourceFileName: pages[0]?.filename || 'Comic Project',
+      targetFormat: 'TXT',
+      status: 'completed',
+      size: (blob.size / 1024).toFixed(1) + ' KB'
+    }).then(() => {
+      getConversionHistory().then(setConversionLogs);
+    });
     toast.success("Text exported successfully!");
     setShowCoffeeModal(true);
   };
@@ -4780,7 +4841,7 @@ ${navItems}    </ol>
   return (
     <>
       {pages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-4xl mx-auto w-full min-h-[70vh]">
+        <div className="flex-1 overflow-y-auto py-12 px-6 max-w-4xl mx-auto w-full min-h-[70vh] space-y-8 no-scrollbar">
           <div
             {...getRootProps()}
             className={cn(
@@ -4808,6 +4869,79 @@ ${navItems}    </ol>
               </div>
             </div>
           </div>
+
+          {conversionLogs.length > 0 && (
+            <div className="w-full space-y-4 pt-6 border-t">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-foreground">Recent Conversions</h3>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={async () => {
+                    if (confirm("Are you sure you want to clear all conversion history?")) {
+                      for (const log of conversionLogs) {
+                        await deleteConversionLog(log.id);
+                      }
+                      setConversionLogs([]);
+                      toast.success("Conversion history cleared.");
+                    }
+                  }}
+                  className="text-xs text-muted-foreground hover:text-destructive h-8 px-2"
+                >
+                  Clear History
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {conversionLogs.map((log) => (
+                  <div 
+                    key={log.id}
+                    className="flex items-center justify-between p-3.5 bg-card border border-border/60 hover:border-primary/40 transition-all duration-200 group relative"
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="p-2 bg-muted shrink-0 text-primary">
+                        {log.targetFormat === 'PDF' && <Layers className="w-5 h-5" />}
+                        {log.targetFormat === 'EPUB' && <Book className="w-5 h-5" />}
+                        {log.targetFormat === 'HTML' && <Bot className="w-5 h-5" />}
+                        {log.targetFormat === 'TXT' && <Type className="w-5 h-5" />}
+                        {log.targetFormat !== 'PDF' && log.targetFormat !== 'EPUB' && log.targetFormat !== 'HTML' && log.targetFormat !== 'TXT' && <ImageIcon className="w-5 h-5" />}
+                      </div>
+                      <div className="min-w-0 flex flex-col justify-center">
+                        <span className="text-xs font-bold text-foreground truncate max-w-[200px] sm:max-w-[280px]">
+                          {log.sourceFileName}
+                        </span>
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground font-semibold">
+                          <span className="bg-primary/10 text-primary px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider">
+                            {log.targetFormat}
+                          </span>
+                          {log.size && <span>• {log.size}</span>}
+                          <span>• {new Date(log.timestamp).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await deleteConversionLog(log.id);
+                        setConversionLogs(prev => prev.filter(item => item.id !== log.id));
+                        toast.success("Log removed.");
+                      }}
+                      className="w-8 h-8 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-none shrink-0"
+                      title="Remove from history"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="h-screen bg-background flex flex-col overflow-hidden">

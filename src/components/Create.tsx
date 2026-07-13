@@ -35,7 +35,19 @@ import {
   Crop,
   Move,
   Hand,
+  Clock,
+  Play,
 } from "lucide-react";
+import {
+  saveUnfinishedComic,
+  getUnfinishedComics,
+  deleteUnfinishedComic,
+  saveUnfinishedStory,
+  getUnfinishedStories,
+  deleteUnfinishedStory,
+  UnfinishedComic,
+  UnfinishedStory
+} from "@/lib/historyCache";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -77,6 +89,8 @@ interface Bubble {
   y: number;
   style: "classic" | "action" | "freehand";
   points?: { x: number; y: number }[];
+  tailX?: number;
+  tailY?: number;
 }
 
 interface ComicPage {
@@ -125,6 +139,79 @@ const smoothPoints = (points: { x: number; y: number }[]): { x: number; y: numbe
   }
   smoothed.push({ ...points[points.length - 1] });
   return smoothed;
+};
+
+const chaikinSmooth = (points: { x: number; y: number }[], iterations: number = 3): { x: number; y: number }[] => {
+  if (!points || points.length < 3) return points;
+  let current = [...points];
+  for (let iter = 0; iter < iterations; iter++) {
+    const nextList: { x: number; y: number }[] = [];
+    const len = current.length;
+    // Chaikin corner cutting for closed shapes
+    for (let i = 0; i < len; i++) {
+      const p0 = current[i];
+      const p1 = current[(i + 1) % len];
+      nextList.push({
+        x: p0.x * 0.75 + p1.x * 0.25,
+        y: p0.y * 0.75 + p1.y * 0.25
+      });
+      nextList.push({
+        x: p0.x * 0.25 + p1.x * 0.75,
+        y: p0.y * 0.25 + p1.y * 0.75
+      });
+    }
+    current = nextList;
+  }
+  return current;
+};
+
+const generatePerfectSpeechBubblePoints = (): { x: number; y: number }[] => {
+  const points: { x: number; y: number }[] = [];
+  const cx = 50;
+  const cy = 45;
+  const rx = 44;
+  const ry = 34;
+
+  // Gap for the speech tail in radians (bottom-left area)
+  const tStart = 0.55 * Math.PI;
+  const tEnd = 0.70 * Math.PI;
+
+  const steps = 80;
+  for (let i = 0; i <= steps; i++) {
+    const t = tEnd + (i / steps) * (2 * Math.PI - (tEnd - tStart));
+    const x = cx + rx * Math.cos(t);
+    const y = cy + ry * Math.sin(t);
+    points.push({ x, y });
+  }
+
+  const pStart = points[points.length - 1];
+  const pEnd = points[0];
+
+  const tipX = 35;
+  const tipY = 96;
+
+  // Curve to tip
+  const stepsTail = 6;
+  for (let j = 1; j <= stepsTail; j++) {
+    const ratio = j / stepsTail;
+    const cx1 = pStart.x;
+    const cy1 = pStart.y + (tipY - pStart.y) * 0.15;
+    const x = (1 - ratio) * (1 - ratio) * pStart.x + 2 * (1 - ratio) * ratio * cx1 + ratio * ratio * tipX;
+    const y = (1 - ratio) * (1 - ratio) * pStart.y + 2 * (1 - ratio) * ratio * cy1 + ratio * ratio * tipY;
+    points.push({ x, y });
+  }
+
+  // Curve back to ellipse
+  for (let j = 1; j <= stepsTail; j++) {
+    const ratio = j / stepsTail;
+    const cx2 = pEnd.x - (pEnd.x - tipX) * 0.25;
+    const cy2 = pEnd.y + (tipY - pEnd.y) * 0.1;
+    const x = (1 - ratio) * (1 - ratio) * tipX + 2 * (1 - ratio) * ratio * cx2 + ratio * ratio * pEnd.x;
+    const y = (1 - ratio) * (1 - ratio) * tipY + 2 * (1 - ratio) * ratio * cy2 + ratio * ratio * pEnd.y;
+    points.push({ x, y });
+  }
+
+  return points;
 };
 
 const cropImageToCover = async (
@@ -530,6 +617,315 @@ const CanvasCropOverlay = ({
   );
 };
 
+interface InteractiveBubbleProps {
+  bubble: Bubble;
+  isActive: boolean;
+  onUpdateTail: (tailX: number, tailY: number) => void;
+  onUpdateText: (text: string) => void;
+  removeBubble: () => void;
+}
+
+const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
+  bubble,
+  isActive,
+  onUpdateTail,
+  onUpdateText,
+  removeBubble,
+}) => {
+  const [dimensions, setDimensions] = useState({ w: 120, h: 60 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Measure dimensions when text changes or on mount
+  useEffect(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setDimensions({ w: rect.width, h: rect.height });
+      }
+    }
+  }, [bubble.text]);
+
+  // Use a ResizeObserver for real-time measurements (as the user types)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        // Include padding
+        const style = window.getComputedStyle(el);
+        const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+        const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        if (width > 0 && height > 0) {
+          setDimensions({ w: width + padX, h: height + padY });
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const W = Math.max(20, dimensions.w);
+  const H = Math.max(20, dimensions.h);
+
+  // Initialize tail if not set
+  const tailX = bubble.tailX !== undefined ? bubble.tailX : W * 0.15;
+  const tailY = bubble.tailY !== undefined ? bubble.tailY : H + 35;
+
+  // Generate SVG path based on style
+  let dPath = "";
+  if (bubble.style === "classic" || bubble.style === "action") {
+    const cx = W / 2;
+    const cy = H / 2;
+    
+    if (bubble.style === "action") {
+      // 1. Spikey burst shape with integrated tail
+      const pointsCount = 32;
+      const rawPoints: { x: number; y: number }[] = [];
+      for (let i = 0; i < pointsCount; i++) {
+        const theta = (i / pointsCount) * 2 * Math.PI;
+        const isEven = i % 2 === 0;
+        // Deterministic ripple to look hand-drawn and comic-like
+        const wave = 0.03 * Math.sin(theta * 6);
+        const factor = isEven ? (0.84 + wave) : (1.20 + wave);
+        const px = cx + (W / 2) * Math.cos(theta) * factor;
+        const py = cy + (H / 2) * Math.sin(theta) * factor;
+        rawPoints.push({ x: px, y: py });
+      }
+
+      // Find the index closest to tail angle
+      const dx = tailX - cx;
+      const dy = tailY - cy;
+      let thetaTail = Math.atan2(dy, dx);
+      if (thetaTail < 0) thetaTail += 2 * Math.PI;
+
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < pointsCount; i++) {
+        const theta = (i / pointsCount) * 2 * Math.PI;
+        let diff = Math.abs(theta - thetaTail);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
+      }
+
+      const finalPoints: { x: number; y: number }[] = [];
+      const baseStartIdx = (closestIdx - 2 + pointsCount) % pointsCount;
+      const baseEndIdx = (closestIdx + 2) % pointsCount;
+
+      for (let j = 0; j < pointsCount; j++) {
+        const idx = (baseEndIdx + j) % pointsCount;
+        finalPoints.push(rawPoints[idx]);
+        if (idx === baseStartIdx) {
+          break;
+        }
+      }
+      finalPoints.push({ x: tailX, y: tailY });
+
+      dPath = finalPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
+    } else {
+      // 2. Classic box shape with snapping/dynamic boundary-attachment tail
+      const dx = tailX - cx;
+      const dy = tailY - cy;
+      const slope = H / W;
+      let side: "top" | "bottom" | "left" | "right" = "bottom";
+
+      if (Math.abs(dy) > Math.abs(dx) * slope) {
+        side = dy > 0 ? "bottom" : "top";
+      } else {
+        side = dx > 0 ? "right" : "left";
+      }
+
+      const halfBase = Math.max(8, Math.min(W, H) * 0.12);
+      let B1 = { x: 0, y: 0 };
+      let B2 = { x: 0, y: 0 };
+
+      if (side === "bottom") {
+        const C = Math.max(halfBase + 4, Math.min(W - halfBase - 4, tailX));
+        B1 = { x: C - halfBase, y: H };
+        B2 = { x: C + halfBase, y: H };
+      } else if (side === "top") {
+        const C = Math.max(halfBase + 4, Math.min(W - halfBase - 4, tailX));
+        B1 = { x: C + halfBase, y: 0 };
+        B2 = { x: C - halfBase, y: 0 };
+      } else if (side === "left") {
+        const C = Math.max(halfBase + 4, Math.min(H - halfBase - 4, tailY));
+        B1 = { x: 0, y: C - halfBase };
+        B2 = { x: 0, y: C + halfBase };
+      } else if (side === "right") {
+        const C = Math.max(halfBase + 4, Math.min(H - halfBase - 4, tailY));
+        B1 = { x: W, y: C + halfBase };
+        B2 = { x: W, y: C - halfBase };
+      }
+
+      const pts: { x: number; y: number }[] = [];
+
+      // Top-Left -> Top-Right
+      if (side === "top") {
+        pts.push({ x: 0, y: 0 });
+        pts.push(B2);
+        pts.push({ x: tailX, y: tailY });
+        pts.push(B1);
+        pts.push({ x: W, y: 0 });
+      } else {
+        pts.push({ x: 0, y: 0 });
+        pts.push({ x: W, y: 0 });
+      }
+
+      // Top-Right -> Bottom-Right
+      if (side === "right") {
+        pts.push(B2);
+        pts.push({ x: tailX, y: tailY });
+        pts.push(B1);
+        pts.push({ x: W, y: H });
+      } else {
+        pts.push({ x: W, y: H });
+      }
+
+      // Bottom-Right -> Bottom-Left
+      if (side === "bottom") {
+        pts.push(B2);
+        pts.push({ x: tailX, y: tailY });
+        pts.push(B1);
+        pts.push({ x: 0, y: H });
+      } else {
+        pts.push({ x: 0, y: H });
+      }
+
+      // Bottom-Left -> Top-Left
+      if (side === "left") {
+        pts.push(B2);
+        pts.push({ x: tailX, y: tailY });
+        pts.push(B1);
+        pts.push({ x: 0, y: 0 });
+      } else {
+        pts.push({ x: 0, y: 0 });
+      }
+
+      dPath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
+    }
+  }
+
+  // Pointer event for dragging the tail tip
+  const handleTailPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const target = e.currentTarget as HTMLElement;
+    
+    // We need to find the bubble overlay container to get client coordinates relative to top-left of the bubble
+    const bubbleEl = containerRef.current;
+    if (!bubbleEl) return;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const rect = bubbleEl.getBoundingClientRect();
+      const newTailX = ev.clientX - rect.left;
+      const newTailY = ev.clientY - rect.top;
+      onUpdateTail(newTailX, newTailY);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      target.releasePointerCapture(ev.pointerId);
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+    };
+
+    target.setPointerCapture(e.pointerId);
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  };
+
+  return (
+    <div className="relative">
+      {/* Background SVG for classic/action styles */}
+      {(bubble.style === "classic" || bubble.style === "action") && (
+        <svg
+          className="absolute inset-0 w-full h-full -z-10"
+          style={{ overflow: "visible" }}
+        >
+          <path
+            d={dPath}
+            fill="#ffffff"
+            stroke="#000000"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+
+      {/* Text Container */}
+      <div
+        ref={containerRef}
+        contentEditable
+        suppressContentEditableWarning
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          removeBubble();
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          (window as any)._bubbleLongPress = setTimeout(() => {
+            window.dispatchEvent(
+              new CustomEvent("quote-to-agent", {
+                detail: { type: "text", text: bubble.text },
+              }),
+            );
+          }, 500);
+        }}
+        onPointerUp={(e) => {
+          if ((window as any)._bubbleLongPress)
+            clearTimeout((window as any)._bubbleLongPress);
+        }}
+        onPointerLeave={(e) => {
+          if ((window as any)._bubbleLongPress)
+            clearTimeout((window as any)._bubbleLongPress);
+        }}
+        onPointerCancel={(e) => {
+          if ((window as any)._bubbleLongPress)
+            clearTimeout((window as any)._bubbleLongPress);
+        }}
+        onBlur={(e) => {
+          const txt = e.currentTarget.innerText || "";
+          onUpdateText(txt);
+        }}
+        onInput={(e) => {
+          const txt = e.currentTarget.innerText || "";
+          onUpdateText(txt);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+        }}
+        className={`text-xs break-words text-center min-w-[70px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
+          bubble.style === "action"
+            ? "font-extrabold uppercase text-black py-4 px-6"
+            : "text-black py-2.5 px-4"
+        }`}
+        title="Double click outside text to delete bubble"
+      >
+        {bubble.text}
+      </div>
+
+      {/* Tail Drag Handle (Only when selected/active) */}
+      {isActive && (bubble.style === "classic" || bubble.style === "action") && (
+        <div
+          onPointerDown={handleTailPointerDown}
+          className="absolute w-4 h-4 bg-red-500 border-2 border-white rounded-full cursor-crosshair z-50 flex items-center justify-center shadow-lg transform -translate-x-1/2 -translate-y-1/2"
+          style={{
+            left: `${tailX}px`,
+            top: `${tailY}px`,
+          }}
+          title="Drag to resize and reposition tail"
+        >
+          <div className="w-1.5 h-1.5 bg-white rounded-full" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
@@ -593,6 +989,44 @@ export const Create: React.FC<CreateProps> = ({
     },
   ]);
   const [activePageIndex, setActivePageIndex] = useState(0);
+
+  // History and cache states
+  const [unfinishedComics, setUnfinishedComics] = useState<UnfinishedComic[]>([]);
+  const [unfinishedStories, setUnfinishedStories] = useState<UnfinishedStory[]>([]);
+  const [currentComicId, setCurrentComicId] = useState<string | null>(null);
+  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
+  const [comicTitle, setComicTitle] = useState<string>("Untitled Comic");
+  const [storyTitle, setStoryTitle] = useState<string>("Untitled Story");
+  const [loadedHtmlContent, setLoadedHtmlContent] = useState<string | null>(null);
+
+  // Load lists on select screen
+  useEffect(() => {
+    if (createMode === "select") {
+      getUnfinishedComics().then(setUnfinishedComics);
+      getUnfinishedStories().then(setUnfinishedStories);
+      setCurrentComicId(null);
+      setCurrentStoryId(null);
+    }
+  }, [createMode]);
+
+  // Auto-save comic
+  useEffect(() => {
+    if (createMode === "comic") {
+      const activeId = currentComicId || "comic-" + Date.now();
+      if (!currentComicId) {
+        setCurrentComicId(activeId);
+      }
+      const timer = setTimeout(() => {
+        saveUnfinishedComic({
+          id: activeId,
+          title: comicTitle,
+          pages: comicPages,
+          activePageIndex,
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [createMode, comicPages, activePageIndex, comicTitle, currentComicId]);
 
   const historyRef = useRef<ComicPage[][]>([]);
   const historyIndexRef = useRef<number>(-1);
@@ -1193,6 +1627,50 @@ export const Create: React.FC<CreateProps> = ({
   const [aiPrompt, setAiPrompt] = useState("");
   const [isGeneratingText, setIsGeneratingText] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  // Populate rich text content on story mode mount, and auto-save on change
+  useEffect(() => {
+    if (createMode === "document" && editorRef.current) {
+      if (loadedHtmlContent !== null) {
+        editorRef.current.innerHTML = loadedHtmlContent;
+        setLoadedHtmlContent(null);
+      } else if (editorRef.current.innerHTML.trim() === "") {
+        editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
+      }
+      setTimeout(() => updateToc(), 100);
+    }
+  }, [createMode, loadedHtmlContent]);
+
+  // Periodic/title-triggered auto-save for story
+  useEffect(() => {
+    if (createMode === "document" && editorRef.current) {
+      const activeId = currentStoryId || "story-" + Date.now();
+      if (!currentStoryId) {
+        setCurrentStoryId(activeId);
+      }
+      const handleInput = () => {
+        saveUnfinishedStory({
+          id: activeId,
+          title: storyTitle,
+          htmlContent: editorRef.current?.innerHTML || "",
+        });
+      };
+      
+      const el = editorRef.current;
+      el.addEventListener("input", handleInput);
+      
+      // Also save when title changes
+      saveUnfinishedStory({
+        id: activeId,
+        title: storyTitle,
+        htmlContent: el.innerHTML,
+      });
+
+      return () => {
+        el.removeEventListener("input", handleInput);
+      };
+    }
+  }, [createMode, storyTitle, currentStoryId]);
   const comicRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1306,8 +1784,49 @@ export const Create: React.FC<CreateProps> = ({
       }
     }
 
+    const hasManualText = newBubbleText && newBubbleText !== "Bubble dialogue..." && newBubbleText.trim() !== "";
+
+    // Fallback: If no handwriting strokes inside are found, but there are drawings and the user has manual text,
+    // we use the largest stroke as the speech bubble outline!
+    if (!detection && hasManualText) {
+      for (const layout of layouts) {
+        if (layout.drawings && layout.drawings.length > 0) {
+          const strokeInfos = layout.drawings.map(s => {
+            const xs = s.points.map(p => p.x);
+            const ys = s.points.map(p => p.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            return {
+              stroke: s,
+              minX, maxX, minY, maxY,
+              w: maxX - minX,
+              h: maxY - minY,
+              area: (maxX - minX) * (maxY - minY)
+            };
+          });
+          strokeInfos.sort((a, b) => b.area - a.area);
+          const candidate = strokeInfos[0];
+          
+          detection = {
+            bubbleOutline: candidate,
+            handwriting: [],
+            allInvolvedIds: [candidate.stroke.id]
+          };
+          targetPanelId = layout.id;
+          targetLayout = layout;
+          break;
+        }
+      }
+    }
+
     if (!detection || !targetPanelId || !targetLayout) {
-      toast.info("No speech bubble drawing with handwritten text detected. Draw a speech bubble outline and write some text inside it with the pen!");
+      if (hasManualText) {
+        toast.info("Please use the Pen tool to draw a bubble outline on any panel first, then click Convert to place your typed text inside it!");
+      } else {
+        toast.info("No speech bubble drawing detected. Draw a speech bubble outline and write some text inside it with the pen!");
+      }
       return;
     }
 
@@ -1360,17 +1879,29 @@ export const Create: React.FC<CreateProps> = ({
     const updatedTree = removeStrokesFromTree(comicTree);
     updateActivePageTree(updatedTree);
 
-    // Normalize outline points relative to bounding box
-    let normalizedPoints = pts.map(p => ({
-      x: ((p.x - minX) / (strokeW || 1)) * 100,
-      y: ((p.y - minY) / (strokeH || 1)) * 100
-    }));
+    // Convert the hand-drawn shape to a beautiful, clean, perfect vector speech bubble shape instead of preserving the custom-drawn jagged shape
+    const normalizedPoints = generatePerfectSpeechBubblePoints();
 
-    // Smooth the hand-drawn points to make the outline extremely smooth and professional, retaining its custom shape
-    for (let i = 0; i < 4; i++) {
-      normalizedPoints = smoothPoints(normalizedPoints);
+    // If the user entered text value manually, directly move it into the custom speech bubble, bypassing OCR!
+    if (hasManualText) {
+      const newBubble: Bubble = {
+        id: bubbleId,
+        text: newBubbleText,
+        x: pageX,
+        y: pageY,
+        style: "freehand",
+        points: normalizedPoints
+      };
+
+      const currentBubbles = [...bubbles, newBubble];
+      updateActivePageBubbles(currentBubbles);
+      setActiveBubbleId(bubbleId);
+      setBubbleStyle("freehand");
+      toast.success("Hand-drawn bubble created with your manual text!");
+      return;
     }
 
+    // Otherwise, perform handwriting OCR
     const newBubble: Bubble = {
       id: bubbleId,
       text: "Converting writing to text...",
@@ -1429,10 +1960,18 @@ export const Create: React.FC<CreateProps> = ({
 
       const croppedBase64 = await cropImage(dataUrl, pageBoxX, pageBoxY, pageBoxW, pageBoxH);
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (geminiApiKey) {
+        headers["x-gemini-api-key"] = geminiApiKey;
+      }
+
       const apiRes = await fetch("/api/readHandwriting", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base64Image: croppedBase64 })
+        headers,
+        body: JSON.stringify({
+          base64Image: croppedBase64,
+          engine: llmEngine
+        })
       });
 
       if (!apiRes.ok) {
@@ -1440,7 +1979,17 @@ export const Create: React.FC<CreateProps> = ({
       }
 
       const resData = await apiRes.json();
-      const transcribedText = resData.text ? resData.text.trim() : "";
+      let transcribedText = resData.text ? resData.text.trim() : "";
+
+      // Clean/sanitize invalid JSON reasoning responses from fallbacks
+      if (transcribedText.startsWith("{") || 
+          transcribedText.includes('"reasoning":') || 
+          transcribedText.includes("We don’t have the image") ||
+          transcribedText.includes("cannot transcribe") ||
+          transcribedText.length > 200) {
+        console.log("[Create] Sanitized invalid handwriting transcription:", transcribedText);
+        transcribedText = "";
+      }
 
       const finalTxt = transcribedText || "Drawn bubble dialogue";
 
@@ -1535,6 +2084,12 @@ export const Create: React.FC<CreateProps> = ({
   const updateBubbleText = (id: string, text: string) => {
     updateActivePageBubbles(
       bubbles.map((b) => (b.id === id ? { ...b, text } : b)),
+    );
+  };
+
+  const updateBubbleTail = (id: string, tailX: number, tailY: number) => {
+    updateActivePageBubbles(
+      bubbles.map((b) => (b.id === id ? { ...b, tailX, tailY } : b)),
     );
   };
 
@@ -1687,7 +2242,7 @@ export const Create: React.FC<CreateProps> = ({
         if (hasPoints) {
           return "relative px-8 py-6 italic font-serif text-slate-900";
         }
-        return "border-2 border-slate-800 bg-amber-50 text-slate-900 rounded-[35%_65%_60%_40%_/_50%_60%_40%_50%] px-4 py-2 italic font-serif shadow-md";
+        return "border-2 border-slate-800 bg-white text-slate-900 rounded-[35%_65%_60%_40%_/_50%_60%_40%_50%] px-4 py-2 italic font-serif shadow-md";
       default:
         return "border border-foreground bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm";
     }
@@ -1924,7 +2479,7 @@ export const Create: React.FC<CreateProps> = ({
                 });
               } else if (b.style === "freehand") {
                 lineColor = "#1e293b";
-                bgColor = "#fffbeb";
+                bgColor = "#ffffff";
                 textColor = "#0f172a";
                 borderRadius = 12;
                 fontItalic = true;
@@ -2214,42 +2769,253 @@ export const Create: React.FC<CreateProps> = ({
   );
 
   if (createMode === "select") {
+    const formatTime = (ts: number) => {
+      const date = new Date(ts);
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
+    const getPreviewText = (html: string) => {
+      if (typeof document === 'undefined') return '';
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      return div.textContent || div.innerText || '';
+    };
+
     return (
-      <div className="max-w-4xl mx-auto p-4 space-y-8 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)]">
+      <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-12 flex flex-col items-stretch min-h-[calc(100vh-8rem)]">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-bold font-serif">Choose a Canvas</h1>
-          <p className="text-muted-foreground text-sm">
+          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">Choose a Canvas</h1>
+          <p className="text-muted-foreground text-sm max-w-md mx-auto">
             Select the type of creation you want to start with.
           </p>
         </div>
-        <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl">
+        
+        <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl mx-auto">
           <Card
-            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
-            onClick={() => setCreateMode("comic")}
+            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card group rounded-none"
+            onClick={() => {
+              setCurrentComicId(null);
+              setComicTitle("Untitled Comic");
+              setComicPagesState([
+                {
+                  id: Date.now().toString(),
+                  tree: createGridTree(3, 2),
+                  bubbles: [
+                    { id: "1", text: "HELLO WORLD!", x: 25, y: 30, style: "classic" },
+                    {
+                      id: "2",
+                      text: "WHAT A COOL WORKSPACE!",
+                      x: 60,
+                      y: 65,
+                      style: "action",
+                    },
+                  ],
+                }
+              ]);
+              setActivePageIndex(0);
+              setCreateMode("comic");
+            }}
           >
-            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
               <Layout className="w-8 h-8" />
             </div>
             <div>
-              <h3 className="font-bold mb-1">
-                Free Online Comic Book & Manga Creator
+              <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
+                Free Comic Book & Manga Creator
               </h3>
+              <p className="text-xs text-muted-foreground">Draw panel pages, add classic and action speech bubbles, and render storyboard shapes.</p>
             </div>
           </Card>
+
           <Card
-            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card"
-            onClick={() => setCreateMode("document")}
+            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card group rounded-none"
+            onClick={() => {
+              setCurrentStoryId(null);
+              setStoryTitle("Untitled Story");
+              setLoadedHtmlContent("<h1><br></h1><h2><br></h2><p><br></p>");
+              setCreateMode("document");
+            }}
           >
-            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
               <Type className="w-8 h-8" />
             </div>
             <div>
-              <h3 className="font-bold mb-1">
+              <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
                 Rich Text Script & Document Editor
               </h3>
+              <p className="text-xs text-muted-foreground">Write stories, novels, scripts, or screenplays with headings and inline illustrations.</p>
             </div>
           </Card>
         </div>
+
+        {/* Unfinished Comic list */}
+        {unfinishedComics.length > 0 && (
+          <div className="space-y-4 pt-8 border-t">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">Previous Unfinished Comics</h3>
+              <span className="text-xs text-muted-foreground font-mono">{unfinishedComics.length} item(s)</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {unfinishedComics.map((comic) => (
+                <Card 
+                  key={comic.id}
+                  onClick={() => {
+                    setCurrentComicId(comic.id);
+                    setComicTitle(comic.title);
+                    setComicPagesState(comic.pages);
+                    setActivePageIndex(comic.activePageIndex || 0);
+                    setCreateMode("comic");
+                  }}
+                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm animate-fade-in"
+                >
+                  {/* Miniature Panel Tree Layout Preview */}
+                  <div className="relative aspect-[3/4] bg-muted/10 p-2 border-b flex items-stretch">
+                    <div className="w-full h-full flex flex-col items-stretch overflow-hidden border border-foreground/15 p-0.5 rounded-sm bg-background">
+                      {comic.pages[0] && (
+                        <div className="w-full h-full flex flex-col min-h-0 min-w-0">
+                          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+                            {(() => {
+                              const MiniGridTree = ({ node }: { node: any }): any => {
+                                if (!node) return null;
+                                if (node.type === "panel") {
+                                  return (
+                                    <div 
+                                      className="flex-1 border border-foreground/10 bg-muted/30 flex items-center justify-center overflow-hidden m-0.5"
+                                      style={node.bgColor ? { backgroundColor: node.bgColor } : {}}
+                                    >
+                                      {node.imageUrl ? (
+                                        <img src={node.imageUrl} className="w-full h-full object-cover opacity-60 scale-95" />
+                                      ) : (
+                                        <span className="text-[6px] text-muted-foreground/60 font-black">P</span>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                const isRow = node.dir === "row";
+                                const pct = node.percent || 50;
+                                return (
+                                  <div className={cn("flex flex-1 w-full h-full min-w-0 min-h-0", isRow ? "flex-row" : "flex-col")}>
+                                    <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0">
+                                      <MiniGridTree node={node.c1} />
+                                    </div>
+                                    <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0">
+                                      <MiniGridTree node={node.c2} />
+                                    </div>
+                                  </div>
+                                );
+                              };
+                              return <MiniGridTree node={comic.pages[0].tree} />;
+                            })()}
+                          </div>
+                          {comic.pages[0].bubbles?.length > 0 && (
+                            <div className="absolute bottom-1 right-1 bg-primary text-primary-foreground text-[7px] font-black px-1">
+                              {comic.pages[0].bubbles.length} Bubbles
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {/* Hover Play Button Overlay */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-md transform scale-90 group-hover:scale-100 transition-transform">
+                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-foreground line-clamp-1 leading-tight group-hover:text-primary transition-colors">
+                        {comic.title}
+                      </h4>
+                      <div className="flex items-center gap-1 text-[9px] text-muted-foreground mt-1">
+                        <Clock className="w-2.5 h-2.5 shrink-0" />
+                        <span className="truncate">{formatTime(comic.timestamp)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-2">
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {comic.pages.length} page(s)
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await deleteUnfinishedComic(comic.id);
+                          getUnfinishedComics().then(setUnfinishedComics);
+                          toast.success("Comic project deleted");
+                        }}
+                        className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Unfinished Story list */}
+        {unfinishedStories.length > 0 && (
+          <div className="space-y-4 pt-8 border-t">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">Previous Unfinished Stories</h3>
+              <span className="text-xs text-muted-foreground font-mono">{unfinishedStories.length} item(s)</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {unfinishedStories.map((story) => (
+                <Card 
+                  key={story.id}
+                  onClick={() => {
+                    setCurrentStoryId(story.id);
+                    setStoryTitle(story.title);
+                    setLoadedHtmlContent(story.htmlContent);
+                    setCreateMode("document");
+                  }}
+                  className="group relative flex flex-col justify-between bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm animate-fade-in p-4 h-[140px]"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-xs font-bold text-foreground line-clamp-1 leading-tight group-hover:text-primary transition-colors">
+                        {story.title}
+                      </h4>
+                      <span className="text-[9px] font-bold text-primary px-1.5 py-0.5 bg-primary/10 shrink-0 uppercase">
+                        DOC
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground line-clamp-3 leading-relaxed mt-1">
+                      {getPreviewText(story.htmlContent) || "No text content written yet..."}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-auto shrink-0">
+                    <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                      <Clock className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">{formatTime(story.timestamp)}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await deleteUnfinishedStory(story.id);
+                        getUnfinishedStories().then(setUnfinishedStories);
+                        toast.success("Story project deleted");
+                      }}
+                      className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2283,6 +3049,13 @@ export const Create: React.FC<CreateProps> = ({
                 <ChevronLeft className="w-3.5 h-3.5" />{" "}
                 <span className="hidden sm:inline">Back</span>
               </Button>
+              <div className="w-px h-5 bg-border mx-1 shrink-0" />
+              <input
+                value={storyTitle}
+                onChange={(e) => setStoryTitle(e.target.value)}
+                className="bg-transparent border-none text-foreground font-bold text-xs sm:text-sm focus:outline-none focus:ring-0 max-w-[120px] sm:max-w-[200px]"
+                placeholder="Story Title"
+              />
               <div className="w-px h-5 bg-border mx-1 hidden sm:block shrink-0" />
               <div className="flex items-center gap-0.5">
                 <Button
@@ -2768,6 +3541,13 @@ export const Create: React.FC<CreateProps> = ({
               <span className="hidden sm:inline">Back</span>
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
+            <input
+              value={comicTitle}
+              onChange={(e) => setComicTitle(e.target.value)}
+              className="bg-transparent border-none text-foreground font-bold text-xs sm:text-sm focus:outline-none focus:ring-0 max-w-[120px] sm:max-w-[200px]"
+              placeholder="Comic Title"
+            />
+            <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
               <Button
                 variant={isDrawingMode ? "secondary" : "ghost"}
@@ -3088,71 +3868,84 @@ export const Create: React.FC<CreateProps> = ({
                         : "z-20"
                     }`}
                   >
-                    <div className={getBubbleStyleClass(b.style, !!b.points)}>
-                      {b.style === "freehand" && b.points && (
-                        <svg
-                          className="absolute inset-0 w-full h-full -z-10 overflow-visible"
-                          viewBox="0 0 100 100"
-                          preserveAspectRatio="none"
+                    {b.style === "classic" || b.style === "action" ? (
+                      <InteractiveBubble
+                        bubble={b}
+                        isActive={activeBubbleId === b.id}
+                        onUpdateTail={(tailX, tailY) => updateBubbleTail(b.id, tailX, tailY)}
+                        onUpdateText={(text) => {
+                          setNewBubbleText(text);
+                          updateBubbleText(b.id, text);
+                        }}
+                        removeBubble={() => removeBubble(b.id)}
+                      />
+                    ) : (
+                      <div className={getBubbleStyleClass(b.style, !!b.points)}>
+                        {b.style === "freehand" && b.points && (
+                          <svg
+                            className="absolute inset-0 w-full h-full -z-10 overflow-visible"
+                            viewBox="0 0 100 100"
+                            preserveAspectRatio="none"
+                          >
+                            <path
+                              d={getSvgPathFromNormalizedPoints(b.points)}
+                              fill="#ffffff"
+                              stroke="#0f172a"
+                              strokeWidth={3}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            removeBubble(b.id);
+                          }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            (window as any)._bubbleLongPress = setTimeout(() => {
+                              window.dispatchEvent(
+                                new CustomEvent("quote-to-agent", {
+                                  detail: { type: "text", text: b.text },
+                                }),
+                              );
+                            }, 500);
+                          }}
+                          onPointerUp={(e) => {
+                            if ((window as any)._bubbleLongPress)
+                              clearTimeout((window as any)._bubbleLongPress);
+                          }}
+                          onPointerLeave={(e) => {
+                            if ((window as any)._bubbleLongPress)
+                              clearTimeout((window as any)._bubbleLongPress);
+                          }}
+                          onPointerCancel={(e) => {
+                            if ((window as any)._bubbleLongPress)
+                              clearTimeout((window as any)._bubbleLongPress);
+                          }}
+                          onBlur={(e) => {
+                            const txt = e.currentTarget.innerText || "";
+                            updateBubbleText(b.id, txt);
+                          }}
+                          onInput={(e) => {
+                            const txt = e.currentTarget.innerText || "";
+                            setNewBubbleText(txt);
+                            updateBubbleText(b.id, txt);
+                          }}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                          }}
+                          className="text-xs break-words text-center min-w-[60px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text py-0.5 px-1 font-semibold"
+                          title="Double click outside text to delete bubble"
                         >
-                          <path
-                            d={getSvgPathFromNormalizedPoints(b.points)}
-                            fill="#fffbeb"
-                            stroke="#0f172a"
-                            strokeWidth={3}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
-                      <div
-                        contentEditable
-                        suppressContentEditableWarning
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          removeBubble(b.id);
-                        }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          (window as any)._bubbleLongPress = setTimeout(() => {
-                            window.dispatchEvent(
-                              new CustomEvent("quote-to-agent", {
-                                detail: { type: "text", text: b.text },
-                              }),
-                            );
-                          }, 500);
-                        }}
-                        onPointerUp={(e) => {
-                          if ((window as any)._bubbleLongPress)
-                            clearTimeout((window as any)._bubbleLongPress);
-                        }}
-                        onPointerLeave={(e) => {
-                          if ((window as any)._bubbleLongPress)
-                            clearTimeout((window as any)._bubbleLongPress);
-                        }}
-                        onPointerCancel={(e) => {
-                          if ((window as any)._bubbleLongPress)
-                            clearTimeout((window as any)._bubbleLongPress);
-                        }}
-                        onBlur={(e) => {
-                          const txt = e.currentTarget.innerText || "";
-                          updateBubbleText(b.id, txt);
-                        }}
-                        onInput={(e) => {
-                          const txt = e.currentTarget.innerText || "";
-                          setNewBubbleText(txt);
-                          updateBubbleText(b.id, txt);
-                        }}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                        }}
-                        className="text-xs break-words text-center min-w-[60px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text py-0.5 px-1 font-semibold"
-                        title="Double click outside text to delete bubble"
-                      >
-                        {b.text}
+                          {b.text}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -3223,6 +4016,16 @@ export const Create: React.FC<CreateProps> = ({
                         }}
                         className="w-full text-xs font-semibold p-2 border border-border bg-background h-16 resize-none rounded-none outline-none focus:border-primary"
                       />
+                      {newBubbleText && newBubbleText !== "Bubble dialogue..." && !activeBubbleId && (
+                        <div className="p-2 bg-indigo-50 border border-indigo-100 text-indigo-950 text-[10px] rounded-none mt-1 space-y-1 leading-normal">
+                          <p className="font-semibold text-indigo-900 flex items-center gap-1">
+                            ✏️ Manual Text Entered
+                          </p>
+                          <p>
+                            Draw a bubble outline on any panel with the <strong>Pen tool</strong>, then click <strong>Convert Hand-Drawn Bubble</strong> below to move this text inside that shape!
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-2">

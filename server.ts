@@ -1035,60 +1035,46 @@ STRICT INSTRUCTIONS:
 
       let transcribedText = "";
 
-      // Try Pollinations first by default to avoid API Key issues
-      const tryPollinationsFirst = engine !== 'gemini';
+      // Prioritize Google Gemini (official SDK) first if available because it has native vision support,
+      // whereas Pollinations no longer supports vision modalities in its models.
+      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
 
-      if (tryPollinationsFirst) {
-        try {
-          console.log("[API readHandwriting] Trying Free AI (Pollinations) first...");
-          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-          const openAiMessages = [
-            { role: "system", content: "You are a precise handwriting transcriber. Transcribe all text visible in this image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting." },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: fullBase64Url } }
-              ]
-            }
-          ];
-
-          const resText = await callPollinations(openAiMessages, "openai", false, 3);
-          transcribedText = resText ? resText.trim() : "";
-          console.log("[API readHandwriting] Free AI read handwriting successfully:", transcribedText);
-        } catch (pollError: any) {
-          console.log("[API readHandwriting] Free AI failed, falling back if possible...", pollError.message);
-        }
-      }
-
-      // If Pollinations failed or we explicitly want Gemini first
-      if (!transcribedText && ai) {
+      if (useGeminiFirst && ai) {
         try {
           console.log(`[API readHandwriting] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
           const promptText = "You are an expert handwriting reader and transcriber. In this cropped section of a hand-drawn comic, there is some handwritten text. Please transcribe the handwritten text EXACTLY as written. Output ONLY the plain transcribed text with no markdown, no quotes, no explanations, and no extra conversation. If you don't find any text, return an empty string.";
           
-          const result = await callWithRetry(() => {
-            return ai.models.generateContent({
-              model: targetModel,
-              contents: [{
-                parts: [
-                  { text: promptText },
-                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
-                ]
-              }]
-            });
-          }, res, "readHandwriting");
+          let response;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              response = await ai.models.generateContent({
+                model: targetModel,
+                contents: [{
+                  parts: [
+                    { text: promptText },
+                    { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                  ]
+                }]
+              });
+              break;
+            } catch (err: any) {
+              console.warn(`[API readHandwriting] Gemini attempt ${attempt} failed:`, err.message);
+              if (attempt === 3) throw err;
+              await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
+            }
+          }
 
-          if (result && result.text) {
-            transcribedText = result.text.trim();
+          if (response && response.text) {
+            transcribedText = response.text.trim();
             console.log("[API readHandwriting] Gemini read handwriting successfully:", transcribedText);
           }
         } catch (gemError: any) {
-          console.log("[API readHandwriting] Gemini fallback failed:", gemError.message);
+          console.error("[API readHandwriting] Gemini OCR failed:", gemError.message);
         }
       }
 
-      // Last-chance fallback if both failed but we haven't tried Pollinations yet
-      if (!transcribedText && !tryPollinationsFirst) {
+      // If Gemini was not available or failed, fallback to Pollinations as last resort
+      if (!transcribedText) {
         try {
           console.log("[API readHandwriting] Trying Pollinations fallback...");
           const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
@@ -1103,11 +1089,14 @@ STRICT INSTRUCTIONS:
           ];
           const resText = await callPollinations(openAiMessages, "openai", false, 3);
           transcribedText = resText ? resText.trim() : "";
-        } catch (err: any) {
-          console.log("[API readHandwriting] Pollinations fallback failed:", err.message);
+          console.log("[API readHandwriting] Pollinations fallback read handwriting successfully:", transcribedText);
+        } catch (pollError: any) {
+          console.log("[API readHandwriting] Pollinations fallback failed:", pollError.message);
         }
       }
 
+      // If we got here, always return a successful 200 response with whatever transcribed text (or empty) we have.
+      // This prevents the frontend from erroring and breaking the smooth vector outline generation.
       return res.json({ text: transcribedText });
 
     } catch (e: any) {

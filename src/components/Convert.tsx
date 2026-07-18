@@ -2440,6 +2440,16 @@ export default function Convert({
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
+  const [hasEditedTextOrImage, setHasEditedTextOrImage] = useState(false);
+
+  const hasTextOrImageEdits = () => {
+    if (hasEditedTextOrImage) return true;
+    for (const page of pages) {
+      if (page.manualImages && page.manualImages.length > 0) return true;
+      if (page.manualTexts && page.manualTexts.length > 0) return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     if (pages.length === 0) {
@@ -3051,18 +3061,7 @@ export default function Convert({
       }
       
       setPages(prev => [...prev, ...newPages]);
-      const leadFile = acceptedFiles[0];
-      if (leadFile) {
-        addConversionHistory({
-          id: 'conv-' + Date.now(),
-          sourceFileName: leadFile.name,
-          targetFormat: leadFile.name.substring(leadFile.name.lastIndexOf('.') + 1).toUpperCase() || 'Pages',
-          status: 'completed',
-          size: (leadFile.size / (1024 * 1024)).toFixed(2) + ' MB'
-        }).then(() => {
-          getConversionHistory().then(setConversionLogs);
-        });
-      }
+      setHasEditedTextOrImage(false);
       if (pages.length === 0 && newPages.length > 0) {
         setCurrentPageIndex(0);
         setViewMode('edit');
@@ -3920,6 +3919,7 @@ export default function Convert({
   };
 
   const handleSaveEdit = (index: number) => {
+    setHasEditedTextOrImage(true);
     setPages(prev => prev.map((p, idx) => {
       if (idx === currentPageIndex) {
         const sortedTexts = sortTextsReadingOrder(p.detectedTexts);
@@ -4159,15 +4159,17 @@ ${pagesHtml}</body>
     a.href = url;
     a.download = 'comic_export.html';
     a.click();
-    addConversionHistory({
-      id: 'conv-' + Date.now(),
-      sourceFileName: pages[0]?.filename || 'Comic Project',
-      targetFormat: 'HTML',
-      status: 'completed',
-      size: (blob.size / 1024).toFixed(1) + ' KB'
-    }).then(() => {
-      getConversionHistory().then(setConversionLogs);
-    });
+    if (hasTextOrImageEdits()) {
+      addConversionHistory({
+        id: 'conv-' + Date.now(),
+        sourceFileName: pages[0]?.filename || 'Comic Project',
+        targetFormat: 'HTML',
+        status: 'completed',
+        size: (blob.size / 1024).toFixed(1) + ' KB'
+      }).then(() => {
+        getConversionHistory().then(setConversionLogs);
+      });
+    }
     toast.success("HTML generated successfully!", { icon: "!" });
     setShowCoffeeModal(true);
     setTimeout(() => {
@@ -4298,15 +4300,17 @@ ${pagesHtml}</body>
       }
 
       pdf.save('comic_export.pdf');
-      addConversionHistory({
-        id: 'conv-' + Date.now(),
-        sourceFileName: pages[0]?.filename || 'Comic Project',
-        targetFormat: 'PDF',
-        status: 'completed',
-        size: 'N/A'
-      }).then(() => {
-        getConversionHistory().then(setConversionLogs);
-      });
+      if (hasTextOrImageEdits()) {
+        addConversionHistory({
+          id: 'conv-' + Date.now(),
+          sourceFileName: pages[0]?.filename || 'Comic Project',
+          targetFormat: 'PDF',
+          status: 'completed',
+          size: 'N/A'
+        }).then(() => {
+          getConversionHistory().then(setConversionLogs);
+        });
+      }
       toast.success("PDF generated successfully!");
       setShowCoffeeModal(true);
     } catch (error) {
@@ -4596,15 +4600,17 @@ ${navItems}    </ol>
     a.href = url;
     a.download = 'comic_book.epub';
     a.click();
-    addConversionHistory({
-      id: 'conv-' + Date.now(),
-      sourceFileName: pages[0]?.filename || 'Comic Project',
-      targetFormat: 'EPUB',
-      status: 'completed',
-      size: (content.size / 1024).toFixed(1) + ' KB'
-    }).then(() => {
-      getConversionHistory().then(setConversionLogs);
-    });
+    if (hasTextOrImageEdits()) {
+      addConversionHistory({
+        id: 'conv-' + Date.now(),
+        sourceFileName: pages[0]?.filename || 'Comic Project',
+        targetFormat: 'EPUB',
+        status: 'completed',
+        size: (content.size / 1024).toFixed(1) + ' KB'
+      }).then(() => {
+        getConversionHistory().then(setConversionLogs);
+      });
+    }
     toast.success("EPUB generated successfully!");
     setShowCoffeeModal(true);
   };
@@ -4638,15 +4644,17 @@ ${navItems}    </ol>
     a.download = 'comic_text.txt';
     a.click();
     URL.revokeObjectURL(url);
-    addConversionHistory({
-      id: 'conv-' + Date.now(),
-      sourceFileName: pages[0]?.filename || 'Comic Project',
-      targetFormat: 'TXT',
-      status: 'completed',
-      size: (blob.size / 1024).toFixed(1) + ' KB'
-    }).then(() => {
-      getConversionHistory().then(setConversionLogs);
-    });
+    if (hasTextOrImageEdits()) {
+      addConversionHistory({
+        id: 'conv-' + Date.now(),
+        sourceFileName: pages[0]?.filename || 'Comic Project',
+        targetFormat: 'TXT',
+        status: 'completed',
+        size: (blob.size / 1024).toFixed(1) + ' KB'
+      }).then(() => {
+        getConversionHistory().then(setConversionLogs);
+      });
+    }
     toast.success("Text exported successfully!");
     setShowCoffeeModal(true);
   };
@@ -4828,6 +4836,7 @@ ${navItems}    </ol>
             onClick={() => {
               setPages([]);
               setCurrentPageIndex(0);
+              setHasEditedTextOrImage(false);
             }}
           >
             <Trash2 className="w-4 h-4" />

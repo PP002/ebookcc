@@ -623,6 +623,7 @@ interface InteractiveBubbleProps {
   onUpdateTail: (tailX: number, tailY: number) => void;
   onUpdateText: (text: string) => void;
   removeBubble: () => void;
+  onActivate?: () => void;
 }
 
 const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
@@ -631,6 +632,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
   onUpdateTail,
   onUpdateText,
   removeBubble,
+  onActivate,
 }) => {
   const [dimensions, setDimensions] = useState({ w: 120, h: 60 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -860,13 +862,20 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         ref={containerRef}
         contentEditable
         suppressContentEditableWarning
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onActivate?.();
+        }}
         onDoubleClick={(e) => {
           e.stopPropagation();
           removeBubble();
         }}
+        onFocus={() => {
+          onActivate?.();
+        }}
         onPointerDown={(e) => {
           e.stopPropagation();
+          onActivate?.();
           (window as any)._bubbleLongPress = setTimeout(() => {
             window.dispatchEvent(
               new CustomEvent("quote-to-agent", {
@@ -999,6 +1008,42 @@ export const Create: React.FC<CreateProps> = ({
   const [storyTitle, setStoryTitle] = useState<string>("Untitled Story");
   const [loadedHtmlContent, setLoadedHtmlContent] = useState<string | null>(null);
 
+  const checkNodeForImagesOrDrawings = (node: TreeNode): boolean => {
+    if (!node) return false;
+    if (node.type === 'panel') {
+      if (node.imageUrl) return true;
+      if (node.drawings && node.drawings.length > 0) return true;
+      return false;
+    } else if (node.type === 'split') {
+      return checkNodeForImagesOrDrawings(node.c1) || checkNodeForImagesOrDrawings(node.c2);
+    }
+    return false;
+  };
+
+  const isComicDefaultState = (pages: ComicPage[]): boolean => {
+    if (!pages || pages.length !== 1) return false;
+    const page = pages[0];
+    if (!page.bubbles || page.bubbles.length !== 2) return false;
+    
+    const b1 = page.bubbles.find(b => b.text === "HELLO WORLD!");
+    const b2 = page.bubbles.find(b => b.text === "WHAT A COOL WORKSPACE!");
+    if (!b1 || !b2) return false;
+
+    if (checkNodeForImagesOrDrawings(page.tree)) return false;
+
+    return true;
+  };
+
+  const hasStoryEditedContent = (htmlContent: string): boolean => {
+    if (!htmlContent) return false;
+    if (htmlContent.includes("<img") || htmlContent.includes("<IMG")) return true;
+    
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = htmlContent;
+    const text = tempDiv.textContent || tempDiv.innerText || "";
+    return text.trim().length > 0;
+  };
+
   // Load lists on select screen
   useEffect(() => {
     if (createMode === "select") {
@@ -1016,15 +1061,17 @@ export const Create: React.FC<CreateProps> = ({
       if (!currentComicId) {
         setCurrentComicId(activeId);
       }
-      const timer = setTimeout(() => {
-        saveUnfinishedComic({
-          id: activeId,
-          title: comicTitle,
-          pages: comicPages,
-          activePageIndex,
-        });
-      }, 1000);
-      return () => clearTimeout(timer);
+      if (!isComicDefaultState(comicPages)) {
+        const timer = setTimeout(() => {
+          saveUnfinishedComic({
+            id: activeId,
+            title: comicTitle,
+            pages: comicPages,
+            activePageIndex,
+          });
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
     }
   }, [createMode, comicPages, activePageIndex, comicTitle, currentComicId]);
 
@@ -1649,22 +1696,28 @@ export const Create: React.FC<CreateProps> = ({
         setCurrentStoryId(activeId);
       }
       const handleInput = () => {
-        saveUnfinishedStory({
-          id: activeId,
-          title: storyTitle,
-          htmlContent: editorRef.current?.innerHTML || "",
-        });
+        const html = editorRef.current?.innerHTML || "";
+        if (hasStoryEditedContent(html)) {
+          saveUnfinishedStory({
+            id: activeId,
+            title: storyTitle,
+            htmlContent: html,
+          });
+        }
       };
       
       const el = editorRef.current;
       el.addEventListener("input", handleInput);
       
       // Also save when title changes
-      saveUnfinishedStory({
-        id: activeId,
-        title: storyTitle,
-        htmlContent: el.innerHTML,
-      });
+      const html = el.innerHTML;
+      if (hasStoryEditedContent(html)) {
+        saveUnfinishedStory({
+          id: activeId,
+          title: storyTitle,
+          htmlContent: html,
+        });
+      }
 
       return () => {
         el.removeEventListener("input", handleInput);
@@ -3815,6 +3868,9 @@ export const Create: React.FC<CreateProps> = ({
                           '[contenteditable="true"]',
                         )
                       ) {
+                        setActiveBubbleId(b.id);
+                        setNewBubbleText(b.text);
+                        setBubbleStyle(b.style);
                         return;
                       }
                       e.stopPropagation();
@@ -3878,6 +3934,11 @@ export const Create: React.FC<CreateProps> = ({
                           updateBubbleText(b.id, text);
                         }}
                         removeBubble={() => removeBubble(b.id)}
+                        onActivate={() => {
+                          setActiveBubbleId(b.id);
+                          setNewBubbleText(b.text);
+                          setBubbleStyle(b.style);
+                        }}
                       />
                     ) : (
                       <div className={getBubbleStyleClass(b.style, !!b.points)}>
@@ -3900,13 +3961,26 @@ export const Create: React.FC<CreateProps> = ({
                         <div
                           contentEditable
                           suppressContentEditableWarning
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveBubbleId(b.id);
+                            setNewBubbleText(b.text);
+                            setBubbleStyle(b.style);
+                          }}
                           onDoubleClick={(e) => {
                             e.stopPropagation();
                             removeBubble(b.id);
                           }}
+                          onFocus={() => {
+                            setActiveBubbleId(b.id);
+                            setNewBubbleText(b.text);
+                            setBubbleStyle(b.style);
+                          }}
                           onPointerDown={(e) => {
                             e.stopPropagation();
+                            setActiveBubbleId(b.id);
+                            setNewBubbleText(b.text);
+                            setBubbleStyle(b.style);
                             (window as any)._bubbleLongPress = setTimeout(() => {
                               window.dispatchEvent(
                                 new CustomEvent("quote-to-agent", {
@@ -3944,6 +4018,57 @@ export const Create: React.FC<CreateProps> = ({
                         >
                           {b.text}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Little Red Drag Handle with Red Cross Arrow Icon when active */}
+                    {activeBubbleId === b.id && (
+                      <div
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          setActiveBubbleId(b.id);
+                          setNewBubbleText(b.text);
+                          setBubbleStyle(b.style);
+                          const target = e.currentTarget as HTMLElement;
+                          const overlay = target.parentElement!;
+                          const parentOfOverlay = overlay.parentElement!; // comicRef container
+                          
+                          let initialX = e.clientX;
+                          let initialY = e.clientY;
+                          let startLeft = b.x;
+                          let startTop = b.y;
+
+                          const onPointerMove = (ev: PointerEvent) => {
+                            const rect = parentOfOverlay.getBoundingClientRect();
+                            const dX = ((ev.clientX - initialX) / rect.width) * 100;
+                            const dY = ((ev.clientY - initialY) / rect.height) * 100;
+                            updateActivePageBubbles(
+                              bubbles.map((bubble) =>
+                                bubble.id === b.id
+                                  ? {
+                                      ...bubble,
+                                      x: Math.max(0, Math.min(100, startLeft + dX)),
+                                      y: Math.max(0, Math.min(100, startTop + dY)),
+                                    }
+                                  : bubble,
+                              ),
+                            );
+                          };
+
+                          const onPointerUp = (ev: PointerEvent) => {
+                            target.releasePointerCapture(ev.pointerId);
+                            target.removeEventListener("pointermove", onPointerMove);
+                            target.removeEventListener("pointerup", onPointerUp);
+                          };
+
+                          target.setPointerCapture(e.pointerId);
+                          target.addEventListener("pointermove", onPointerMove);
+                          target.addEventListener("pointerup", onPointerUp);
+                        }}
+                        className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 border border-white rounded-full flex items-center justify-center cursor-move shadow-md z-50 text-white select-none touch-none hover:bg-red-600 transition-colors"
+                        title="Drag to move bubble"
+                      >
+                        <Move className="w-3 h-3 text-white stroke-[3px]" />
                       </div>
                     )}
                   </div>

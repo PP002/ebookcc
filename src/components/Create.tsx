@@ -3078,7 +3078,7 @@ export const Create: React.FC<CreateProps> = ({
       <div className="flex-1 bg-background flex flex-col overflow-hidden h-[100dvh]">
         <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0 no-print">
           <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
-            <div className="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar py-1">
+            <div className="flex items-center gap-0.5 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
@@ -3103,18 +3103,11 @@ export const Create: React.FC<CreateProps> = ({
                 <span className="hidden sm:inline">Back</span>
               </Button>
               <div className="w-px h-5 bg-border mx-1 shrink-0" />
-              <input
-                value={storyTitle}
-                onChange={(e) => setStoryTitle(e.target.value)}
-                className="bg-transparent border-none text-foreground font-bold text-xs sm:text-sm focus:outline-none focus:ring-0 max-w-[120px] sm:max-w-[200px]"
-                placeholder="Story Title"
-              />
-              <div className="w-px h-5 bg-border mx-1 hidden sm:block shrink-0" />
               <div className="flex items-center gap-0.5">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-2 shrink-0"
+                  className="gap-2 shrink-0 h-8 text-xs font-semibold"
                   onClick={insertImageToDoc}
                   title="Insert Image"
                 >
@@ -3124,9 +3117,9 @@ export const Create: React.FC<CreateProps> = ({
               </div>
             </div>
 
-            {floatingMenuProps.visible && (
-              <div className="flex-none flex items-center justify-center">
-                <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 border border-border/50">
+            <div className="flex-1 flex items-center justify-center mx-4">
+              {floatingMenuProps.visible ? (
+                <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 border border-border/50 shrink-0">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -3183,10 +3176,17 @@ export const Create: React.FC<CreateProps> = ({
                     <span className="hidden sm:inline">Ask AI</span>
                   </Button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <input
+                  value={storyTitle}
+                  onChange={(e) => setStoryTitle(e.target.value)}
+                  className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
+                  placeholder="Story Title"
+                />
+              )}
+            </div>
 
-            <div className="flex flex-1 items-center justify-end gap-2 pr-2">
+            <div className="flex items-center justify-end gap-2 pr-2 shrink-0">
               {renderExportMenu()}
             </div>
           </div>
@@ -3594,13 +3594,6 @@ export const Create: React.FC<CreateProps> = ({
               <span className="hidden sm:inline">Back</span>
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
-            <input
-              value={comicTitle}
-              onChange={(e) => setComicTitle(e.target.value)}
-              className="bg-transparent border-none text-foreground font-bold text-xs sm:text-sm focus:outline-none focus:ring-0 max-w-[120px] sm:max-w-[200px]"
-              placeholder="Comic Title"
-            />
-            <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
               <Button
                 variant={isDrawingMode ? "secondary" : "ghost"}
@@ -3617,80 +3610,90 @@ export const Create: React.FC<CreateProps> = ({
                 <span className="hidden sm:inline">Draw</span>
               </Button>
             </div>
+
+            {isDrawingMode && (
+              <>
+                <div className="w-px h-5 bg-border mx-1 shrink-0" />
+                <div className="flex items-center justify-center bg-muted/60 dark:bg-muted/30 rounded-full p-1 border border-border/40 gap-0.5 max-h-[34px] shrink-0">
+                  <Button
+                    variant={drawTool === "pen" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="w-7 h-7 rounded-full"
+                    onClick={() => setDrawTool("pen")}
+                    title="Pen (P)"
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant={drawTool === "erase" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="w-7 h-7 rounded-full"
+                    onClick={() => setDrawTool("erase")}
+                    title="Erase (E)"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant={drawTool === "fill" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="w-7 h-7 rounded-full"
+                    onClick={() => setDrawTool("fill")}
+                    title="Fill (F)"
+                  >
+                    <PaintBucket className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant={drawTool === "select" ? "secondary" : "ghost"}
+                    size="icon"
+                    className="w-7 h-7 rounded-full"
+                    onClick={() => setDrawTool("select")}
+                    title="Lasso (L)"
+                  >
+                    <LassoSelect className="w-3.5 h-3.5" />
+                  </Button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <Button
+                    variant={touchOff ? "secondary" : "ghost"}
+                    size="icon"
+                    className={cn(
+                      "w-7 h-7 rounded-full transition-all",
+                      touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                    )}
+                    onClick={() => setTouchOff(!touchOff)}
+                    title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
+                  >
+                    <Hand className="w-3.5 h-3.5" />
+                  </Button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <input
+                    type="color"
+                    value={drawColor}
+                    onChange={(e) => setDrawColor(e.target.value)}
+                    className="w-5 h-5 rounded cursor-pointer border-0 p-0"
+                    title="Color"
+                  />
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
+                    value={drawRadius}
+                    onChange={(e) => setDrawRadius(parseInt(e.target.value))}
+                    className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
+                    title="Brush Size"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Centered Draw Toolbar */}
-          <div className="flex-1 flex items-center justify-center">
-            {isDrawingMode && (
-              <div className="flex items-center justify-center bg-muted/60 dark:bg-muted/30 rounded-full p-1 border border-border/40 gap-0.5 max-h-[34px]">
-                <Button
-                  variant={drawTool === "pen" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="w-7 h-7 rounded-full"
-                  onClick={() => setDrawTool("pen")}
-                  title="Pen (P)"
-                >
-                  <PenTool className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant={drawTool === "erase" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="w-7 h-7 rounded-full"
-                  onClick={() => setDrawTool("erase")}
-                  title="Erase (E)"
-                >
-                  <Eraser className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant={drawTool === "fill" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="w-7 h-7 rounded-full"
-                  onClick={() => setDrawTool("fill")}
-                  title="Fill (F)"
-                >
-                  <PaintBucket className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant={drawTool === "select" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="w-7 h-7 rounded-full"
-                  onClick={() => setDrawTool("select")}
-                  title="Lasso (L)"
-                >
-                  <LassoSelect className="w-3.5 h-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <Button
-                  variant={touchOff ? "secondary" : "ghost"}
-                  size="icon"
-                  className={cn(
-                    "w-7 h-7 rounded-full transition-all",
-                    touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                  )}
-                  onClick={() => setTouchOff(!touchOff)}
-                  title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
-                >
-                  <Hand className="w-3.5 h-3.5" />
-                </Button>
-                <div className="w-px h-4 bg-border mx-1" />
-                <input
-                  type="color"
-                  value={drawColor}
-                  onChange={(e) => setDrawColor(e.target.value)}
-                  className="w-5 h-5 rounded cursor-pointer border-0 p-0"
-                  title="Color"
-                />
-                <input
-                  type="range"
-                  min="1"
-                  max="20"
-                  value={drawRadius}
-                  onChange={(e) => setDrawRadius(parseInt(e.target.value))}
-                  className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
-                  title="Brush Size"
-                />
-              </div>
-            )}
+          {/* Centered Comic Title */}
+          <div className="flex-1 flex items-center justify-center mx-4">
+            <input
+              value={comicTitle}
+              onChange={(e) => setComicTitle(e.target.value)}
+              className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
+              placeholder="Comic Title"
+            />
           </div>
 
           {/* Right Actions */}

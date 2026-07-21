@@ -41,7 +41,7 @@ const cbzConverterBg = "/features/cbz-converter.png";
 const aiAgentBg = "/features/ai-agent.png";
 const localProcessingBg = "/features/local-processing.png";
 const formatSupportBg = "/features/format-support.png";
-const balloonStylingBg = "/features/balloon-styling.png";
+const penSupportBg = "/features/pen-support.png";
 import { Slideshow } from "./components/Slideshow";
 import {
   AppSettingsProvider,
@@ -479,10 +479,10 @@ function AppContent() {
                   />
 
                   <FeatureCard
-                    bg={balloonStylingBg}
-                    icon={MessageCircle}
-                    title="Speech Balloon Styling"
-                    description="Overlay classic, action, or freehand dialogue bubbles onto any comic panel with intuitive touch drag, sizing, and custom styling."
+                    bg={penSupportBg}
+                    icon={PenTool}
+                    title="Pen Support"
+                    description="This app supports Wacom or Apple Pencil features like tilt and pressure sensitivity. Draw like a professional artist."
                   />
                 </div>
               </section>

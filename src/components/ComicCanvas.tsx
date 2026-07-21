@@ -1248,8 +1248,9 @@ const PanelView: React.FC<{
               />
             </div>
         ) : !isDrawingMode && (
-            <div className="absolute inset-0 flex items-center justify-center text-zinc-400 font-mono text-sm pointer-events-none" data-export-ignore="true">
-                Tap to insert image
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-zinc-400 font-mono text-sm pointer-events-none p-2" data-export-ignore="true">
+                <span>Tap to insert image</span>
+                <span className="text-xs text-zinc-400/70 mt-1">Double tap to remove</span>
             </div>
         )}
         {showAiIcon && node.imageUrl && (

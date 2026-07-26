@@ -6117,7 +6117,7 @@ ${navItems}    </ol>
               <div className="flex flex-col gap-2 w-full mt-2">
                 <a
                   id="ko-fi-modal-donate-btn"
-                  href="https://ko-fi.com/kollolliver"
+                  href="https://ko-fi.com"
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setShowCoffeeModal(false)}

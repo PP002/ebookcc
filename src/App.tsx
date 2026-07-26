@@ -605,7 +605,7 @@ function AppContent() {
 
             <div className="flex flex-col gap-2 w-full mt-2">
               <a
-                href="https://ko-fi.com/kollolliver"
+                href="https://ko-fi.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setShowCoffeeModal(false)}

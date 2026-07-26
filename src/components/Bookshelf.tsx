@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppSettings } from '@/context/AppSettingsContext';
+import { fetchPublishedWorksFromR2, deletePublishedWorkFromR2 } from '@/lib/r2Storage';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -367,15 +368,29 @@ export function Bookshelf({
   const [fontSize, setFontSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
   const shelfRef = useRef<HTMLDivElement>(null);
 
-  // Load books from localStorage
-  const loadBooks = () => {
+  // Load books from localStorage & Cloudflare R2 media storage
+  const loadBooks = async () => {
     try {
       const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
       const userPublished = JSON.parse(userPublishedJson);
-      setBooks(userPublished);
+      if (Array.isArray(userPublished)) {
+        setBooks(userPublished);
+      }
     } catch (e) {
       setBooks([]);
     }
+
+    try {
+      const res = await fetchPublishedWorksFromR2();
+      if (res.success && Array.isArray(res.works)) {
+        // Sync directly with authoritative R2 media storage.
+        // Removes any local book that no longer exists in R2 storage!
+        const r2Works = res.works;
+        const sorted = [...r2Works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
+        setBooks(sorted);
+      }
+    } catch (_) {}
   };
 
   useEffect(() => {
@@ -390,7 +405,7 @@ export function Bookshelf({
     // Continuous light polling to ensure seamless instant auto-sync across actions
     const syncInterval = setInterval(() => {
       loadBooks();
-    }, 1500);
+    }, 5000);
     
     return () => {
       window.removeEventListener('storage', handleSync);
@@ -420,7 +435,7 @@ export function Bookshelf({
     }
   };
 
-  const deletePublishedBook = (e: React.MouseEvent, id: string) => {
+  const deletePublishedBook = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (confirm("Are you sure you want to remove this book from the public bookshelf?")) {
       try {
@@ -428,8 +443,15 @@ export function Bookshelf({
         const userPublished = JSON.parse(userPublishedJson);
         const filtered = userPublished.filter((b: any) => b.id !== id);
         localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
-        loadBooks();
-        toast.success("Book removed successfully from the bookshelf.");
+        setBooks(filtered);
+
+        await deletePublishedWorkFromR2(id);
+
+        window.dispatchEvent(new Event("ebookcc_published"));
+        window.dispatchEvent(new Event("storage"));
+
+        await loadBooks();
+        toast.success("Book removed successfully from R2 media storage & bookshelf.");
       } catch (err) {
         toast.error("Failed to delete book.");
       }

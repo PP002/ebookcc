@@ -88,7 +88,9 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem('r2_secret_key') || "";
   });
   const [r2BucketName, setR2BucketName] = useState(() => {
-    return localStorage.getItem('r2_bucket_name') || "";
+    const saved = localStorage.getItem('r2_bucket_name');
+    if (!saved || saved === "ebookcc-assets") return "ebookcc-media";
+    return saved;
   });
   const [r2Endpoint, setR2Endpoint] = useState(() => {
     return localStorage.getItem('r2_endpoint') || "";

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Settings, Sparkles, Database, Cloud, ChevronDown, ChevronUp, User, LogOut } from 'lucide-react';
+import { Settings, Sparkles, Database, Cloud, ChevronDown, ChevronUp, User, LogOut, Loader2, CheckCircle2 } from 'lucide-react';
 import { useAppSettings } from '@/context/AppSettingsContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -20,10 +20,6 @@ export function AppSettingsDialog() {
     // Cloud Integrations & Auth
     supabaseUrl, setSupabaseUrl,
     supabaseAnonKey, setSupabaseAnonKey,
-    r2AccessKeyId, setR2AccessKeyId,
-    r2SecretAccessKey, setR2SecretAccessKey,
-    r2BucketName, setR2BucketName,
-    r2Endpoint, setR2Endpoint,
     user, setUser,
     showAuthDialog, setShowAuthDialog
   } = useAppSettings();
@@ -39,12 +35,6 @@ export function AppSettingsDialog() {
   // Cloud integrations local states
   const [localSubUrl, setLocalSubUrl] = useState(supabaseUrl);
   const [localSubKey, setLocalSubKey] = useState(supabaseAnonKey);
-  const [localR2Access, setLocalR2Access] = useState(r2AccessKeyId);
-  const [localR2Secret, setLocalR2Secret] = useState(r2SecretAccessKey);
-  const [localR2Bucket, setLocalR2Bucket] = useState(r2BucketName);
-  const [localR2Endpoint, setLocalR2Endpoint] = useState(r2Endpoint);
-  
-  const [showIntegrations, setShowIntegrations] = useState(false);
 
   useEffect(() => {
     if (showSettingsDialog) {
@@ -57,14 +47,10 @@ export function AppSettingsDialog() {
       
       setLocalSubUrl(supabaseUrl);
       setLocalSubKey(supabaseAnonKey);
-      setLocalR2Access(r2AccessKeyId);
-      setLocalR2Secret(r2SecretAccessKey);
-      setLocalR2Bucket(r2BucketName);
-      setLocalR2Endpoint(r2Endpoint);
     }
   }, [
     showSettingsDialog, geminiApiKey, stabilityApiKey, localLlmUrl, localLlmModel, localLlmApiKey, llmEngine,
-    supabaseUrl, supabaseAnonKey, r2AccessKeyId, r2SecretAccessKey, r2BucketName, r2Endpoint
+    supabaseUrl, supabaseAnonKey
   ]);
 
   const handleSave = () => {
@@ -77,10 +63,6 @@ export function AppSettingsDialog() {
     
     setSupabaseUrl(localSubUrl);
     setSupabaseAnonKey(localSubKey);
-    setR2AccessKeyId(localR2Access);
-    setR2SecretAccessKey(localR2Secret);
-    setR2BucketName(localR2Bucket);
-    setR2Endpoint(localR2Endpoint);
     
     toast.success("App settings saved successfully.");
     setShowSettingsDialog(false);

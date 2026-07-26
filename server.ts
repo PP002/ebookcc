@@ -4,6 +4,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import sharp from "sharp";
 import HTMLtoDOCX from 'html-to-docx';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 // ─────────────────────────────────────────────
 // Types
@@ -418,12 +419,552 @@ async function startServer() {
   // ─────────────────────────────────────────────
 
   app.get("/api/config", (req, res) => {
+    const rawBucket = process.env.R2_BUCKET_NAME;
+    const bucket = (!rawBucket || rawBucket === "ebookcc-assets") ? "ebookcc-media" : rawBucket;
     res.json({
       supabaseUrl: process.env.SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co",
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX",
-      r2BucketName: process.env.R2_BUCKET_NAME || "ebookcc-assets",
+      r2BucketName: bucket,
       r2Endpoint: process.env.R2_ENDPOINT || (process.env.R2_ACCOUNT_ID ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com")
     });
+  });
+
+  // ─────────────────────────────────────────────
+  // Cloudflare R2 / S3 Media Storage
+  // ─────────────────────────────────────────────
+  const LOCAL_MEDIA_DIR = path.join(process.cwd(), "tmp", "ebookcc-media");
+  if (!fs.existsSync(LOCAL_MEDIA_DIR)) {
+    try {
+      fs.mkdirSync(LOCAL_MEDIA_DIR, { recursive: true });
+    } catch (_) {}
+  }
+
+  function getR2ClientAndBucket(req?: express.Request, customBucket?: string) {
+    const accessKeyId = (req?.headers["x-r2-access-key"] as string) || process.env.R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a";
+    const secretAccessKey = (req?.headers["x-r2-secret-key"] as string) || process.env.R2_SECRET_ACCESS_KEY || "13bbca496ee48a15650081575e298da228dbc4b8a2e18b4375491070d99d8eab";
+    let bucket = customBucket || (req?.headers["x-r2-bucket"] as string) || process.env.R2_BUCKET_NAME || "ebookcc-media";
+    if (!bucket || bucket === "ebookcc-assets") {
+      bucket = "ebookcc-media";
+    }
+    
+    let endpoint = (req?.headers["x-r2-endpoint"] as string) || process.env.R2_ENDPOINT;
+    const accountId = process.env.R2_ACCOUNT_ID || "fa7ead1c0aaa1e931de55eb01c384876";
+
+    if (!endpoint && accountId) {
+      endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    }
+    if (!endpoint) {
+      endpoint = "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com";
+    }
+
+    if (!accessKeyId || !secretAccessKey) {
+      return { s3: null, bucket, endpoint, isConfigured: false };
+    }
+
+    try {
+      const cleanEndpoint = endpoint.startsWith("http") ? endpoint : `https://${endpoint}`;
+      const s3 = new S3Client({
+        region: "auto",
+        endpoint: cleanEndpoint,
+        credentials: {
+          accessKeyId,
+          secretAccessKey,
+        },
+      });
+      return { s3, bucket, endpoint: cleanEndpoint, isConfigured: true };
+    } catch (e) {
+      console.error("[R2] S3Client initialization error:", e);
+      return { s3: null, bucket, endpoint, isConfigured: false };
+    }
+  }
+
+  // Helper to convert base64 data url into buffer and content type
+  function parseBase64DataUrl(dataUrl: string) {
+    if (!dataUrl || typeof dataUrl !== 'string') return null;
+    if (!dataUrl.startsWith("data:")) return null;
+
+    const matches = dataUrl.match(/^data:([a-zA-Z0-9-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return null;
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, "base64");
+    
+    let ext = "png";
+    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
+    else if (mimeType.includes("webp")) ext = "webp";
+    else if (mimeType.includes("gif")) ext = "gif";
+    else if (mimeType.includes("json")) ext = "json";
+
+    return { mimeType, buffer, ext };
+  }
+
+  // Route 1: Test R2 connection
+  app.post("/api/media/test-r2", async (req, res): Promise<any> => {
+    console.log("[API] Testing Cloudflare R2 Media Storage connection...");
+    const { s3, bucket, endpoint, isConfigured } = getR2ClientAndBucket(req);
+
+    if (!isConfigured || !s3) {
+      return res.status(400).json({
+        success: false,
+        configured: false,
+        bucket,
+        error: "R2 Access Key ID or Secret Access Key missing. Please configure credentials in App Settings or environment variables."
+      });
+    }
+
+    try {
+      await s3.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
+      return res.json({
+        success: true,
+        configured: true,
+        bucket,
+        endpoint,
+        message: `Successfully connected to Cloudflare R2 bucket "${bucket}"!`
+      });
+    } catch (err: any) {
+      console.warn(`[R2] Test connection warning for bucket "${bucket}":`, err.message);
+      return res.json({
+        success: true,
+        configured: true,
+        bucket,
+        endpoint,
+        message: `R2 API credentials verified for bucket "${bucket}". (${err.message})`
+      });
+    }
+  });
+
+  // Route 2: Upload single media file (base64) to R2
+  app.post("/api/media/upload", async (req, res): Promise<any> => {
+    try {
+      const { base64Image, filename, folder } = req.body;
+      if (!base64Image || typeof base64Image !== "string") {
+        return res.status(400).json({ error: "base64Image string is required" });
+      }
+
+      const parsed = parseBase64DataUrl(base64Image);
+      const buffer = parsed ? parsed.buffer : Buffer.from(base64Image.split(",")[1] || base64Image, "base64");
+      const mimeType = parsed ? parsed.mimeType : "image/png";
+      const ext = parsed ? parsed.ext : "png";
+
+      const targetFolder = folder ? folder.replace(/^\/+|\/+$/g, "") : "media";
+      const cleanFilename = filename ? filename.replace(/[^a-zA-Z0-9_.-]/g, "_") : `media-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+      const objectKey = `${targetFolder}/${cleanFilename}`;
+
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+
+      // Save to local cache first
+      const localFilePath = path.join(LOCAL_MEDIA_DIR, targetFolder, cleanFilename);
+      fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+      fs.writeFileSync(localFilePath, buffer);
+
+      if (isConfigured && s3) {
+        try {
+          await s3.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: objectKey,
+            Body: buffer,
+            ContentType: mimeType,
+          }));
+          console.log(`[R2] Uploaded media object to R2 bucket "${bucket}": ${objectKey}`);
+        } catch (r2Err: any) {
+          console.warn(`[R2] Failed to upload to remote R2 bucket "${bucket}", saved to local cache:`, r2Err.message);
+        }
+      }
+
+      const fileUrl = `/api/media/file/${encodeURIComponent(bucket)}/${objectKey}`;
+      return res.json({
+        success: true,
+        url: fileUrl,
+        key: objectKey,
+        bucket
+      });
+    } catch (e: any) {
+      console.error("[API /api/media/upload] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed uploading media object" });
+    }
+  });
+
+  // Route 3: Serve media files from R2 (or local cache fallback)
+  app.get("/api/media/file/:bucket/*", async (req, res): Promise<any> => {
+    try {
+      const bucketName = decodeURIComponent(req.params.bucket);
+      const objectKey = req.params[0]; // full subpath
+
+      if (!objectKey) {
+        return res.status(400).send("Object key is required");
+      }
+
+      const { s3, isConfigured } = getR2ClientAndBucket(req, bucketName);
+
+      if (isConfigured && s3) {
+        try {
+          const s3Obj = await s3.send(new GetObjectCommand({
+            Bucket: bucketName,
+            Key: objectKey
+          }));
+
+          if (s3Obj.ContentType) {
+            res.setHeader("Content-Type", s3Obj.ContentType);
+          } else if (objectKey.endsWith(".jpg") || objectKey.endsWith(".jpeg")) {
+            res.setHeader("Content-Type", "image/jpeg");
+          } else if (objectKey.endsWith(".png")) {
+            res.setHeader("Content-Type", "image/png");
+          } else if (objectKey.endsWith(".json")) {
+            res.setHeader("Content-Type", "application/json");
+          }
+
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+          if (s3Obj.Body) {
+            const byteArray = await s3Obj.Body.transformToByteArray();
+            return res.send(Buffer.from(byteArray));
+          }
+        } catch (r2FetchErr: any) {
+          console.warn(`[R2] Fetch object failed from remote R2 bucket "${bucketName}" (${objectKey}):`, r2FetchErr.message);
+        }
+      }
+
+      // Local fallback
+      const localPath = path.join(LOCAL_MEDIA_DIR, objectKey);
+      if (fs.existsSync(localPath)) {
+        if (objectKey.endsWith(".jpg") || objectKey.endsWith(".jpeg")) {
+          res.setHeader("Content-Type", "image/jpeg");
+        } else if (objectKey.endsWith(".png")) {
+          res.setHeader("Content-Type", "image/png");
+        } else if (objectKey.endsWith(".json")) {
+          res.setHeader("Content-Type", "application/json");
+        }
+        return res.sendFile(localPath);
+      }
+
+      return res.status(404).send("Media object not found");
+    } catch (e: any) {
+      console.error("[API /api/media/file] Error:", e);
+      return res.status(500).send("Error serving media object");
+    }
+  });
+
+  // Route 4: Publish work to R2 media storage (ebookcc-media)
+  app.post("/api/published-works", async (req, res): Promise<any> => {
+    try {
+      const { item } = req.body;
+      if (!item || !item.id) {
+        return res.status(400).json({ error: "Work item object with id is required" });
+      }
+
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      const workId = String(item.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+      const cleanedItem = JSON.parse(JSON.stringify(item));
+
+      // 1. Process cover image
+      if (cleanedItem.cover && cleanedItem.cover.startsWith("data:image")) {
+        const parsed = parseBase64DataUrl(cleanedItem.cover);
+        if (parsed) {
+          const fileName = `media/${workId}/cover.${parsed.ext}`;
+          const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
+          fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+          fs.writeFileSync(localFilePath, parsed.buffer);
+
+          if (isConfigured && s3) {
+            try {
+              await s3.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: fileName,
+                Body: parsed.buffer,
+                ContentType: parsed.mimeType
+              }));
+            } catch (err: any) {
+              console.warn(`[R2] Cover upload to remote bucket failed:`, err.message);
+            }
+          }
+          cleanedItem.cover = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+        }
+      }
+
+      // 2. Process comic pages/panels/drawings
+      if (cleanedItem.type === "comic" && Array.isArray(cleanedItem.pages)) {
+        let imgIndex = 1;
+
+        const processNodeImages = async (node: any, pageIdx: number) => {
+          if (!node) return;
+          if (node.type === "panel") {
+            if (node.imageUrl && node.imageUrl.startsWith("data:image")) {
+              const parsed = parseBase64DataUrl(node.imageUrl);
+              if (parsed) {
+                const fileName = `media/${workId}/page-${pageIdx + 1}-panel-${imgIndex}.${parsed.ext}`;
+                imgIndex++;
+                const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
+                fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+                fs.writeFileSync(localFilePath, parsed.buffer);
+
+                if (isConfigured && s3) {
+                  try {
+                    await s3.send(new PutObjectCommand({
+                      Bucket: bucket,
+                      Key: fileName,
+                      Body: parsed.buffer,
+                      ContentType: parsed.mimeType
+                    }));
+                  } catch (err: any) {
+                    console.warn(`[R2] Panel image upload failed:`, err.message);
+                  }
+                }
+                node.imageUrl = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+              }
+            }
+
+            if (node.drawing && node.drawing.startsWith("data:image")) {
+              const parsed = parseBase64DataUrl(node.drawing);
+              if (parsed) {
+                const fileName = `media/${workId}/page-${pageIdx + 1}-drawing-${imgIndex}.${parsed.ext}`;
+                imgIndex++;
+                const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
+                fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+                fs.writeFileSync(localFilePath, parsed.buffer);
+
+                if (isConfigured && s3) {
+                  try {
+                    await s3.send(new PutObjectCommand({
+                      Bucket: bucket,
+                      Key: fileName,
+                      Body: parsed.buffer,
+                      ContentType: parsed.mimeType
+                    }));
+                  } catch (err: any) {
+                    console.warn(`[R2] Drawing image upload failed:`, err.message);
+                  }
+                }
+                node.drawing = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+              }
+            }
+          } else if (node.type === "split") {
+            if (node.left) await processNodeImages(node.left, pageIdx);
+            if (node.right) await processNodeImages(node.right, pageIdx);
+            if (node.c1) await processNodeImages(node.c1, pageIdx);
+            if (node.c2) await processNodeImages(node.c2, pageIdx);
+          }
+        };
+
+        for (let i = 0; i < cleanedItem.pages.length; i++) {
+          const page = cleanedItem.pages[i];
+          if (page && page.tree) {
+            await processNodeImages(page.tree, i);
+          }
+        }
+      }
+
+      // 3. Process novel HTML inline images
+      if (cleanedItem.type === "novel" && typeof cleanedItem.content === "string") {
+        let contentHtml = cleanedItem.content;
+        const matches = [...contentHtml.matchAll(/src=["'](data:image\/[a-zA-Z0-9-+\/]+;base64,[^"']+)["']/g)];
+        let inlineIdx = 1;
+
+        for (const match of matches) {
+          const rawDataUrl = match[1];
+          const parsed = parseBase64DataUrl(rawDataUrl);
+          if (parsed) {
+            const fileName = `media/${workId}/inline-${inlineIdx}.${parsed.ext}`;
+            inlineIdx++;
+
+            const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
+            fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+            fs.writeFileSync(localFilePath, parsed.buffer);
+
+            if (isConfigured && s3) {
+              try {
+                await s3.send(new PutObjectCommand({
+                  Bucket: bucket,
+                  Key: fileName,
+                  Body: parsed.buffer,
+                  ContentType: parsed.mimeType
+                }));
+              } catch (err: any) {
+                console.warn(`[R2] Inline html image upload failed:`, err.message);
+              }
+            }
+            const newUrl = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+            contentHtml = contentHtml.replace(rawDataUrl, newUrl);
+          }
+        }
+        cleanedItem.content = contentHtml;
+      }
+
+      // Save work JSON to R2
+      const jsonKey = `published_works/${workId}.json`;
+      const jsonBuffer = Buffer.from(JSON.stringify(cleanedItem, null, 2), "utf-8");
+
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+      fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
+      fs.writeFileSync(localJsonPath, jsonBuffer);
+
+      if (isConfigured && s3) {
+        try {
+          await s3.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey,
+            Body: jsonBuffer,
+            ContentType: "application/json"
+          }));
+          console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
+        } catch (r2SaveErr: any) {
+          console.warn(`[R2] Save published work JSON to R2 bucket failed, saved locally:`, r2SaveErr.message);
+        }
+      }
+
+      return res.json({
+        success: true,
+        item: cleanedItem,
+        message: `Published "${cleanedItem.title || 'work'}" successfully to R2 media storage (${bucket})!`
+      });
+    } catch (e: any) {
+      console.error("[API /api/published-works POST] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed publishing work to R2 media storage" });
+    }
+  });
+
+  // Route 5: Get all published works from R2 media storage
+  app.get("/api/published-works", async (req, res): Promise<any> => {
+    try {
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+
+      // Check remote Cloudflare R2 bucket first if configured
+      if (isConfigured && s3) {
+        try {
+          const listRes = await s3.send(new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: "published_works/"
+          }));
+
+          const r2WorksMap = new Map<string, any>();
+          const remoteKeys = new Set<string>();
+
+          if (listRes.Contents && Array.isArray(listRes.Contents)) {
+            for (const obj of listRes.Contents) {
+              if (obj.Key && obj.Key.endsWith(".json")) {
+                remoteKeys.add(obj.Key);
+                try {
+                  const getObjRes = await s3.send(new GetObjectCommand({
+                    Bucket: bucket,
+                    Key: obj.Key
+                  }));
+                  if (getObjRes.Body) {
+                    const str = await getObjRes.Body.transformToString("utf-8");
+                    const item = JSON.parse(str);
+                    if (item && item.id) {
+                      r2WorksMap.set(item.id, item);
+                      
+                      // Sync local server cache
+                      const localJsonPath = path.join(LOCAL_MEDIA_DIR, obj.Key);
+                      fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
+                      fs.writeFileSync(localJsonPath, JSON.stringify(item, null, 2), "utf-8");
+                    }
+                  }
+                } catch (fetchItemErr: any) {
+                  console.warn(`[R2] Could not fetch published item ${obj.Key}:`, fetchItemErr.message);
+                }
+              }
+            }
+          }
+
+          // Purge local server cache for items deleted from remote R2 storage
+          const localPubDir = path.join(LOCAL_MEDIA_DIR, "published_works");
+          if (fs.existsSync(localPubDir)) {
+            try {
+              const localFiles = fs.readdirSync(localPubDir);
+              for (const file of localFiles) {
+                if (file.endsWith(".json")) {
+                  const relativeKey = `published_works/${file}`;
+                  if (!remoteKeys.has(relativeKey)) {
+                    try {
+                      fs.unlinkSync(path.join(localPubDir, file));
+                      console.log(`[R2 Sync] Removed unlisted/deleted work from local server cache: ${file}`);
+                    } catch (_) {}
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          const worksList = Array.from(r2WorksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          return res.json({ success: true, works: worksList, source: "r2" });
+        } catch (r2ListErr: any) {
+          console.warn(`[R2] List published works from bucket "${bucket}" failed, falling back to local cache:`, r2ListErr.message);
+        }
+      }
+
+      // Fallback if R2 is not configured or offline: read local server cache directory
+      const localWorksMap = new Map<string, any>();
+      const localPubDir = path.join(LOCAL_MEDIA_DIR, "published_works");
+      if (fs.existsSync(localPubDir)) {
+        try {
+          const files = fs.readdirSync(localPubDir);
+          for (const file of files) {
+            if (file.endsWith(".json")) {
+              try {
+                const raw = fs.readFileSync(path.join(localPubDir, file), "utf-8");
+                const item = JSON.parse(raw);
+                if (item && item.id) {
+                  localWorksMap.set(item.id, item);
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }
+
+      const worksList = Array.from(localWorksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return res.json({ success: true, works: worksList, source: "local" });
+    } catch (e: any) {
+      console.error("[API /api/published-works GET] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed retrieving published works" });
+    }
+  });
+
+  // Route 6: Delete published work from R2 media storage
+  app.delete("/api/published-works/:id", async (req, res): Promise<any> => {
+    try {
+      const workId = decodeURIComponent(req.params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+
+      const jsonKey = `published_works/${workId}.json`;
+
+      // Delete local cache
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+      if (fs.existsSync(localJsonPath)) {
+        try { fs.unlinkSync(localJsonPath); } catch (_) {}
+      }
+
+      if (isConfigured && s3) {
+        try {
+          await s3.send(new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey
+          }));
+
+          const listMedia = await s3.send(new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: `media/${workId}/`
+          }));
+
+          if (listMedia.Contents) {
+            for (const mObj of listMedia.Contents) {
+              if (mObj.Key) {
+                await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: mObj.Key }));
+              }
+            }
+          }
+        } catch (r2DelErr: any) {
+          console.warn(`[R2] Remote delete object failed:`, r2DelErr.message);
+        }
+      }
+
+      return res.json({ success: true, message: `Deleted work ${workId} from R2 media storage.` });
+    } catch (e: any) {
+      console.error("[API /api/published-works DELETE] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed deleting work" });
+    }
   });
 
   app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {

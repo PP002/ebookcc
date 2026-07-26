@@ -58,6 +58,7 @@ import {
   UnfinishedComic,
   UnfinishedStory
 } from "@/lib/historyCache";
+import { publishWorkToR2, fetchPublishedWorksFromR2, deletePublishedWorkFromR2 } from "@/lib/r2Storage";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1424,7 +1425,7 @@ export const Create: React.FC<CreateProps> = ({
   // Published works state and actions for auth/local users
   const [publishedWorks, setPublishedWorks] = useState<any[]>([]);
 
-  const loadPublishedWorks = () => {
+  const loadPublishedWorks = async () => {
     try {
       const raw = localStorage.getItem("ebookcc_published_items") || "[]";
       const items = JSON.parse(raw);
@@ -1436,6 +1437,15 @@ export const Create: React.FC<CreateProps> = ({
     } catch (err) {
       setPublishedWorks([]);
     }
+
+    try {
+      const res = await fetchPublishedWorksFromR2();
+      if (res.success && Array.isArray(res.works)) {
+        const sorted = [...res.works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
+        setPublishedWorks(sorted);
+      }
+    } catch (_) {}
   };
 
   const handleQuickEditPublished = (item: any) => {
@@ -1461,7 +1471,7 @@ export const Create: React.FC<CreateProps> = ({
     }
   };
 
-  const handleDeletePublished = (e: React.MouseEvent, item: any) => {
+  const handleDeletePublished = async (e: React.MouseEvent, item: any) => {
     e.stopPropagation();
     if (!checkIsAuthor(item, user)) {
       toast.error(`Only the author (${item.author || "Owner"}) can delete this published work.`);
@@ -1473,7 +1483,14 @@ export const Create: React.FC<CreateProps> = ({
       const updated = items.filter((i: any) => i.id !== item.id);
       localStorage.setItem("ebookcc_published_items", JSON.stringify(updated));
       setPublishedWorks(updated);
-      toast.success(`Deleted "${item.title || 'item'}" from published works`);
+
+      await deletePublishedWorkFromR2(item.id);
+
+      window.dispatchEvent(new Event("ebookcc_published"));
+      window.dispatchEvent(new Event("storage"));
+
+      await loadPublishedWorks();
+      toast.success(`Deleted "${item.title || 'item'}" from R2 media storage & bookshelf`);
     } catch (err) {
       toast.error("Failed to delete published work");
     }
@@ -2800,7 +2817,7 @@ export const Create: React.FC<CreateProps> = ({
     }
   };
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
     const title = createMode === "document" ? storyTitle : comicTitle;
     if (!title || title.trim() === "" || title === "Untitled Story" || title === "Untitled Comic") {
       toast.error("Please provide a title before publishing your masterpiece!");
@@ -2828,9 +2845,6 @@ export const Create: React.FC<CreateProps> = ({
         return;
       }
     }
-
-    const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
-    const publishedItems = JSON.parse(publishedItemsJson);
 
     const activeId = createMode === "document" 
       ? (currentStoryId || "story-" + Date.now()) 
@@ -2873,14 +2887,25 @@ export const Create: React.FC<CreateProps> = ({
       timestamp: Date.now()
     };
 
-    // Filter out existing and prepend
-    const filtered = publishedItems.filter((item: any) => item.id !== newItem.id);
-    filtered.unshift(newItem);
+    const toastId = toast.loading("Saving work & media assets to cloud storage...");
+
+    // Publish to cloud media storage
+    const r2Result = await publishWorkToR2(newItem);
+    const itemToSave = r2Result.item || newItem;
+
+    const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
+    const publishedItems = JSON.parse(publishedItemsJson);
+    const filtered = publishedItems.filter((item: any) => item.id !== itemToSave.id);
+    filtered.unshift(itemToSave);
 
     localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+    setPublishedWorks(filtered);
+
     window.dispatchEvent(new Event("ebookcc_published"));
     window.dispatchEvent(new Event("storage"));
-    toast.success(`Published "${title}" successfully to the home page bookshelf!`);
+
+    toast.dismiss(toastId);
+    toast.success(`Published "${title}" successfully to cloud storage & bookshelf!`);
   };
 
   const handleExport = async (format: string) => {

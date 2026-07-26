@@ -37,7 +37,17 @@ import {
   Hand,
   Clock,
   Play,
+  Share2,
+  UserPlus,
+  Lock,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   saveUnfinishedComic,
   getUnfinishedComics,
@@ -935,11 +945,378 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
   );
 };
 
+function checkIsAuthor(item: any, user: any) {
+  if (!item) return false;
+  
+  // If work explicitly has an authorId or authorEmail attached from auth session
+  if (item.authorId || item.authorEmail) {
+    if (!user) return false;
+    if (item.authorId && user.id && item.authorId === user.id) return true;
+    if (item.authorEmail && user.email && item.authorEmail === user.email) return true;
+    return false;
+  }
+
+  // If work has an author name stored
+  if (item.author && item.author !== "Creative Publisher" && item.author !== "Author") {
+    if (!user) return false;
+    return item.author === user.name || item.author === user.email;
+  }
+
+  // Default / anonymous / local works created locally without user session
+  return true;
+}
+
+function MiniPageGrid({ node }: { node: any }) {
+  if (!node) return null;
+
+  if (node.type === "panel") {
+    return (
+      <div 
+        className="w-full h-full border border-slate-950/70 bg-slate-900 overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
+        style={{ backgroundColor: node.color || node.bg || undefined }}
+      >
+        {node.imageUrl ? (
+          <img src={node.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        ) : node.drawing ? (
+          <img src={node.drawing} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+        ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
+          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-[8px] text-slate-400 font-bold">
+            🎨
+          </div>
+        ) : (
+          <div className="w-full h-full bg-slate-900/80" />
+        )}
+      </div>
+    );
+  }
+
+  if (node.type === "split") {
+    const isRow = node.dir === "row";
+    const pct = node.percent || 50;
+    const c1 = node.c1 || node.left;
+    const c2 = node.c2 || node.right;
+
+    return (
+      <div className={`flex w-full h-full min-w-0 min-h-0 ${isRow ? "flex-row" : "flex-col"}`}>
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0">
+          <MiniPageGrid node={c1} />
+        </div>
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0">
+          <MiniPageGrid node={c2} />
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="w-full h-full bg-slate-900" />;
+}
+
+function CreateMetroTile({
+  book,
+  index,
+  user,
+  onEdit,
+  onDelete,
+}: {
+  book: any;
+  index: number;
+  user: any;
+  onEdit: (item: any) => void;
+  onDelete: (e: React.MouseEvent, item: any) => void;
+}) {
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  const isAuthor = checkIsAuthor(book, user);
+
+  // Unique hash seed per tile
+  const tileSeed = React.useMemo(() => {
+    let h = 0;
+    const str = (book.id || '') + (index || 0);
+    for (let i = 0; i < str.length; i++) h = (h << 5) - h + str.charCodeAt(i);
+    return Math.abs(h);
+  }, [book.id, index]);
+
+  // Extract full comic pages for live tile slideshow
+  const comicPagesList = React.useMemo(() => {
+    if (book.type !== 'comic') return [];
+    
+    if (book.pages && Array.isArray(book.pages) && book.pages.length > 0) {
+      return book.pages.map((page: any, idx: number) => {
+        let speechSnippet = "";
+        if (page?.bubbles && Array.isArray(page.bubbles)) {
+          const firstText = page.bubbles.find((b: any) => b?.text && b.text.trim());
+          if (firstText) speechSnippet = firstText.text.trim();
+        }
+
+        return {
+          pageNum: idx + 1,
+          tree: page?.tree || null,
+          image: page?.cover || page?.image || page?.imageUrl || null,
+          speechSnippet: speechSnippet,
+        };
+      });
+    }
+
+    return [{
+      pageNum: 1,
+      tree: null,
+      image: book.cover || null,
+      speechSnippet: book.description || '',
+    }];
+  }, [book]);
+
+  // Extract novel background image
+  const novelBgImage = React.useMemo(() => {
+    if (book.type !== 'novel') return null;
+    if (book.cover && book.cover.trim() !== '') return book.cover;
+    if (book.content) {
+      const match = book.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (match && match[1]) return match[1];
+    }
+    return null;
+  }, [book]);
+
+  // Extract novel text snippets
+  const novelSnippets = React.useMemo(() => {
+    if (book.type !== 'novel') return [];
+    const raw = book.content || book.description || '';
+    const clean = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    if (!clean) {
+      return [
+        'A creative story authored in eBookCC.',
+        `Written by ${book.author || 'Author'} • Tap to edit`,
+        'Published novel work in library.'
+      ];
+    }
+
+    const sentences = clean.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length > 1) {
+      const chunks: string[] = [];
+      let cur = "";
+      for (const s of sentences) {
+        if ((cur + " " + s).length > 85) {
+          if (cur.trim()) chunks.push(cur.trim());
+          cur = s;
+        } else {
+          cur += " " + s;
+        }
+      }
+      if (cur.trim()) chunks.push(cur.trim());
+      if (chunks.length > 1) return chunks;
+    }
+
+    return [
+      `"${clean}"`,
+      `Story by ${book.author || 'Unknown'} • Quick Edit in Workspace`,
+      `Excerpt: ${clean.length > 50 ? clean.slice(0, 50) + '...' : clean}`
+    ];
+  }, [book]);
+
+  const PAUSE_TIMES = React.useMemo(() => [3000, 4500, 6000, 7000], []);
+
+  const tilePauseSequence = React.useMemo(() => {
+    const shift = tileSeed % PAUSE_TIMES.length;
+    return [...PAUSE_TIMES.slice(shift), ...PAUSE_TIMES.slice(0, shift)];
+  }, [tileSeed, PAUSE_TIMES]);
+
+  const initialDelay = React.useMemo(() => {
+    return ((tileSeed * 1337 + index * 179) % 3500) + 500;
+  }, [tileSeed, index]);
+
+  const [hasStarted, setHasStarted] = useState(false);
+
+  const DIRECTIONS = React.useMemo(() => [
+    { initial: { x: "100%", y: "0%", opacity: 0 }, exit: { x: "-100%", y: "0%", opacity: 0 } },
+    { initial: { x: "-100%", y: "0%", opacity: 0 }, exit: { x: "100%", y: "0%", opacity: 0 } },
+    { initial: { x: "0%", y: "-100%", opacity: 0 }, exit: { x: "0%", y: "100%", opacity: 0 } },
+    { initial: { x: "0%", y: "100%", opacity: 0 }, exit: { x: "0%", y: "-100%", opacity: 0 } },
+  ], []);
+
+  useEffect(() => {
+    const listLen = book.type === 'comic' ? comicPagesList.length : novelSnippets.length;
+    if (listLen <= 1) return;
+
+    let timer: NodeJS.Timeout;
+
+    if (!hasStarted) {
+      timer = setTimeout(() => {
+        setHasStarted(true);
+        setSlideIndex(1);
+      }, initialDelay);
+    } else {
+      const currentPause = tilePauseSequence[slideIndex % tilePauseSequence.length];
+      timer = setTimeout(() => {
+        setSlideIndex((prev) => prev + 1);
+      }, currentPause);
+    }
+
+    return () => clearTimeout(timer);
+  }, [slideIndex, hasStarted, initialDelay, tilePauseSequence, book.type, comicPagesList.length, novelSnippets.length]);
+
+  const currentComicPage = comicPagesList[(slideIndex + tileSeed) % (comicPagesList.length || 1)] || comicPagesList[0];
+  const currentNovelSnippet = novelSnippets[(slideIndex + tileSeed) % (novelSnippets.length || 1)] || novelSnippets[0];
+  const currentDirection = DIRECTIONS[(slideIndex + tileSeed) % DIRECTIONS.length];
+
+  return (
+    <div
+      onClick={() => onEdit(book)}
+      className="flex-shrink-0 w-[180px] h-[240px] group relative flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden cursor-pointer select-none transition-all duration-300 hover:shadow-xl active:scale-95"
+    >
+      {/* BACKGROUND & METRO LIVE TILE CONTENT */}
+      {book.type === 'comic' ? (
+        <div className="absolute inset-0 bg-slate-950 overflow-hidden flex items-center justify-center p-1.5">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={`comic-page-${slideIndex}`}
+              initial={currentDirection.initial}
+              animate={{ x: "0%", y: "0%", opacity: 1 }}
+              exit={currentDirection.exit}
+              transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+              className="w-full h-full flex flex-col items-center justify-center overflow-hidden"
+            >
+              {currentComicPage?.tree ? (
+                <div className="w-full h-full p-1 bg-slate-950 border border-slate-800 flex flex-col overflow-hidden">
+                  <MiniPageGrid node={currentComicPage.tree} />
+                </div>
+              ) : currentComicPage?.image ? (
+                <img
+                  src={currentComicPage.image}
+                  alt={book.title}
+                  className="w-full h-full object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-amber-950 via-slate-900 to-amber-900 flex flex-col items-center justify-center p-4 text-center border border-amber-900/50">
+                  <Sparkles className="w-8 h-8 text-amber-400 mb-2 animate-pulse" />
+                  <span className="text-xs font-bold text-amber-200 line-clamp-2">{book.title}</span>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 bg-slate-900 overflow-hidden">
+          {novelBgImage ? (
+            <>
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.img
+                  key={`novel-bg-${slideIndex}`}
+                  src={novelBgImage}
+                  alt={book.title}
+                  initial={currentDirection.initial}
+                  animate={{ x: "0%", y: "0%", opacity: 0.35 }}
+                  exit={currentDirection.exit}
+                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </AnimatePresence>
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
+            </>
+          ) : (
+            <div className="w-full h-full bg-slate-900" />
+          )}
+        </div>
+      )}
+
+      {/* TOP HEADER BAR: METRO TYPE BADGE */}
+      <div className="relative z-10 p-2 flex items-center justify-between w-full">
+        <span
+          className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
+            book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
+          }`}
+        >
+          {book.type}
+        </span>
+      </div>
+
+      {/* MIDDLE DYNAMIC CONTENT AREA */}
+      <div className="relative z-10 px-3 py-1 flex-1 flex flex-col justify-center overflow-hidden">
+        {book.type === 'novel' ? (
+          <div className="relative w-full h-24 overflow-hidden flex items-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.p
+                key={`novel-text-${slideIndex}`}
+                initial={currentDirection.initial}
+                animate={{ x: "0%", y: "0%", opacity: 1 }}
+                exit={currentDirection.exit}
+                transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
+              >
+                {currentNovelSnippet}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        ) : (
+          currentComicPage?.speechSnippet && (
+            <div className="relative w-full overflow-hidden">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.p
+                  key={`comic-bubble-${slideIndex}`}
+                  initial={currentDirection.initial}
+                  animate={{ x: "0%", y: "0%", opacity: 1 }}
+                  exit={currentDirection.exit}
+                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                  className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                >
+                  💬 "{currentComicPage.speechSnippet}"
+                </motion.p>
+              </AnimatePresence>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* BOTTOM FOOTER: TITLE + QUICK EDIT & DELETE BUTTONS */}
+      <div className="relative z-10 px-2.5 py-2 bg-slate-950/95 border-t border-slate-800/80 backdrop-blur-sm flex flex-col gap-1.5">
+        <h4 className="text-xs font-black text-white truncate tracking-tight font-sans">
+          {book.title || "Untitled Work"}
+        </h4>
+        
+        {isAuthor ? (
+          <div className="flex items-center justify-between gap-1.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(book);
+              }}
+              className="flex-1 py-1 px-2 bg-primary text-primary-foreground hover:bg-primary/90 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
+            >
+              <PenTool className="w-3 h-3" />
+              Edit
+            </button>
+            <button
+              onClick={(e) => onDelete(e, book)}
+              className="p-1 bg-slate-900 border border-slate-800 hover:border-red-500/50 text-slate-400 hover:text-red-400 hover:bg-red-950/40 text-[10px] transition-colors flex items-center justify-center"
+              title="Delete Work"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
+            <span className="truncate flex items-center gap-1 max-w-[110px]">
+              <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
+              {book.author || "Author"}
+            </span>
+            <span className="text-[9px] font-mono bg-slate-900 border border-slate-800 px-1 py-0.5 text-slate-500">
+              Read-Only
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
 }) => {
-  const { llmEngine, geminiApiKey } = useAppSettings();
+  const { llmEngine, geminiApiKey, user, setShowAuthDialog } = useAppSettings();
+  const [showPublishAuthHint, setShowPublishAuthHint] = useState(false);
   const [createMode, setCreateMode] = useState<"select" | "comic" | "document">(
     "select",
   );
@@ -1044,13 +1421,135 @@ export const Create: React.FC<CreateProps> = ({
     return text.trim().length > 0;
   };
 
+  // Published works state and actions for auth/local users
+  const [publishedWorks, setPublishedWorks] = useState<any[]>([]);
+
+  const loadPublishedWorks = () => {
+    try {
+      const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+      const items = JSON.parse(raw);
+      if (Array.isArray(items)) {
+        setPublishedWorks(items);
+      } else {
+        setPublishedWorks([]);
+      }
+    } catch (err) {
+      setPublishedWorks([]);
+    }
+  };
+
+  const handleQuickEditPublished = (item: any) => {
+    if (!checkIsAuthor(item, user)) {
+      toast.error(`Only the author (${item.author || "Owner"}) can edit this published work.`);
+      return;
+    }
+    if (item.type === "comic" || (item.pages && Array.isArray(item.pages))) {
+      setCurrentComicId(item.id);
+      setComicTitle(item.title || "Untitled Comic");
+      if (item.pages && Array.isArray(item.pages)) {
+        setComicPagesState(item.pages);
+      }
+      setActivePageIndex(0);
+      setCreateMode("comic");
+      toast.success(`Loaded published comic "${item.title || 'Untitled'}" into workspace`);
+    } else {
+      setCurrentStoryId(item.id);
+      setStoryTitle(item.title || "Untitled Story");
+      setLoadedHtmlContent(item.content || "<h1><br></h1><p><br></p>");
+      setCreateMode("document");
+      toast.success(`Loaded published story "${item.title || 'Untitled'}" into workspace`);
+    }
+  };
+
+  const handleDeletePublished = (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    if (!checkIsAuthor(item, user)) {
+      toast.error(`Only the author (${item.author || "Owner"}) can delete this published work.`);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+      const items = JSON.parse(raw);
+      const updated = items.filter((i: any) => i.id !== item.id);
+      localStorage.setItem("ebookcc_published_items", JSON.stringify(updated));
+      setPublishedWorks(updated);
+      toast.success(`Deleted "${item.title || 'item'}" from published works`);
+    } catch (err) {
+      toast.error("Failed to delete published work");
+    }
+  };
+
   // Load lists on select screen
   useEffect(() => {
     if (createMode === "select") {
       getUnfinishedComics().then(setUnfinishedComics);
       getUnfinishedStories().then(setUnfinishedStories);
+      loadPublishedWorks();
       setCurrentComicId(null);
       setCurrentStoryId(null);
+    }
+  }, [createMode]);
+
+  // Load from external trigger (e.g. Bookshelf open in workspace)
+  useEffect(() => {
+    const triggerId = sessionStorage.getItem("ebookcc_open_workspace_id");
+    const triggerType = sessionStorage.getItem("ebookcc_open_workspace_type");
+    
+    if (triggerId && triggerType) {
+      sessionStorage.removeItem("ebookcc_open_workspace_id");
+      sessionStorage.removeItem("ebookcc_open_workspace_type");
+
+      if (triggerType === "novel") {
+        getUnfinishedStories().then((stories) => {
+          const match = stories.find(s => s.id === triggerId);
+          if (match) {
+            setCurrentStoryId(match.id);
+            setStoryTitle(match.title);
+            setLoadedHtmlContent(match.htmlContent);
+            setCreateMode("document");
+          } else {
+            // Check published list
+            try {
+              const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+              const found = pub.find((item: any) => item.id === triggerId);
+              if (found) {
+                setCurrentStoryId(found.id);
+                setStoryTitle(found.title);
+                setLoadedHtmlContent(found.content || "");
+                setCreateMode("document");
+              }
+            } catch (err) {
+              console.error("Failed loading from published books", err);
+            }
+          }
+        });
+      } else if (triggerType === "comic") {
+        getUnfinishedComics().then((comics) => {
+          const match = comics.find(c => c.id === triggerId);
+          if (match) {
+            setCurrentComicId(match.id);
+            setComicTitle(match.title);
+            setComicPagesState(match.pages);
+            setActivePageIndex(match.activePageIndex || 0);
+            setCreateMode("comic");
+          } else {
+            // Check published list
+            try {
+              const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+              const found = pub.find((item: any) => item.id === triggerId);
+              if (found && found.pages) {
+                setCurrentComicId(found.id);
+                setComicTitle(found.title);
+                setComicPagesState(found.pages);
+                setActivePageIndex(0);
+                setCreateMode("comic");
+              }
+            } catch (err) {
+              console.error("Failed loading from published books", err);
+            }
+          }
+        });
+      }
     }
   }, [createMode]);
 
@@ -2301,6 +2800,89 @@ export const Create: React.FC<CreateProps> = ({
     }
   };
 
+  const handlePublish = () => {
+    const title = createMode === "document" ? storyTitle : comicTitle;
+    if (!title || title.trim() === "" || title === "Untitled Story" || title === "Untitled Comic") {
+      toast.error("Please provide a title before publishing your masterpiece!");
+      return;
+    }
+
+    if (!user) {
+      setShowPublishAuthHint(true);
+      return;
+    }
+
+    if (createMode === "document") {
+      const htmlContent = editorRef.current?.innerHTML || loadedHtmlContent || "";
+      if (!hasStoryEditedContent(htmlContent)) {
+        toast.error("Cannot publish an empty novel! Please write some story content first.");
+        return;
+      }
+    } else if (createMode === "comic") {
+      const hasAnyContent = comicPages.some(page => 
+        checkNodeForImagesOrDrawings(page.tree) || 
+        (page.bubbles && page.bubbles.some(b => b.text && b.text.trim().length > 0))
+      );
+      if (!hasAnyContent) {
+        toast.error("Cannot publish an empty comic! Please add panel images, drawings, or speech bubbles first.");
+        return;
+      }
+    }
+
+    const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
+    const publishedItems = JSON.parse(publishedItemsJson);
+
+    const activeId = createMode === "document" 
+      ? (currentStoryId || "story-" + Date.now()) 
+      : (currentComicId || "comic-" + Date.now());
+
+    // Lookup cover image if present
+    let coverUrl = "";
+    if (createMode === "comic") {
+      const findFirstImage = (node: any): string | null => {
+        if (!node) return null;
+        if (node.type === "panel") {
+          return node.imageUrl || null;
+        } else if (node.type === "split") {
+          return findFirstImage(node.left) || findFirstImage(node.right);
+        }
+        return null;
+      };
+
+      let foundImg: string | null = null;
+      for (const page of comicPages) {
+        foundImg = findFirstImage(page.tree);
+        if (foundImg) break;
+      }
+      coverUrl = foundImg || "";
+    }
+
+    const newItem = {
+      id: activeId,
+      title: title.trim(),
+      author: user?.name || user?.email || "Creative Publisher",
+      authorEmail: user?.email,
+      authorId: user?.uid,
+      type: createMode === "document" ? "novel" : "comic",
+      cover: coverUrl,
+      description: createMode === "document" 
+        ? "A captivating novel authored in the eBookCC creative workspace." 
+        : `An action-packed visual comic strip with ${comicPages.length} custom layouts.`,
+      content: createMode === "document" ? (editorRef.current?.innerHTML || "") : undefined,
+      pages: createMode === "comic" ? comicPages : undefined,
+      timestamp: Date.now()
+    };
+
+    // Filter out existing and prepend
+    const filtered = publishedItems.filter((item: any) => item.id !== newItem.id);
+    filtered.unshift(newItem);
+
+    localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+    window.dispatchEvent(new Event("ebookcc_published"));
+    window.dispatchEvent(new Event("storage"));
+    toast.success(`Published "${title}" successfully to the home page bookshelf!`);
+  };
+
   const handleExport = async (format: string) => {
     toast.info(`Exporting as ${format.toUpperCase()}...`);
 
@@ -2781,7 +3363,12 @@ export const Create: React.FC<CreateProps> = ({
           <ChevronDown className="w-3 h-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onClick={handlePublish} className="cursor-pointer gap-2 font-medium">
+          <Share2 className="w-4 h-4 text-primary shrink-0" />
+          <span>Publish</span>
+        </DropdownMenuItem>
+        <div className="w-full h-px bg-border my-1" />
         {createMode === "document" ? (
           <>
             <DropdownMenuItem onClick={() => handleExport("pdf")}>
@@ -2899,6 +3486,64 @@ export const Create: React.FC<CreateProps> = ({
               <p className="text-xs text-muted-foreground">Write stories, novels, scripts, or screenplays with headings and inline illustrations.</p>
             </div>
           </Card>
+        </div>
+
+        {/* Published Works Section (Displayed for Auth / Local Users) */}
+        <div className="space-y-4 pt-8 border-t">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-black tracking-wider uppercase text-foreground flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-primary" />
+                Published Works
+              </h3>
+              {user ? (
+                <span className="text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <UserPlus className="w-3 h-3" />
+                  {user.name || user.email || "Auth User"}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+                  Local Library
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {!user && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-7 text-xs font-semibold"
+                  onClick={() => setShowAuthDialog(true)}
+                >
+                  <UserPlus className="w-3 h-3 mr-1" /> Sign In to Sync
+                </Button>
+              )}
+              <span className="text-xs text-muted-foreground font-mono">{publishedWorks.length} work(s)</span>
+            </div>
+          </div>
+
+          {publishedWorks.length === 0 ? (
+            <Card className="p-6 text-center bg-card/40 border border-dashed flex flex-col items-center justify-center gap-2 rounded-none">
+              <BookOpen className="w-8 h-8 text-muted-foreground/40" />
+              <p className="text-sm font-medium text-muted-foreground">No published works found.</p>
+              <p className="text-xs text-muted-foreground/80 max-w-sm">
+                Create a comic or story and click "Publish" in the editor header to feature it here and on the main bookshelf.
+              </p>
+            </Card>
+          ) : (
+            <div className="flex flex-wrap gap-5 items-center justify-start">
+              {publishedWorks.map((item, index) => (
+                <CreateMetroTile
+                  key={item.id}
+                  book={item}
+                  index={index}
+                  user={user}
+                  onEdit={handleQuickEditPublished}
+                  onDelete={handleDeletePublished}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Unfinished Comic list */}
@@ -4262,6 +4907,39 @@ export const Create: React.FC<CreateProps> = ({
         </div>
 
         {/* Drawing Mode Toolbar moved to top header bar */}
+        {/* Non-signed User Publish Hint Window */}
+        <Dialog open={showPublishAuthHint} onOpenChange={setShowPublishAuthHint}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader className="flex flex-col items-center text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
+                <UserPlus className="h-6 w-6" />
+              </div>
+              <DialogTitle className="text-lg font-bold">Sign In Required to Publish</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground pt-1 text-center">
+                Please create an account or sign in first to publish your story or comic to the public bookshelf.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-2 pt-3">
+              <Button
+                onClick={() => {
+                  setShowPublishAuthHint(false);
+                  setShowAuthDialog(true);
+                }}
+                className="w-full font-semibold gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                Sign In / Create Account
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowPublishAuthHint(false)}
+                className="w-full"
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

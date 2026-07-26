@@ -2551,7 +2551,8 @@ export default function Convert({
     localLlmModel,
     localLlmApiKey,
     setShowSettingsDialog: setShowApiKeyModal,
-    showSettingsDialog: showApiKeyModal
+    showSettingsDialog: showApiKeyModal,
+    user
   } = useAppSettings();
 
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
@@ -5292,10 +5293,25 @@ ${navItems}    </ol>
                   variant="ghost" 
                   size="icon" 
                   onClick={() => setShowApiKeyModal(true)} 
-                  className="w-8 h-8 rounded-md hover:bg-muted"
-                  title="App Settings"
+                  className="w-8 h-8 rounded-full hover:bg-muted overflow-hidden flex items-center justify-center p-0 shrink-0"
+                  title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
                 >
-                  <Settings className="w-5 h-5" />
+                  {user ? (
+                    (user.avatarUrl || user.photoURL) ? (
+                      <img
+                        src={user.avatarUrl || user.photoURL}
+                        alt={user.name || user.email}
+                        className="w-6.5 h-6.5 rounded-full object-cover shrink-0 ring-1 ring-border/60"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-6.5 h-6.5 rounded-full bg-primary text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
+                        {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
+                      </div>
+                    )
+                  ) : (
+                    <Settings className="w-5 h-5" />
+                  )}
                 </Button>
                 <Button 
                   variant="ghost" 

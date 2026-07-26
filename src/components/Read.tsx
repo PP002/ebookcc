@@ -105,6 +105,69 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     toast.success("Removed book from history.");
   };
 
+  // Listen for Bookshelf open in Reader
+  useEffect(() => {
+    const triggerId = sessionStorage.getItem("ebookcc_open_read_id");
+    const triggerType = sessionStorage.getItem("ebookcc_open_read_type");
+    
+    if (triggerId && triggerType) {
+      sessionStorage.removeItem("ebookcc_open_read_id");
+      sessionStorage.removeItem("ebookcc_open_read_type");
+
+      try {
+        const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+        const book = pub.find((item: any) => item.id === triggerId);
+        if (book) {
+          if (triggerType === "novel") {
+            setSelectedBook({
+              id: book.id,
+              title: book.title,
+              author: book.author || "Creative Publisher",
+              cover: book.cover || "",
+              chapters: 1,
+              rating: 5,
+              fileType: "text",
+              pages: [book.content || ""]
+            });
+            setCurrentPage(0);
+          } else if (triggerType === "comic") {
+            const extractImages = (pagesList: any[]): string[] => {
+              const images: string[] = [];
+              const findImages = (node: any) => {
+                if (!node) return;
+                if (node.type === "panel" && node.imageUrl) {
+                  images.push(node.imageUrl);
+                } else if (node.type === "split") {
+                  findImages(node.left);
+                  findImages(node.right);
+                }
+              };
+              for (const page of pagesList) {
+                if (page.tree) findImages(page.tree);
+              }
+              return images;
+            };
+
+            const images = extractImages(book.pages || []);
+            setSelectedBook({
+              id: book.id,
+              title: book.title,
+              author: book.author || "Creative Publisher",
+              cover: book.cover || "",
+              chapters: 1,
+              rating: 5,
+              fileType: "images",
+              pages: images.length > 0 ? images : [book.cover || ""]
+            });
+            setCurrentPage(0);
+          }
+        }
+      } catch (err) {
+        console.error("Failed loading from bookshelf", err);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (onFullscreenChange) {
       onFullscreenChange(isFullscreen);

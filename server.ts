@@ -417,6 +417,15 @@ async function startServer() {
   // Routes
   // ─────────────────────────────────────────────
 
+  app.get("/api/config", (req, res) => {
+    res.json({
+      supabaseUrl: process.env.SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co",
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX",
+      r2BucketName: process.env.R2_BUCKET_NAME || "ebookcc-assets",
+      r2Endpoint: process.env.R2_ENDPOINT || (process.env.R2_ACCOUNT_ID ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com")
+    });
+  });
+
   app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {
     console.log("[API] detectPanelsLocalYolo request received");
     try {

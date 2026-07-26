@@ -6,6 +6,7 @@
 import Convert from "./components/Convert";
 import { Read } from "./components/Read";
 import { Create } from "./components/Create";
+import { Bookshelf } from "./components/Bookshelf";
 import { AIAgentChat } from "./components/AIAgentChat";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -65,38 +66,38 @@ function FeatureCard({
   return (
     <div
       onClick={() => setExpanded((prev) => !prev)}
-      className="group relative overflow-hidden w-full border border-border/60 rounded-none bg-transparent flex flex-col cursor-pointer select-none"
+      className="group relative overflow-hidden w-full border-none rounded-md bg-card/40 hover:bg-card/80 transition-colors flex flex-col cursor-pointer select-none"
     >
       {/* 16:9 Image Area */}
-      <div className="relative w-full aspect-video overflow-hidden select-none bg-transparent">
+      <div className="relative w-full aspect-video overflow-hidden select-none bg-muted/20">
         <img
           src={bg}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
           referrerPolicy="no-referrer"
         />
         {/* Unfold Upward Description Overlay */}
         <div
           className={cn(
-            "absolute inset-x-0 bottom-0 bg-background/95 backdrop-blur-xs p-3 border-t border-border/40 transition-all duration-300 ease-out transform flex items-center justify-center min-h-full",
+            "absolute inset-x-0 bottom-0 bg-background/95 backdrop-blur-xs p-2 transition-all duration-200 ease-out transform flex items-center justify-center min-h-full",
             expanded 
               ? "translate-y-0 opacity-100" 
               : "translate-y-full opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
           )}
         >
-          <p className="text-[11px] text-muted-foreground leading-relaxed font-medium text-center">
+          <p className="text-[10px] text-muted-foreground leading-tight font-medium text-center">
             {description}
           </p>
         </div>
       </div>
 
       {/* Title Area */}
-      <div className="bg-transparent py-1 px-3 border-t border-border/60 z-10 relative flex items-center justify-center h-fit min-h-[24px]">
+      <div className="bg-transparent py-1 px-2 z-10 relative flex items-center justify-center h-fit min-h-[22px]">
         <h3
-          className="text-xs font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1.5 w-full leading-none"
+          className="text-[11px] font-extrabold uppercase font-mono text-foreground truncate flex items-center justify-center gap-1 w-full leading-none"
           title={title}
         >
-          <Icon className="w-3.5 h-3.5 text-primary shrink-0" />{" "}
+          <Icon className="w-3 h-3 text-primary shrink-0" />{" "}
           <span className="truncate leading-none">{title}</span>
         </h3>
       </div>
@@ -120,7 +121,7 @@ export default function App() {
 
 function AppContent() {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const { setShowSettingsDialog } = useAppSettings();
+  const { setShowSettingsDialog, user } = useAppSettings();
   const [currentPath, setCurrentPath] = useState<
     "home" | "read" | "create" | "convert"
   >(() => {
@@ -288,10 +289,25 @@ function AppContent() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowSettingsDialog(true)}
-                className="w-8.5 h-8.5 rounded-none hover:bg-muted text-foreground/80"
-                title="App Settings"
+                className="w-8.5 h-8.5 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0"
+                title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
               >
-                <Settings className="w-4 h-4" />
+                {user ? (
+                  (user.avatarUrl || user.photoURL) ? (
+                    <img
+                      src={user.avatarUrl || user.photoURL}
+                      alt={user.name || user.email}
+                      className="w-7 h-7 rounded-full object-cover shrink-0 ring-1 ring-border/60"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
+                      {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
+                    </div>
+                  )
+                ) : (
+                  <Settings className="w-4 h-4" />
+                )}
               </Button>
               {/* Dark Mode switcher */}
               <Button
@@ -318,7 +334,7 @@ function AppContent() {
       <main className="flex-1 flex flex-col min-h-0">
         {currentPath === "home" && (
           <div className="w-full overflow-y-auto h-full no-scrollbar">
-            <div className="max-w-6xl mx-auto py-8 px-4 space-y-12 w-full h-full">
+            <div className="w-full max-w-full py-8 px-4 sm:px-8 lg:px-12 space-y-12 h-full">
               <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-2 px-4">
                 <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground mt-4 uppercase font-mono">
                   Your Ultimate All-in-One E-book & Comic Suite
@@ -336,11 +352,11 @@ function AppContent() {
               <div className="grid md:grid-cols-3 gap-6 pt-4">
                 {/* Read Card */}
                 <Card
-                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  className="p-6 border-none rounded-lg shadow-none bg-card/60 hover:bg-card/90 cursor-pointer transition-all flex flex-col justify-between group h-64"
                   onClick={() => navigate("read")}
                 >
                   <div className="space-y-4">
-                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary transition-transform">
                       <BookOpen size={28} />
                     </div>
                     <div>
@@ -364,11 +380,11 @@ function AppContent() {
 
                 {/* Create Card */}
                 <Card
-                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  className="p-6 border-none rounded-lg shadow-none bg-card/60 hover:bg-card/90 cursor-pointer transition-all flex flex-col justify-between group h-64"
                   onClick={() => navigate("create")}
                 >
                   <div className="space-y-4">
-                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary transition-transform">
                       <PenTool size={28} />
                     </div>
                     <div>
@@ -392,11 +408,11 @@ function AppContent() {
 
                 {/* Convert Card */}
                 <Card
-                  className="p-6 border border-border rounded-none shadow-none bg-card hover:border-primary cursor-pointer transition-all flex flex-col justify-between group h-64"
+                  className="p-6 border-none rounded-lg shadow-none bg-card/60 hover:bg-card/90 cursor-pointer transition-all flex flex-col justify-between group h-64"
                   onClick={() => navigate("convert", "?upload=true")}
                 >
                   <div className="space-y-4">
-                    <div className="h-12 w-12 rounded-none bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary transition-transform">
                       <Wrench size={28} />
                     </div>
                     <div>
@@ -420,15 +436,29 @@ function AppContent() {
                 </Card>
               </div>
 
+              {/* Bookshelf of Published Works */}
+              <Bookshelf 
+                onOpenInWorkspace={(type, id) => {
+                  sessionStorage.setItem("ebookcc_open_workspace_type", type);
+                  sessionStorage.setItem("ebookcc_open_workspace_id", id);
+                  navigate("create");
+                }} 
+                onOpenInReader={(type, id) => {
+                  sessionStorage.setItem("ebookcc_open_read_type", type);
+                  sessionStorage.setItem("ebookcc_open_read_id", id);
+                  navigate("read");
+                }}
+              />
+
               {/* Restored Key Features list directly on landing page */}
               <section
-                className="max-w-5xl mx-auto py-8 border-t border-border/30"
+                className="w-full py-6 border-t border-border/30"
                 id="key-features"
               >
-                <h2 className="text-sm font-extrabold tracking-tight mb-6 text-center text-primary uppercase font-mono">
+                <h2 className="text-xs font-extrabold tracking-tight mb-4 text-center text-primary uppercase font-mono">
                   Key Suite Capabilities & Online Tools
                 </h2>
-                <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5">
                   <FeatureCard
                     bg={mangaBg}
                     icon={Languages}

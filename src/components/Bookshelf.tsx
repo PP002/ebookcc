@@ -1,0 +1,655 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useAppSettings } from '@/context/AppSettingsContext';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { 
+  BookOpen, Play, ChevronLeft, ChevronRight, X, Clock, Eye, 
+  Sparkles, ExternalLink, ZoomIn, Info, User
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface PublishedItem {
+  id: string;
+  title: string;
+  author: string;
+  type: 'comic' | 'novel';
+  cover: string;
+  description: string;
+  content?: string;
+  pages?: any[];
+  timestamp: number;
+}
+
+const defaultBooks: PublishedItem[] = [];
+
+// Mini helper component to render complete comic page tree layout
+function MiniPageGrid({ node }: { node: any }) {
+  if (!node) return null;
+
+  if (node.type === "panel") {
+    return (
+      <div 
+        className="w-full h-full border border-slate-950/70 bg-slate-900 overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
+        style={{ backgroundColor: node.color || node.bg || undefined }}
+      >
+        {node.imageUrl ? (
+          <img src={node.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        ) : node.drawing ? (
+          <img src={node.drawing} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+        ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
+          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-[8px] text-slate-400 font-bold">
+            🎨
+          </div>
+        ) : (
+          <div className="w-full h-full bg-slate-900/80" />
+        )}
+      </div>
+    );
+  }
+
+  if (node.type === "split") {
+    const isRow = node.dir === "row";
+    const pct = node.percent || 50;
+    const c1 = node.c1 || node.left;
+    const c2 = node.c2 || node.right;
+
+    return (
+      <div className={`flex w-full h-full min-w-0 min-h-0 ${isRow ? "flex-row" : "flex-col"}`}>
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0">
+          <MiniPageGrid node={c1} />
+        </div>
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0">
+          <MiniPageGrid node={c2} />
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="w-full h-full bg-slate-900" />;
+}
+
+function MetroBookTile({
+  book,
+  index,
+  onOpen,
+  onDelete,
+  isDefault
+}: {
+  book: PublishedItem;
+  index: number;
+  onOpen: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  isDefault: boolean;
+}) {
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  // Unique hash seed per tile to shuffle sliding timers and starting phases
+  const tileSeed = React.useMemo(() => {
+    let h = 0;
+    const str = (book.id || '') + (index || 0);
+    for (let i = 0; i < str.length; i++) h = (h << 5) - h + str.charCodeAt(i);
+    return Math.abs(h);
+  }, [book.id, index]);
+
+  // Extract full comic pages for live tile slideshow
+  const comicPagesList = React.useMemo(() => {
+    if (book.type !== 'comic') return [];
+    
+    if (book.pages && Array.isArray(book.pages) && book.pages.length > 0) {
+      return book.pages.map((page: any, idx: number) => {
+        let speechSnippet = "";
+        if (page?.bubbles && Array.isArray(page.bubbles)) {
+          const firstText = page.bubbles.find((b: any) => b?.text && b.text.trim());
+          if (firstText) speechSnippet = firstText.text.trim();
+        }
+
+        return {
+          pageNum: idx + 1,
+          tree: page?.tree || null,
+          image: page?.cover || page?.image || page?.imageUrl || null,
+          speechSnippet: speechSnippet,
+        };
+      });
+    }
+
+    return [{
+      pageNum: 1,
+      tree: null,
+      image: book.cover || null,
+      speechSnippet: book.description || '',
+    }];
+  }, [book]);
+
+  // Extract novel background image
+  const novelBgImage = React.useMemo(() => {
+    if (book.type !== 'novel') return null;
+    if (book.cover && book.cover.trim() !== '') return book.cover;
+    if (book.content) {
+      const match = book.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (match && match[1]) return match[1];
+    }
+    return null;
+  }, [book]);
+
+  // Extract novel text snippets for live tile rotation
+  const novelSnippets = React.useMemo(() => {
+    if (book.type !== 'novel') return [];
+    const raw = book.content || book.description || '';
+    const clean = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    if (!clean) {
+      return [
+        'A creative story authored in eBookCC.',
+        `Written by ${book.author || 'Author'} • Tap to read`,
+        'Published novel work in library.'
+      ];
+    }
+
+    const sentences = clean.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length > 1) {
+      const chunks: string[] = [];
+      let cur = "";
+      for (const s of sentences) {
+        if ((cur + " " + s).length > 85) {
+          if (cur.trim()) chunks.push(cur.trim());
+          cur = s;
+        } else {
+          cur += " " + s;
+        }
+      }
+      if (cur.trim()) chunks.push(cur.trim());
+      if (chunks.length > 1) return chunks;
+    }
+
+    return [
+      `"${clean}"`,
+      `Story by ${book.author || 'Unknown'} • Tap to read full novel`,
+      `Excerpt: ${clean.length > 50 ? clean.slice(0, 50) + '...' : clean}`
+    ];
+  }, [book]);
+
+  // Shuffled pause durations: 3s, 4.5s, 6s, 7s
+  const PAUSE_TIMES = React.useMemo(() => [3000, 4500, 6000, 7000], []);
+
+  // Unique permuted pause sequence for this specific tile
+  const tilePauseSequence = React.useMemo(() => {
+    const shift = tileSeed % PAUSE_TIMES.length;
+    return [...PAUSE_TIMES.slice(shift), ...PAUSE_TIMES.slice(0, shift)];
+  }, [tileSeed, PAUSE_TIMES]);
+
+  // Initial delay on mount so cards don't all trigger their first slide at the same time
+  const initialDelay = React.useMemo(() => {
+    return ((tileSeed * 1337 + index * 179) % 3500) + 500;
+  }, [tileSeed, index]);
+
+  const [hasStarted, setHasStarted] = useState(false);
+
+  // 4 Direction shuffle: left-to-right, right-to-left, top-to-bottom, bottom-to-top
+  const DIRECTIONS = React.useMemo(() => [
+    { initial: { x: "100%", y: "0%", opacity: 0 }, exit: { x: "-100%", y: "0%", opacity: 0 } }, // right-to-left
+    { initial: { x: "-100%", y: "0%", opacity: 0 }, exit: { x: "100%", y: "0%", opacity: 0 } }, // left-to-right
+    { initial: { x: "0%", y: "-100%", opacity: 0 }, exit: { x: "0%", y: "100%", opacity: 0 } }, // top-to-bottom
+    { initial: { x: "0%", y: "100%", opacity: 0 }, exit: { x: "0%", y: "-100%", opacity: 0 } }, // bottom-to-top
+  ], []);
+
+  // Live slideshow timer with individual staggered start delays and shuffled pause timings
+  useEffect(() => {
+    const listLen = book.type === 'comic' ? comicPagesList.length : novelSnippets.length;
+    if (listLen <= 1) return;
+
+    let timer: NodeJS.Timeout;
+
+    if (!hasStarted) {
+      timer = setTimeout(() => {
+        setHasStarted(true);
+        setSlideIndex(1);
+      }, initialDelay);
+    } else {
+      const currentPause = tilePauseSequence[slideIndex % tilePauseSequence.length];
+      timer = setTimeout(() => {
+        setSlideIndex((prev) => prev + 1);
+      }, currentPause);
+    }
+
+    return () => clearTimeout(timer);
+  }, [slideIndex, hasStarted, initialDelay, tilePauseSequence, book.type, comicPagesList.length, novelSnippets.length]);
+
+  const currentComicPage = comicPagesList[(slideIndex + tileSeed) % (comicPagesList.length || 1)] || comicPagesList[0];
+  const currentNovelSnippet = novelSnippets[(slideIndex + tileSeed) % (novelSnippets.length || 1)] || novelSnippets[0];
+  const currentDirection = DIRECTIONS[(slideIndex + tileSeed) % DIRECTIONS.length];
+
+  return (
+    <div
+      onClick={onOpen}
+      className="flex-shrink-0 w-[180px] h-[240px] group relative flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden cursor-pointer select-none transition-all duration-300 hover:shadow-xl active:scale-95"
+    >
+      {/* BACKGROUND & METRO LIVE TILE CONTENT */}
+      {book.type === 'comic' ? (
+        // COMIC METRO LIVE TILE: Display ENTIRE Page Layout in 3:4 aspect ratio box
+        <div className="absolute inset-0 bg-slate-950 overflow-hidden flex items-center justify-center p-1.5">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={`comic-page-${slideIndex}`}
+              initial={currentDirection.initial}
+              animate={{ x: "0%", y: "0%", opacity: 1 }}
+              exit={currentDirection.exit}
+              transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+              className="w-full h-full flex flex-col items-center justify-center overflow-hidden"
+            >
+              {currentComicPage?.tree ? (
+                <div className="w-full h-full p-1 bg-slate-950 border border-slate-800 flex flex-col overflow-hidden">
+                  <MiniPageGrid node={currentComicPage.tree} />
+                </div>
+              ) : currentComicPage?.image ? (
+                <img
+                  src={currentComicPage.image}
+                  alt={book.title}
+                  className="w-full h-full object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-amber-950 via-slate-900 to-amber-900 flex flex-col items-center justify-center p-4 text-center border border-amber-900/50">
+                  <Sparkles className="w-8 h-8 text-amber-400 mb-2 animate-pulse" />
+                  <span className="text-xs font-bold text-amber-200 line-clamp-2">{book.title}</span>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+          {/* Metro Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
+        </div>
+      ) : (
+        // NOVEL METRO LIVE TILE: Clean surface or background image without blue vertical line
+        <div className="absolute inset-0 bg-slate-900 overflow-hidden">
+          {novelBgImage ? (
+            <>
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.img
+                  key={`novel-bg-${slideIndex}`}
+                  src={novelBgImage}
+                  alt={book.title}
+                  initial={currentDirection.initial}
+                  animate={{ x: "0%", y: "0%", opacity: 0.35 }}
+                  exit={currentDirection.exit}
+                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </AnimatePresence>
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
+            </>
+          ) : (
+            // Clean, unadorned solid background (no blue vertical line)
+            <div className="w-full h-full bg-slate-900" />
+          )}
+        </div>
+      )}
+
+      {/* TOP HEADER BAR: METRO TYPE BADGE */}
+      <div className="relative z-10 p-2 flex items-center justify-between w-full">
+        <span
+          className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
+            book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
+          }`}
+        >
+          {book.type}
+        </span>
+      </div>
+
+      {/* MIDDLE DYNAMIC CONTENT AREA: SHUFFLED DIRECTION LIVE SLIDE */}
+      <div className="relative z-10 px-3 py-1 flex-1 flex flex-col justify-center overflow-hidden">
+        {book.type === 'novel' ? (
+          // Dynamic novel live text slide (no blue vertical accent line)
+          <div className="relative w-full h-24 overflow-hidden flex items-center">
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.p
+                key={`novel-text-${slideIndex}`}
+                initial={currentDirection.initial}
+                animate={{ x: "0%", y: "0%", opacity: 1 }}
+                exit={currentDirection.exit}
+                transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
+              >
+                {currentNovelSnippet}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        ) : (
+          // Dynamic comic speech bubble preview
+          currentComicPage?.speechSnippet && (
+            <div className="relative w-full overflow-hidden">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.p
+                  key={`comic-bubble-${slideIndex}`}
+                  initial={currentDirection.initial}
+                  animate={{ x: "0%", y: "0%", opacity: 1 }}
+                  exit={currentDirection.exit}
+                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                  className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                >
+                  💬 "{currentComicPage.speechSnippet}"
+                </motion.p>
+              </AnimatePresence>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* BOTTOM FOOTER METRO TILE TITLE & AUTHOR */}
+      <div className="relative z-10 px-3 py-2 bg-slate-950/90 border-t border-slate-800/80 backdrop-blur-sm">
+        <h4 className="text-xs font-black text-white truncate group-hover:text-primary transition-colors tracking-tight font-sans">
+          {book.title}
+        </h4>
+        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
+          <span className="truncate flex items-center gap-1 max-w-[160px]">
+            <User className="w-3 h-3 text-slate-400 shrink-0" />
+            {book.author}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Bookshelf({ 
+  onOpenInWorkspace,
+  onOpenInReader
+}: { 
+  onOpenInWorkspace?: (type: 'comic' | 'novel', id: string) => void;
+  onOpenInReader?: (type: 'comic' | 'novel', id: string) => void;
+}) {
+  const { user } = useAppSettings();
+  const [books, setBooks] = useState<PublishedItem[]>([]);
+  const [selectedBook, setSelectedBook] = useState<PublishedItem | null>(null);
+  const [activeComicPage, setActiveComicPage] = useState(0);
+  const [fontSize, setFontSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
+  const shelfRef = useRef<HTMLDivElement>(null);
+
+  // Load books from localStorage
+  const loadBooks = () => {
+    try {
+      const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
+      const userPublished = JSON.parse(userPublishedJson);
+      setBooks(userPublished);
+    } catch (e) {
+      setBooks([]);
+    }
+  };
+
+  useEffect(() => {
+    loadBooks();
+    
+    // Auto sync when local storage updates or custom events fire
+    const handleSync = () => loadBooks();
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('ebookcc_published', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    // Continuous light polling to ensure seamless instant auto-sync across actions
+    const syncInterval = setInterval(() => {
+      loadBooks();
+    }, 1500);
+    
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('ebookcc_published', handleSync);
+      window.removeEventListener('focus', handleSync);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
+  const scrollShelf = (direction: 'left' | 'right') => {
+    if (shelfRef.current) {
+      const scrollAmount = shelfRef.current.clientWidth * 0.75;
+      shelfRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const handleOpenBook = (book: PublishedItem) => {
+    if (onOpenInReader) {
+      onOpenInReader(book.type, book.id);
+    } else {
+      setSelectedBook(book);
+      setActiveComicPage(0);
+      toast.success(`Opening: ${book.title}`);
+    }
+  };
+
+  const deletePublishedBook = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (confirm("Are you sure you want to remove this book from the public bookshelf?")) {
+      try {
+        const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
+        const userPublished = JSON.parse(userPublishedJson);
+        const filtered = userPublished.filter((b: any) => b.id !== id);
+        localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+        loadBooks();
+        toast.success("Book removed successfully from the bookshelf.");
+      } catch (err) {
+        toast.error("Failed to delete book.");
+      }
+    }
+  };
+
+  const getFontSizeClass = () => {
+    switch (fontSize) {
+      case 'sm': return 'text-sm leading-relaxed';
+      case 'lg': return 'text-lg leading-relaxed';
+      case 'xl': return 'text-xl leading-loose';
+      default: return 'text-base leading-relaxed';
+    }
+  };
+
+  if (books.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="w-full py-8 border-t border-border/40 max-w-full" id="bookshelf-section">
+      <div className="w-full">
+        {/* Title & Stats */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <span className="text-[10px] uppercase font-bold tracking-widest text-primary px-2.5 py-1 bg-primary/10 rounded-full">
+              Published Works
+            </span>
+            <h2 className="text-2xl font-black tracking-tight text-foreground mt-2 flex items-center gap-2">
+              <BookOpen className="w-6 h-6 text-primary" />
+              Creative Bookshelf
+            </h2>
+          </div>
+        </div>
+
+        {/* Horizontal scroll shelf wrapper */}
+        <div className="relative group/shelf">
+          {/* Left / Right Flip Arrow Buttons */}
+          {books.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => scrollShelf('left')}
+                className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border shadow-xl text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover/shelf:opacity-100 sm:group-hover/shelf:translate-x-0 cursor-pointer"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollShelf('right')}
+                className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border shadow-xl text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover/shelf:opacity-100 sm:group-hover/shelf:translate-x-0 cursor-pointer"
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </>
+          )}
+
+          <div 
+            ref={shelfRef}
+            className="flex gap-6 overflow-x-auto pb-6 scroll-smooth select-none px-1 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          >
+            {books.map((book, idx) => (
+              <MetroBookTile
+                key={book.id}
+                book={book}
+                index={idx}
+                onOpen={() => handleOpenBook(book)}
+                onDelete={(e) => deletePublishedBook(e, book.id)}
+                isDefault={book.id.startsWith("default-")}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* IMMERSIVE READER DIALOG */}
+      <Dialog open={!!selectedBook} onOpenChange={() => setSelectedBook(null)}>
+        <DialogContent className="sm:max-w-[750px] max-h-[92vh] flex flex-col p-0 overflow-hidden border bg-background text-foreground shadow-2xl rounded-xl">
+          {selectedBook && (
+            <>
+              {/* Header Panel */}
+              <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-1.5 rounded ${selectedBook.type === 'comic' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground truncate max-w-[400px]">{selectedBook.title}</h3>
+                    <p className="text-xs text-muted-foreground">by {selectedBook.author}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Font Size controls for novel */}
+                  {selectedBook.type === 'novel' && (
+                    <div className="flex items-center gap-1 border rounded-md p-0.5 bg-background">
+                      <Button 
+                        variant={fontSize === 'sm' ? 'secondary' : 'ghost'} 
+                        size="icon" 
+                        className="h-6 w-6 text-[10px] font-bold"
+                        onClick={() => setFontSize('sm')}
+                      >
+                        A-
+                      </Button>
+                      <Button 
+                        variant={fontSize === 'md' ? 'secondary' : 'ghost'} 
+                        size="icon" 
+                        className="h-6 w-6 text-xs font-bold"
+                        onClick={() => setFontSize('md')}
+                      >
+                        A
+                      </Button>
+                      <Button 
+                        variant={fontSize === 'lg' ? 'secondary' : 'ghost'} 
+                        size="icon" 
+                        className="h-6 w-6 text-sm font-bold"
+                        onClick={() => setFontSize('lg')}
+                      >
+                        A+
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Open in Workspace trigger */}
+                  {onOpenInWorkspace && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-8 text-xs font-semibold gap-1.5"
+                      onClick={() => {
+                        const type = selectedBook.type;
+                        const id = selectedBook.id;
+                        setSelectedBook(null);
+                        onOpenInWorkspace(type, id);
+                      }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Workspace</span>
+                    </Button>
+                  )}
+
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 rounded-full" 
+                    onClick={() => setSelectedBook(null)}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* BOOK READER PANEL */}
+              <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-card/10">
+                {selectedBook.type === 'novel' ? (
+                  <article className="max-w-2xl mx-auto prose dark:prose-invert font-serif">
+                    <div 
+                      className={`${getFontSizeClass()} text-foreground/90 space-y-5`}
+                      dangerouslySetInnerHTML={{ __html: selectedBook.content || "<p className='italic text-muted-foreground'>This book contains no text content yet.</p>" }}
+                    />
+                  </article>
+                ) : (
+                  // COMIC SLIDE-BY-SLIDE VIEW
+                  <div className="flex flex-col items-center justify-center space-y-4">
+                    {selectedBook.pages && selectedBook.pages.length > 0 ? (
+                      <div className="relative max-w-lg w-full aspect-[3/4.2] rounded-lg border bg-muted/10 overflow-hidden shadow-md flex items-center justify-center">
+                        <img 
+                          src={selectedBook.pages[activeComicPage]?.tree?.imageUrl || selectedBook.cover} 
+                          alt={`Page ${activeComicPage + 1}`}
+                          className="w-full h-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute top-2 right-2 px-2 py-1 bg-black/75 text-white text-[10px] font-bold font-mono rounded">
+                          Page {activeComicPage + 1} of {selectedBook.pages.length}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-20 border-2 border-dashed rounded-lg bg-muted/10 max-w-sm">
+                        <Info className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">No active pages found for this published comic strip.</p>
+                      </div>
+                    )}
+
+                    {/* Pagination control footer for Comic */}
+                    {selectedBook.pages && selectedBook.pages.length > 0 && (
+                      <div className="flex items-center gap-4 pt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={activeComicPage === 0}
+                          onClick={() => setActiveComicPage(prev => Math.max(0, prev - 1))}
+                          className="h-8 px-3"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" />
+                          Previous
+                        </Button>
+                        <span className="text-xs font-bold font-mono">
+                          {activeComicPage + 1} / {selectedBook.pages.length}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={activeComicPage === selectedBook.pages.length - 1}
+                          onClick={() => setActiveComicPage(prev => Math.min(selectedBook.pages!.length - 1, prev + 1))}
+                          className="h-8 px-3"
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

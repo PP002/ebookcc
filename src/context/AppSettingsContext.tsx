@@ -1,7 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export type LlmEngine = 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen' | 'puter';
+
+export interface UserSession {
+  email: string;
+  name?: string;
+  uid: string;
+  avatarUrl?: string;
+  photoURL?: string;
+}
 
 export interface AppSettings {
   llmEngine: LlmEngine;
@@ -18,9 +27,43 @@ export interface AppSettings {
   setLocalLlmApiKey: (val: string) => void;
   showSettingsDialog: boolean;
   setShowSettingsDialog: (val: boolean) => void;
+  
+  // Supabase & Cloudflare R2 integrations
+  supabaseUrl: string;
+  setSupabaseUrl: (val: string) => void;
+  supabaseAnonKey: string;
+  setSupabaseAnonKey: (val: string) => void;
+  r2AccessKeyId: string;
+  setR2AccessKeyId: (val: string) => void;
+  r2SecretAccessKey: string;
+  setR2SecretAccessKey: (val: string) => void;
+  r2BucketName: string;
+  setR2BucketName: (val: string) => void;
+  r2Endpoint: string;
+  setR2Endpoint: (val: string) => void;
+  
+  // User Session
+  user: UserSession | null;
+  setUser: (val: UserSession | null) => void;
+  showAuthDialog: boolean;
+  setShowAuthDialog: (val: boolean) => void;
 }
 
 const AppSettingsContext = createContext<AppSettings | undefined>(undefined);
+
+// Lazy init supabase client
+let supabaseInstance: SupabaseClient | null = null;
+export function getSupabase(url: string, key: string): SupabaseClient | null {
+  if (!url || !key) return null;
+  if (!supabaseInstance) {
+    try {
+      supabaseInstance = createClient(url, key);
+    } catch (e) {
+      console.error("Supabase initialization error:", e);
+    }
+  }
+  return supabaseInstance;
+}
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [llmEngine, setLlmEngine] = useState<LlmEngine>(() => (localStorage.getItem('llm_engine') || 'pollinations') as LlmEngine);
@@ -30,6 +73,59 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [localLlmModel, setLocalLlmModel] = useState(() => localStorage.getItem('local_llm_model') || "llama3");
   const [localLlmApiKey, setLocalLlmApiKey] = useState(() => localStorage.getItem('local_llm_api_key') || "");
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+
+  // Supabase & Cloudflare R2 states
+  const [supabaseUrl, setSupabaseUrl] = useState(() => {
+    return localStorage.getItem('supabase_url') || "";
+  });
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
+    return localStorage.getItem('supabase_anon_key') || "";
+  });
+  const [r2AccessKeyId, setR2AccessKeyId] = useState(() => {
+    return localStorage.getItem('r2_access_key') || "";
+  });
+  const [r2SecretAccessKey, setR2SecretAccessKey] = useState(() => {
+    return localStorage.getItem('r2_secret_key') || "";
+  });
+  const [r2BucketName, setR2BucketName] = useState(() => {
+    return localStorage.getItem('r2_bucket_name') || "";
+  });
+  const [r2Endpoint, setR2Endpoint] = useState(() => {
+    return localStorage.getItem('r2_endpoint') || "";
+  });
+
+  // Fetch safe configuration from backend on mount
+  useEffect(() => {
+    fetch("/api/config")
+      .then(res => {
+        if (!res.ok) throw new Error("Config fetch failed");
+        return res.json();
+      })
+      .then(data => {
+        if (data.supabaseUrl && !localStorage.getItem('supabase_url')) {
+          setSupabaseUrl(data.supabaseUrl);
+        }
+        if (data.supabaseAnonKey && !localStorage.getItem('supabase_anon_key')) {
+          setSupabaseAnonKey(data.supabaseAnonKey);
+        }
+        if (data.r2BucketName && !localStorage.getItem('r2_bucket_name')) {
+          setR2BucketName(data.r2BucketName);
+        }
+        if (data.r2Endpoint && !localStorage.getItem('r2_endpoint')) {
+          setR2Endpoint(data.r2Endpoint);
+        }
+      })
+      .catch(err => {
+        console.warn("Could not retrieve secure configuration from backend server, using default or local values.", err);
+      });
+  }, []);
+
+  // Auth User state
+  const [user, setUser] = useState<UserSession | null>(() => {
+    const saved = localStorage.getItem('auth_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [showAuthDialog, setShowAuthDialog] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('llm_engine', llmEngine);
@@ -58,6 +154,49 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem('local_llm_api_key');
   }, [localLlmApiKey]);
 
+  // Save integration keys
+  useEffect(() => {
+    if (supabaseUrl) localStorage.setItem('supabase_url', supabaseUrl);
+    else localStorage.removeItem('supabase_url');
+    // reset client on key change
+    supabaseInstance = null;
+  }, [supabaseUrl]);
+
+  useEffect(() => {
+    if (supabaseAnonKey) localStorage.setItem('supabase_anon_key', supabaseAnonKey);
+    else localStorage.removeItem('supabase_anon_key');
+    supabaseInstance = null;
+  }, [supabaseAnonKey]);
+
+  useEffect(() => {
+    if (r2AccessKeyId) localStorage.setItem('r2_access_key', r2AccessKeyId);
+    else localStorage.removeItem('r2_access_key');
+  }, [r2AccessKeyId]);
+
+  useEffect(() => {
+    if (r2SecretAccessKey) localStorage.setItem('r2_secret_key', r2SecretAccessKey);
+    else localStorage.removeItem('r2_secret_key');
+  }, [r2SecretAccessKey]);
+
+  useEffect(() => {
+    if (r2BucketName) localStorage.setItem('r2_bucket_name', r2BucketName);
+    else localStorage.removeItem('r2_bucket_name');
+  }, [r2BucketName]);
+
+  useEffect(() => {
+    if (r2Endpoint) localStorage.setItem('r2_endpoint', r2Endpoint);
+    else localStorage.removeItem('r2_endpoint');
+  }, [r2Endpoint]);
+
+  // Persist user session
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('auth_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('auth_user');
+    }
+  }, [user]);
+
   return (
     <AppSettingsContext.Provider value={{
       llmEngine, setLlmEngine,
@@ -66,7 +205,19 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       localLlmUrl, setLocalLlmUrl,
       localLlmModel, setLocalLlmModel,
       localLlmApiKey, setLocalLlmApiKey,
-      showSettingsDialog, setShowSettingsDialog
+      showSettingsDialog, setShowSettingsDialog,
+      
+      // Integrations
+      supabaseUrl, setSupabaseUrl,
+      supabaseAnonKey, setSupabaseAnonKey,
+      r2AccessKeyId, setR2AccessKeyId,
+      r2SecretAccessKey, setR2SecretAccessKey,
+      r2BucketName, setR2BucketName,
+      r2Endpoint, setR2Endpoint,
+      
+      // User Auth
+      user, setUser,
+      showAuthDialog, setShowAuthDialog
     }}>
       {children}
     </AppSettingsContext.Provider>

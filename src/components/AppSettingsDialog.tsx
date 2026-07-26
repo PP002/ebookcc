@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Settings, Sparkles } from 'lucide-react';
+import { Settings, Sparkles, Database, Cloud, ChevronDown, ChevronUp, User, LogOut } from 'lucide-react';
 import { useAppSettings } from '@/context/AppSettingsContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AuthDialog } from './AuthDialog';
 
 export function AppSettingsDialog() {
   const { 
@@ -14,7 +15,17 @@ export function AppSettingsDialog() {
     localLlmUrl, setLocalLlmUrl,
     localLlmModel, setLocalLlmModel,
     localLlmApiKey, setLocalLlmApiKey,
-    showSettingsDialog, setShowSettingsDialog
+    showSettingsDialog, setShowSettingsDialog,
+    
+    // Cloud Integrations & Auth
+    supabaseUrl, setSupabaseUrl,
+    supabaseAnonKey, setSupabaseAnonKey,
+    r2AccessKeyId, setR2AccessKeyId,
+    r2SecretAccessKey, setR2SecretAccessKey,
+    r2BucketName, setR2BucketName,
+    r2Endpoint, setR2Endpoint,
+    user, setUser,
+    showAuthDialog, setShowAuthDialog
   } = useAppSettings();
 
   // Local state for the form so we don't save on every keystroke unless wanted
@@ -25,6 +36,16 @@ export function AppSettingsDialog() {
   const [localApiKey, setLocalApiKey] = useState(localLlmApiKey);
   const [localEngine, setLocalEngine] = useState(llmEngine);
 
+  // Cloud integrations local states
+  const [localSubUrl, setLocalSubUrl] = useState(supabaseUrl);
+  const [localSubKey, setLocalSubKey] = useState(supabaseAnonKey);
+  const [localR2Access, setLocalR2Access] = useState(r2AccessKeyId);
+  const [localR2Secret, setLocalR2Secret] = useState(r2SecretAccessKey);
+  const [localR2Bucket, setLocalR2Bucket] = useState(r2BucketName);
+  const [localR2Endpoint, setLocalR2Endpoint] = useState(r2Endpoint);
+  
+  const [showIntegrations, setShowIntegrations] = useState(false);
+
   useEffect(() => {
     if (showSettingsDialog) {
       setLocalGeminiKey(geminiApiKey);
@@ -33,8 +54,18 @@ export function AppSettingsDialog() {
       setLocalModel(localLlmModel);
       setLocalApiKey(localLlmApiKey);
       setLocalEngine(llmEngine);
+      
+      setLocalSubUrl(supabaseUrl);
+      setLocalSubKey(supabaseAnonKey);
+      setLocalR2Access(r2AccessKeyId);
+      setLocalR2Secret(r2SecretAccessKey);
+      setLocalR2Bucket(r2BucketName);
+      setLocalR2Endpoint(r2Endpoint);
     }
-  }, [showSettingsDialog, geminiApiKey, stabilityApiKey, localLlmUrl, localLlmModel, localLlmApiKey, llmEngine]);
+  }, [
+    showSettingsDialog, geminiApiKey, stabilityApiKey, localLlmUrl, localLlmModel, localLlmApiKey, llmEngine,
+    supabaseUrl, supabaseAnonKey, r2AccessKeyId, r2SecretAccessKey, r2BucketName, r2Endpoint
+  ]);
 
   const handleSave = () => {
     setGeminiApiKey(localGeminiKey);
@@ -44,234 +75,298 @@ export function AppSettingsDialog() {
     setLocalLlmApiKey(localApiKey);
     setLlmEngine(localEngine);
     
+    setSupabaseUrl(localSubUrl);
+    setSupabaseAnonKey(localSubKey);
+    setR2AccessKeyId(localR2Access);
+    setR2SecretAccessKey(localR2Secret);
+    setR2BucketName(localR2Bucket);
+    setR2Endpoint(localR2Endpoint);
+    
     toast.success("App settings saved successfully.");
     setShowSettingsDialog(false);
   };
 
+  const handleLogout = () => {
+    setUser(null);
+    toast.success("Signed out successfully.");
+  };
+
   return (
-    <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-            <Settings className="w-5 h-5 text-primary" />
-            App Settings
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Settings className="w-5 h-5 text-primary" />
+              App Settings
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Engine Selector Dropdown */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold">AI Provider</label>
-            <select
-              value={localEngine}
-              onChange={(e) => {
-                const engine = e.target.value as any;
-                setLocalEngine(engine);
-                if (engine === 'openai') {
-                  setLocalUrl('https://api.openai.com/v1');
-                  setLocalModel('gpt-4o');
-                } else if (engine === 'claude') {
-                  setLocalUrl('https://api.anthropic.com/v1');
-                  setLocalModel('claude-3-5-sonnet-latest');
-                } else if (engine === 'qwen') {
-                  setLocalUrl('https://dashscope.aliyuncs.com/compatible-mode/v1');
-                  setLocalModel('qwen-vl-max-latest');
-                } else if (engine === 'local') {
-                  if (!localUrl || localUrl.includes('openai') || localUrl.includes('anthropic') || localUrl.includes('aliyuncs')) {
-                    setLocalUrl('http://localhost:11434/v1');
-                    setLocalModel('llama3');
+          <div className="space-y-4 py-2">
+            {/* Engine Selector Dropdown */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold">AI Provider</label>
+              <select
+                value={localEngine}
+                onChange={(e) => {
+                  const engine = e.target.value as any;
+                  setLocalEngine(engine);
+                  if (engine === 'openai') {
+                    setLocalUrl('https://api.openai.com/v1');
+                    setLocalModel('gpt-4o');
+                  } else if (engine === 'claude') {
+                    setLocalUrl('https://api.anthropic.com/v1');
+                    setLocalModel('claude-3-5-sonnet-latest');
+                  } else if (engine === 'qwen') {
+                    setLocalUrl('https://dashscope.aliyuncs.com/compatible-mode/v1');
+                    setLocalModel('qwen-vl-max-latest');
+                  } else if (engine === 'local') {
+                    if (!localUrl || localUrl.includes('openai') || localUrl.includes('anthropic') || localUrl.includes('aliyuncs')) {
+                      setLocalUrl('http://localhost:11434/v1');
+                      setLocalModel('llama3');
+                    }
+                  } else if (engine === 'gemini') {
+                    setLocalModel('gemini-flash-latest');
                   }
-                } else if (engine === 'gemini') {
-                  setLocalModel('gemini-flash-latest');
-                }
-              }}
-              className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
-            >
-              <option className="bg-background text-foreground" value="pollinations">Free AI (Default)</option>
-              <option className="bg-background text-foreground" value="puter">Puter.js (Mistral/Pixtral)</option>
-              <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
-              <option className="bg-background text-foreground" value="openai">OpenAI</option>
-              <option className="bg-background text-foreground" value="claude">Claude</option>
-              <option className="bg-background text-foreground" value="qwen">Qwen</option>
-              <option className="bg-background text-foreground" value="local">Local LLM</option>
-            </select>
-          </div>
+                }}
+                className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
+              >
+                <option className="bg-background text-foreground" value="pollinations">Free AI (Default)</option>
+                <option className="bg-background text-foreground" value="puter">Puter.js (Mistral/Pixtral)</option>
+                <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
+                <option className="bg-background text-foreground" value="openai">OpenAI</option>
+                <option className="bg-background text-foreground" value="claude">Claude</option>
+                <option className="bg-background text-foreground" value="qwen">Qwen</option>
+                <option className="bg-background text-foreground" value="local">Local LLM</option>
+              </select>
+            </div>
 
-          {localEngine === 'gemini' ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-500 mb-1">
-                <Sparkles className="w-4 h-4" /> Gemini AI Cloud Engine
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                We use <code className="bg-muted px-1 py-0.5 rounded text-[10px]">gemini-flash-latest</code> by default. You need a personal API key to process images or run translations.
-                <br/><strong className="text-emerald-500 font-semibold mt-1 inline-block"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline">🔥 Get your free Gemini API Key here (15 requests per minute free)</a></strong>
-              </p>
-              
-              <div className="space-y-2">
-                <label className="text-xs font-bold block text-foreground">Gemini API Key</label>
-                <input
-                  type="password"
-                  value={localGeminiKey}
-                  onChange={(e) => setLocalGeminiKey(e.target.value)}
-                  placeholder="AIzaSy..."
-                  className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-emerald-500 font-mono tracking-tight transition-colors shadow-sm"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1 mb-2">Your key is stored only in your browser's local storage.</p>
+
+
+            {localEngine === 'gemini' ? (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-500 mb-1">
+                  <Sparkles className="w-4 h-4" /> Gemini AI Cloud Engine
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  We use <code className="bg-muted px-1 py-0.5 rounded text-[10px]">gemini-flash-latest</code> by default. You need a personal API key to process images or run translations.
+                  <br/><strong className="text-emerald-500 font-semibold mt-1 inline-block"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline">🔥 Get your free Gemini API Key here (15 requests per minute free)</a></strong>
+                </p>
                 
-                <label className="text-xs font-bold block text-foreground mt-3">Model Name</label>
-                 <select
-                  value={['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'].includes(localModel) ? localModel : 'gemini-flash-latest'}
-                  onChange={(e) => setLocalModel(e.target.value)}
-                  className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-emerald-500 shadow-sm h-9"
-                >
-                  <option className="bg-background text-foreground" value="gemini-flash-latest">gemini-flash-latest (Default, Stable Flash)</option>
-                  <option className="bg-background text-foreground" value="gemini-flash-lite-latest">gemini-flash-lite-latest (Stable Light)</option>
-                  <option className="bg-background text-foreground" value="gemini-2.5-flash">gemini-2.5-flash (Experimental Fast)</option>
-                  <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Complex Tasks)</option>
-                  <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Experimental Light)</option>
-                </select>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold block text-foreground">Gemini API Key</label>
+                  <input
+                    type="password"
+                    value={localGeminiKey}
+                    onChange={(e) => setLocalGeminiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-emerald-500 font-mono tracking-tight transition-colors shadow-sm"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1 mb-2">Your key is stored only in your browser's local storage.</p>
+                  
+                  <label className="text-xs font-bold block text-foreground mt-3">Model Name</label>
+                   <select
+                    value={['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'].includes(localModel) ? localModel : 'gemini-flash-latest'}
+                    onChange={(e) => setLocalModel(e.target.value)}
+                    className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-emerald-500 shadow-sm h-9"
+                  >
+                    <option className="bg-background text-foreground" value="gemini-flash-latest">gemini-flash-latest (Default, Stable Flash)</option>
+                    <option className="bg-background text-foreground" value="gemini-flash-lite-latest">gemini-flash-lite-latest (Stable Light)</option>
+                    <option className="bg-background text-foreground" value="gemini-2.5-flash">gemini-2.5-flash (Experimental Fast)</option>
+                    <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Complex Tasks)</option>
+                    <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Experimental Light)</option>
+                  </select>
+                </div>
               </div>
-            </div>
-          ) : localEngine === 'puter' ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="p-3 bg-muted/60 border rounded-md">
-                <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                  <Sparkles className="w-3.5 h-3.5" /> Puter.js
-                </h4>
-                <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                  Puter.js provides access to Mistral/Pixtral models for OCR. A login prompt will appear if you are not already signed in to Puter.
-                </p>
+            ) : localEngine === 'puter' ? (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="p-3 bg-muted/60 border rounded-md">
+                  <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
+                    <Sparkles className="w-3.5 h-3.5" /> Puter.js
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
+                    Puter.js provides access to Mistral/Pixtral models for OCR. A login prompt will appear if you are not already signed in to Puter.
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : localEngine === 'pollinations' ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="p-3 bg-muted/60 border rounded-md">
-                <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                  <Sparkles className="w-3.5 h-3.5" /> Free AI (Pollinations)
-                </h4>
-                <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                  Enjoy completely free AI logic processing through Pollinations.ai. You do not need to configure any API keys or models. This is recommended for all new users!
-                </p>
+            ) : localEngine === 'pollinations' ? (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="p-3 bg-muted/60 border rounded-md">
+                  <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
+                    <Sparkles className="w-3.5 h-3.5" /> Quick AI Generation
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
+                    Simply sign in to start generating AI comics, stories, and translations instantly. No need to enter or manage API keys manually!
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="p-3 bg-muted/60 border rounded-md">
-                <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                  <Sparkles className="w-3.5 h-3.5" /> {localEngine === 'local' ? 'Local LLM' : localEngine} Provider
-                </h4>
-                <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                  {localEngine === 'local' 
-                    ? "Connect to Ollama, LM Studio, or any OpenAI-compatible custom endpoint. The model must support JSON mode and vision capabilities." 
-                    : `Provide the correct Base URL, API Key, and Model name for ${localEngine}. We expect an OpenAI-compatible /chat/completions endpoint (except for Claude if your proxy supports it).`}
-                </p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Base URL</label>
-                    <input
-                      value={localUrl}
-                      onChange={(e) => setLocalUrl(e.target.value)}
-                      placeholder={
-                        localEngine === 'openai' ? "https://api.openai.com/v1" :
-                        localEngine === 'claude' ? "https://api.anthropic.com/v1" :
-                        localEngine === 'qwen' ? "https://dashscope.aliyuncs.com/compatible-mode/v1" :
-                        "http://localhost:11434/v1"
-                      }
-                      className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">Model Name</label>
-                    <select
-                      value={
-                        (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ? localModel :
-                        (localEngine === 'claude' && ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'].includes(localModel)) ? localModel :
-                        (localEngine === 'qwen' && ['qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max'].includes(localModel)) ? localModel :
-                        (localEngine === 'local' && ['llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel)) ? localModel :
-                        'custom'
-                      }
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val !== 'custom') {
-                          setLocalModel(val);
-                        } else {
-                          if (['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini', 'claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest', 'qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max', 'llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel)) {
-                            setLocalModel('');
-                          }
-                        }
-                      }}
-                      className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-9"
-                    >
-                      {localEngine === 'openai' && (
-                        <>
-                          <option className="bg-background text-foreground" value="gpt-4o">gpt-4o (Best for Vision/OCR)</option>
-                          <option className="bg-background text-foreground" value="gpt-4o-mini">gpt-4o-mini (Fast & Cheap)</option>
-                          <option className="bg-background text-foreground" value="o1-mini">o1-mini (Reasoning)</option>
-                          <option className="bg-background text-foreground" value="o3-mini">o3-mini (Advanced Reasoning)</option>
-                        </>
-                      )}
-                      {localEngine === 'claude' && (
-                        <>
-                          <option className="bg-background text-foreground" value="claude-3-7-sonnet-latest">claude-3-7-sonnet-latest (Latest overall)</option>
-                          <option className="bg-background text-foreground" value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest (Best vision/code)</option>
-                          <option className="bg-background text-foreground" value="claude-3-5-haiku-latest">claude-3-5-haiku-latest (Fastest)</option>
-                          <option className="bg-background text-foreground" value="claude-3-opus-latest">claude-3-opus-latest (Maximum capability)</option>
-                        </>
-                      )}
-                      {localEngine === 'qwen' && (
-                        <>
-                          <option className="bg-background text-foreground" value="qwen-vl-max-latest">qwen-vl-max-latest (Best for OCR/Vision)</option>
-                          <option className="bg-background text-foreground" value="qwen-vl-plus-latest">qwen-vl-plus-latest (Fast Vision)</option>
-                          <option className="bg-background text-foreground" value="qwen2.5-max">qwen2.5-max (Text only)</option>
-                        </>
-                      )}
-                      {localEngine === 'local' && (
-                        <>
-                          <option className="bg-background text-foreground" value="llama3.2-vision">llama3.2-vision (Best local vision)</option>
-                          <option className="bg-background text-foreground" value="llava">llava (Standard local vision)</option>
-                          <option className="bg-background text-foreground" value="llama3">llama3 (Text only)</option>
-                          <option className="bg-background text-foreground" value="qwen2.5">qwen2.5 (Strong alternative)</option>
-                          <option className="bg-background text-foreground" value="deepseek-r1">deepseek-r1 (Reasoning)</option>
-                        </>
-                      )}
-                      <option className="bg-background text-foreground" value="custom">Custom Model...</option>
-                    </select>
-                    
-                    {!(
-                      (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ||
-                      (localEngine === 'claude' && ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'].includes(localModel)) ||
-                      (localEngine === 'qwen' && ['qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max'].includes(localModel)) ||
-                      (localEngine === 'local' && ['llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel))
-                    ) && (
+            ) : (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="p-3 bg-muted/60 border rounded-md">
+                  <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
+                    <Sparkles className="w-3.5 h-3.5" /> {localEngine === 'local' ? 'Local LLM' : localEngine} Provider
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
+                    {localEngine === 'local' 
+                      ? "Connect to Ollama, LM Studio, or any OpenAI-compatible custom endpoint. The model must support JSON mode and vision capabilities." 
+                      : `Provide the correct Base URL, API Key, and Model name for ${localEngine}. We expect an OpenAI-compatible /chat/completions endpoint (except for Claude if your proxy supports it).`}
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Base URL</label>
                       <input
-                        value={localModel}
-                        onChange={(e) => setLocalModel(e.target.value)}
-                        placeholder="Type custom model name..."
-                        className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm mt-1"
+                        value={localUrl}
+                        onChange={(e) => setLocalUrl(e.target.value)}
+                        placeholder={
+                          localEngine === 'openai' ? "https://api.openai.com/v1" :
+                          localEngine === 'claude' ? "https://api.anthropic.com/v1" :
+                          localEngine === 'qwen' ? "https://dashscope.aliyuncs.com/compatible-mode/v1" :
+                          "http://localhost:11434/v1"
+                        }
+                        className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
                       />
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Key {localEngine === 'local' ? '(Optional)' : '(Required)'}</label>
-                    <input
-                      type="password"
-                      value={localApiKey}
-                      onChange={(e) => setLocalApiKey(e.target.value)}
-                      placeholder="Bearer token..."
-                      className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary font-mono shadow-sm"
-                    />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">Model Name</label>
+                      <select
+                        value={
+                          (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ? localModel :
+                          (localEngine === 'claude' && ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'].includes(localModel)) ? localModel :
+                          (localEngine === 'qwen' && ['qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max'].includes(localModel)) ? localModel :
+                          (localEngine === 'local' && ['llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel)) ? localModel :
+                          'custom'
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val !== 'custom') {
+                            setLocalModel(val);
+                          } else {
+                            if (['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini', 'claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest', 'qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max', 'llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel)) {
+                              setLocalModel('');
+                            }
+                          }
+                        }}
+                        className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-9"
+                      >
+                        {localEngine === 'openai' && (
+                          <>
+                            <option className="bg-background text-foreground" value="gpt-4o">gpt-4o (Best for Vision/OCR)</option>
+                            <option className="bg-background text-foreground" value="gpt-4o-mini">gpt-4o-mini (Fast & Cheap)</option>
+                            <option className="bg-background text-foreground" value="o1-mini">o1-mini (Reasoning)</option>
+                            <option className="bg-background text-foreground" value="o3-mini">o3-mini (Advanced Reasoning)</option>
+                          </>
+                        )}
+                        {localEngine === 'claude' && (
+                          <>
+                            <option className="bg-background text-foreground" value="claude-3-7-sonnet-latest">claude-3-7-sonnet-latest (Latest overall)</option>
+                            <option className="bg-background text-foreground" value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest (Best vision/code)</option>
+                            <option className="bg-background text-foreground" value="claude-3-5-haiku-latest">claude-3-5-haiku-latest (Fastest)</option>
+                            <option className="bg-background text-foreground" value="claude-3-opus-latest">claude-3-opus-latest (Maximum capability)</option>
+                          </>
+                        )}
+                        {localEngine === 'qwen' && (
+                          <>
+                            <option className="bg-background text-foreground" value="qwen-vl-max-latest">qwen-vl-max-latest (Best for OCR/Vision)</option>
+                            <option className="bg-background text-foreground" value="qwen-vl-plus-latest">qwen-vl-plus-latest (Fast Vision)</option>
+                            <option className="bg-background text-foreground" value="qwen2.5-max">qwen2.5-max (Text only)</option>
+                          </>
+                        )}
+                        {localEngine === 'local' && (
+                          <>
+                            <option className="bg-background text-foreground" value="llama3.2-vision">llama3.2-vision (Best local vision)</option>
+                            <option className="bg-background text-foreground" value="llava">llava (Standard local vision)</option>
+                            <option className="bg-background text-foreground" value="llama3">llama3 (Text only)</option>
+                            <option className="bg-background text-foreground" value="qwen2.5">qwen2.5 (Strong alternative)</option>
+                            <option className="bg-background text-foreground" value="deepseek-r1">deepseek-r1 (Reasoning)</option>
+                          </>
+                        )}
+                        <option className="bg-background text-foreground" value="custom">Custom Model...</option>
+                      </select>
+                      
+                      {!(
+                        (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ||
+                        (localEngine === 'claude' && ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'].includes(localModel)) ||
+                        (localEngine === 'qwen' && ['qwen-vl-max-latest', 'qwen-vl-plus-latest', 'qwen2.5-max'].includes(localModel)) ||
+                        (localEngine === 'local' && ['llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel))
+                      ) && (
+                        <input
+                          value={localModel}
+                          onChange={(e) => setLocalModel(e.target.value)}
+                          placeholder="Type custom model name..."
+                          className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm mt-1"
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Key {localEngine === 'local' ? '(Optional)' : '(Required)'}</label>
+                      <input
+                        type="password"
+                        value={localApiKey}
+                        onChange={(e) => setLocalApiKey(e.target.value)}
+                        placeholder="Bearer token..."
+                        className="w-full text-xs p-1.5 border border-border bg-background rounded-md outline-none focus:border-primary font-mono shadow-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-          <Button variant="outline" onClick={() => setShowSettingsDialog(false)}>Cancel</Button>
-          <Button onClick={handleSave}>Save & Continue</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className="flex justify-between items-center mt-4 pt-4 border-t">
+            {/* Left side: Sign In / Login button at left-bottom corner of app settings window */}
+            <div className="flex items-center">
+              {user ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 max-w-[160px] truncate bg-muted/65 py-1 px-2 border rounded-full text-[10px] font-medium text-foreground">
+                    {user.avatarUrl || user.photoURL ? (
+                      <img
+                        src={user.avatarUrl || user.photoURL}
+                        alt={user.name || user.email}
+                        className="w-4 h-4 rounded-full object-cover shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-4 h-4 rounded-full bg-primary text-primary-foreground font-black text-[9px] flex items-center justify-center uppercase font-mono shrink-0">
+                        {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="truncate">{user.name || user.email}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleLogout}
+                    title="Sign Out"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowAuthDialog(true)}
+                  className="h-8 text-xs font-bold gap-1 border-primary/40 hover:border-primary hover:bg-primary/5 text-primary"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Sign in/Login</span>
+                </Button>
+              )}
+            </div>
+
+            {/* Right actions */}
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowSettingsDialog(false)}>Cancel</Button>
+              <Button size="sm" onClick={handleSave}>Save & Continue</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Auth Dialog Overlay */}
+      <AuthDialog open={showAuthDialog} onOpenChange={setShowAuthDialog} />
+    </>
   );
 }

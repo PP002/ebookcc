@@ -36,36 +36,29 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
             provider: 'google',
             options: { redirectTo: window.location.origin }
           });
-          if (!error) return;
+          if (error) {
+            if (error.message?.includes('not enabled') || error.message?.includes('Unsupported provider')) {
+              toast.error("Google provider is not enabled in your Supabase project. Please enable it in Authentication > Providers.");
+            } else {
+              toast.error(error.message || "Failed to sign in with Google.");
+            }
+            setLoading(false);
+            return;
+          }
+          return;
         } catch (err: any) {
-          console.warn("Supabase Google OAuth fallback:", err.message);
+          console.warn("Supabase Google OAuth error:", err.message);
+          toast.error("Failed to connect to Google login.");
+          setLoading(false);
+          return;
         }
       }
     }
 
-    // Direct, seamless Google authentication in app context
-    setTimeout(() => {
-      const googleUser = {
-        email: "user@google.com",
-        name: "Google User",
-        avatarUrl: "https://api.dicebear.com/7.x/bottts/svg?seed=googleuser",
-        uid: "google-" + Date.now()
-      };
-
-      try {
-        const localUsersJson = localStorage.getItem("ebookcc_local_users") || "[]";
-        const localUsers = JSON.parse(localUsersJson);
-        if (!localUsers.some((u: any) => u.email === googleUser.email)) {
-          localUsers.push(googleUser);
-          localStorage.setItem("ebookcc_local_users", JSON.stringify(localUsers));
-        }
-      } catch (_) {}
-
-      setUser(googleUser);
-      toast.success(`Signed in with Google as ${googleUser.name} (${googleUser.email})`);
-      onOpenChange(false);
-      setLoading(false);
-    }, 400);
+    // Redirect to Google Accounts (accounts.google.com)
+    const googleAccountsUrl = `https://accounts.google.com/AccountChooser?continue=${encodeURIComponent(window.location.href)}`;
+    window.open(googleAccountsUrl, '_blank', 'noopener,noreferrer');
+    setLoading(false);
   };
 
   const handleAuth = async (e: React.FormEvent) => {

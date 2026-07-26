@@ -34,7 +34,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         try {
           const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: { redirectTo: window.location.origin }
+            options: { 
+              redirectTo: window.location.origin,
+              queryParams: {
+                prompt: 'select_account'
+              }
+            }
           });
           if (error) {
             if (error.message?.includes('not enabled') || error.message?.includes('Unsupported provider')) {
@@ -53,12 +58,10 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
           return;
         }
       }
+    } else {
+      toast.error("Supabase is not connected. Please add your credentials in Settings to enable Google Sign-In.");
+      setLoading(false);
     }
-
-    // Redirect to Google Accounts (accounts.google.com)
-    const googleAccountsUrl = `https://accounts.google.com/AccountChooser?continue=${encodeURIComponent(window.location.href)}`;
-    window.open(googleAccountsUrl, '_blank', 'noopener,noreferrer');
-    setLoading(false);
   };
 
   const handleAuth = async (e: React.FormEvent) => {

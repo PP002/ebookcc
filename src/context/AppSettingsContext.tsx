@@ -76,24 +76,24 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   // Supabase & Cloudflare R2 states
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
-    return localStorage.getItem('supabase_url') || "";
+    return localStorage.getItem('supabase_url') || import.meta.env.VITE_SUPABASE_URL || "";
   });
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
-    return localStorage.getItem('supabase_anon_key') || "";
+    return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
   });
   const [r2AccessKeyId, setR2AccessKeyId] = useState(() => {
-    return localStorage.getItem('r2_access_key') || "";
+    return localStorage.getItem('r2_access_key') || import.meta.env.VITE_R2_ACCESS_KEY_ID || "";
   });
   const [r2SecretAccessKey, setR2SecretAccessKey] = useState(() => {
-    return localStorage.getItem('r2_secret_key') || "";
+    return localStorage.getItem('r2_secret_key') || import.meta.env.VITE_R2_SECRET_ACCESS_KEY || "";
   });
   const [r2BucketName, setR2BucketName] = useState(() => {
-    const saved = localStorage.getItem('r2_bucket_name');
+    const saved = localStorage.getItem('r2_bucket_name') || import.meta.env.VITE_R2_BUCKET_NAME;
     if (!saved || saved === "ebookcc-assets") return "ebookcc-media";
     return saved;
   });
   const [r2Endpoint, setR2Endpoint] = useState(() => {
-    return localStorage.getItem('r2_endpoint') || "";
+    return localStorage.getItem('r2_endpoint') || import.meta.env.VITE_R2_ENDPOINT || "";
   });
 
   // Fetch safe configuration from backend on mount
@@ -104,18 +104,10 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         return res.json();
       })
       .then(data => {
-        if (data.supabaseUrl && !localStorage.getItem('supabase_url')) {
-          setSupabaseUrl(data.supabaseUrl);
-        }
-        if (data.supabaseAnonKey && !localStorage.getItem('supabase_anon_key')) {
-          setSupabaseAnonKey(data.supabaseAnonKey);
-        }
-        if (data.r2BucketName && !localStorage.getItem('r2_bucket_name')) {
-          setR2BucketName(data.r2BucketName);
-        }
-        if (data.r2Endpoint && !localStorage.getItem('r2_endpoint')) {
-          setR2Endpoint(data.r2Endpoint);
-        }
+        setSupabaseUrl(prev => prev || data.supabaseUrl || "");
+        setSupabaseAnonKey(prev => prev || data.supabaseAnonKey || "");
+        setR2BucketName(prev => prev || data.r2BucketName || "");
+        setR2Endpoint(prev => prev || data.r2Endpoint || "");
       })
       .catch(err => {
         console.warn("Could not retrieve secure configuration from backend server, using default or local values.", err);

@@ -52,25 +52,53 @@ export async function uploadMediaToR2(
   config?: R2Config
 ): Promise<{ success: boolean; url: string; key?: string; error?: string }> {
   try {
-    const res = await fetch("/api/media/upload", {
+    const fullDataUrl = base64Data.startsWith("data:") ? base64Data : `data:image/jpeg;base64,${base64Data}`;
+    const blobRes = await fetch(fullDataUrl);
+    const blob = await blobRes.blob();
+    const mimeType = blob.type || "application/octet-stream";
+
+    let ext = "png";
+    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
+    else if (mimeType.includes("webp")) ext = "webp";
+    else if (mimeType.includes("gif")) ext = "gif";
+    else if (mimeType.includes("json")) ext = "json";
+
+    const finalFilename = filename || `media-${Date.now()}.${ext}`;
+
+    const presignRes = await fetch("/api/get-presigned-url", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...getR2Headers(config)
       },
       body: JSON.stringify({
-        base64Image: base64Data,
-        filename,
+        fileName: finalFilename,
+        fileType: mimeType,
         folder
       })
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      return { success: false, url: "", error: data.error || "R2 media upload failed" };
+    
+    const presignData = await presignRes.json();
+    if (!presignRes.ok) {
+      return { success: false, url: "", error: presignData.error || "Failed to get presigned URL" };
     }
 
-    return { success: true, url: data.url, key: data.key };
+    const { uploadUrl, key, bucket } = presignData;
+
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      body: blob,
+      headers: {
+        "Content-Type": mimeType
+      }
+    });
+
+    if (!uploadRes.ok) {
+      return { success: false, url: "", error: "Failed to upload file to R2 directly" };
+    }
+
+    const fileUrl = `/api/media/file/${encodeURIComponent(bucket)}/${key}`;
+    return { success: true, url: fileUrl, key };
   } catch (err: any) {
     return { success: false, url: "", error: err.message || "R2 media upload exception" };
   }

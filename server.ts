@@ -6,6 +6,7 @@ import fs from "fs";
 import sharp from "sharp";
 import HTMLtoDOCX from 'html-to-docx';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // ─────────────────────────────────────────────
 // Types
@@ -501,6 +502,64 @@ async function startServer() {
     return { mimeType, buffer, ext };
   }
 
+  async function resolveImageBuffer(req: express.Request): Promise<Buffer> {
+    if (req.body.fileKey) {
+      const { s3, bucket } = getR2ClientAndBucket(req);
+      if (s3) {
+        const data = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: req.body.fileKey }));
+        if (data.Body) {
+          return Buffer.from(await data.Body.transformToByteArray());
+        }
+      }
+      throw new Error("R2 not configured or fileKey invalid");
+    } else if (req.body.base64Image) {
+      const base64Image = req.body.base64Image;
+      const rawBase64 = base64Image.split(",")[1] || base64Image;
+      return Buffer.from(rawBase64, 'base64');
+    }
+    throw new Error('fileKey or base64Image is required');
+  }
+
+  async function resolveBase64Image(req: express.Request): Promise<string> {
+    if (req.body.fileKey) {
+      const buf = await resolveImageBuffer(req);
+      return buf.toString('base64');
+    } else if (req.body.base64Image) {
+      const base64Image = req.body.base64Image;
+      return base64Image.split(",")[1] || base64Image;
+    }
+    throw new Error('fileKey or base64Image is required');
+  }
+
+  // Route: Get R2 Presigned URL
+  app.post("/api/get-presigned-url", async (req, res): Promise<any> => {
+    try {
+      const { fileName, fileType, folder } = req.body;
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+
+      if (!isConfigured || !s3) {
+         return res.status(500).json({ error: "R2 is not configured" });
+      }
+
+      const targetFolder = folder ? folder.replace(/^\/+|\/+$/g, "") : "uploads";
+      const cleanFilename = fileName ? fileName.replace(/[^a-zA-Z0-9_.-]/g, "_") : `file-${Date.now()}`;
+      const objectKey = `${targetFolder}/${Date.now()}-${cleanFilename}`;
+
+      const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        ContentType: fileType || "application/octet-stream",
+      });
+
+      const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+
+      return res.json({ uploadUrl, key: objectKey, bucket });
+    } catch (e: any) {
+      console.error("[API /api/get-presigned-url] Error:", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // Route 1: Test R2 connection
   app.post("/api/media/test-r2", async (req, res): Promise<any> => {
     console.log("[API] Testing Cloudflare R2 Media Storage connection...");
@@ -977,18 +1036,20 @@ async function startServer() {
       const yoloTextOnly   = req.headers["x-yolo-text-only"] === "true";
       const yoloPanelClass = parseInt(req.headers["x-yolo-panel-class"] as string || "0", 10);
       const yoloTextClass  = parseInt(req.headers["x-yolo-text-class"]  as string || "1", 10);
-
-      const { base64Image } = req.body;
-      if (!base64Image || typeof base64Image !== 'string') {
-        return res.status(400).json({ error: 'base64Image is required' });
+      
+      let imgBuf: Buffer;
+      let rawBase64: string;
+      try {
+        imgBuf = await resolveImageBuffer(req);
+        rawBase64 = imgBuf.toString('base64');
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
-      const rawBase64 = base64Image.split(",")[1] || base64Image;
 
       if (yoloUrl) {
         console.log("[API] detectPanelsLocalYolo: Routing to External YOLO Endpoint:", yoloUrl);
         try {
           if (yoloUrl.includes("/predict")) {
-            const imgBuf   = Buffer.from(rawBase64, 'base64');
             const metadata = await sharp(imgBuf).metadata();
             const origW    = metadata.width  || 1000;
             const origH    = metadata.height || 1000;
@@ -1085,17 +1146,19 @@ async function startServer() {
       const yoloUrl = req.headers["x-yolo-url"] as string;
       const yoloKey = req.headers["x-yolo-key"] as string;
 
-      const { base64Image } = req.body;
-      if (!base64Image || typeof base64Image !== 'string') {
-        return res.status(400).json({ error: 'base64Image is required' });
+      let imgBuf: Buffer;
+      let rawBase64: string;
+      try {
+        imgBuf = await resolveImageBuffer(req);
+        rawBase64 = imgBuf.toString('base64');
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
-      const rawBase64 = base64Image.split(",")[1] || base64Image;
 
       if (yoloUrl) {
         console.log("[API] Routing to External YOLO:", yoloUrl);
         try {
           if (yoloUrl.includes("/predict")) {
-             const imgBuf   = Buffer.from(rawBase64, 'base64');
              const metadata = await sharp(imgBuf).metadata();
              const origW    = metadata.width  || 1000;
              const origH    = metadata.height || 1000;
@@ -1345,15 +1408,17 @@ async function startServer() {
   app.post("/api/detectText", async (req, res) => {
     console.log("[API] detectText request received");
     try {
-      const { base64Image, suggestedCount, engine, model: clientModel, yoloTexts } = req.body;
+      const { suggestedCount, engine, model: clientModel, yoloTexts } = req.body;
       const targetModel = clientModel || "gemini-flash-latest";
-      if (!base64Image || typeof base64Image !== 'string') {
-        return res.status(400).json({ error: 'base64Image is required' });
+
+      let rawBase64: string;
+      try {
+        rawBase64 = await resolveBase64Image(req);
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
 
-      console.log(`[API detectText] Image size: ${Math.round(base64Image.length / 1024)} KB, engine: ${engine}`);
-
-      const rawBase64 = base64Image.split(",")[1] || base64Image;
+      console.log(`[API detectText] Image size: ${Math.round(rawBase64.length / 1024)} KB, engine: ${engine}`);
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
 
@@ -1575,13 +1640,16 @@ STRICT INSTRUCTIONS:
   app.post("/api/readHandwriting", async (req, res) => {
     console.log("[API] readHandwriting request received");
     try {
-      const { base64Image, engine, model: clientModel } = req.body;
+      const { engine, model: clientModel } = req.body;
       const targetModel = clientModel || "gemini-flash-latest";
-      if (!base64Image || typeof base64Image !== 'string') {
-        return res.status(400).json({ error: 'base64Image is required' });
+
+      let rawBase64: string;
+      try {
+        rawBase64 = await resolveBase64Image(req);
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
 
-      const rawBase64 = base64Image.split(",")[1] || base64Image;
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
 

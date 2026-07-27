@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { uploadMediaToR2 } from "../lib/r2Storage";
 
 export interface ComicText {
   text: string;
@@ -210,10 +211,13 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
     headers["x-yolo-text-class"] = yoloTextClass.toString();
     
     try {
+      const uploadRes = await uploadMediaToR2(base64Image);
+      const payload = uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image };
+
       const res = await fetchWithRetry("/api/detectPanelsLocalYolo", {
         method: "POST",
         headers,
-        body: JSON.stringify({ base64Image })
+        body: JSON.stringify(payload)
       });
       
       const text = await res.text();
@@ -337,14 +341,17 @@ Ensure coordinates are 0-1000.`;
     let backendFailed = false;
 
     try {
+      const uploadRes = await uploadMediaToR2(base64Image);
+      const payload = {
+        ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+        engine: localLlmConfig?.engine || 'pollinations',
+        model: localLlmConfig?.model
+      };
+
       const res = await fetch("/api/detectPanels", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          base64Image,
-          engine: localLlmConfig?.engine || 'pollinations',
-          model: localLlmConfig?.model
-        }),
+        body: JSON.stringify(payload),
       });
       const text = await res.text();
       if (text.trim().startsWith('<') || !res.ok) {
@@ -714,16 +721,19 @@ STRICT INSTRUCTIONS:
     let backendFailed = false;
 
     try {
+      const uploadRes = await uploadMediaToR2(base64Image);
+      const payload = {
+        ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+        suggestedCount,
+        engine: localLlmConfig?.engine || 'pollinations',
+        model: localLlmConfig?.model,
+        yoloTexts
+      };
+
       const res = await fetch("/api/detectText", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          base64Image,
-          suggestedCount,
-          engine: localLlmConfig?.engine || 'pollinations',
-          model: localLlmConfig?.model,
-          yoloTexts
-        }),
+        body: JSON.stringify(payload),
       });
       const text = await res.text();
       if (text.trim().startsWith('<') || !res.ok) {

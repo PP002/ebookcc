@@ -84,10 +84,14 @@ function normalizeBlockText(text: string): string {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || "3000", 10);
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+
+  // Health checks
+  app.get('/health', (req, res) => res.status(200).send('OK'));
+  app.get('/api/health', (req, res) => res.status(200).send('OK'));
 
   // ─────────────────────────────────────────────
   // Helpers
@@ -435,7 +439,7 @@ async function startServer() {
   // ─────────────────────────────────────────────
   // Cloudflare R2 / S3 Media Storage
   // ─────────────────────────────────────────────
-  const LOCAL_MEDIA_DIR = path.join(process.cwd(), "tmp", "ebookcc-media");
+  const LOCAL_MEDIA_DIR = path.join("/tmp", "ebookcc-media");
   if (!fs.existsSync(LOCAL_MEDIA_DIR)) {
     try {
       fs.mkdirSync(LOCAL_MEDIA_DIR, { recursive: true });

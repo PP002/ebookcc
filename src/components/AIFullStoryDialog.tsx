@@ -40,7 +40,8 @@ export function AIFullStoryDialog({ open, onOpenChange, onStoryGenerated, initia
       const headers: any = { 'Content-Type': 'application/json' };
       if (geminiApiKey) headers['x-gemini-api-key'] = geminiApiKey;
 
-      const res = await fetch('/api/agent-chat', {
+      const apiUrl = import.meta.env.VITE_API_URL || "";
+      const res = await fetch(`${apiUrl}/api/agent-chat`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ messages, systemInstruction: "You are an expert story writer. Output ONLY raw HTML. No markdown formatting blocks.", engine: llmEngine })

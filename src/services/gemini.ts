@@ -108,7 +108,8 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
       if (!window.navigator.onLine) {
         throw new Error("Browser is offline");
       }
-      const res = await fetch(url, options);
+      const targetUrl = url.startsWith('/api/') ? `${import.meta.env.VITE_API_URL || ""}${url}` : url;
+      const res = await fetch(targetUrl, options);
       if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
         let retryAfterMs = res.status === 429 ? 20000 : 5000;
         try {

@@ -3,7 +3,7 @@ import cors from "cors";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
-import sharp from "sharp";
+import sizeOf from "image-size";
 import HTMLtoDOCX from 'html-to-docx';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -1054,7 +1054,7 @@ async function startServer() {
         console.log("[API] detectPanelsLocalYolo: Routing to External YOLO Endpoint:", yoloUrl);
         try {
           if (yoloUrl.includes("/predict")) {
-            const metadata = await sharp(imgBuf).metadata();
+            const metadata = sizeOf(imgBuf);
             const origW    = metadata.width  || 1000;
             const origH    = metadata.height || 1000;
 
@@ -1163,7 +1163,7 @@ async function startServer() {
         console.log("[API] Routing to External YOLO:", yoloUrl);
         try {
           if (yoloUrl.includes("/predict")) {
-             const metadata = await sharp(imgBuf).metadata();
+             const metadata = sizeOf(imgBuf);
              const origW    = metadata.width  || 1000;
              const origH    = metadata.height || 1000;
              const form = new FormData();
@@ -2396,9 +2396,13 @@ STRICT INSTRUCTIONS:
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    if (process.env.API_ONLY === "true") {
+      app.get('*', (req, res) => res.json({ status: "API Server Only" }));
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {

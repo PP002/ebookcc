@@ -134,7 +134,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
         scriptData = JSON.parse(textResult);
       } else {
         try {
-          const res = await fetch("/api/generate-comic-script", {
+          const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-comic-script`, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

@@ -26,7 +26,7 @@ export function getR2Headers(config?: R2Config): Record<string, string> {
 
 export async function testR2Connection(config?: R2Config): Promise<{ success: boolean; message: string; details?: any }> {
   try {
-    const res = await fetch("/api/media/test-r2", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/media/test-r2`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -65,7 +65,7 @@ export async function uploadMediaToR2(
 
     const finalFilename = filename || `media-${Date.now()}.${ext}`;
 
-    const presignRes = await fetch("/api/get-presigned-url", {
+    const presignRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/get-presigned-url`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,7 +109,7 @@ export async function publishWorkToR2(
   config?: R2Config
 ): Promise<{ success: boolean; item: any; message: string }> {
   try {
-    const res = await fetch("/api/published-works", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/published-works`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -142,7 +142,7 @@ export async function fetchPublishedWorksFromR2(
   config?: R2Config
 ): Promise<{ success: boolean; works: any[] }> {
   try {
-    const res = await fetch("/api/published-works", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/published-works`, {
       method: "GET",
       headers: {
         ...getR2Headers(config)
@@ -166,7 +166,7 @@ export async function deletePublishedWorkFromR2(
   config?: R2Config
 ): Promise<boolean> {
   try {
-    const res = await fetch(`/api/published-works/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/published-works/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: {
         ...getR2Headers(config)

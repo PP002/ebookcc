@@ -2741,7 +2741,7 @@ export default function Convert({
 
         if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM Test] Redirecting to backend proxy to bypass HTTPS Mixed Content");
-          res = await fetch("/api/local-llm-proxy", {
+          res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

@@ -384,7 +384,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
         if (geminiApiKey) {
           headers["x-gemini-api-key"] = geminiApiKey;
         }
-        const res = await fetch("/api/agent-chat", {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/agent-chat`, {
           method: "POST",
           headers,
           body: JSON.stringify({ messages: geminiMessages, systemInstruction, engine: llmEngine }),

@@ -98,7 +98,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   // Fetch safe configuration from backend on mount
   useEffect(() => {
-    fetch("/api/config")
+    fetch(`${import.meta.env.VITE_API_URL || ""}/api/config`)
       .then(res => {
         if (!res.ok) throw new Error("Config fetch failed");
         return res.json();
@@ -120,6 +120,37 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : null;
   });
   const [showAuthDialog, setShowAuthDialog] = useState(false);
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseAnonKey) return;
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) return;
+
+    // Fetch initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          email: session.user.email || "",
+          name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          uid: session.user.id
+        });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          email: session.user.email || "",
+          name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          uid: session.user.id
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabaseUrl, supabaseAnonKey]);
+
 
   useEffect(() => {
     localStorage.setItem('llm_engine', llmEngine);

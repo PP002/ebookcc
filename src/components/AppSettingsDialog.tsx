@@ -68,7 +68,13 @@ export function AppSettingsDialog() {
     setShowSettingsDialog(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (supabaseUrl && supabaseAnonKey) {
+      const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+    }
     setUser(null);
     toast.success("Signed out successfully.");
   };

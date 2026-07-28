@@ -53,7 +53,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
     try {
       let imageUrl = null;
       try {
-        const res = await fetch("/api/generate-image", {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-image`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -286,7 +286,7 @@ Ensure coordinates are 0-1000.`;
 
         let response;
         if (isHttpsPage && isHttpUrl && !isLoopback) {
-          response = await fetch("/api/local-llm-proxy", {
+          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -348,7 +348,7 @@ Ensure coordinates are 0-1000.`;
         model: localLlmConfig?.model
       };
 
-      const res = await fetch("/api/detectPanels", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/detectPanels`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -472,7 +472,7 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
 
         if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
-          response = await fetch("/api/local-llm-proxy", {
+          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -730,7 +730,7 @@ STRICT INSTRUCTIONS:
         yoloTexts
       };
 
-      const res = await fetch("/api/detectText", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/detectText`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -858,7 +858,7 @@ export async function translateTexts(
 
         if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
-          response = await fetch("/api/local-llm-proxy", {
+          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -979,7 +979,7 @@ export async function translateTexts(
     let backendFailed = false;
 
     try {
-      const res = await fetch("/api/translate", {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/translate`, {
         method: "POST",
         headers,
         body: JSON.stringify({

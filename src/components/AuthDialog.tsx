@@ -22,49 +22,70 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  const isSupabaseConnected = !!(supabaseUrl && supabaseAnonKey);
+  
+
+    const handleResetPassword = async () => {
+    if (!email) {
+      toast.error("Please enter your email address first.");
+      return;
+    }
+    setIsResetting(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected. Please add your credentials in Settings.");
+      setIsResetting(false);
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) {
+      toast.error(error.message || "Failed to send reset email.");
+    } else {
+      toast.success("Password reset email sent! Check your inbox.");
+      setShowResetPassword(false);
+    }
+    setIsResetting(false);
+  };
 
   const handleGoogleSignInClick = async () => {
     setLoading(true);
-
-    if (isSupabaseConnected) {
-      const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
-      if (supabase) {
-        try {
-          const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: { 
-              redirectTo: window.location.origin,
-              queryParams: {
-                prompt: 'select_account'
-              }
-            }
-          });
-          if (error) {
-            if (error.message?.includes('not enabled') || error.message?.includes('Unsupported provider')) {
-              toast.error("Google provider is not enabled in your Supabase project. Please enable it in Authentication > Providers.");
-            } else {
-              toast.error(error.message || "Failed to sign in with Google.");
-            }
-            setLoading(false);
-            return;
-          }
-          return;
-        } catch (err: any) {
-          console.warn("Supabase Google OAuth error:", err.message);
-          toast.error("Failed to connect to Google login.");
-          setLoading(false);
-          return;
-        }
-      }
-    } else {
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
       toast.error("Supabase is not connected. Please add your credentials in Settings to enable Google Sign-In.");
+      setLoading(false);
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { 
+          redirectTo: window.location.origin,
+          queryParams: {
+            prompt: 'select_account'
+          }
+        }
+      });
+      if (error) {
+        if (error.message?.includes('not enabled') || error.message?.includes('Unsupported provider')) {
+          toast.error("Google provider is not enabled in your Supabase project. Please enable it in Authentication > Providers.");
+        } else {
+          toast.error(error.message || "Failed to sign in with Google.");
+        }
+        setLoading(false);
+        return;
+      }
+    } catch (err: any) {
+      console.warn("Supabase Google OAuth error:", err.message);
+      toast.error("Failed to connect to Google login.");
       setLoading(false);
     }
   };
 
-  const handleAuth = async (e: React.FormEvent) => {
+    const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Please fill in all fields.");
@@ -74,166 +95,97 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       toast.error("Password must be at least 6 characters long.");
       return;
     }
-
     setLoading(true);
-
-    if (isSupabaseConnected) {
-      const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
-      if (!supabase) {
-        toast.error("Failed to initialize Supabase client. Please check your credentials.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        if (isSignUp) {
-          const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                display_name: name || email.split('@')[0],
-              }
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Failed to initialize Supabase client. Please check your credentials.");
+      setLoading(false);
+      return;
+    }
+    try {
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              display_name: name || email.split('@')[0],
             }
-          });
-
-          if (error) {
-            if (error.message?.toLowerCase().includes("email not confirmed")) {
-              setUser({
-                email: email,
-                name: name || email.split('@')[0],
-                uid: "sb-user-" + Date.now()
-              });
-              toast.success("Account created and signed in!");
-              onOpenChange(false);
-              return;
-            }
-            throw error;
           }
-          
-          if (data?.user) {
+        });
+        if (error) {
+          if (error.message?.toLowerCase().includes("email not confirmed")) {
             setUser({
-              email: data.user.email || email,
-              name: data.user.user_metadata?.display_name || name || email.split('@')[0],
-              uid: data.user.id
+              email: email,
+              name: name || email.split('@')[0],
+              uid: "sb-user-" + Date.now()
             });
-            toast.success("Welcome! Account created successfully.");
+            toast.success("Account created and signed in!");
             onOpenChange(false);
-          } else {
-            toast.success("Registration successful! You can now sign in.");
-            setIsSignUp(false);
+            return;
           }
-        } else {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
-
-          if (error) {
-            if (error.message?.toLowerCase().includes("email not confirmed")) {
-              setUser({
-                email: email,
-                name: name || email.split('@')[0],
-                uid: "sb-user-" + Date.now()
-              });
-              toast.success("Signed in successfully!");
-              onOpenChange(false);
-              return;
-            }
-            throw error;
-          }
-
-          if (data.user) {
-            setUser({
-              email: data.user.email || email,
-              name: data.user.user_metadata?.display_name || email.split('@')[0],
-              uid: data.user.id
-            });
-            toast.success("Welcome back! Signed in securely via Supabase.");
-            onOpenChange(false);
-          }
+          throw error;
         }
-      } catch (err: any) {
-        console.error("Supabase Auth error:", err);
-        const errMsg = err?.message || "";
-        if (errMsg.toLowerCase().includes("email not confirmed")) {
+        
+        if (data?.user) {
           setUser({
-            email: email,
-            name: name || email.split('@')[0],
-            uid: "sb-user-" + Date.now()
+            email: data.user.email || email,
+            name: data.user.user_metadata?.display_name || name || email.split('@')[0],
+            uid: data.user.id
           });
-          toast.success("Signed in successfully!");
+          toast.success("Welcome! Account created successfully.");
           onOpenChange(false);
         } else {
-          toast.error(errMsg || "Authentication failed. Try again.");
+          toast.success("Registration successful! You can now sign in.");
+          setIsSignUp(false);
         }
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setTimeout(() => {
-        try {
-          const localUsersJson = localStorage.getItem("ebookcc_local_users") || "[]";
-          const localUsers = JSON.parse(localUsersJson);
-
-          if (isSignUp) {
-            const exists = localUsers.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
-            if (exists) {
-              toast.error("An account with this email already exists.");
-              setLoading(false);
-              return;
-            }
-
-            const newUser = {
-              uid: "local-" + Date.now(),
-              email: email.toLowerCase(),
-              password: password,
-              name: name || email.split('@')[0]
-            };
-
-            localUsers.push(newUser);
-            localStorage.setItem("ebookcc_local_users", JSON.stringify(localUsers));
-            
-            toast.success("Account created successfully! You can now log in.");
-            setIsSignUp(false);
-          } else {
-            const found = localUsers.find(
-              (u: any) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-            );
-
-            if (!found) {
-              if (email === "demo@ebookcc.com" && password === "123456") {
-                const demoUser = {
-                  uid: "local-demo",
-                  email: "demo@ebookcc.com",
-                  name: "Creative Publisher"
-                };
-                setUser(demoUser);
-                toast.success("Logged in with Demo Publisher profile!");
-                onOpenChange(false);
-                setLoading(false);
-                return;
-              }
-              
-              toast.error("Invalid email or password.");
-              setLoading(false);
-              return;
-            }
-
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) {
+          if (error.message?.toLowerCase().includes("email not confirmed")) {
             setUser({
-              email: found.email,
-              name: found.name,
-              uid: found.uid
+              email: email,
+              name: name || email.split('@')[0],
+              uid: "sb-user-" + Date.now()
             });
-            toast.success(`Welcome back, ${found.name || 'Creator'}!`);
+            toast.success("Signed in successfully!");
             onOpenChange(false);
+            return;
           }
-        } catch (e) {
-          toast.error("Auth database failure.");
-        } finally {
-          setLoading(false);
+          throw error;
         }
-      }, 800);
+        if (data.user) {
+          setUser({
+            email: data.user.email || email,
+            name: data.user.user_metadata?.display_name || email.split('@')[0],
+            uid: data.user.id
+          });
+          toast.success("Welcome back! Signed in securely via Supabase.");
+          onOpenChange(false);
+        }
+      }
+    } catch (err: any) {
+      console.error("Supabase Auth error:", err);
+      const errMsg = err?.message || "";
+      if (errMsg.toLowerCase().includes("email not confirmed")) {
+        setUser({
+          email: email,
+          name: name || email.split('@')[0],
+          uid: "sb-user-" + Date.now()
+        });
+        toast.success("Signed in successfully!");
+        onOpenChange(false);
+      } else {
+        if (errMsg.toLowerCase().includes("invalid login credentials") || errMsg.toLowerCase().includes("invalid email or password")) {
+          setShowResetPassword(true);
+        }
+        toast.error(errMsg || "Authentication failed. Try again.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -356,6 +308,22 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   </>
                 )}
               </Button>
+              
+              
+                          {showResetPassword && !isSignUp && (
+                <div className="pt-2 text-center animate-in fade-in zoom-in duration-300">
+                  <p className="text-xs text-muted-foreground mb-2">Forgot your password?</p>
+                  <Button 
+                    type="button" 
+                    variant="outline"
+                    className="w-full h-8 text-xs font-semibold border-primary/20 hover:bg-primary/5 text-primary"
+                    onClick={handleResetPassword}
+                    disabled={isResetting}
+                  >
+                    {isResetting ? "Processing..." : "Send Reset Email"}
+                  </Button>
+                </div>
+              )}
             </form>
 
             <div className="text-center text-xs mt-3">

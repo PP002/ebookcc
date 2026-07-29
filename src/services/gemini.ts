@@ -1,5 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { uploadMediaToR2 } from "../lib/r2Storage";
+import { getApiUrl } from '@/lib/api';
+
 
 export interface ComicText {
   text: string;
@@ -108,7 +110,7 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
       if (!window.navigator.onLine) {
         throw new Error("Browser is offline");
       }
-      const targetUrl = url.startsWith('/api/') ? `${import.meta.env.VITE_API_URL || ""}${url}` : url;
+      const targetUrl = url.startsWith('/api/') ? `${getApiUrl()}${url}` : url;
       const res = await fetch(targetUrl, options);
       if (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
         let retryAfterMs = res.status === 429 ? 20000 : 5000;
@@ -287,7 +289,7 @@ Ensure coordinates are 0-1000.`;
 
         let response;
         if (isHttpsPage && isHttpUrl && !isLoopback) {
-          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
+          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -349,7 +351,7 @@ Ensure coordinates are 0-1000.`;
         model: localLlmConfig?.model
       };
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/detectPanels`, {
+      const res = await fetch(`${getApiUrl()}/api/detectPanels`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -473,7 +475,7 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
 
         if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
-          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
+          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -731,7 +733,7 @@ STRICT INSTRUCTIONS:
         yoloTexts
       };
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/detectText`, {
+      const res = await fetch(`${getApiUrl()}/api/detectText`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -859,7 +861,7 @@ export async function translateTexts(
 
         if (isHttpsPage && isHttpUrl && !isLoopback) {
           console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
-          response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/local-llm-proxy`, {
+          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -980,7 +982,7 @@ export async function translateTexts(
     let backendFailed = false;
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/translate`, {
+      const res = await fetch(`${getApiUrl()}/api/translate`, {
         method: "POST",
         headers,
         body: JSON.stringify({

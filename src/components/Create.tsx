@@ -87,6 +87,8 @@ import { AIGeneratorDialog } from "./AIGeneratorDialog";
 import { AIFullComicDialog } from "./AIFullComicDialog";
 import { AIFullStoryDialog } from "./AIFullStoryDialog";
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { getApiUrl } from '@/lib/api';
+
 
 interface CreateProps {
   setActiveView: (view: "home" | "read" | "create" | "convert") => void;
@@ -2004,7 +2006,7 @@ export const Create: React.FC<CreateProps> = ({
           );
 
           try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-image`, {
+            const res = await fetch(`${getApiUrl()}/api/generate-image`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -2534,7 +2536,7 @@ export const Create: React.FC<CreateProps> = ({
         headers["x-gemini-api-key"] = geminiApiKey;
       }
 
-      const apiRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/readHandwriting`, {
+      const apiRes = await fetch(`${getApiUrl()}/api/readHandwriting`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -2590,7 +2592,7 @@ export const Create: React.FC<CreateProps> = ({
         if (geminiApiKey) {
           headers["x-gemini-api-key"] = geminiApiKey;
         }
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-text`, {
+        const res = await fetch(`${getApiUrl()}/api/generate-text`, {
           method: "POST",
           headers,
           body: JSON.stringify({ prompt: aiPrompt, engine: llmEngine }),
@@ -3325,7 +3327,7 @@ export const Create: React.FC<CreateProps> = ({
         }
       } else if (format === "epub" || format === "docx") {
         toast.info(`Generating ${format.toUpperCase()}...`);
-        const response = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/export/${format}`, {
+        const response = await fetch(`${getApiUrl()}/api/export/${format}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ html: htmlContent, title: "Document" }),

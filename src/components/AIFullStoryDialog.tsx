@@ -5,6 +5,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { getApiUrl } from '@/lib/api';
+
 
 interface AIFullStoryDialogProps {
   open: boolean;
@@ -40,7 +42,7 @@ export function AIFullStoryDialog({ open, onOpenChange, onStoryGenerated, initia
       const headers: any = { 'Content-Type': 'application/json' };
       if (geminiApiKey) headers['x-gemini-api-key'] = geminiApiKey;
 
-      const apiUrl = import.meta.env.VITE_API_URL || "";
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/agent-chat`, {
         method: 'POST',
         headers,

@@ -7,6 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sparkles, Loader2, ImagePlus, Upload, Download } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
+import { getApiUrl } from '@/lib/api';
+
 
 interface AIGeneratorDialogProps {
   open: boolean;
@@ -53,7 +55,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
     try {
       let imageUrl = null;
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-image`, {
+        const res = await fetch(`${getApiUrl()}/api/generate-image`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

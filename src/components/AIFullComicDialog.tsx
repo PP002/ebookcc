@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Sparkles, Loader2, Upload, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
+import { getApiUrl } from '@/lib/api';
+
 
 interface AIFullComicDialogProps {
   open: boolean;
@@ -134,7 +136,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
         scriptData = JSON.parse(textResult);
       } else {
         try {
-          const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/generate-comic-script`, {
+          const res = await fetch(`${getApiUrl()}/api/generate-comic-script`, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

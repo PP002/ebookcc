@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getApiUrl } from '@/lib/api';
+
 
 export type LlmEngine = 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen' | 'puter';
 
@@ -98,7 +100,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   // Fetch safe configuration from backend on mount
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL || ""}/api/config`)
+    fetch(`${getApiUrl()}/api/config`)
       .then(res => {
         if (!res.ok) throw new Error("Config fetch failed");
         return res.json();

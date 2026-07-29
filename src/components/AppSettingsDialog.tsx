@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Settings, Sparkles, Database, Cloud, ChevronDown, ChevronUp, User, LogOut, Loader2, CheckCircle2 } from 'lucide-react';
-import { useAppSettings } from '@/context/AppSettingsContext';
+import { useAppSettings, getSupabase } from '@/context/AppSettingsContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AuthDialog } from './AuthDialog';
@@ -72,11 +72,17 @@ export function AppSettingsDialog() {
     if (supabaseUrl && supabaseAnonKey) {
       const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
       if (supabase) {
-        await supabase.auth.signOut();
+        try {
+          await supabase.auth.signOut();
+        } catch (err) {}
       }
     }
     setUser(null);
+    localStorage.removeItem("auth_user");
     toast.success("Signed out successfully.");
+    setTimeout(() => {
+      window.location.reload();
+    }, 100);
   };
 
   return (

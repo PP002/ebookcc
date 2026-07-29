@@ -132,7 +132,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         setUser({
           email: session.user.email || "",
-          name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture,
           uid: session.user.id
         });
       }
@@ -142,7 +143,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         setUser({
           email: session.user.email || "",
-          name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "User",
+          avatarUrl: session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture,
           uid: session.user.id
         });
       } else {

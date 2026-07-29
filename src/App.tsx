@@ -289,7 +289,7 @@ function AppContent() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowSettingsDialog(true)}
-                className="w-8.5 h-8.5 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0"
+                className="w-8 h-8 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0"
                 title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
               >
                 {user ? (
@@ -316,7 +316,7 @@ function AppContent() {
                 onClick={() =>
                   setTheme(resolvedTheme === "dark" ? "light" : "dark")
                 }
-                className="w-8.5 h-8.5 rounded-none hover:bg-muted text-foreground/80"
+                className="w-8 h-8 rounded-none hover:bg-muted text-foreground/80"
                 title="Toggle theme"
               >
                 {resolvedTheme === "dark" ? (

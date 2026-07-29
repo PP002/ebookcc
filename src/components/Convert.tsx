@@ -5303,11 +5303,11 @@ ${navItems}    </ol>
                       <img
                         src={user.avatarUrl || user.photoURL}
                         alt={user.name || user.email}
-                        className="w-6.5 h-6.5 rounded-full object-cover shrink-0 ring-1 ring-border/60"
+                        className="w-6 h-6 rounded-full object-cover shrink-0 ring-1 ring-border/60"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-6.5 h-6.5 rounded-full bg-primary text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
+                      <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
                         {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
                       </div>
                     )

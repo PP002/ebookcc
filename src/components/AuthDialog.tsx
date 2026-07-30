@@ -222,7 +222,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
             variant="outline"
             onClick={handleGoogleSignInClick}
             disabled={loading}
-            className="w-full h-10 border border-border hover:bg-accent/60 font-semibold text-sm flex items-center justify-center gap-2.5 transition-all shadow-sm"
+            className="w-full h-10 border border-border hover:bg-accent/60 font-semibold text-sm flex items-center justify-center gap-2.5 transition-all shadow-sm rounded-full"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -301,7 +301,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
               <Button 
                 type="submit" 
-                className="w-full h-10 mt-2 font-semibold flex items-center justify-center gap-2"
+                className="w-full h-10 mt-2 font-semibold flex items-center justify-center gap-2 rounded-full"
                 disabled={loading}
               >
                 {loading ? (

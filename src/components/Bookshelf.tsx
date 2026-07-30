@@ -402,16 +402,11 @@ export function Bookshelf({
     window.addEventListener('ebookcc_published', handleSync);
     window.addEventListener('focus', handleSync);
 
-    // Continuous light polling to ensure seamless instant auto-sync across actions
-    const syncInterval = setInterval(() => {
-      loadBooks();
-    }, 5000);
-    
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('ebookcc_published', handleSync);
       window.removeEventListener('focus', handleSync);
-      clearInterval(syncInterval);
+      
     };
   }, []);
 

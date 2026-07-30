@@ -123,13 +123,12 @@ function AppContent() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { setShowSettingsDialog, user } = useAppSettings();
   const [currentPath, setCurrentPath] = useState<
-    "home" | "read" | "create" | "convert" | "privacy"
+    "home" | "read" | "create" | "convert"
   >(() => {
     const path = window.location.pathname.toLowerCase();
     if (path === "/read") return "read";
     if (path === "/create") return "create";
     if (path === "/convert") return "convert";
-    if (path === "/privacy") return "privacy";
     return "home";
   });
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
@@ -142,7 +141,6 @@ function AppContent() {
       if (path === "/read") setCurrentPath("read");
       else if (path === "/create") setCurrentPath("create");
       else if (path === "/convert") setCurrentPath("convert");
-      else if (path === "/privacy") setCurrentPath("privacy");
       else setCurrentPath("home");
       setHeaderHidden(false);
     };
@@ -535,19 +533,6 @@ function AppContent() {
                       className="underline hover:text-primary transition-colors"
                     >
                       support@ebookcc.com
-                    </a>
-                  </span>
-                  <span className="hidden sm:inline text-border">|</span>
-                  <span>
-                    <a
-                      href="/privacy"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate("privacy");
-                      }}
-                      className="underline hover:text-primary transition-colors"
-                    >
-                      Privacy Policy
                     </a>
                   </span>
                 </p>

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useAppSettings, getSupabase } from '@/context/AppSettingsContext';
-import { Mail, Lock, User, LogIn, UserPlus, Shield, BookOpen, Sparkles } from 'lucide-react';
+import { Loader2, Mail, Lock, User, LogIn, UserPlus, Shield, BookOpen, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +24,16 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const [loading, setLoading] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setLoading(false);
+      setIsSignUp(false);
+      setEmail("");
+      setPassword("");
+      setShowResetPassword(false);
+    }
+  }, [open]);
 
   
 
@@ -295,7 +305,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 disabled={loading}
               >
                 {loading ? (
-                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : isSignUp ? (
                   <>
                     <UserPlus className="w-4 h-4" />

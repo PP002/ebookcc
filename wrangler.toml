@@ -1,0 +1,6 @@
+name = "ebookcc"
+compatibility_date = "2026-07-31"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "ebookcc-media"

@@ -235,9 +235,8 @@ function AppContent() {
             >
               <img
                 src="/logo.png"
-                alt="EbookCC/Manga Logo"
-                aria-hidden="true"
-                className="h-6 w-auto block select-none"
+                alt="EbookCC Logo"
+                className="h-7 w-7 object-contain rounded-md block select-none"
               />
               <span className="font-sans font-extrabold text-sm tracking-tighter text-foreground portrait:hidden">
                 EBookCC

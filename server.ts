@@ -430,13 +430,17 @@ async function startServer() {
   // ─────────────────────────────────────────────
 
   app.get("/api/config", (req, res) => {
-    const rawBucket = (process.env.R2_BUCKET_NAME || "").trim();
+    const rawBucket = (process.env.R2_BUCKET_NAME || process.env.VITE_R2_BUCKET_NAME || "").trim();
     const bucket = (!rawBucket || rawBucket === "ebookcc-assets") ? "ebookcc-media" : rawBucket;
+    const accountId = (process.env.R2_ACCOUNT_ID || process.env.VITE_R2_ACCOUNT_ID || "").trim();
+    const rawEndpoint = (process.env.R2_ENDPOINT || process.env.VITE_R2_ENDPOINT || "").trim();
+    const endpoint = rawEndpoint || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com");
+
     res.json({
-      supabaseUrl: (process.env.SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co").trim(),
-      supabaseAnonKey: (process.env.SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX").trim(),
+      supabaseUrl: (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co").trim(),
+      supabaseAnonKey: (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX").trim(),
       r2BucketName: bucket,
-      r2Endpoint: (process.env.R2_ENDPOINT || "").trim() || (process.env.R2_ACCOUNT_ID ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com")
+      r2Endpoint: endpoint
     });
   });
 
@@ -451,15 +455,15 @@ async function startServer() {
   }
 
   function getR2ClientAndBucket(req?: express.Request, customBucket?: string) {
-    const accessKeyId = ((req?.headers["x-r2-access-key"] as string) || process.env.R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a").trim();
-    const secretAccessKey = ((req?.headers["x-r2-secret-key"] as string) || process.env.R2_SECRET_ACCESS_KEY || "13bbca496ee48a15650081575e298da228dbc4b8a2e18b4375491070d99d8eab").trim();
-    let bucket = (customBucket || (req?.headers["x-r2-bucket"] as string) || process.env.R2_BUCKET_NAME || "ebookcc-media").trim();
+    const accessKeyId = ((req?.headers["x-r2-access-key"] as string) || process.env.R2_ACCESS_KEY_ID || process.env.VITE_R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a").trim();
+    const secretAccessKey = ((req?.headers["x-r2-secret-key"] as string) || process.env.R2_SECRET_ACCESS_KEY || process.env.VITE_R2_SECRET_ACCESS_KEY || "13bbca496ee48a15650081575e298da228dbc4b8a2e18b4375491070d99d8eab").trim();
+    let bucket = (customBucket || (req?.headers["x-r2-bucket"] as string) || process.env.R2_BUCKET_NAME || process.env.VITE_R2_BUCKET_NAME || "ebookcc-media").trim();
     if (!bucket || bucket === "ebookcc-assets") {
       bucket = "ebookcc-media";
     }
     
-    let endpoint = ((req?.headers["x-r2-endpoint"] as string) || process.env.R2_ENDPOINT || "").trim();
-    const accountId = process.env.R2_ACCOUNT_ID || "fa7ead1c0aaa1e931de55eb01c384876";
+    let endpoint = ((req?.headers["x-r2-endpoint"] as string) || process.env.R2_ENDPOINT || process.env.VITE_R2_ENDPOINT || "").trim();
+    const accountId = (process.env.R2_ACCOUNT_ID || process.env.VITE_R2_ACCOUNT_ID || "fa7ead1c0aaa1e931de55eb01c384876").trim();
 
     if (!endpoint && accountId) {
       endpoint = `https://${accountId}.r2.cloudflarestorage.com`;

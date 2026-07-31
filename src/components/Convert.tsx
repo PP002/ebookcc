@@ -5284,7 +5284,7 @@ ${navItems}    </ol>
                    whileHover={{ scale: 1.05 }}
                    className="h-8 w-8 flex items-center justify-center"
                  >
-                   <img src="/logo.png" alt="Logo" className="h-full w-auto block select-none" />
+                   <img src="/logo.png" alt="EbookCC Logo" className="h-full w-full object-contain rounded-md block select-none" />
                  </motion.div>
                  <h1 className={cn("text-lg font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent", isPortrait ? "hidden" : "hidden sm:block")}>EbookCC</h1>
               </div>

@@ -2,6 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ebookcc",
   "compatibility_date": "2026-07-31",
+  "assets": {
+    "directory": "./dist"
+  },
   "r2_buckets": [
     {
       "binding": "MEDIA",

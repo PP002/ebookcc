@@ -4,6 +4,7 @@
  */
 
 import Convert from "./components/Convert";
+import logoImg from "./assets/logo.png";
 import { Read } from "./components/Read";
 import { Create } from "./components/Create";
 import { Bookshelf } from "./components/Bookshelf";
@@ -230,13 +231,16 @@ function AppContent() {
             {/* Logo Brand */}
             <div
               onClick={() => navigate("home")}
-              className="flex items-center gap-2 cursor-pointer select-none shrink-0"
+              className="flex items-center gap-2.5 cursor-pointer select-none shrink-0"
               title="Back to Home"
             >
               <img
-                src="/logo.png"
-                alt="EbookCC Logo"
-                className="h-7 w-7 object-contain rounded-md block select-none"
+                src={logoImg}
+                alt="EBookCC Logo"
+                className="w-8 h-8 rounded-md object-contain block select-none shrink-0"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = "/logo.png";
+                }}
               />
               <span className="font-sans font-extrabold text-sm tracking-tighter text-foreground portrait:hidden">
                 EBookCC
@@ -288,7 +292,7 @@ function AppContent() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowSettingsDialog(true)}
-                className="w-8 h-8 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0"
+                className="w-8 h-8 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
                 title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
               >
                 {user ? (
@@ -296,11 +300,11 @@ function AppContent() {
                     <img
                       src={user.avatarUrl || user.photoURL}
                       alt={user.name || user.email}
-                      className="w-7 h-7 rounded-full object-cover shrink-0 ring-1 ring-border/60"
+                      className="w-8 h-8 rounded-full object-cover shrink-0"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
                       {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
                     </div>
                   )

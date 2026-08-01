@@ -1,10 +1,22 @@
 import { getApiUrl } from '@/lib/api';
+import { getSupabase } from '@/context/AppSettingsContext';
 
 export interface R2Config {
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2BucketName?: string;
   r2Endpoint?: string;
+}
+
+function getActiveSupabaseClient() {
+  try {
+    const url = localStorage.getItem('supabase_url') || import.meta.env.VITE_SUPABASE_URL || '';
+    const key = localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+    if (!url || !key) return null;
+    return getSupabase(url, key);
+  } catch (_) {
+    return null;
+  }
 }
 
 export function getR2Headers(config?: R2Config): Record<string, string> {
@@ -110,6 +122,27 @@ export async function publishWorkToR2(
   item: any,
   config?: R2Config
 ): Promise<{ success: boolean; item: any; message: string }> {
+  // Sync to Supabase table if connected
+  const supabase = getActiveSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('published_works').upsert({
+        id: item.id,
+        title: item.title || 'Untitled',
+        type: item.type || 'comic',
+        author: item.author || 'Anonymous',
+        author_id: item.author_id || item.authorId || '',
+        cover_url: item.coverUrl || item.cover_url || '',
+        pages: item.pages || [],
+        content: item.content || '',
+        description: item.description || '',
+        timestamp: item.timestamp || Date.now()
+      });
+    } catch (sbErr: any) {
+      console.warn("Supabase published_works table sync skipped/failed:", sbErr.message);
+    }
+  }
+
   try {
     const res = await fetch(`${getApiUrl()}/api/published-works`, {
       method: "POST",
@@ -143,6 +176,9 @@ export async function publishWorkToR2(
 export async function fetchPublishedWorksFromR2(
   config?: R2Config
 ): Promise<{ success: boolean; works: any[] }> {
+  let worksList: any[] = [];
+
+  // Try fetching from server R2 API first
   try {
     const res = await fetch(`${getApiUrl()}/api/published-works`, {
       method: "GET",
@@ -151,22 +187,69 @@ export async function fetchPublishedWorksFromR2(
       }
     });
 
-    if (!res.ok) return { success: false, works: [] };
-    const data = await res.json();
-    if (data && Array.isArray(data.works)) {
-      return { success: true, works: data.works };
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.works)) {
+        worksList = data.works;
+      }
     }
-    return { success: false, works: [] };
   } catch (err) {
     console.warn("Failed fetching published works from R2 API:", err);
-    return { success: false, works: [] };
   }
+
+  // Also query Supabase database published_works table if connected
+  const supabase = getActiveSupabaseClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('published_works')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const worksMap = new Map<string, any>();
+        // Add items from R2/local
+        worksList.forEach(w => { if (w && w.id) worksMap.set(w.id, w); });
+        // Add or replace with items from Supabase
+        data.forEach((sbItem: any) => {
+          if (sbItem && sbItem.id) {
+            worksMap.set(sbItem.id, {
+              id: sbItem.id,
+              title: sbItem.title,
+              type: sbItem.type,
+              author: sbItem.author,
+              authorId: sbItem.author_id,
+              coverUrl: sbItem.cover_url,
+              pages: sbItem.pages,
+              content: sbItem.content,
+              description: sbItem.description,
+              timestamp: sbItem.timestamp || (sbItem.created_at ? new Date(sbItem.created_at).getTime() : Date.now())
+            });
+          }
+        });
+        worksList = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      } else if (error) {
+        console.warn("Supabase published_works fetch notice:", error.message);
+      }
+    } catch (sbErr: any) {
+      console.warn("Supabase published_works table query notice:", sbErr.message);
+    }
+  }
+
+  return { success: true, works: worksList };
 }
 
 export async function deletePublishedWorkFromR2(
   id: string,
   config?: R2Config
 ): Promise<boolean> {
+  const supabase = getActiveSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from('published_works').delete().eq('id', id);
+    } catch (_) {}
+  }
+
   try {
     const res = await fetch(`${getApiUrl()}/api/published-works/${encodeURIComponent(id)}`, {
       method: "DELETE",

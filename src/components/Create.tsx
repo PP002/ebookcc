@@ -951,10 +951,12 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
 function checkIsAuthor(item: any, user: any) {
   if (!item) return false;
   
-  // If work explicitly has an authorId or authorEmail attached from auth session
-  if (item.authorId || item.authorEmail) {
+  // If work explicitly has an authorId, author_id or authorEmail attached from auth session
+  const itemAuthorId = item.authorId || item.author_id;
+  if (itemAuthorId || item.authorEmail) {
     if (!user) return false;
-    if (item.authorId && user.id && item.authorId === user.id) return true;
+    if (itemAuthorId && user.uid && itemAuthorId === user.uid) return true;
+    if (itemAuthorId && user.id && itemAuthorId === user.id) return true;
     if (item.authorEmail && user.email && item.authorEmail === user.email) return true;
     return false;
   }

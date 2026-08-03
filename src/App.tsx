@@ -4,7 +4,7 @@
  */
 
 import Convert from "./components/Convert";
-import logoImg from "./assets/logo.png";
+import logoImg from "./assets/logo.svg";
 import { Read } from "./components/Read";
 import { Create } from "./components/Create";
 import { Bookshelf } from "./components/Bookshelf";
@@ -243,18 +243,18 @@ function AppContent() {
             {/* Logo Brand */}
             <div
               onClick={() => navigate("home")}
-              className="flex items-center gap-2.5 cursor-pointer select-none shrink-0"
+              className="flex items-center gap-2.5 cursor-pointer select-none shrink-0 group"
               title="Back to Home"
             >
               <img
                 src={logoImg}
                 alt="EBookCC Logo"
-                className="w-8 h-8 rounded-md object-contain block select-none shrink-0"
+                className="w-8 h-8 rounded-lg object-cover block select-none shrink-0 shadow-sm transition-transform group-hover:scale-105"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = "/logo.png";
+                  (e.currentTarget as HTMLImageElement).src = "/logo.svg";
                 }}
               />
-              <span className="font-sans font-extrabold text-sm tracking-tighter text-foreground portrait:hidden">
+              <span className="font-sans font-bold text-base tracking-tight text-foreground">
                 EBookCC
               </span>
             </div>

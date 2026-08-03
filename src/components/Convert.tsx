@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import logoImg from '../assets/logo.png';
+import logoImg from '../assets/logo.svg';
 import { useDropzone } from 'react-dropzone';
 import { detectComicText, detectComicPanels, detectLayoutLocalYolo, translateTexts, ComicText, LayoutResult } from '@/services/gemini';
 import { Button } from '@/components/ui/button';
@@ -5287,14 +5287,14 @@ ${navItems}    </ol>
                  >
                    <img 
                      src={logoImg} 
-                     alt="EbookCC Logo" 
-                     className="w-8 h-8 rounded-md object-contain block select-none shrink-0" 
+                     alt="EBookCC Logo" 
+                     className="w-8 h-8 rounded-lg object-cover block select-none shrink-0 shadow-sm" 
                      onError={(e) => {
-                       (e.currentTarget as HTMLImageElement).src = "/logo.png";
+                       (e.currentTarget as HTMLImageElement).src = "/logo.svg";
                      }}
                    />
                  </motion.div>
-                 <h1 className={cn("text-lg font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent", isPortrait ? "hidden" : "hidden sm:block")}>EbookCC</h1>
+                 <h1 className="text-base font-bold tracking-tight text-foreground">EBookCC</h1>
               </div>
 
               {/* Right Actions */}

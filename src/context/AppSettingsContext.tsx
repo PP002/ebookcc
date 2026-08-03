@@ -81,9 +81,14 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   // Supabase & Cloudflare R2 states
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
     let saved = localStorage.getItem('supabase_url');
-    if (saved === "https://wipjqdmystqfzwsmvscx.supabase.co") {
-      saved = window.location.origin + "/supabase-api";
-      localStorage.setItem('supabase_url', saved);
+    // If the saved URL is the old default or a local proxy path, clear it out to allow direct connection
+    if (saved === "https://wipjqdmystqfzwsmvscx.supabase.co" || (saved && saved.endsWith("/supabase-api"))) {
+      saved = import.meta.env.VITE_SUPABASE_URL || "";
+      if (saved) {
+        localStorage.setItem('supabase_url', saved);
+      } else {
+        localStorage.removeItem('supabase_url');
+      }
     }
     return saved || import.meta.env.VITE_SUPABASE_URL || "";
   });

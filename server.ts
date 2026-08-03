@@ -93,15 +93,7 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint', 'apikey']
   }));
 
-  // Proxy to Supabase so that Google OAuth uses the custom domain
-  app.use('/supabase-api', createProxyMiddleware({
-    target: 'https://wipjqdmystqfzwsmvscx.supabase.co',
-    changeOrigin: true,
-    xfwd: true,
-    pathRewrite: {
-      '^/supabase-api': '', // strip /supabase-api from the URL
-    },
-  }));
+  // Proxy to Supabase removed for direct connection
 
   app.use(express.json({ limit: '50mb' }));
 
@@ -450,7 +442,7 @@ async function startServer() {
 
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host') || 'ebookcc.com';
-    const defaultSupabaseUrl = `${protocol}://${host}/supabase-api`;
+    const defaultSupabaseUrl = "https://wipjqdmystqfzwsmvscx.supabase.co";
 
     res.json({
       supabaseUrl: (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || defaultSupabaseUrl).trim(),

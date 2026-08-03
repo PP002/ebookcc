@@ -81,19 +81,15 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   // Supabase & Cloudflare R2 states
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
     let saved = localStorage.getItem('supabase_url');
-    // If the saved URL is the old default or a local proxy path, clear it out to allow direct connection
-    if (saved === "https://wipjqdmystqfzwsmvscx.supabase.co" || (saved && saved.endsWith("/supabase-api"))) {
-      saved = import.meta.env.VITE_SUPABASE_URL || "";
-      if (saved) {
-        localStorage.setItem('supabase_url', saved);
-      } else {
-        localStorage.removeItem('supabase_url');
-      }
+    // If the saved URL is the old default or a local proxy path, scrub it out to allow direct connection
+    if (saved && saved.includes("/supabase-api")) {
+      saved = "https://wipjqdmystqfzwsmvscx.supabase.co";
+      localStorage.setItem('supabase_url', saved);
     }
-    return saved || import.meta.env.VITE_SUPABASE_URL || "";
+    return saved || import.meta.env.VITE_SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co";
   });
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
-    return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+    return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX";
   });
   const [googleClientId, setGoogleClientId] = useState(() => {
     return localStorage.getItem('google_client_id') || import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
@@ -121,8 +117,12 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         return res.json();
       })
       .then(data => {
-        setSupabaseUrl(prev => prev || data.supabaseUrl || "");
-        setSupabaseAnonKey(prev => prev || data.supabaseAnonKey || "");
+        let fetchedSupabaseUrl = data.supabaseUrl || "";
+        if (fetchedSupabaseUrl.includes("/supabase-api")) {
+          fetchedSupabaseUrl = "https://wipjqdmystqfzwsmvscx.supabase.co";
+        }
+        setSupabaseUrl(prev => prev || fetchedSupabaseUrl);
+        setSupabaseAnonKey(prev => prev || data.supabaseAnonKey || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX");
         setR2BucketName(prev => prev || data.r2BucketName || "");
         setR2Endpoint(prev => prev || data.r2Endpoint || "");
       })

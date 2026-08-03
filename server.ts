@@ -101,7 +101,6 @@ async function startServer() {
     pathRewrite: {
       '^/supabase-api': '', // strip /supabase-api from the URL
     },
-    logLevel: 'info',
   }));
 
   app.use(express.json({ limit: '50mb' }));
@@ -1084,7 +1083,7 @@ async function startServer() {
             const origH    = metadata.height || 1000;
 
             const form = new FormData();
-            form.append("file", new Blob([imgBuf], { type: 'image/jpeg' }), "image.jpg");
+            form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
             form.append("conf", "0.15");
             form.append("iou",  "0.45");
             form.append("imgsz","1280");
@@ -1192,7 +1191,7 @@ async function startServer() {
              const origW    = metadata.width  || 1000;
              const origH    = metadata.height || 1000;
              const form = new FormData();
-             form.append("file", new Blob([imgBuf], { type: 'image/jpeg' }), "image.jpg");
+             form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
              form.append("conf", "0.15");
              form.append("iou",  "0.45");
              form.append("imgsz","1280");

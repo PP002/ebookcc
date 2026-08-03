@@ -35,6 +35,8 @@ export interface AppSettings {
   setSupabaseUrl: (val: string) => void;
   supabaseAnonKey: string;
   setSupabaseAnonKey: (val: string) => void;
+  googleClientId: string;
+  setGoogleClientId: (val: string) => void;
   r2AccessKeyId: string;
   setR2AccessKeyId: (val: string) => void;
   r2SecretAccessKey: string;
@@ -87,6 +89,9 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   });
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
     return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+  });
+  const [googleClientId, setGoogleClientId] = useState(() => {
+    return localStorage.getItem('google_client_id') || import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
   });
   const [r2AccessKeyId, setR2AccessKeyId] = useState(() => {
     return localStorage.getItem('r2_access_key') || import.meta.env.VITE_R2_ACCESS_KEY_ID || "";
@@ -203,6 +208,11 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   }, [supabaseAnonKey]);
 
   useEffect(() => {
+    if (googleClientId) localStorage.setItem('google_client_id', googleClientId);
+    else localStorage.removeItem('google_client_id');
+  }, [googleClientId]);
+
+  useEffect(() => {
     if (r2AccessKeyId) localStorage.setItem('r2_access_key', r2AccessKeyId);
     else localStorage.removeItem('r2_access_key');
   }, [r2AccessKeyId]);
@@ -244,6 +254,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       // Integrations
       supabaseUrl, setSupabaseUrl,
       supabaseAnonKey, setSupabaseAnonKey,
+      googleClientId, setGoogleClientId,
       r2AccessKeyId, setR2AccessKeyId,
       r2SecretAccessKey, setR2SecretAccessKey,
       r2BucketName, setR2BucketName,

@@ -50,6 +50,16 @@ import {
   useAppSettings,
 } from "./context/AppSettingsContext";
 import { AppSettingsDialog } from "./components/AppSettingsDialog";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+function GoogleAuthProviderWrapper({ children }: { children: React.ReactNode }) {
+  const { googleClientId } = useAppSettings();
+  return (
+    <GoogleOAuthProvider clientId={googleClientId || "dummy"}>
+      {children}
+    </GoogleOAuthProvider>
+  );
+}
 
 function FeatureCard({
   bg,
@@ -112,8 +122,10 @@ export default function App() {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <AppSettingsProvider>
-          <AppContent />
-          <AppSettingsDialog />
+          <GoogleAuthProviderWrapper>
+            <AppContent />
+            <AppSettingsDialog />
+          </GoogleAuthProviderWrapper>
         </AppSettingsProvider>
       </TooltipProvider>
     </ThemeProvider>

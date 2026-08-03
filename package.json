@@ -37,6 +37,7 @@
     "html-to-pdfmake": "^2.5.33",
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
+    "http-proxy-middleware": "^4.2.0",
     "idb-keyval": "^6.2.2",
     "image-size": "^2.0.2",
     "jimp": "^1.6.1",

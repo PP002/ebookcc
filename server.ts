@@ -5,6 +5,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import sizeOf from "image-size";
 import HTMLtoDOCX from 'html-to-docx';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -89,8 +90,20 @@ async function startServer() {
   app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint', 'apikey']
   }));
+
+  // Proxy to Supabase so that Google OAuth uses the custom domain
+  app.use('/supabase-api', createProxyMiddleware({
+    target: 'https://wipjqdmystqfzwsmvscx.supabase.co',
+    changeOrigin: true,
+    xfwd: true,
+    pathRewrite: {
+      '^/supabase-api': '', // strip /supabase-api from the URL
+    },
+    logLevel: 'info',
+  }));
+
   app.use(express.json({ limit: '50mb' }));
 
   // Health checks
@@ -436,8 +449,12 @@ async function startServer() {
     const rawEndpoint = (process.env.R2_ENDPOINT || process.env.VITE_R2_ENDPOINT || "").trim();
     const endpoint = rawEndpoint || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "https://fa7ead1c0aaa1e931de55eb01c384876.r2.cloudflarestorage.com");
 
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || 'ebookcc.com';
+    const defaultSupabaseUrl = `${protocol}://${host}/supabase-api`;
+
     res.json({
-      supabaseUrl: (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://wipjqdmystqfzwsmvscx.supabase.co").trim(),
+      supabaseUrl: (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || defaultSupabaseUrl).trim(),
       supabaseAnonKey: (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX").trim(),
       r2BucketName: bucket,
       r2Endpoint: endpoint

@@ -78,7 +78,12 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   // Supabase & Cloudflare R2 states
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
-    return localStorage.getItem('supabase_url') || import.meta.env.VITE_SUPABASE_URL || "";
+    let saved = localStorage.getItem('supabase_url');
+    if (saved === "https://wipjqdmystqfzwsmvscx.supabase.co") {
+      saved = window.location.origin + "/supabase-api";
+      localStorage.setItem('supabase_url', saved);
+    }
+    return saved || import.meta.env.VITE_SUPABASE_URL || "";
   });
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
     return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "";

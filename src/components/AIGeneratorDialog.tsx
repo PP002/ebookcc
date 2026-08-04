@@ -118,7 +118,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
         {generatedImage ? (
           <div className="flex flex-col gap-4 py-4">
             <div className="relative w-full rounded-md border flex items-center justify-center overflow-hidden bg-muted">
-              <img src={generatedImage} alt="Generated using AI" className="max-h-[60vh] object-contain" />
+              <img src={generatedImage || undefined} alt="Generated using AI" className="max-h-[60vh] object-contain" />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => {
@@ -152,7 +152,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
               <Label htmlFor="sketch">Sketch / Base Image (Optional)</Label>
               {sketch ? (
                 <div className="relative aspect-video w-full rounded-md border flex items-center justify-center overflow-hidden bg-muted">
-                  <img src={sketch} alt="Sketch" className="max-h-full object-contain" />
+                  <img src={sketch || undefined} alt="Sketch" className="max-h-full object-contain" />
                   <Button 
                     variant="secondary" 
                     size="sm" 

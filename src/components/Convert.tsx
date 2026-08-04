@@ -1839,7 +1839,7 @@ const ImageItem = ({
       )}>
         {isSelected && isCropping && (
           <img 
-            src={img.url} 
+            src={img.url || undefined} 
             className={cn("w-full h-full object-cover pointer-events-none opacity-50", img.isHighContrast && "contrast-150 saturate-0")}
             alt="Original Overlay" 
             style={img.crop ? {
@@ -1867,7 +1867,7 @@ const ImageItem = ({
           style={img.hasOutline ? { border: `2px solid ${img.color || '#000000'}`, boxSizing: 'border-box' } : undefined}
         >
           <img 
-            src={img.url} 
+            src={img.url || undefined} 
             className="w-full h-full object-fill pointer-events-none" 
             alt="Inserted" 
             style={img.crop ? {
@@ -5309,7 +5309,7 @@ ${navItems}    </ol>
                   {user ? (
                     (user.avatarUrl || user.photoURL) ? (
                       <img
-                        src={user.avatarUrl || user.photoURL}
+                        src={user.avatarUrl || user.photoURL || undefined}
                         alt={user.name || user.email}
                         className="w-8 h-8 rounded-full object-cover shrink-0"
                         referrerPolicy="no-referrer"
@@ -5401,7 +5401,7 @@ ${navItems}    </ol>
                             : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
                         )}
                       >
-                        <img src={page.originalImage} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
+                        <img src={page.originalImage || undefined} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
                         <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
                           {idx + 1}
                         </div>
@@ -5461,7 +5461,7 @@ ${navItems}    </ol>
                                 page.isIgnored && !selectedPages.has(idx) && "opacity-50"
                               )}
                             >
-                              <img src={page.originalImage} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
+                              <img src={page.originalImage || undefined} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
                               <div className="absolute top-2 left-2 bg-foreground text-background text-[10px] px-1.5 py-0.5 rounded-none font-mono">
                                 {(idx + 1).toString().padStart(2, '0')}
                               </div>
@@ -5573,7 +5573,7 @@ ${navItems}    </ol>
                                           {panel.base64Image && (
                                             <div className="w-full flex justify-center overflow-hidden">
                                               <img
-                                                src={panel.base64Image}
+                                                src={panel.base64Image || undefined}
                                                 alt={`Panel ${pIdx + 1}`}
                                                 className="max-h-[400px] object-contain rounded border border-gray-100"
                                               />
@@ -5600,7 +5600,7 @@ ${navItems}    </ol>
                                     <>
                                       <img
                                         ref={imageRef}
-                                        src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage)}
+                                        src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage) || undefined}
                                         alt={`Page ${currentPageIndex + 1}`}
                                         className="max-h-[calc(100vh-3rem)] w-auto block border border-black mx-auto"
                                         style={{ backgroundColor: activePage.bgColor || 'white' }}

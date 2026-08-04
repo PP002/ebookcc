@@ -246,7 +246,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
             <Label htmlFor="sketch">Concept Sketch / Base Image (Optional)</Label>
             {sketch ? (
               <div className="relative aspect-video w-full rounded-md border flex items-center justify-center overflow-hidden bg-muted">
-                <img src={sketch} alt="Sketch" className="max-h-full object-contain" />
+                <img src={sketch || undefined} alt="Sketch" className="max-h-full object-contain" />
                 <Button 
                   variant="secondary" 
                   size="sm" 

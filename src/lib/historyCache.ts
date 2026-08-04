@@ -85,7 +85,7 @@ export interface RecentBookMetadata {
   title: string;
   author: string;
   cover: string; // Base64 or placeholder URL
-  fileType: 'images' | 'epub' | 'pdf' | 'text';
+  fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
   lastReadPage: number;
   lastReadLocation?: string | number;
   timestamp: number;
@@ -129,8 +129,8 @@ export async function saveRecentBook(
     title: string;
     author: string;
     cover: string;
-    fileType: 'images' | 'epub' | 'pdf' | 'text';
-    pages: string[];
+    fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
+    pages: any[];
     file?: File;
     fileBuffer?: ArrayBuffer;
   },
@@ -141,12 +141,12 @@ export async function saveRecentBook(
     id: book.id,
     title: book.title,
     author: book.author || 'Local File',
-    cover: book.cover && book.cover.startsWith('data:') ? book.cover : 'https://placehold.co/150x220/png?text=eBook',
+    cover: book.cover && typeof book.cover === 'string' && (book.cover.startsWith('data:') || book.cover.startsWith('http')) ? book.cover : (book.cover || 'https://placehold.co/150x220/png?text=eBook'),
     fileType: book.fileType,
     lastReadPage,
     lastReadLocation,
     timestamp: Date.now(),
-    hasFile: !!(book.file || book.fileBuffer || book.pages?.length > 1)
+    hasFile: !!(book.file || book.fileBuffer || (book.pages && book.pages.length > 1))
   };
 
   // 1. Save metadata to list in localStorage for instant access
@@ -170,7 +170,9 @@ export async function saveRecentBook(
       author: book.author,
       cover: book.cover,
       fileType: book.fileType,
-      pages: book.pages && book.pages.every(p => p.startsWith('data:') || p.startsWith('http')) ? book.pages : [], // avoid temporary blob URLs
+      pages: Array.isArray(book.pages)
+        ? book.pages.filter(p => typeof p === 'string' ? !p.startsWith('blob:') : true)
+        : [],
       file: book.file,
       fileBuffer: book.fileBuffer,
       lastReadPage,

@@ -1240,7 +1240,7 @@ const PanelView: React.FC<{
               style={node.hasOutline ? { border: `2px solid ${node.color || '#000000'}`, boxSizing: 'border-box' } : undefined}
             >
               <img 
-                src={node.imageUrl} 
+                src={node.imageUrl || undefined} 
                 alt="Panel" 
                 className={cn("w-full h-full object-cover select-none pointer-events-auto", node.isHighContrast && "contrast-[1.25] grayscale")} 
                 onClick={handleImgClick} 

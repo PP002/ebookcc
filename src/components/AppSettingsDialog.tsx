@@ -315,7 +315,7 @@ export function AppSettingsDialog() {
                   <div className="flex items-center gap-1.5 max-w-[160px] truncate bg-muted/65 py-1 px-2 border rounded-full text-[10px] font-medium text-foreground">
                     {user.avatarUrl || user.photoURL ? (
                       <img
-                        src={user.avatarUrl || user.photoURL}
+                        src={user.avatarUrl || user.photoURL || undefined}
                         alt={user.name || user.email}
                         className="w-4 h-4 rounded-full object-cover shrink-0"
                         referrerPolicy="no-referrer"

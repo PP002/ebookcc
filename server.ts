@@ -463,9 +463,13 @@ async function startServer() {
   }
 
   function getR2ClientAndBucket(req?: express.Request, customBucket?: string) {
-    const accessKeyId = ((req?.headers["x-r2-access-key"] as string) || process.env.R2_ACCESS_KEY_ID || process.env.VITE_R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a").trim();
-    const secretAccessKey = ((req?.headers["x-r2-secret-key"] as string) || process.env.R2_SECRET_ACCESS_KEY || process.env.VITE_R2_SECRET_ACCESS_KEY || "13bbca496ee48a15650081575e298da228dbc4b8a2e18b4375491070d99d8eab").trim();
-    let bucket = (customBucket || (req?.headers["x-r2-bucket"] as string) || process.env.R2_BUCKET_NAME || process.env.VITE_R2_BUCKET_NAME || "ebookcc-media").trim();
+    const headerKey = (req?.headers["x-r2-access-key"] as string || "").trim();
+    const headerSecret = (req?.headers["x-r2-secret-key"] as string || "").trim();
+    const accessKeyId = headerKey || process.env.R2_ACCESS_KEY_ID || process.env.VITE_R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a";
+    const secretAccessKey = headerSecret || process.env.R2_SECRET_ACCESS_KEY || process.env.VITE_R2_SECRET_ACCESS_KEY || "13bbca496ee48a15650081575e298da228dbc4b8a2e18b4375491070d99d8eab";
+    
+    let headerBucket = (req?.headers["x-r2-bucket"] as string || "").trim();
+    let bucket = customBucket || headerBucket || process.env.R2_BUCKET_NAME || process.env.VITE_R2_BUCKET_NAME || "ebookcc-media";
     if (!bucket || bucket === "ebookcc-assets") {
       bucket = "ebookcc-media";
     }
@@ -485,7 +489,8 @@ async function startServer() {
     }
 
     try {
-      const cleanEndpoint = endpoint.startsWith("http") ? endpoint : `https://${endpoint}`;
+      let cleanEndpoint = endpoint.startsWith("http") ? endpoint : `https://${endpoint}`;
+      cleanEndpoint = cleanEndpoint.replace(/\/ebookcc-media\/?$/, "");
       const s3 = new S3Client({
         region: "auto",
         endpoint: cleanEndpoint,
@@ -943,7 +948,7 @@ async function startServer() {
                     }
                   }
                 } catch (fetchItemErr: any) {
-                  console.warn(`[R2] Could not fetch published item ${obj.Key}:`, fetchItemErr.message);
+                  console.warn(`[R2] Could not fetch published item ${obj.Key}: bucket=${bucket}`, fetchItemErr.message);
                 }
               }
             }
@@ -971,7 +976,7 @@ async function startServer() {
           const worksList = Array.from(r2WorksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           return res.json({ success: true, works: worksList, source: "r2" });
         } catch (r2ListErr: any) {
-          console.warn(`[R2] List published works from bucket "${bucket}" failed, falling back to local cache:`, r2ListErr.message);
+          console.warn(`\[R2\] List published works from bucket "${bucket}" failed, falling back to local cache:`, r2ListErr.message);
         }
       }
 

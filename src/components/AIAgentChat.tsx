@@ -691,7 +691,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                               return (
                                 <div className="mt-2 rounded overflow-hidden relative group">
                                   <img
-                                    src={src}
+                                    src={src || undefined}
                                     alt={alt}
                                     className="w-full h-auto object-contain bg-black/5 rounded-md"
                                     loading="lazy"
@@ -726,7 +726,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                   {msg.imageUrl && (
                     <div className="mt-2 rounded overflow-hidden">
                       <img
-                        src={msg.imageUrl}
+                        src={msg.imageUrl || undefined}
                         alt="Uploaded or Generated"
                         className="w-full h-auto object-contain bg-black/5"
                       />
@@ -759,7 +759,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
             {pendingImage && (
               <div className="relative inline-block w-16 h-16 rounded border bg-background overflow-hidden p-1">
                 <img
-                  src={pendingImage}
+                  src={pendingImage || undefined}
                   alt="Pending"
                   className="w-full h-full object-cover rounded-sm"
                 />

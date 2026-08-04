@@ -82,7 +82,7 @@ function FeatureCard({
       {/* 16:9 Image Area */}
       <div className="relative w-full aspect-video overflow-hidden select-none bg-muted/20">
         <img
-          src={bg}
+          src={bg || undefined}
           alt=""
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
           referrerPolicy="no-referrer"
@@ -310,7 +310,7 @@ function AppContent() {
                 {user ? (
                   (user.avatarUrl || user.photoURL) ? (
                     <img
-                      src={user.avatarUrl || user.photoURL}
+                      src={user.avatarUrl || user.photoURL || undefined}
                       alt={user.name || user.email}
                       className="w-8 h-8 rounded-full object-cover shrink-0"
                       referrerPolicy="no-referrer"

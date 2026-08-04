@@ -35,7 +35,7 @@ export const Slideshow: React.FC = () => {
             className="absolute w-[66%] md:w-[60%] p-2 left-[17%] md:left-[20%]"
           >
             <img
-              src={slide.img}
+              src={slide.img || undefined}
               alt={slide.alt}
               className={`w-full h-full object-contain ${slide.needsOutline ? 'border border-primary' : ''}`}
             />

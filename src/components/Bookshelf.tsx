@@ -36,9 +36,9 @@ function MiniPageGrid({ node }: { node: any }) {
         style={{ backgroundColor: node.color || node.bg || undefined }}
       >
         {node.imageUrl ? (
-          <img src={node.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
         ) : node.drawing ? (
-          <img src={node.drawing} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+          <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
         ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
           <div className="w-full h-full flex items-center justify-center bg-slate-800 text-[8px] text-slate-400 font-bold">
             🎨
@@ -245,7 +245,7 @@ function MetroBookTile({
                 </div>
               ) : currentComicPage?.image ? (
                 <img
-                  src={currentComicPage.image}
+                  src={currentComicPage.image || undefined}
                   alt={book.title}
                   className="w-full h-full object-contain"
                   referrerPolicy="no-referrer"
@@ -269,7 +269,7 @@ function MetroBookTile({
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.img
                   key={`novel-bg-${slideIndex}`}
-                  src={novelBgImage}
+                  src={novelBgImage || undefined}
                   alt={book.title}
                   initial={currentDirection.initial}
                   animate={{ x: "0%", y: "0%", opacity: 0.35 }}
@@ -615,12 +615,18 @@ export function Bookshelf({
                   <div className="flex flex-col items-center justify-center space-y-4">
                     {selectedBook.pages && selectedBook.pages.length > 0 ? (
                       <div className="relative max-w-lg w-full aspect-[3/4.2] rounded-lg border bg-muted/10 overflow-hidden shadow-md flex items-center justify-center">
-                        <img 
-                          src={selectedBook.pages[activeComicPage]?.tree?.imageUrl || selectedBook.cover} 
-                          alt={`Page ${activeComicPage + 1}`}
-                          className="w-full h-full object-contain"
-                          referrerPolicy="no-referrer"
-                        />
+                        {selectedBook.pages[activeComicPage]?.tree ? (
+                          <div className="w-full h-full p-2 bg-slate-950 flex flex-col overflow-hidden">
+                            <MiniPageGrid node={selectedBook.pages[activeComicPage].tree} />
+                          </div>
+                        ) : (
+                          <img 
+                            src={selectedBook.pages[activeComicPage]?.cover || selectedBook.cover || undefined} 
+                            alt={`Page ${activeComicPage + 1}`}
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        )}
                         <div className="absolute top-2 right-2 px-2 py-1 bg-black/75 text-white text-[10px] font-bold font-mono rounded">
                           Page {activeComicPage + 1} of {selectedBook.pages.length}
                         </div>

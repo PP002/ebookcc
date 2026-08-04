@@ -32,10 +32,139 @@ interface BookItem {
   cover: string;
   chapters: number;
   rating: number;
-  pages: string[];
-  fileType?: 'images' | 'epub' | 'pdf' | 'text';
+  pages: any[];
+  fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
   file?: File;
   fileBuffer?: ArrayBuffer;
+}
+
+function ComicPageViewer({ page }: { page: any }) {
+  if (!page) return null;
+
+  if (typeof page === 'string') {
+    return (
+      <img
+        src={page}
+        alt="Comic Page"
+        className="w-full h-full object-contain pointer-events-auto select-none m-auto"
+      />
+    );
+  }
+
+  const renderNode = (node: any): React.ReactNode => {
+    if (!node) return null;
+
+    if (node.type === "panel") {
+      const hasImage = !!(node.imageUrl || node.drawing);
+      return (
+        <div 
+          className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center border border-slate-900 min-w-0 min-h-0"
+          style={node.bgColor || node.color ? { backgroundColor: node.bgColor || node.color } : {}}
+        >
+          {node.imageUrl && (
+            <img
+              src={node.imageUrl}
+              alt="Panel"
+              className={cn(
+                "w-full h-full object-cover select-none pointer-events-auto",
+                node.isHighContrast && "grayscale contrast-125"
+              )}
+              referrerPolicy="no-referrer"
+            />
+          )}
+          {node.drawing && (
+            <img
+              src={node.drawing}
+              alt="Drawing"
+              className={cn(
+                "w-full h-full object-contain select-none pointer-events-auto",
+                !node.imageUrl && "bg-white"
+              )}
+              referrerPolicy="no-referrer"
+            />
+          )}
+          {!hasImage && node.prompt && (
+            <div className="p-3 text-center text-xs text-muted-foreground italic select-none">
+              {node.prompt}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (node.type === "split") {
+      const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
+      const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
+      const c1 = node.c1 || node.left;
+      const c2 = node.c2 || node.right;
+
+      return (
+        <div
+          className={cn(
+            "w-full h-full flex overflow-hidden min-w-0 min-h-0",
+            isRow ? "flex-row" : "flex-col"
+          )}
+        >
+          <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1">
+            {renderNode(c1)}
+          </div>
+          <div className={isRow ? "w-1 bg-white dark:bg-slate-950 shrink-0" : "h-1 bg-white dark:bg-slate-950 shrink-0"} />
+          <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1">
+            {renderNode(c2)}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const getBubbleStyleClass = (style: string) => {
+    switch (style) {
+      case "action":
+        return "border border-red-500 bg-yellow-100 text-red-600 font-extrabold uppercase rounded-none px-3.5 py-2 shadow-[2px_2px_0px_0px_rgba(239,68,68,1)] text-xs text-center relative";
+      case "freehand":
+        return "border-2 border-slate-800 bg-white text-slate-900 rounded-[35%_65%_60%_40%_/_50%_60%_40%_50%] px-4 py-2 italic font-serif shadow-md text-xs text-center relative";
+      default:
+        return "border border-slate-900 bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm text-xs text-center relative";
+    }
+  };
+
+  return (
+    <div className="relative w-full max-w-2xl aspect-[3/4] max-h-full bg-background border border-border/80 rounded-lg shadow-lg overflow-hidden flex flex-col pointer-events-auto m-auto">
+      <div className="flex-1 relative overflow-hidden">
+        {page.tree ? renderNode(page.tree) : page.cover ? (
+          <img src={page.cover} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+            Comic Page
+          </div>
+        )}
+
+        {Array.isArray(page.bubbles) &&
+          page.bubbles.map((b: any, bIdx: number) => {
+            if (!b || !b.text) return null;
+            const posX = typeof b.x === "number" ? b.x : 20;
+            const posY = typeof b.y === "number" ? b.y : 20;
+
+            return (
+              <div
+                key={b.id || bIdx}
+                className="absolute z-20 pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  left: `${posX}%`,
+                  top: `${posY}%`,
+                }}
+              >
+                <div className={getBubbleStyleClass(b.style || "classic")}>
+                  {b.text}
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
 }
 
 export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, onFullscreenChange }) => {
@@ -131,24 +260,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             });
             setCurrentPage(0);
           } else if (triggerType === "comic") {
-            const extractImages = (pagesList: any[]): string[] => {
-              const images: string[] = [];
-              const findImages = (node: any) => {
-                if (!node) return;
-                if (node.type === "panel" && node.imageUrl) {
-                  images.push(node.imageUrl);
-                } else if (node.type === "split") {
-                  findImages(node.left);
-                  findImages(node.right);
-                }
-              };
-              for (const page of pagesList) {
-                if (page.tree) findImages(page.tree);
-              }
-              return images;
-            };
-
-            const images = extractImages(book.pages || []);
+            const pagesList = Array.isArray(book.pages) && book.pages.length > 0 
+              ? book.pages 
+              : (book.cover ? [{ cover: book.cover }] : []);
             setSelectedBook({
               id: book.id,
               title: book.title,
@@ -156,8 +270,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               cover: book.cover || "",
               chapters: 1,
               rating: 5,
-              fileType: "images",
-              pages: images.length > 0 ? images : [book.cover || ""]
+              fileType: "comic",
+              pages: pagesList
             });
             setCurrentPage(0);
           }
@@ -189,12 +303,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
 
   useEffect(() => {
-    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text') return;
+    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' || selectedBook.fileType === 'comic') return;
     
     let isActive = true;
 
     const processPageInBg = async (idx: number) => {
       if (!isActive) return;
+      const rawPage = selectedBook.pages[idx];
+      if (!rawPage || typeof rawPage !== 'string') return;
+
       let croppedData: string | null = null;
       let panelsData: string[] | null = null;
 
@@ -341,7 +458,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, [selectedBook?.fileType]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (isSidebarOpen && !isFullscreen) {
@@ -527,7 +644,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   } as any);
 
   return (
-    <div className={cn("relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2" : "max-w-none p-0 overflow-hidden")}>
+    <div className={cn(
+                                 
+                                 "relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2" : "max-w-none p-0 overflow-hidden")}>
       {/* Active Component Area */}
       {!selectedBook ? (
         <div className="flex-1 flex flex-col items-stretch max-w-5xl mx-auto w-full py-8 px-4 space-y-8">
@@ -539,6 +658,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           <div
             {...getRootProps()}
             className={cn(
+                                 
+                                 
               "w-full border border-dashed border-border/50 p-8 text-center cursor-pointer bg-card/50 hover:border-primary transition-all rounded-none min-h-[200px] flex flex-col justify-center items-center shadow-sm hover:shadow-md",
               isDragActive && "border-primary bg-primary/5"
             )}
@@ -591,7 +712,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     {book.fileType === "images" ? (
                       <div className="relative aspect-[3/4] bg-muted/20 overflow-hidden flex items-center justify-center border-b">
                         <img 
-                          src={book.cover} 
+                          src={book.cover || undefined} 
                           alt={book.title}
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />
@@ -747,7 +868,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                              <button
                                key={al.id}
                                onClick={() => setTextAlign(al.id)}
-                               className={cn("flex-1 py-1 text-sm font-semibold rounded shadow-sm hover:bg-background/50", textAlign === al.id ? "bg-background text-foreground" : "text-muted-foreground bg-transparent shadow-none")}
+                               className={cn(
+                                 
+                                 "flex-1 py-1 text-sm font-semibold rounded shadow-sm hover:bg-background/50", textAlign === al.id ? "bg-background text-foreground" : "text-muted-foreground bg-transparent shadow-none")}
                              >
                                {al.label}
                              </button>
@@ -765,7 +888,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                              <button
                                key={font.id}
                                onClick={() => setFontFamily(font.id)}
-                               className={cn("text-left px-3 py-1.5 text-sm font-semibold rounded hover:bg-muted/70", font.id, fontFamily === font.id ? "bg-muted text-foreground" : "text-muted-foreground bg-transparent")}
+                               className={cn(
+                                 
+                                 "text-left px-3 py-1.5 text-sm font-semibold rounded hover:bg-muted/70", font.id, fontFamily === font.id ? "bg-muted text-foreground" : "text-muted-foreground bg-transparent")}
                              >
                                {font.label} abc
                              </button>
@@ -785,7 +910,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                key={th.id}
                                onClick={() => setReadTheme(th)}
                                style={th.bg ? { backgroundColor: th.bg, color: th.text, borderColor: th.text } : {}}
-                               className={cn("flex items-center justify-center gap-2 px-2 py-2 text-xs font-semibold rounded border", !th.bg && "bg-background text-foreground", readTheme.id === th.id ? "ring-2 ring-primary ring-offset-1 ring-offset-popover" : "opacity-80 hover:opacity-100")}
+                               className={cn(
+                                 
+                                 "flex items-center justify-center gap-2 px-2 py-2 text-xs font-semibold rounded border", !th.bg && "bg-background text-foreground", readTheme.id === th.id ? "ring-2 ring-primary ring-offset-1 ring-offset-popover" : "opacity-80 hover:opacity-100")}
                              >
                                {th.label}
                              </button>
@@ -871,29 +998,38 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     ) : selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' ? (
                       <div className="p-4 text-xs text-center text-muted-foreground">Table of Contents / Text Mode</div>
                     ) : (
-                      selectedBook.pages.map((p, idx) => (
-                        <div 
-                          key={idx}
-                          id={`thumb-${idx}`}
-                          onClick={() => setCurrentPage(idx)}
-                          className={cn(
-                            "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-background",
-                            currentPage === idx 
-                              ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
-                              : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
-                          )}
-                        >
-                          <img src={p} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
-                          <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
-                            {idx + 1}
-                          </div>
-                          {panelsCache[idx] && (
-                            <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center" title="Layout Detected in Cache">
-                              <Grid className="w-2.5 h-2.5" />
+                      selectedBook.pages.map((p, idx) => {
+                        const thumbUrl = typeof p === 'string' ? p : (p?.cover || p?.tree?.imageUrl || p?.tree?.drawing || p?.tree?.left?.imageUrl || p?.tree?.c1?.imageUrl);
+                        return (
+                          <div 
+                            key={idx}
+                            id={`thumb-${idx}`}
+                            onClick={() => setCurrentPage(idx)}
+                            className={cn(
+                              "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-background flex items-center justify-center",
+                              currentPage === idx 
+                                ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
+                                : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
+                            )}
+                          >
+                            {thumbUrl ? (
+                              <img src={thumbUrl} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
+                            ) : (
+                              <div className="text-[10px] font-medium text-muted-foreground p-1 text-center">
+                                Page {idx + 1}
+                              </div>
+                            )}
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
+                              {idx + 1}
                             </div>
-                          )}
-                        </div>
-                      ))
+                            {panelsCache[idx] && (
+                              <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center" title="Layout Detected in Cache">
+                                <Grid className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </motion.aside>
@@ -990,12 +1126,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     </Document>
                   </div>
                 </>
-               ) : selectedBook.fileType === 'text' && selectedBook.file ? (
+               ) : selectedBook.fileType === 'text' && selectedBook.pages && selectedBook.pages.length > 0 ? (
                 (() => {
                   const padding = containerSize.width >= 768 ? 32 : 16;
                   const totalPadding = padding * 2;
                   const colWidth = Math.max(100, containerSize.width - totalPadding);
-                  const isHtml = selectedBook.title.toLowerCase().endsWith('.html') || selectedBook.title.toLowerCase().endsWith('.htm');
+                  const isHtml = selectedBook.title.toLowerCase().endsWith('.html') || selectedBook.title.toLowerCase().endsWith('.htm') || (selectedBook.pages[0] && /<[a-z][\s\S]*>/i.test(selectedBook.pages[0]));
                   
                   let displayContent = selectedBook.pages[0];
                   if (isHtml) {
@@ -1011,7 +1147,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
                       <div className="absolute inset-0 overflow-hidden pointer-events-none">
                          <div 
-                            className={cn("w-full h-full pointer-events-auto", !readTheme.bg ? 'bg-background text-foreground' : '')}
+                            className={cn(
+                                 
+                                 "w-full h-full pointer-events-auto", !readTheme.bg ? 'bg-background text-foreground' : '')}
                             style={{
                                backgroundColor: readTheme.bg || undefined,
                                color: readTheme.text || undefined,
@@ -1022,6 +1160,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             <div 
                                ref={textContentRef}
                                className={cn(
+                                 
+                                 isHtml && "prose dark:prose-invert max-w-none",
                                  "h-full leading-relaxed break-words [&_img]:max-w-full [&_img]:max-h-[calc(100vh-12rem)] [&_img]:object-contain [&_img]:break-inside-avoid [&_p>img]:break-inside-avoid [&_figure]:break-inside-avoid",
                                  !isHtml && "whitespace-pre-wrap",
                                  fontFamily,
@@ -1049,18 +1189,22 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <>
                   <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title="Previous Page" />
                   <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
-                  <div className={cn("absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
+                  <div className={cn(
+                                 
+                                 "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
                     {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
-                       <img key={currentPanelIndex} src={panelsCache[currentPage][currentPanelIndex]} className="w-full h-full object-contain pointer-events-auto select-none" />
+                       <img key={currentPanelIndex} src={panelsCache[currentPage][currentPanelIndex] || undefined} className="w-full h-full object-contain pointer-events-auto select-none" />
                     ) : cropBorders && croppedCache[currentPage] ? (
                        <img 
-                         src={croppedCache[currentPage]} 
+                         src={croppedCache[currentPage] || undefined} 
                          alt={`Page ${currentPage + 1}`} 
                          className="w-full h-full object-contain pointer-events-auto select-none"
                        />
+                    ) : selectedBook.fileType === "comic" || typeof selectedBook.pages[currentPage] === "object" ? (
+                       <ComicPageViewer page={selectedBook.pages[currentPage]} />
                     ) : (
                        <img 
-                         src={selectedBook.pages[currentPage]} 
+                         src={selectedBook.pages[currentPage] || undefined} 
                          alt={`Page ${currentPage + 1}`} 
                          className="w-full h-full object-contain pointer-events-auto select-none"
                        />

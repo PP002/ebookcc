@@ -51,6 +51,8 @@ export interface AppSettings {
   setUser: (val: UserSession | null) => void;
   showAuthDialog: boolean;
   setShowAuthDialog: (val: boolean) => void;
+  isPasswordRecovery: boolean;
+  setIsPasswordRecovery: (val: boolean) => void;
 }
 
 const AppSettingsContext = createContext<AppSettings | undefined>(undefined);
@@ -137,6 +139,16 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : null;
   });
   const [showAuthDialog, setShowAuthDialog] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+
+  // Check URL on load for recovery link
+  useEffect(() => {
+    if (window.location.hash.includes('type=recovery') || window.location.search.includes('type=recovery')) {
+      setIsPasswordRecovery(true);
+      setShowAuthDialog(true);
+    }
+  }, []);
+
   useEffect(() => {
     if (!supabaseUrl || !supabaseAnonKey) return;
     const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
@@ -154,7 +166,12 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+        setShowAuthDialog(true);
+        toast.info("Password reset link verified! Please enter your new password below.");
+      }
       if (session?.user) {
         setUser({
           email: session.user.email || "",
@@ -267,7 +284,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       
       // User Auth
       user, setUser,
-      showAuthDialog, setShowAuthDialog
+      showAuthDialog, setShowAuthDialog,
+      isPasswordRecovery, setIsPasswordRecovery
     }}>
       {children}
     </AppSettingsContext.Provider>

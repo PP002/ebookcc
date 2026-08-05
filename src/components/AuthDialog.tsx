@@ -16,15 +16,22 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const { 
     user, setUser, 
     supabaseUrl, supabaseAnonKey, googleClientId,
+    isPasswordRecovery, setIsPasswordRecovery,
   } = useAppSettings();
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [verificationSentEmail, setVerificationSentEmail] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -32,13 +39,45 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       setIsSignUp(false);
       setEmail("");
       setPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
       setShowResetPassword(false);
+      setVerificationSentEmail(null);
+      setNeedsConfirmation(false);
     }
   }, [open]);
 
+  const handleResendVerification = async () => {
+    const targetEmail = verificationSentEmail || email;
+    if (!targetEmail) {
+      toast.error("Please enter your email address.");
+      return;
+    }
+    setIsResending(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected.");
+      setIsResending(false);
+      return;
+    }
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: targetEmail,
+      options: {
+        emailRedirectTo: window.location.origin,
+      }
+    });
+    if (error) {
+      toast.error(error.message || "Failed to resend confirmation email.");
+    } else {
+      toast.success(`Verification email resent to ${targetEmail}! Check your inbox.`);
+    }
+    setIsResending(false);
+  };
+
   
 
-    const handleResetPassword = async () => {
+  const handleResetPassword = async () => {
     if (!email) {
       toast.error("Please enter your email address first.");
       return;
@@ -56,10 +95,48 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     if (error) {
       toast.error(error.message || "Failed to send reset email.");
     } else {
-      toast.success("Password reset email sent! Check your inbox.");
+      toast.success("Password reset email sent! Please check your inbox for the reset link.");
       setShowResetPassword(false);
     }
     setIsResetting(false);
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    setIsUpdatingPassword(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected.");
+      setIsUpdatingPassword(false);
+      return;
+    }
+    const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      toast.error(error.message || "Failed to update password.");
+    } else {
+      toast.success("Password updated successfully! Welcome back.");
+      if (data?.user) {
+        setUser({
+          email: data.user.email || "",
+          name: data.user.user_metadata?.display_name || data.user.email?.split('@')[0] || "User",
+          uid: data.user.id
+        });
+      }
+      setIsPasswordRecovery(false);
+      onOpenChange(false);
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+    setIsUpdatingPassword(false);
   };
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
@@ -148,6 +225,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       return;
     }
     setLoading(true);
+    setNeedsConfirmation(false);
     const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
     if (!supabase) {
       toast.error("Failed to initialize Supabase client. Please check your credentials.");
@@ -160,26 +238,18 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
           email,
           password,
           options: {
+            emailRedirectTo: window.location.origin,
             data: {
               display_name: name || email.split('@')[0],
             }
           }
         });
         if (error) {
-          if (error.message?.toLowerCase().includes("email not confirmed")) {
-            setUser({
-              email: email,
-              name: name || email.split('@')[0],
-              uid: "sb-user-" + Date.now()
-            });
-            toast.success("Account created and signed in!");
-            onOpenChange(false);
-            return;
-          }
           throw error;
         }
         
-        if (data?.user) {
+        // If Supabase has email confirmation disabled, a session is returned immediately
+        if (data?.session && data?.user) {
           setUser({
             email: data.user.email || email,
             name: data.user.user_metadata?.display_name || name || email.split('@')[0],
@@ -187,6 +257,10 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
           });
           toast.success("Welcome! Account created successfully.");
           onOpenChange(false);
+        } else if (data?.user) {
+          // Email confirmation is required by Supabase settings
+          setVerificationSentEmail(email);
+          toast.success("Registration successful! Please verify your email.");
         } else {
           toast.success("Registration successful! You can now sign in.");
           setIsSignUp(false);
@@ -198,24 +272,19 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         });
         if (error) {
           if (error.message?.toLowerCase().includes("email not confirmed")) {
-            setUser({
-              email: email,
-              name: name || email.split('@')[0],
-              uid: "sb-user-" + Date.now()
-            });
-            toast.success("Signed in successfully!");
-            onOpenChange(false);
+            setNeedsConfirmation(true);
+            toast.error("Email not verified. Please check your inbox and verify your email before signing in.");
             return;
           }
           throw error;
         }
-        if (data.user) {
+        if (data?.session && data?.user) {
           setUser({
             email: data.user.email || email,
             name: data.user.user_metadata?.display_name || email.split('@')[0],
             uid: data.user.id
           });
-          toast.success("Welcome back! Signed in securely via Supabase.");
+          toast.success("Welcome back! Signed in securely.");
           onOpenChange(false);
         }
       }
@@ -223,13 +292,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       console.error("Supabase Auth error:", err);
       const errMsg = err?.message || "";
       if (errMsg.toLowerCase().includes("email not confirmed")) {
-        setUser({
-          email: email,
-          name: name || email.split('@')[0],
-          uid: "sb-user-" + Date.now()
-        });
-        toast.success("Signed in successfully!");
-        onOpenChange(false);
+        setNeedsConfirmation(true);
+        toast.error("Email not verified. Please check your inbox and verify your email before signing in.");
       } else {
         if (errMsg.toLowerCase().includes("invalid login credentials") || errMsg.toLowerCase().includes("invalid email or password")) {
           setShowResetPassword(true);
@@ -240,6 +304,130 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       setLoading(false);
     }
   };
+
+  if (isPasswordRecovery) {
+    return (
+      <Dialog open={open} onOpenChange={(val) => {
+        onOpenChange(val);
+        if (!val) setIsPasswordRecovery(false);
+      }}>
+        <DialogContent className="sm:max-w-[400px] p-6 border shadow-2xl bg-background text-foreground rounded-lg">
+          <DialogHeader className="text-center space-y-2">
+            <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-1">
+              <Lock className="w-6 h-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold text-center">
+              Set New Password
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground text-center">
+              Enter your new password below to update your account credentials.
+            </p>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdatePassword} className="space-y-4 pt-2">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5" /> New Password
+              </label>
+              <input
+                type="password"
+                placeholder="At least 6 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                required
+                minLength={6}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5" /> Confirm New Password
+              </label>
+              <input
+                type="password"
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                required
+                minLength={6}
+              />
+            </div>
+
+            <Button 
+              type="submit" 
+              disabled={isUpdatingPassword}
+              className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
+            >
+              {isUpdatingPassword ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Update Password & Sign In</span>
+                </>
+              )}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (verificationSentEmail) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[420px] p-6 border shadow-2xl bg-background text-foreground rounded-lg">
+          <DialogHeader className="text-center space-y-2">
+            <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-1">
+              <Mail className="w-6 h-6" />
+            </div>
+            <DialogTitle className="text-xl font-bold text-center">
+              Verify Your Email Address
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground text-center">
+              A verification link was sent to <span className="font-semibold text-foreground">{verificationSentEmail}</span>.
+            </p>
+          </DialogHeader>
+
+          <div className="p-4 bg-muted/40 rounded-lg border text-xs text-muted-foreground space-y-2 text-center my-2">
+            <p>
+              Please click the link in your email to verify your account and complete registration.
+            </p>
+            <p className="text-[11px] opacity-80">
+              (If you don't see the email, please check your spam or junk folder.)
+            </p>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <Button
+              type="button"
+              variant="default"
+              onClick={handleResendVerification}
+              disabled={isResending}
+              className="w-full h-10 font-semibold gap-2 rounded-full"
+            >
+              {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              <span>Resend Verification Link</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setVerificationSentEmail(null);
+                setIsSignUp(false);
+              }}
+              className="w-full h-10 font-semibold rounded-full"
+            >
+              Back to Sign In
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -344,52 +532,91 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5" /> Password
-                </label>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
-                  required
-                />
-              </div>
+              {!showResetPassword ? (
+                <>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                        <Lock className="w-3.5 h-3.5" /> Password
+                      </label>
+                      {!isSignUp && (
+                        <button
+                          type="button"
+                          onClick={() => setShowResetPassword(true)}
+                          className="text-xs text-primary hover:underline font-medium"
+                        >
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                      required
+                    />
+                  </div>
 
-              <Button 
-                type="submit" 
-                className="w-full h-10 mt-2 font-semibold flex items-center justify-center gap-2 rounded-full"
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isSignUp ? (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    <span>Register Account</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-4 h-4" />
-                    <span>Sign In Securely</span>
-                  </>
-                )}
-              </Button>
-              
-              
-                          {showResetPassword && !isSignUp && (
-                <div className="pt-2 text-center animate-in fade-in zoom-in duration-300">
-                  <p className="text-xs text-muted-foreground mb-2">Forgot your password?</p>
+                  {needsConfirmation && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-md text-xs space-y-2">
+                      <p className="font-medium">Your email address has not been verified yet.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleResendVerification}
+                        disabled={isResending}
+                        className="w-full h-8 text-xs border-amber-500/40 hover:bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold"
+                      >
+                        {isResending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Mail className="w-3 h-3 mr-1" />}
+                        Resend Verification Link
+                      </Button>
+                    </div>
+                  )}
+
+                  <Button 
+                    type="submit" 
+                    className="w-full h-10 mt-2 font-semibold flex items-center justify-center gap-2 rounded-full"
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : isSignUp ? (
+                      <>
+                        <UserPlus className="w-4 h-4" />
+                        <span>Register Account</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4" />
+                        <span>Sign In Securely</span>
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200">
+                  <p className="text-xs text-muted-foreground text-center">
+                    Enter your email above and click below to receive a password reset link.
+                  </p>
                   <Button 
                     type="button" 
-                    variant="outline"
-                    className="w-full h-8 text-xs font-semibold border-primary/20 hover:bg-primary/5 text-primary"
+                    className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
                     onClick={handleResetPassword}
                     disabled={isResetting}
                   >
-                    {isResetting ? "Processing..." : "Send Reset Email"}
+                    {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    <span>Send Password Reset Email</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowResetPassword(false)}
+                    className="w-full text-xs"
+                  >
+                    Back to Sign In
                   </Button>
                 </div>
               )}

@@ -141,13 +141,75 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
-  // Check URL on load for recovery link
+  // Check URL on load for recovery link or auth tokens/errors
   useEffect(() => {
-    if (window.location.hash.includes('type=recovery') || window.location.search.includes('type=recovery')) {
-      setIsPasswordRecovery(true);
-      setShowAuthDialog(true);
-    }
-  }, []);
+    const handleUrlAuth = async () => {
+      const hash = window.location.hash || "";
+      const search = window.location.search || "";
+      const href = window.location.href || "";
+
+      // Parse hash and search params
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+      const searchParams = new URLSearchParams(search);
+
+      // 1. Check for error description from Supabase auth redirect
+      const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+      const errorMsg = hashParams.get('error') || searchParams.get('error');
+
+      if (errorDesc || errorMsg) {
+        const decodedMsg = decodeURIComponent((errorDesc || errorMsg || "").replace(/\+/g, ' '));
+        toast.error(`Authentication error: ${decodedMsg}`);
+        if (href.includes('recovery') || href.includes('reset') || href.includes('type=recovery')) {
+          setIsPasswordRecovery(false);
+          setShowAuthDialog(true);
+        }
+        return;
+      }
+
+      // 2. Check for type=recovery anywhere in hash, search, or href
+      const isRecovery = 
+        hashParams.get('type') === 'recovery' || 
+        searchParams.get('type') === 'recovery' ||
+        href.includes('type=recovery') ||
+        href.includes('recovery');
+
+      if (isRecovery) {
+        setIsPasswordRecovery(true);
+        setShowAuthDialog(true);
+      }
+
+      // 3. Handle OTP / token_hash verification if present in search params
+      const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
+      const otpType = (searchParams.get('type') || hashParams.get('type') || 'recovery') as any;
+
+      if (tokenHash && supabaseUrl && supabaseAnonKey) {
+        const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+        if (supabase) {
+          try {
+            const { data, error } = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: otpType,
+            });
+            if (!error && data?.session) {
+              if (otpType === 'recovery') {
+                setIsPasswordRecovery(true);
+                setShowAuthDialog(true);
+                toast.success("Recovery link verified! Please enter your new password.");
+              } else {
+                toast.success("Email verified successfully!");
+              }
+            } else if (error) {
+              toast.error(error.message || "Failed to verify link.");
+            }
+          } catch (e) {
+            console.error("Error verifying OTP:", e);
+          }
+        }
+      }
+    };
+
+    handleUrlAuth();
+  }, [supabaseUrl, supabaseAnonKey]);
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseAnonKey) return;

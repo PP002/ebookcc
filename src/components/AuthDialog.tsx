@@ -90,7 +90,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       return;
     }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+      redirectTo: `${window.location.origin}?type=recovery`,
     });
     if (error) {
       toast.error(error.message || "Failed to send reset email.");

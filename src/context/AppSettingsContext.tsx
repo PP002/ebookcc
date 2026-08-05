@@ -144,6 +144,10 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   // Check URL on load for recovery link or auth tokens/errors
   useEffect(() => {
     const handleUrlAuth = async () => {
+      if (!supabaseUrl || !supabaseAnonKey) return;
+      const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+      if (!supabase) return;
+
       const hash = window.location.hash || "";
       const search = window.location.search || "";
       const href = window.location.href || "";
@@ -178,32 +182,72 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         setShowAuthDialog(true);
       }
 
-      // 3. Handle OTP / token_hash verification if present in search params
+      // 3. Handle Implicit flow: access_token and refresh_token in hash
+      const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        try {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error && data?.session) {
+            if (isRecovery) {
+              setIsPasswordRecovery(true);
+              setShowAuthDialog(true);
+              toast.success("Recovery session established! Please enter your new password.");
+            }
+          } else if (error) {
+            console.error("Error setting session from URL tokens:", error);
+          }
+        } catch (e) {
+          console.error("setSession error:", e);
+        }
+      }
+
+      // 4. Handle PKCE code in query params
+      const code = searchParams.get('code') || hashParams.get('code');
+      if (code) {
+        try {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (!error && data?.session) {
+            if (isRecovery) {
+              setIsPasswordRecovery(true);
+              setShowAuthDialog(true);
+              toast.success("Recovery session established! Please enter your new password.");
+            }
+          } else if (error) {
+            console.error("Error exchanging code for session:", error);
+          }
+        } catch (e) {
+          console.error("exchangeCodeForSession error:", e);
+        }
+      }
+
+      // 5. Handle OTP / token_hash verification
       const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
       const otpType = (searchParams.get('type') || hashParams.get('type') || 'recovery') as any;
 
-      if (tokenHash && supabaseUrl && supabaseAnonKey) {
-        const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
-        if (supabase) {
-          try {
-            const { data, error } = await supabase.auth.verifyOtp({
-              token_hash: tokenHash,
-              type: otpType,
-            });
-            if (!error && data?.session) {
-              if (otpType === 'recovery') {
-                setIsPasswordRecovery(true);
-                setShowAuthDialog(true);
-                toast.success("Recovery link verified! Please enter your new password.");
-              } else {
-                toast.success("Email verified successfully!");
-              }
-            } else if (error) {
-              toast.error(error.message || "Failed to verify link.");
+      if (tokenHash) {
+        try {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType,
+          });
+          if (!error && data?.session) {
+            if (otpType === 'recovery' || isRecovery) {
+              setIsPasswordRecovery(true);
+              setShowAuthDialog(true);
+              toast.success("Recovery link verified! Please enter your new password.");
+            } else {
+              toast.success("Email verified successfully!");
             }
-          } catch (e) {
-            console.error("Error verifying OTP:", e);
+          } else if (error) {
+            toast.error(error.message || "Failed to verify link.");
           }
+        } catch (e) {
+          console.error("Error verifying OTP:", e);
         }
       }
     };

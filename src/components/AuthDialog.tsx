@@ -118,6 +118,40 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       setIsUpdatingPassword(false);
       return;
     }
+
+    // Check if an active auth session exists
+    let { data: { session } } = await supabase.auth.getSession();
+
+    // If session is missing, attempt to recover session from URL parameters
+    if (!session) {
+      const hash = window.location.hash || "";
+      const search = window.location.search || "";
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+      const searchParams = new URLSearchParams(search);
+
+      const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
+      const code = searchParams.get('code') || hashParams.get('code');
+      const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
+
+      if (accessToken && refreshToken) {
+        const res = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        session = res.data?.session || null;
+      } else if (code) {
+        const res = await supabase.auth.exchangeCodeForSession(code);
+        session = res.data?.session || null;
+      } else if (tokenHash) {
+        const res = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
+        session = res.data?.session || null;
+      }
+    }
+
+    if (!session) {
+      toast.error("Auth session missing or link expired. Please click the reset link in your email again or request a new reset email.");
+      setIsUpdatingPassword(false);
+      return;
+    }
+
     const { data, error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       toast.error(error.message || "Failed to update password.");
@@ -369,6 +403,19 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 </>
               )}
             </Button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPasswordRecovery(false);
+                  setShowResetPassword(true);
+                }}
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                Link expired or having issues? Request a new reset link
+              </button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>

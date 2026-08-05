@@ -119,11 +119,13 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       return;
     }
 
-    // Check if an active auth session exists
-    let { data: { session } } = await supabase.auth.getSession();
+    // 1. Check if user/session is currently active
+    let sessionRes = await supabase.auth.getSession();
+    let userRes = await supabase.auth.getUser();
+    let activeUser = userRes.data?.user || sessionRes.data?.session?.user;
 
-    // If session is missing, attempt to recover session from URL parameters
-    if (!session) {
+    // 2. If no active user/session, attempt to restore session from URL parameters
+    if (!activeUser) {
       const hash = window.location.hash || "";
       const search = window.location.search || "";
       const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
@@ -136,39 +138,47 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
       if (accessToken && refreshToken) {
         const res = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        session = res.data?.session || null;
+        activeUser = res.data?.session?.user || null;
       } else if (code) {
         const res = await supabase.auth.exchangeCodeForSession(code);
-        session = res.data?.session || null;
+        activeUser = res.data?.session?.user || null;
       } else if (tokenHash) {
         const res = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
-        session = res.data?.session || null;
+        activeUser = res.data?.session?.user || null;
       }
     }
 
-    if (!session) {
-      toast.error("Auth session missing or link expired. Please click the reset link in your email again or request a new reset email.");
+    if (!activeUser) {
+      toast.error("Password reset session expired or invalid. Please request a new password reset link.");
       setIsUpdatingPassword(false);
+      setIsPasswordRecovery(false);
+      setShowResetPassword(true);
       return;
     }
 
+    // 3. Update the password
     const { data, error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       toast.error(error.message || "Failed to update password.");
     } else {
-      toast.success("Password updated successfully! Welcome back.");
-      if (data?.user) {
+      toast.success("Password updated successfully! Signed in.");
+      const updatedUser = data?.user || activeUser;
+      if (updatedUser) {
         setUser({
-          email: data.user.email || "",
-          name: data.user.user_metadata?.display_name || data.user.email?.split('@')[0] || "User",
-          uid: data.user.id
+          email: updatedUser.email || "",
+          name: updatedUser.user_metadata?.full_name || updatedUser.user_metadata?.name || updatedUser.user_metadata?.display_name || updatedUser.email?.split('@')[0] || "User",
+          uid: updatedUser.id
         });
       }
       setIsPasswordRecovery(false);
+      setShowResetPassword(false);
       onOpenChange(false);
+
+      // Clean up URL parameters and redirect cleanly to home page
       if (window.history && window.history.replaceState) {
-        window.history.replaceState({}, document.title, window.location.pathname);
+        window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
       }
+      window.location.hash = "";
     }
     setIsUpdatingPassword(false);
   };

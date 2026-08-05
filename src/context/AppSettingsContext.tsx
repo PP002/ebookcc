@@ -163,10 +163,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       if (errorDesc || errorMsg) {
         const decodedMsg = decodeURIComponent((errorDesc || errorMsg || "").replace(/\+/g, ' '));
         toast.error(`Authentication error: ${decodedMsg}`);
-        if (href.includes('recovery') || href.includes('reset') || href.includes('type=recovery')) {
-          setIsPasswordRecovery(false);
-          setShowAuthDialog(true);
-        }
+        setIsPasswordRecovery(false);
+        setShowAuthDialog(true);
         return;
       }
 
@@ -177,9 +175,14 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         href.includes('type=recovery') ||
         href.includes('recovery');
 
-      if (isRecovery) {
-        setIsPasswordRecovery(true);
-        setShowAuthDialog(true);
+      // Check if session ALREADY exists (e.g. auto-established by Supabase JS listener)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        if (isRecovery) {
+          setIsPasswordRecovery(true);
+          setShowAuthDialog(true);
+        }
+        return;
       }
 
       // 3. Handle Implicit flow: access_token and refresh_token in hash
@@ -198,8 +201,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
               setShowAuthDialog(true);
               toast.success("Recovery session established! Please enter your new password.");
             }
-          } else if (error) {
-            console.error("Error setting session from URL tokens:", error);
+            return;
           }
         } catch (e) {
           console.error("setSession error:", e);
@@ -217,8 +219,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
               setShowAuthDialog(true);
               toast.success("Recovery session established! Please enter your new password.");
             }
-          } else if (error) {
-            console.error("Error exchanging code for session:", error);
+            return;
           }
         } catch (e) {
           console.error("exchangeCodeForSession error:", e);
@@ -244,11 +245,16 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
               toast.success("Email verified successfully!");
             }
           } else if (error) {
-            toast.error(error.message || "Failed to verify link.");
+            toast.error(error.message || "Link expired or invalid.");
+            setIsPasswordRecovery(false);
+            setShowAuthDialog(true);
           }
         } catch (e) {
           console.error("Error verifying OTP:", e);
         }
+      } else if (isRecovery) {
+        setIsPasswordRecovery(true);
+        setShowAuthDialog(true);
       }
     };
 

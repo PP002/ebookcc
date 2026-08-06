@@ -249,7 +249,7 @@ function AppContent() {
               <img
                 src={logoImg}
                 alt="EBookCC Logo"
-                className="w-8 h-8 rounded-lg object-cover block select-none shrink-0 shadow-sm transition-transform group-hover:scale-105"
+                className="w-8 h-8 rounded-full object-cover block select-none shrink-0 shadow-sm transition-transform group-hover:scale-105"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = "/logo.svg";
                 }}
@@ -304,7 +304,8 @@ function AppContent() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowSettingsDialog(true)}
-                className="w-8 h-8 rounded-full hover:bg-muted text-foreground/80 overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
+                className="w-8 h-8 !rounded-full rounded-full hover:bg-muted text-foreground/80 overflow-hidden !overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
+                style={{ borderRadius: "9999px" }}
                 title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
               >
                 {user ? (
@@ -312,11 +313,15 @@ function AppContent() {
                     <img
                       src={user.avatarUrl || user.photoURL || undefined}
                       alt={user.name || user.email}
-                      className="w-8 h-8 rounded-full object-cover shrink-0"
+                      className="w-8 h-8 !rounded-full rounded-full object-cover shrink-0 overflow-hidden"
+                      style={{ borderRadius: "9999px" }}
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0">
+                    <div
+                      className="w-8 h-8 !rounded-full rounded-full bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0 overflow-hidden"
+                      style={{ borderRadius: "9999px" }}
+                    >
                       {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
                     </div>
                   )

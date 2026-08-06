@@ -107,7 +107,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         toast.error(err.message || "Failed to send authorization code.");
       } else {
         setSignupCodeSent(true);
-        toast.success(`6-digit authorization code sent to ${email}! (Expires in 5 minutes)`);
+        toast.success(`Authorization code sent to ${email}! (Expires in 5 minutes)`);
       }
     } catch (e: any) {
       toast.error(e?.message || "Failed to send authorization code.");
@@ -139,9 +139,64 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     if (error) {
       toast.error(error.message || "Failed to resend confirmation email.");
     } else {
-      toast.success(`6-digit authorization code resent to ${targetEmail}! Check your inbox.`);
+      toast.success(`Authorization code resent to ${targetEmail}! Check your inbox.`);
     }
     setIsResending(false);
+  };
+
+  const handleVerifySignupOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const code = signupOtpCode.trim();
+    if (!code || code.length < 6) {
+      toast.error("Please enter the complete authorization code.");
+      return;
+    }
+    setIsVerifyingSignupOtp(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected.");
+      setIsVerifyingSignupOtp(false);
+      return;
+    }
+    const targetEmail = verificationSentEmail || email;
+    try {
+      let { data, error } = await supabase.auth.verifyOtp({
+        email: targetEmail,
+        token: code,
+        type: 'signup',
+      });
+      if (error) {
+        const res = await supabase.auth.verifyOtp({
+          email: targetEmail,
+          token: code,
+          type: 'email',
+        });
+        data = res.data;
+        error = res.error;
+      }
+      if (error) {
+        toast.error(error.message || "Invalid or expired authorization code. Codes expire in 5 minutes.");
+      } else if (data?.session && data?.user) {
+        setUser({
+          email: data.user.email || targetEmail,
+          name: data.user.user_metadata?.display_name || targetEmail.split('@')[0],
+          uid: data.user.id
+        });
+        toast.success("Account verified successfully! Welcome.");
+        setVerificationSentEmail(null);
+        setSignupOtpCode("");
+        onOpenChange(false);
+      } else {
+        toast.success("Account verified successfully! You can now sign in.");
+        setVerificationSentEmail(null);
+        setSignupOtpCode("");
+        setIsSignUp(false);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to verify authorization code.");
+    } finally {
+      setIsVerifyingSignupOtp(false);
+    }
   };
 
   const handleSendResetCode = async () => {
@@ -162,7 +217,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     if (error) {
       toast.error(error.message || "Failed to send reset code.");
     } else {
-      toast.success(`6-digit authorization code sent to ${email}! (Expires in 5 minutes)`);
+      toast.success(`Authorization code sent to ${email}! (Expires in 5 minutes)`);
       setResetOtpEmail(email);
       setShowResetCodeInput(true);
       setIsResetCodeVerified(false);
@@ -173,8 +228,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const handleVerifyResetOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const code = resetOtpCode.trim();
-    if (!code || code.length !== 6) {
-      toast.error("Please enter the complete 6-digit authorization code.");
+    if (!code || code.length < 6) {
+      toast.error("Please enter the complete authorization code.");
       return;
     }
     setIsVerifyingResetOtp(true);
@@ -347,8 +402,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         return;
       }
 
-      // If user provided a 6-digit code in the signup code box:
-      if (signupOtpCode.trim().length === 6) {
+      // If user provided a code in the signup code box:
+      if (signupOtpCode.trim().length >= 6) {
         setIsVerifyingSignupOtp(true);
         try {
           let { data, error } = await supabase.auth.verifyOtp({
@@ -393,7 +448,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         return;
       }
 
-      toast.error("Please enter the 6-digit authorization code sent to your email.");
+      toast.error("Please enter the authorization code sent to your email.");
       return;
     }
 
@@ -522,7 +577,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 }}
                 className="text-xs text-primary hover:underline font-medium"
               >
-                Link expired or having issues? Request a new reset link
+                Code expired or having issues? Request a new code
               </button>
             </div>
           </form>
@@ -543,7 +598,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               Enter Authorization Code
             </DialogTitle>
             <p className="text-xs text-muted-foreground text-center">
-              We sent a 6-digit authorization code to <span className="font-semibold text-foreground">{verificationSentEmail}</span>.
+              We sent an authorization code to <span className="font-semibold text-foreground">{verificationSentEmail}</span>.
               <br />
               <span className="text-amber-600 dark:text-amber-400 font-medium">(Code expires in 5 minutes)</span>
             </p>
@@ -552,14 +607,14 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
           <form onSubmit={handleVerifySignupOtp} className="space-y-4 pt-2">
             <div className="space-y-1">
               <label className="text-xs font-bold text-muted-foreground block text-center">
-                6-Digit Authorization Code
+                Authorization Code
               </label>
               <input
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                maxLength={6}
-                placeholder="0 0 0 0 0 0"
+                maxLength={12}
+                placeholder="e.g. 81363848"
                 value={signupOtpCode}
                 onChange={(e) => setSignupOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                 className="w-full text-center text-2xl font-mono tracking-widest p-2.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
@@ -570,20 +625,13 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
             <Button
               type="submit"
-              disabled={isVerifyingSignupOtp || signupOtpCode.length !== 6}
+              disabled={isVerifyingSignupOtp || signupOtpCode.trim().length < 6}
               className="w-full h-10 font-semibold gap-2 rounded-full"
             >
               {isVerifyingSignupOtp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
               <span>Verify Code & Complete Sign Up</span>
             </Button>
           </form>
-
-          <div className="p-3 bg-muted/40 rounded-lg border text-xs text-muted-foreground text-center space-y-1">
-            <p className="font-medium text-foreground">Or verify via email link</p>
-            <p className="text-[11px]">
-              You can also click the verification link in your email inbox to verify directly.
-            </p>
-          </div>
 
           <div className="space-y-2 pt-1">
             <Button
@@ -594,7 +642,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               className="w-full h-9 text-xs font-semibold gap-2 rounded-full"
             >
               {isResending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-              <span>Resend 6-Digit Code</span>
+              <span>Resend Authorization Code</span>
             </Button>
 
             <Button
@@ -750,7 +798,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     <div className="p-3 bg-muted/40 border border-border rounded-lg space-y-2 text-left animate-in fade-in zoom-in duration-200">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                          <Shield className="w-3.5 h-3.5 text-primary" /> 6-Digit Authorization Code
+                          <Shield className="w-3.5 h-3.5 text-primary" /> Authorization Code
                         </label>
                         <button
                           type="button"
@@ -780,8 +828,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
-                        maxLength={6}
-                        placeholder="0 0 0 0 0 0"
+                        maxLength={12}
+                        placeholder="e.g. 81363848"
                         value={signupOtpCode}
                         onChange={(e) => setSignupOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                         className="w-full text-center text-xl font-mono tracking-widest p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
@@ -829,7 +877,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               ) : !showResetCodeInput ? (
                 <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200">
                   <p className="text-xs text-muted-foreground text-center">
-                    Enter your email above to receive a 6-digit authorization code for password reset.
+                    Enter your email above to receive an authorization code for password reset.
                     <br />
                     <span className="text-amber-600 dark:text-amber-400 font-medium">(Code expires in 5 minutes)</span>
                   </p>
@@ -840,7 +888,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     disabled={isResetting}
                   >
                     {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                    <span>Send 6-Digit Authorization Code</span>
+                    <span>Send Authorization Code</span>
                   </Button>
                   <Button
                     type="button"
@@ -858,7 +906,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200">
                   <div className="text-center space-y-1">
                     <p className="text-xs font-medium text-foreground">
-                      6-Digit Authorization Code Sent
+                      Authorization Code Sent
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       Sent to <span className="font-semibold text-foreground">{resetOtpEmail || email}</span>
@@ -872,8 +920,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
-                      maxLength={6}
-                      placeholder="0 0 0 0 0 0"
+                      maxLength={12}
+                      placeholder="e.g. 81363848"
                       value={resetOtpCode}
                       onChange={(e) => setResetOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                       className="w-full text-center text-2xl font-mono tracking-widest p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
@@ -886,7 +934,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     type="button"
                     className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
                     onClick={handleVerifyResetOtp}
-                    disabled={isVerifyingResetOtp || resetOtpCode.length !== 6}
+                    disabled={isVerifyingResetOtp || resetOtpCode.trim().length < 6}
                   >
                     {isVerifyingResetOtp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
                     <span>Verify Code</span>

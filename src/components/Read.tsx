@@ -644,9 +644,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   } as any);
 
   return (
-    <div className={cn(
-                                 
-                                 "relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2" : "max-w-none p-0 overflow-hidden")}>
+    <div className={cn("relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2 overflow-y-auto" : "max-w-none p-0 overflow-hidden")}>
       {/* Active Component Area */}
       {!selectedBook ? (
         <div className="flex-1 flex flex-col items-stretch max-w-5xl mx-auto w-full py-8 px-4 space-y-8">

@@ -317,11 +317,15 @@ export function AppSettingsDialog() {
                       <img
                         src={user.avatarUrl || user.photoURL || undefined}
                         alt={user.name || user.email}
-                        className="w-4 h-4 rounded-full object-cover shrink-0"
+                        className="w-4 h-4 !rounded-full rounded-full object-cover shrink-0 overflow-hidden"
+                        style={{ borderRadius: "9999px" }}
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-4 h-4 rounded-full bg-primary text-primary-foreground font-black text-[9px] flex items-center justify-center uppercase font-mono shrink-0">
+                      <div 
+                        className="w-4 h-4 !rounded-full rounded-full bg-primary text-primary-foreground font-black text-[9px] flex items-center justify-center uppercase font-mono shrink-0 overflow-hidden"
+                        style={{ borderRadius: "9999px" }}
+                      >
                         {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
                       </div>
                     )}

@@ -3452,7 +3452,8 @@ export const Create: React.FC<CreateProps> = ({
     };
 
     return (
-      <div className="max-w-5xl mx-auto p-4 md:p-8 space-y-12 flex flex-col items-stretch min-h-[calc(100vh-8rem)]">
+      <div className="w-full flex-1 overflow-y-auto min-h-0 p-4 md:p-8">
+        <div className="max-w-5xl mx-auto space-y-12 flex flex-col items-stretch pb-24">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">Choose a Canvas</h1>
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
@@ -3741,12 +3742,13 @@ export const Create: React.FC<CreateProps> = ({
           </div>
         )}
       </div>
+    </div>
     );
   }
 
   if (createMode === "document") {
     return (
-      <div className="flex-1 bg-background flex flex-col overflow-hidden h-[100dvh]">
+      <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
         <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0 no-print">
           <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
             <div className="flex items-center gap-0.5 shrink-0">
@@ -4236,7 +4238,7 @@ export const Create: React.FC<CreateProps> = ({
   }
 
   return (
-    <div className="flex-1 bg-background flex flex-col overflow-hidden h-[100dvh]">
+    <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
       <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
           {/* Left Actions */}

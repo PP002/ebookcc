@@ -33,6 +33,18 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const [isResending, setIsResending] = useState(false);
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
 
+  // 6-digit authorization code states for register & password reset
+  const [signupOtpCode, setSignupOtpCode] = useState("");
+  const [signupCodeSent, setSignupCodeSent] = useState(false);
+  const [isSendingSignupCode, setIsSendingSignupCode] = useState(false);
+  const [isVerifyingSignupOtp, setIsVerifyingSignupOtp] = useState(false);
+
+  const [showResetCodeInput, setShowResetCodeInput] = useState(false);
+  const [resetOtpEmail, setResetOtpEmail] = useState("");
+  const [resetOtpCode, setResetOtpCode] = useState("");
+  const [isVerifyingResetOtp, setIsVerifyingResetOtp] = useState(false);
+  const [isResetCodeVerified, setIsResetCodeVerified] = useState(false);
+
   useEffect(() => {
     if (!open) {
       setLoading(false);
@@ -44,8 +56,65 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       setShowResetPassword(false);
       setVerificationSentEmail(null);
       setNeedsConfirmation(false);
+      setSignupOtpCode("");
+      setSignupCodeSent(false);
+      setIsSendingSignupCode(false);
+      setShowResetCodeInput(false);
+      setResetOtpCode("");
+      setResetOtpEmail("");
+      setIsResetCodeVerified(false);
     }
   }, [open]);
+
+  const handleSendSignupCode = async () => {
+    if (!email || !email.includes('@')) {
+      toast.error("Please enter a valid email address first.");
+      return;
+    }
+    if (!password || password.length < 6) {
+      toast.error("Please enter a password with at least 6 characters first.");
+      return;
+    }
+    setIsSendingSignupCode(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected. Check Settings.");
+      setIsSendingSignupCode(false);
+      return;
+    }
+    try {
+      let err = null;
+      if (!signupCodeSent) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: {
+              display_name: name || email.split('@')[0],
+            }
+          }
+        });
+        err = error;
+      } else {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email,
+        });
+        err = error;
+      }
+      if (err) {
+        toast.error(err.message || "Failed to send authorization code.");
+      } else {
+        setSignupCodeSent(true);
+        toast.success(`6-digit authorization code sent to ${email}! (Expires in 5 minutes)`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to send authorization code.");
+    } finally {
+      setIsSendingSignupCode(false);
+    }
+  };
 
   const handleResendVerification = async () => {
     const targetEmail = verificationSentEmail || email;
@@ -70,14 +139,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     if (error) {
       toast.error(error.message || "Failed to resend confirmation email.");
     } else {
-      toast.success(`Verification email resent to ${targetEmail}! Check your inbox.`);
+      toast.success(`6-digit authorization code resent to ${targetEmail}! Check your inbox.`);
     }
     setIsResending(false);
   };
 
-  
-
-  const handleResetPassword = async () => {
+  const handleSendResetCode = async () => {
     if (!email) {
       toast.error("Please enter your email address first.");
       return;
@@ -93,12 +160,50 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       redirectTo: `${window.location.origin}?type=recovery`,
     });
     if (error) {
-      toast.error(error.message || "Failed to send reset email.");
+      toast.error(error.message || "Failed to send reset code.");
     } else {
-      toast.success("Password reset email sent! Please check your inbox for the reset link.");
-      setShowResetPassword(false);
+      toast.success(`6-digit authorization code sent to ${email}! (Expires in 5 minutes)`);
+      setResetOtpEmail(email);
+      setShowResetCodeInput(true);
+      setIsResetCodeVerified(false);
     }
     setIsResetting(false);
+  };
+
+  const handleVerifyResetOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const code = resetOtpCode.trim();
+    if (!code || code.length !== 6) {
+      toast.error("Please enter the complete 6-digit authorization code.");
+      return;
+    }
+    setIsVerifyingResetOtp(true);
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    if (!supabase) {
+      toast.error("Supabase is not connected.");
+      setIsVerifyingResetOtp(false);
+      return;
+    }
+    const targetEmail = resetOtpEmail || email;
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: targetEmail,
+        token: code,
+        type: 'recovery',
+      });
+      if (error) {
+        toast.error(error.message || "Invalid or expired authorization code. Codes expire in 5 minutes.");
+      } else if (data?.session || data?.user) {
+        toast.success("Authorization code verified! Set your new password below.");
+        setIsResetCodeVerified(true);
+      } else {
+        toast.error("Code verified but session failed to initiate. Please try again.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to verify reset authorization code.");
+    } finally {
+      setIsVerifyingResetOtp(false);
+    }
   };
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -119,68 +224,34 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       return;
     }
 
-    // 1. Check if user/session is currently active
-    let sessionRes = await supabase.auth.getSession();
-    let userRes = await supabase.auth.getUser();
-    let activeUser = userRes.data?.user || sessionRes.data?.session?.user;
-
-    // 2. If no active user/session, attempt to restore session from URL parameters
-    if (!activeUser) {
-      const hash = window.location.hash || "";
-      const search = window.location.search || "";
-      const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
-      const searchParams = new URLSearchParams(search);
-
-      const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
-      const code = searchParams.get('code') || hashParams.get('code');
-      const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
-
-      if (accessToken && refreshToken) {
-        const res = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        activeUser = res.data?.session?.user || null;
-      } else if (code) {
-        const res = await supabase.auth.exchangeCodeForSession(code);
-        activeUser = res.data?.session?.user || null;
-      } else if (tokenHash) {
-        const res = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
-        activeUser = res.data?.session?.user || null;
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        toast.error(error.message || "Failed to update password.");
+      } else {
+        toast.success("Password updated successfully! Welcome back.");
+        const updatedUser = data?.user;
+        if (updatedUser) {
+          setUser({
+            email: updatedUser.email || email || "",
+            name: updatedUser.user_metadata?.full_name || updatedUser.user_metadata?.name || updatedUser.user_metadata?.display_name || (updatedUser.email ? updatedUser.email.split('@')[0] : "User"),
+            uid: updatedUser.id
+          });
+        }
+        setIsPasswordRecovery(false);
+        setShowResetPassword(false);
+        setShowResetCodeInput(false);
+        setIsResetCodeVerified(false);
+        setNewPassword("");
+        setConfirmPassword("");
+        setResetOtpCode("");
+        onOpenChange(false);
       }
-    }
-
-    if (!activeUser) {
-      toast.error("Password reset session expired or invalid. Please request a new password reset link.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update password.");
+    } finally {
       setIsUpdatingPassword(false);
-      setIsPasswordRecovery(false);
-      setShowResetPassword(true);
-      return;
     }
-
-    // 3. Update the password
-    const { data, error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      toast.error(error.message || "Failed to update password.");
-    } else {
-      toast.success("Password updated successfully! Signed in.");
-      const updatedUser = data?.user || activeUser;
-      if (updatedUser) {
-        setUser({
-          email: updatedUser.email || "",
-          name: updatedUser.user_metadata?.full_name || updatedUser.user_metadata?.name || updatedUser.user_metadata?.display_name || updatedUser.email?.split('@')[0] || "User",
-          uid: updatedUser.id
-        });
-      }
-      setIsPasswordRecovery(false);
-      setShowResetPassword(false);
-      onOpenChange(false);
-
-      // Clean up URL parameters and redirect cleanly to home page
-      if (window.history && window.history.replaceState) {
-        window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
-      }
-      window.location.hash = "";
-    }
-    setIsUpdatingPassword(false);
   };
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
@@ -258,14 +329,76 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     }
   };
 
-    const handleAuth = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      toast.error("Please fill in all fields.");
+
+    if (isSignUp) {
+      if (!email || !password) {
+        toast.error("Please enter email and password.");
+        return;
+      }
+      if (password.length < 6) {
+        toast.error("Password must be at least 6 characters long.");
+        return;
+      }
+      const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+      if (!supabase) {
+        toast.error("Supabase is not connected.");
+        return;
+      }
+
+      // If user provided a 6-digit code in the signup code box:
+      if (signupOtpCode.trim().length === 6) {
+        setIsVerifyingSignupOtp(true);
+        try {
+          let { data, error } = await supabase.auth.verifyOtp({
+            email,
+            token: signupOtpCode.trim(),
+            type: 'signup',
+          });
+          if (error) {
+            const res = await supabase.auth.verifyOtp({
+              email,
+              token: signupOtpCode.trim(),
+              type: 'email',
+            });
+            data = res.data;
+            error = res.error;
+          }
+          if (error) {
+            toast.error(error.message || "Invalid or expired authorization code. Codes expire in 5 minutes.");
+          } else if (data?.session && data?.user) {
+            setUser({
+              email: data.user.email || email,
+              name: data.user.user_metadata?.display_name || name || email.split('@')[0],
+              uid: data.user.id
+            });
+            toast.success("Account registered and signed in successfully!");
+            onOpenChange(false);
+          } else {
+            toast.success("Account verified! You can now sign in.");
+            setIsSignUp(false);
+          }
+        } catch (err: any) {
+          toast.error(err?.message || "Failed to verify authorization code.");
+        } finally {
+          setIsVerifyingSignupOtp(false);
+        }
+        return;
+      }
+
+      // If user hasn't sent code yet, send it automatically
+      if (!signupCodeSent) {
+        await handleSendSignupCode();
+        return;
+      }
+
+      toast.error("Please enter the 6-digit authorization code sent to your email.");
       return;
     }
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters long.");
+
+    if (!email || !password) {
+      toast.error("Please fill in all fields.");
       return;
     }
     setLoading(true);
@@ -277,67 +410,33 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       return;
     }
     try {
-      if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: {
-              display_name: name || email.split('@')[0],
-            }
-          }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        if (error.message?.toLowerCase().includes("email not confirmed")) {
+          setNeedsConfirmation(true);
+          toast.error("Email not verified. Enter authorization code or check your inbox.");
+          return;
+        }
+        throw error;
+      }
+      if (data?.session && data?.user) {
+        setUser({
+          email: data.user.email || email,
+          name: data.user.user_metadata?.display_name || email.split('@')[0],
+          uid: data.user.id
         });
-        if (error) {
-          throw error;
-        }
-        
-        // If Supabase has email confirmation disabled, a session is returned immediately
-        if (data?.session && data?.user) {
-          setUser({
-            email: data.user.email || email,
-            name: data.user.user_metadata?.display_name || name || email.split('@')[0],
-            uid: data.user.id
-          });
-          toast.success("Welcome! Account created successfully.");
-          onOpenChange(false);
-        } else if (data?.user) {
-          // Email confirmation is required by Supabase settings
-          setVerificationSentEmail(email);
-          toast.success("Registration successful! Please verify your email.");
-        } else {
-          toast.success("Registration successful! You can now sign in.");
-          setIsSignUp(false);
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) {
-          if (error.message?.toLowerCase().includes("email not confirmed")) {
-            setNeedsConfirmation(true);
-            toast.error("Email not verified. Please check your inbox and verify your email before signing in.");
-            return;
-          }
-          throw error;
-        }
-        if (data?.session && data?.user) {
-          setUser({
-            email: data.user.email || email,
-            name: data.user.user_metadata?.display_name || email.split('@')[0],
-            uid: data.user.id
-          });
-          toast.success("Welcome back! Signed in securely.");
-          onOpenChange(false);
-        }
+        toast.success("Welcome back! Signed in securely.");
+        onOpenChange(false);
       }
     } catch (err: any) {
       console.error("Supabase Auth error:", err);
       const errMsg = err?.message || "";
       if (errMsg.toLowerCase().includes("email not confirmed")) {
         setNeedsConfirmation(true);
-        toast.error("Email not verified. Please check your inbox and verify your email before signing in.");
+        toast.error("Email not verified. Please check your inbox for authorization code.");
       } else {
         if (errMsg.toLowerCase().includes("invalid login credentials") || errMsg.toLowerCase().includes("invalid email or password")) {
           setShowResetPassword(true);
@@ -438,45 +537,75 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         <DialogContent className="sm:max-w-[420px] p-6 border shadow-2xl bg-background text-foreground rounded-lg">
           <DialogHeader className="text-center space-y-2">
             <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-1">
-              <Mail className="w-6 h-6" />
+              <Shield className="w-6 h-6" />
             </div>
             <DialogTitle className="text-xl font-bold text-center">
-              Verify Your Email Address
+              Enter Authorization Code
             </DialogTitle>
             <p className="text-xs text-muted-foreground text-center">
-              A verification link was sent to <span className="font-semibold text-foreground">{verificationSentEmail}</span>.
+              We sent a 6-digit authorization code to <span className="font-semibold text-foreground">{verificationSentEmail}</span>.
+              <br />
+              <span className="text-amber-600 dark:text-amber-400 font-medium">(Code expires in 5 minutes)</span>
             </p>
           </DialogHeader>
 
-          <div className="p-4 bg-muted/40 rounded-lg border text-xs text-muted-foreground space-y-2 text-center my-2">
-            <p>
-              Please click the link in your email to verify your account and complete registration.
-            </p>
-            <p className="text-[11px] opacity-80">
-              (If you don't see the email, please check your spam or junk folder.)
+          <form onSubmit={handleVerifySignupOtp} className="space-y-4 pt-2">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground block text-center">
+                6-Digit Authorization Code
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="0 0 0 0 0 0"
+                value={signupOtpCode}
+                onChange={(e) => setSignupOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-full text-center text-2xl font-mono tracking-widest p-2.5 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                required
+                autoFocus
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isVerifyingSignupOtp || signupOtpCode.length !== 6}
+              className="w-full h-10 font-semibold gap-2 rounded-full"
+            >
+              {isVerifyingSignupOtp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+              <span>Verify Code & Complete Sign Up</span>
+            </Button>
+          </form>
+
+          <div className="p-3 bg-muted/40 rounded-lg border text-xs text-muted-foreground text-center space-y-1">
+            <p className="font-medium text-foreground">Or verify via email link</p>
+            <p className="text-[11px]">
+              You can also click the verification link in your email inbox to verify directly.
             </p>
           </div>
 
-          <div className="space-y-2 pt-2">
+          <div className="space-y-2 pt-1">
             <Button
               type="button"
-              variant="default"
+              variant="outline"
               onClick={handleResendVerification}
               disabled={isResending}
-              className="w-full h-10 font-semibold gap-2 rounded-full"
+              className="w-full h-9 text-xs font-semibold gap-2 rounded-full"
             >
-              {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-              <span>Resend Verification Link</span>
+              {isResending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+              <span>Resend 6-Digit Code</span>
             </Button>
 
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => {
                 setVerificationSentEmail(null);
+                setSignupOtpCode("");
                 setIsSignUp(false);
               }}
-              className="w-full h-10 font-semibold rounded-full"
+              className="w-full h-8 text-xs font-medium rounded-full"
             >
               Back to Sign In
             </Button>
@@ -616,7 +745,51 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     />
                   </div>
 
-                  {needsConfirmation && (
+                  {/* REGISTER WINDOW: BELOW PASSWORD DISPLAY SEND AUTH CODE SECTION DIRECTLY */}
+                  {isSignUp && (
+                    <div className="p-3 bg-muted/40 border border-border rounded-lg space-y-2 text-left animate-in fade-in zoom-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                          <Shield className="w-3.5 h-3.5 text-primary" /> 6-Digit Authorization Code
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleSendSignupCode}
+                          disabled={isSendingSignupCode || !email || !password}
+                          className="text-xs text-primary hover:underline font-semibold disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {isSendingSignupCode ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" /> Sending...
+                            </>
+                          ) : signupCodeSent ? (
+                            "Resend Code"
+                          ) : (
+                            "Send Code"
+                          )}
+                        </button>
+                      </div>
+
+                      {signupCodeSent && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                          Code sent to <span className="font-semibold">{email}</span> (expires in 5m)
+                        </p>
+                      )}
+
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="0 0 0 0 0 0"
+                        value={signupOtpCode}
+                        onChange={(e) => setSignupOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-full text-center text-xl font-mono tracking-widest p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                      />
+                    </div>
+                  )}
+
+                  {needsConfirmation && !isSignUp && (
                     <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-md text-xs space-y-2">
                       <p className="font-medium">Your email address has not been verified yet.</p>
                       <Button
@@ -628,7 +801,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                         className="w-full h-8 text-xs border-amber-500/40 hover:bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold"
                       >
                         {isResending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Mail className="w-3 h-3 mr-1" />}
-                        Resend Verification Link
+                        Resend Authorization Code
                       </Button>
                     </div>
                   )}
@@ -636,14 +809,14 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   <Button 
                     type="submit" 
                     className="w-full h-10 mt-2 font-semibold flex items-center justify-center gap-2 rounded-full"
-                    disabled={loading}
+                    disabled={loading || isVerifyingSignupOtp || isSendingSignupCode}
                   >
-                    {loading ? (
+                    {(loading || isVerifyingSignupOtp || isSendingSignupCode) ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : isSignUp ? (
                       <>
                         <UserPlus className="w-4 h-4" />
-                        <span>Register Account</span>
+                        <span>Verify Code & Register Account</span>
                       </>
                     ) : (
                       <>
@@ -653,28 +826,154 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     )}
                   </Button>
                 </>
-              ) : (
+              ) : !showResetCodeInput ? (
                 <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200">
                   <p className="text-xs text-muted-foreground text-center">
-                    Enter your email above and click below to receive a password reset link.
+                    Enter your email above to receive a 6-digit authorization code for password reset.
+                    <br />
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">(Code expires in 5 minutes)</span>
                   </p>
                   <Button 
                     type="button" 
                     className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
-                    onClick={handleResetPassword}
+                    onClick={handleSendResetCode}
                     disabled={isResetting}
                   >
                     {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                    <span>Send Password Reset Email</span>
+                    <span>Send 6-Digit Authorization Code</span>
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setShowResetPassword(false)}
+                    onClick={() => {
+                      setShowResetPassword(false);
+                      setIsResetCodeVerified(false);
+                    }}
                     className="w-full text-xs"
                   >
                     Back to Sign In
                   </Button>
+                </div>
+              ) : !isResetCodeVerified ? (
+                <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200">
+                  <div className="text-center space-y-1">
+                    <p className="text-xs font-medium text-foreground">
+                      6-Digit Authorization Code Sent
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Sent to <span className="font-semibold text-foreground">{resetOtpEmail || email}</span>
+                      <br />
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">(Expires in 5 minutes)</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      placeholder="0 0 0 0 0 0"
+                      value={resetOtpCode}
+                      onChange={(e) => setResetOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full text-center text-2xl font-mono tracking-widest p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <Button 
+                    type="button"
+                    className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
+                    onClick={handleVerifyResetOtp}
+                    disabled={isVerifyingResetOtp || resetOtpCode.length !== 6}
+                  >
+                    {isVerifyingResetOtp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                    <span>Verify Code</span>
+                  </Button>
+
+                  <div className="flex items-center justify-between text-xs pt-1 px-1">
+                    <button
+                      type="button"
+                      onClick={handleSendResetCode}
+                      disabled={isResetting}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      Resend Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowResetCodeInput(false);
+                        setResetOtpCode("");
+                      }}
+                      className="text-muted-foreground hover:underline font-medium"
+                    >
+                      Back to Email
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* AFTER TAP VERIFY CODE: DISPLAY RESET COLUMN BELOW DIRECTLY */
+                <div className="pt-2 space-y-3 animate-in fade-in zoom-in duration-200 border-t pt-3">
+                  <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-md text-xs font-medium text-center flex items-center justify-center gap-1.5">
+                    <Shield className="w-4 h-4" />
+                    <span>Authorization code verified! Enter new password below:</span>
+                  </div>
+
+                  <div className="space-y-1 text-left">
+                    <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5" /> New Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="At least 6 characters"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                      required
+                      minLength={6}
+                    />
+                  </div>
+
+                  <div className="space-y-1 text-left">
+                    <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5" /> Confirm New Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Re-enter new password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-primary shadow-sm"
+                      required
+                      minLength={6}
+                    />
+                  </div>
+
+                  <Button 
+                    type="button"
+                    className="w-full h-10 font-semibold flex items-center justify-center gap-2 rounded-full"
+                    onClick={handleUpdatePassword}
+                    disabled={isUpdatingPassword || !newPassword || newPassword.length < 6}
+                  >
+                    {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                    <span>Save New Password & Sign In</span>
+                  </Button>
+
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowResetPassword(false);
+                        setShowResetCodeInput(false);
+                        setIsResetCodeVerified(false);
+                      }}
+                      className="text-xs text-muted-foreground hover:underline font-medium"
+                    >
+                      Cancel & Back to Sign In
+                    </button>
+                  </div>
                 </div>
               )}
             </form>

@@ -131,10 +131,10 @@ function ComicPageViewer({ page }: { page: any }) {
   };
 
   return (
-    <div className="relative w-full max-w-2xl aspect-[3/4] max-h-full bg-background border border-border/80 rounded-lg shadow-lg overflow-hidden flex flex-col pointer-events-auto m-auto">
+    <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-background border border-border/80 rounded-lg shadow-lg overflow-hidden flex flex-col pointer-events-auto m-auto">
       <div className="flex-1 relative overflow-hidden">
-        {page.tree ? renderNode(page.tree) : page.cover ? (
-          <img src={page.cover} className="w-full h-full object-cover" />
+        {page.tree ? renderNode(page.tree) : page.cover || page.imageUrl || page.image || page.url ? (
+          <img src={page.cover || page.imageUrl || page.image || page.url} className="w-full h-full object-contain" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
             Comic Page
@@ -1189,7 +1189,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
                   <div className={cn(
                                  
-                                 "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
+                                 "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-4", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
                     {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
                        <img key={currentPanelIndex} src={panelsCache[currentPage][currentPanelIndex] || undefined} className="w-full h-full object-contain pointer-events-auto select-none" />
                     ) : cropBorders && croppedCache[currentPage] ? (

@@ -32,7 +32,7 @@ function MiniPageGrid({ node }: { node: any }) {
   if (node.type === "panel") {
     return (
       <div 
-        className="w-full h-full border border-slate-950/70 bg-slate-900 overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
+        className="w-full h-full border border-border/60 bg-muted/30 overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
         style={{ backgroundColor: node.color || node.bg || undefined }}
       >
         {node.imageUrl ? (
@@ -40,11 +40,11 @@ function MiniPageGrid({ node }: { node: any }) {
         ) : node.drawing ? (
           <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
         ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
-          <div className="w-full h-full flex items-center justify-center bg-slate-800 text-[8px] text-slate-400 font-bold">
+          <div className="w-full h-full flex items-center justify-center bg-muted text-[8px] text-muted-foreground font-bold">
             🎨
           </div>
         ) : (
-          <div className="w-full h-full bg-slate-900/80" />
+          <div className="w-full h-full bg-muted/50" />
         )}
       </div>
     );
@@ -68,7 +68,7 @@ function MiniPageGrid({ node }: { node: any }) {
     );
   }
 
-  return <div className="w-full h-full bg-slate-900" />;
+  return <div className="w-full h-full bg-muted/40" />;
 }
 
 function MetroBookTile({
@@ -224,12 +224,12 @@ function MetroBookTile({
   return (
     <div
       onClick={onOpen}
-      className="flex-shrink-0 w-[180px] h-[240px] group relative flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden cursor-pointer select-none transition-all duration-300 hover:shadow-xl active:scale-95"
+      className="flex-shrink-0 w-[180px] h-[240px] group relative flex flex-col justify-between bg-card text-card-foreground border border-border/80 rounded-md shadow-md overflow-hidden cursor-pointer select-none transition-all duration-300 hover:shadow-xl hover:border-primary/60 active:scale-95"
     >
       {/* BACKGROUND & METRO LIVE TILE CONTENT */}
       {book.type === 'comic' ? (
         // COMIC METRO LIVE TILE: Display ENTIRE Page Layout in 3:4 aspect ratio box
-        <div className="absolute inset-0 bg-slate-950 overflow-hidden flex items-center justify-center p-1.5">
+        <div className="absolute inset-0 bg-muted/20 overflow-hidden flex items-center justify-center p-1.5">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={`comic-page-${slideIndex}`}
@@ -240,7 +240,7 @@ function MetroBookTile({
               className="w-full h-full flex flex-col items-center justify-center overflow-hidden"
             >
               {currentComicPage?.tree ? (
-                <div className="w-full h-full p-1 bg-slate-950 border border-slate-800 flex flex-col overflow-hidden">
+                <div className="w-full h-full p-1 bg-background border border-border/60 flex flex-col overflow-hidden rounded">
                   <MiniPageGrid node={currentComicPage.tree} />
                 </div>
               ) : currentComicPage?.image ? (
@@ -251,19 +251,19 @@ function MetroBookTile({
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="w-full h-full bg-gradient-to-br from-amber-950 via-slate-900 to-amber-900 flex flex-col items-center justify-center p-4 text-center border border-amber-900/50">
-                  <Sparkles className="w-8 h-8 text-amber-400 mb-2 animate-pulse" />
-                  <span className="text-xs font-bold text-amber-200 line-clamp-2">{book.title}</span>
+                <div className="w-full h-full bg-muted/40 flex flex-col items-center justify-center p-4 text-center border border-border/40">
+                  <Sparkles className="w-8 h-8 text-amber-500 mb-2 animate-pulse" />
+                  <span className="text-xs font-bold text-foreground line-clamp-2">{book.title}</span>
                 </div>
               )}
             </motion.div>
           </AnimatePresence>
           {/* Metro Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-card/80 via-transparent to-transparent pointer-events-none" />
         </div>
       ) : (
         // NOVEL METRO LIVE TILE: Clean surface or background image without blue vertical line
-        <div className="absolute inset-0 bg-slate-900 overflow-hidden">
+        <div className="absolute inset-0 bg-card overflow-hidden">
           {novelBgImage ? (
             <>
               <AnimatePresence mode="popLayout" initial={false}>
@@ -279,11 +279,11 @@ function MetroBookTile({
                   referrerPolicy="no-referrer"
                 />
               </AnimatePresence>
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-card via-card/80 to-card/30 pointer-events-none" />
             </>
           ) : (
             // Clean, unadorned solid background (no blue vertical line)
-            <div className="w-full h-full bg-slate-900" />
+            <div className="w-full h-full bg-card" />
           )}
         </div>
       )}
@@ -291,7 +291,7 @@ function MetroBookTile({
       {/* TOP HEADER BAR: METRO TYPE BADGE */}
       <div className="relative z-10 p-2 flex items-center justify-between w-full">
         <span
-          className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
+          className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono rounded-xs ${
             book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
           }`}
         >
@@ -311,7 +311,7 @@ function MetroBookTile({
                 animate={{ x: "0%", y: "0%", opacity: 1 }}
                 exit={currentDirection.exit}
                 transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
+                className="absolute inset-0 text-[11px] leading-relaxed text-card-foreground font-serif line-clamp-4 italic bg-card/90 border border-border/50 p-2 backdrop-blur-xs flex items-center rounded-sm shadow-xs"
               >
                 {currentNovelSnippet}
               </motion.p>
@@ -328,7 +328,7 @@ function MetroBookTile({
                   animate={{ x: "0%", y: "0%", opacity: 1 }}
                   exit={currentDirection.exit}
                   transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                  className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                  className="text-[10px] leading-tight text-card-foreground font-sans line-clamp-2 bg-card/90 p-1.5 rounded-sm border border-amber-500/40 backdrop-blur-xs shadow-xs"
                 >
                   💬 "{currentComicPage.speechSnippet}"
                 </motion.p>
@@ -339,13 +339,13 @@ function MetroBookTile({
       </div>
 
       {/* BOTTOM FOOTER METRO TILE TITLE & AUTHOR */}
-      <div className="relative z-10 px-3 py-2 bg-slate-950/90 border-t border-slate-800/80 backdrop-blur-sm">
-        <h4 className="text-xs font-black text-white truncate group-hover:text-primary transition-colors tracking-tight font-sans">
+      <div className="relative z-10 px-3 py-2 bg-card/95 border-t border-border/80 backdrop-blur-xs">
+        <h4 className="text-xs font-bold text-card-foreground truncate group-hover:text-primary transition-colors tracking-tight font-sans">
           {book.title}
         </h4>
-        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5 font-medium">
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5 font-medium">
           <span className="truncate flex items-center gap-1 max-w-[160px]">
-            <User className="w-3 h-3 text-slate-400 shrink-0" />
+            <User className="w-3 h-3 text-muted-foreground shrink-0" />
             {book.author}
           </span>
         </div>
@@ -616,7 +616,7 @@ export function Bookshelf({
                     {selectedBook.pages && selectedBook.pages.length > 0 ? (
                       <div className="relative max-w-lg w-full aspect-[3/4.2] rounded-lg border bg-muted/10 overflow-hidden shadow-md flex items-center justify-center">
                         {selectedBook.pages[activeComicPage]?.tree ? (
-                          <div className="w-full h-full p-2 bg-slate-950 flex flex-col overflow-hidden">
+                          <div className="w-full h-full p-2 bg-background flex flex-col overflow-hidden">
                             <MiniPageGrid node={selectedBook.pages[activeComicPage].tree} />
                           </div>
                         ) : (

@@ -87,16 +87,16 @@ function FeatureCard({
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-300"
           referrerPolicy="no-referrer"
         />
-        {/* Unfold Upward Description Overlay */}
+        {/* Unfold Description Overlay */}
         <div
           className={cn(
-            "absolute inset-x-0 bottom-0 bg-background/95 backdrop-blur-xs p-2 transition-all duration-200 ease-out transform flex items-center justify-center min-h-full",
+            "absolute inset-0 w-full h-full bg-background/95 backdrop-blur-xs p-2 sm:p-3 transition-all duration-200 ease-out transform flex items-center justify-center text-center overflow-hidden z-10",
             expanded 
               ? "translate-y-0 opacity-100" 
               : "translate-y-full opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
           )}
         >
-          <p className="text-[10px] text-muted-foreground leading-tight font-medium text-center">
+          <p className="text-[11px] sm:text-xs md:text-[11px] lg:text-xs xl:text-sm text-foreground/95 font-medium leading-snug text-center max-w-full text-balance line-clamp-6">
             {description}
           </p>
         </div>

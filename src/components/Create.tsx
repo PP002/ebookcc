@@ -190,37 +190,10 @@ const generatePerfectSpeechBubblePoints = (): { x: number; y: number }[] => {
   const tEnd = 0.70 * Math.PI;
 
   const steps = 80;
-  for (let i = 0; i <= steps; i++) {
-    const t = tEnd + (i / steps) * (2 * Math.PI - (tEnd - tStart));
+  for (let i = 0; i < steps; i++) {
+    const t = tEnd + (i / steps) * (2 * Math.PI);
     const x = cx + rx * Math.cos(t);
     const y = cy + ry * Math.sin(t);
-    points.push({ x, y });
-  }
-
-  const pStart = points[points.length - 1];
-  const pEnd = points[0];
-
-  const tipX = 35;
-  const tipY = 96;
-
-  // Curve to tip
-  const stepsTail = 6;
-  for (let j = 1; j <= stepsTail; j++) {
-    const ratio = j / stepsTail;
-    const cx1 = pStart.x;
-    const cy1 = pStart.y + (tipY - pStart.y) * 0.15;
-    const x = (1 - ratio) * (1 - ratio) * pStart.x + 2 * (1 - ratio) * ratio * cx1 + ratio * ratio * tipX;
-    const y = (1 - ratio) * (1 - ratio) * pStart.y + 2 * (1 - ratio) * ratio * cy1 + ratio * ratio * tipY;
-    points.push({ x, y });
-  }
-
-  // Curve back to ellipse
-  for (let j = 1; j <= stepsTail; j++) {
-    const ratio = j / stepsTail;
-    const cx2 = pEnd.x - (pEnd.x - tipX) * 0.25;
-    const cy2 = pEnd.y + (tipY - pEnd.y) * 0.1;
-    const x = (1 - ratio) * (1 - ratio) * tipX + 2 * (1 - ratio) * ratio * cx2 + ratio * ratio * pEnd.x;
-    const y = (1 - ratio) * (1 - ratio) * tipY + 2 * (1 - ratio) * ratio * cy2 + ratio * ratio * pEnd.y;
     points.push({ x, y });
   }
 
@@ -684,8 +657,8 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
   const H = Math.max(20, dimensions.h);
 
   // Initialize tail if not set
-  const tailX = bubble.tailX !== undefined ? bubble.tailX : W * 0.15;
-  const tailY = bubble.tailY !== undefined ? bubble.tailY : H + 35;
+  const tailX = bubble.tailX !== undefined ? bubble.tailX : (bubble.style === "freehand" ? 15 : W * 0.15);
+  const tailY = bubble.tailY !== undefined ? bubble.tailY : (bubble.style === "freehand" ? 120 : H + 35);
 
   // Generate SVG path based on style
   let dPath = "";
@@ -821,6 +794,76 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
 
       dPath = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
     }
+  } else if (bubble.style === "freehand") {
+    const cx = W / 2;
+    const cy = H / 2;
+
+    let normPoints = bubble.points;
+    if (!normPoints || normPoints.length < 3) {
+      normPoints = generatePerfectSpeechBubblePoints();
+    }
+
+    // Apply multi-pass Chaikin smoothing for silky smooth vector curves
+    const smoothedNorm = chaikinSmooth(normPoints, 3);
+
+    // Scale contour points to match current container W and H
+    const bodyPts = smoothedNorm.map((p) => ({
+      x: (p.x / 100) * W,
+      y: (p.y / 100) * H,
+    }));
+
+    const N = bodyPts.length;
+
+    // Convert tail coordinates from percentage to pixels
+    const tailPxX = (tailX / 100) * W;
+    const tailPxY = (tailY / 100) * H;
+
+    // Angle to tail
+    const dx = tailPxX - cx;
+    const dy = tailPxY - cy;
+    const tailAngle = Math.atan2(dy, dx);
+
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < N; i++) {
+      const ptAngle = Math.atan2(bodyPts[i].y - cy, bodyPts[i].x - cx);
+      let diff = Math.abs(ptAngle - tailAngle);
+      if (diff > Math.PI) diff = 2 * Math.PI - diff;
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
+      }
+    }
+
+    const baseRange = Math.max(1, Math.min(4, Math.floor(N * 0.04)));
+    const idxStart = (closestIdx - baseRange + N) % N;
+    const idxEnd = (closestIdx + baseRange) % N;
+
+    const pathPts: { x: number; y: number }[] = [];
+    let curr = idxEnd;
+    while (curr !== idxStart) {
+      pathPts.push(bodyPts[curr]);
+      curr = (curr + 1) % N;
+    }
+    pathPts.push(bodyPts[idxStart]);
+    pathPts.push({ x: tailPxX, y: tailPxY });
+
+    if (pathPts.length > 0) {
+      let d = `M ${pathPts[0].x.toFixed(1)} ${pathPts[0].y.toFixed(1)}`;
+      for (let i = 0; i < pathPts.length - 1; i++) {
+        const p1 = pathPts[i];
+        const p2 = pathPts[i + 1];
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        d += ` Q ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+      }
+      const last = pathPts[pathPts.length - 1];
+      const first = pathPts[0];
+      const midX = (last.x + first.x) / 2;
+      const midY = (last.y + first.y) / 2;
+      d += ` Q ${last.x.toFixed(1)} ${last.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)} Z`;
+      dPath = d;
+    }
   }
 
   // Pointer event for dragging the tail tip
@@ -835,8 +878,14 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
 
     const onPointerMove = (ev: PointerEvent) => {
       const rect = bubbleEl.getBoundingClientRect();
-      const newTailX = ev.clientX - rect.left;
-      const newTailY = ev.clientY - rect.top;
+      let newTailX = ev.clientX - rect.left;
+      let newTailY = ev.clientY - rect.top;
+      
+      if (bubble.style === "freehand") {
+        newTailX = (newTailX / W) * 100;
+        newTailY = (newTailY / H) * 100;
+      }
+      
       onUpdateTail(newTailX, newTailY);
     };
 
@@ -853,22 +902,20 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
 
   return (
     <div className="relative">
-      {/* Background SVG for classic/action styles */}
-      {(bubble.style === "classic" || bubble.style === "action") && (
-        <svg
-          className="absolute inset-0 w-full h-full -z-10"
-          style={{ overflow: "visible" }}
-        >
-          <path
-            d={dPath}
-            fill="#ffffff"
-            stroke="#000000"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
+      {/* Background SVG for all styles */}
+      <svg
+        className="absolute inset-0 w-full h-full -z-10"
+        style={{ overflow: "visible" }}
+      >
+        <path
+          d={dPath}
+          fill="#ffffff"
+          stroke="#000000"
+          strokeWidth={bubble.style === "freehand" ? 2.5 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
 
       {/* Text Container */}
       <div
@@ -923,6 +970,8 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         className={`text-xs break-words text-center min-w-[70px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
           bubble.style === "action"
             ? "font-extrabold uppercase text-black py-4 px-6"
+            : bubble.style === "freehand"
+            ? "text-black py-5 px-7 italic font-sans leading-tight"
             : "text-black py-2.5 px-4"
         }`}
         title="Double click outside text to delete bubble"
@@ -931,7 +980,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
       </div>
 
       {/* Tail Drag Handle (Only when selected/active) */}
-      {isActive && (bubble.style === "classic" || bubble.style === "action") && (
+      {isActive && bubble.style !== "freehand" && (
         <div
           onPointerDown={handleTailPointerDown}
           className="absolute w-4 h-4 bg-red-500 border-2 border-white rounded-full cursor-crosshair z-50 flex items-center justify-center shadow-lg transform -translate-x-1/2 -translate-y-1/2"
@@ -2340,6 +2389,11 @@ export const Create: React.FC<CreateProps> = ({
   };
 
   const convertDrawnBubble = async () => {
+    if (isTranscribing) return;
+    setIsTranscribing(true);
+    
+    const cleanup = () => setIsTranscribing(false);
+    
     const layouts = getPanelLayouts(comicTree);
     let targetPanelId: string | null = null;
     let targetLayout: PanelLayout | null = null;
@@ -2400,12 +2454,14 @@ export const Create: React.FC<CreateProps> = ({
       } else {
         toast.info("No speech bubble drawing detected. Draw a speech bubble outline and write some text inside it with the pen!");
       }
+      cleanup();
       return;
     }
 
     const pts = detection.bubbleOutline.stroke.points;
     if (!pts || pts.length === 0) {
       toast.info("No points found in the detected bubble outline.");
+      cleanup();
       return;
     }
 
@@ -2419,6 +2475,7 @@ export const Create: React.FC<CreateProps> = ({
 
     if (strokeW < 1 && strokeH < 1) {
       toast.warning("The drawn shape is too small. Draw a larger speech bubble!");
+      cleanup();
       return;
     }
 
@@ -2452,8 +2509,50 @@ export const Create: React.FC<CreateProps> = ({
     const updatedTree = removeStrokesFromTree(comicTree);
     updateActivePageTree(updatedTree);
 
-    // Convert the hand-drawn shape to a beautiful, clean, perfect vector speech bubble shape instead of preserving the custom-drawn jagged shape
-    const normalizedPoints = generatePerfectSpeechBubblePoints();
+    // Convert hand-drawn stroke into smooth vector graphics points with smooth edges
+    let normalizedPoints: { x: number; y: number }[] = [];
+    let initialTailX = 20;
+    let initialTailY = 85;
+
+    if (pts && pts.length >= 3) {
+      const rawNorm = pts.map((p) => ({
+        x: Math.max(5, Math.min(95, ((p.x - minX) / (strokeW || 1)) * 90 + 5)),
+        y: Math.max(5, Math.min(95, ((p.y - minY) / (strokeH || 1)) * 90 + 5)),
+      }));
+
+      normalizedPoints = chaikinSmooth(rawNorm, 3);
+
+      let maxDist = 0;
+      let furthestIdx = -1;
+      for (let i = 0; i < normalizedPoints.length; i++) {
+        const p = normalizedPoints[i];
+        const dist = Math.hypot(p.x - 50, p.y - 50);
+        if (dist > maxDist) {
+          maxDist = dist;
+          if (dist > 35) {
+            furthestIdx = i;
+            initialTailX = p.x;
+            initialTailY = p.y;
+          }
+        }
+      }
+
+      if (furthestIdx !== -1) {
+        const N = normalizedPoints.length;
+        const removeRange = Math.max(3, Math.floor(N * 0.08));
+        const newPts: { x: number; y: number }[] = [];
+        const start = (furthestIdx + removeRange) % N;
+        const end = (furthestIdx - removeRange + N) % N;
+        let curr = start;
+        while (curr !== end) {
+          newPts.push(normalizedPoints[curr]);
+          curr = (curr + 1) % N;
+        }
+        normalizedPoints = newPts;
+      }
+    } else {
+      normalizedPoints = generatePerfectSpeechBubblePoints();
+    }
 
     // If the user entered text value manually, directly move it into the custom speech bubble, bypassing OCR!
     if (hasManualText) {
@@ -2463,14 +2562,18 @@ export const Create: React.FC<CreateProps> = ({
         x: pageX,
         y: pageY,
         style: "freehand",
-        points: normalizedPoints
+        points: normalizedPoints,
+        tailX: initialTailX,
+        tailY: initialTailY,
       };
 
       const currentBubbles = [...bubbles, newBubble];
       updateActivePageBubbles(currentBubbles);
       setActiveBubbleId(bubbleId);
       setBubbleStyle("freehand");
+      setNewBubbleText(""); // Clear it so it doesn't trigger random fallbacks later
       toast.success("Hand-drawn bubble created with your manual text!");
+      cleanup();
       return;
     }
 
@@ -2481,7 +2584,9 @@ export const Create: React.FC<CreateProps> = ({
       x: pageX,
       y: pageY,
       style: "freehand",
-      points: normalizedPoints
+      points: normalizedPoints,
+      tailX: initialTailX,
+      tailY: initialTailY,
     };
 
     const currentBubbles = [...bubbles, newBubble];
@@ -2489,7 +2594,6 @@ export const Create: React.FC<CreateProps> = ({
     setActiveBubbleId(bubbleId);
     setBubbleStyle("freehand");
 
-    setIsTranscribing(true);
     try {
       const { toPng } = await import("html-to-image");
       if (!comicRef.current) throw new Error("Comic container not found");
@@ -2644,6 +2748,9 @@ export const Create: React.FC<CreateProps> = ({
       x: 35 + Math.random() * 20,
       y: 35 + Math.random() * 20,
       style: bubbleStyle,
+      points: bubbleStyle === "freehand" ? generatePerfectSpeechBubblePoints() : undefined,
+      tailX: 20,
+      tailY: 85,
     };
     updateActivePageBubbles([...bubbles, freshBubble]);
     setActiveBubbleId(freshBubble.id);
@@ -4600,102 +4707,21 @@ export const Create: React.FC<CreateProps> = ({
                         : "z-20"
                     }`}
                   >
-                    {b.style === "classic" || b.style === "action" ? (
-                      <InteractiveBubble
-                        bubble={b}
-                        isActive={activeBubbleId === b.id}
-                        onUpdateTail={(tailX, tailY) => updateBubbleTail(b.id, tailX, tailY)}
-                        onUpdateText={(text) => {
-                          setNewBubbleText(text);
-                          updateBubbleText(b.id, text);
-                        }}
-                        removeBubble={() => removeBubble(b.id)}
-                        onActivate={() => {
-                          setActiveBubbleId(b.id);
-                          setNewBubbleText(b.text);
-                          setBubbleStyle(b.style);
-                        }}
-                      />
-                    ) : (
-                      <div className={getBubbleStyleClass(b.style, !!b.points)}>
-                        {b.style === "freehand" && b.points && (
-                          <svg
-                            className="absolute inset-0 w-full h-full -z-10 overflow-visible"
-                            viewBox="0 0 100 100"
-                            preserveAspectRatio="none"
-                          >
-                            <path
-                              d={getSvgPathFromNormalizedPoints(b.points)}
-                              fill="#ffffff"
-                              stroke="#0f172a"
-                              strokeWidth={3}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                        <div
-                          contentEditable
-                          suppressContentEditableWarning
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveBubbleId(b.id);
-                            setNewBubbleText(b.text);
-                            setBubbleStyle(b.style);
-                          }}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            removeBubble(b.id);
-                          }}
-                          onFocus={() => {
-                            setActiveBubbleId(b.id);
-                            setNewBubbleText(b.text);
-                            setBubbleStyle(b.style);
-                          }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation();
-                            setActiveBubbleId(b.id);
-                            setNewBubbleText(b.text);
-                            setBubbleStyle(b.style);
-                            (window as any)._bubbleLongPress = setTimeout(() => {
-                              window.dispatchEvent(
-                                new CustomEvent("quote-to-agent", {
-                                  detail: { type: "text", text: b.text },
-                                }),
-                              );
-                            }, 500);
-                          }}
-                          onPointerUp={(e) => {
-                            if ((window as any)._bubbleLongPress)
-                              clearTimeout((window as any)._bubbleLongPress);
-                          }}
-                          onPointerLeave={(e) => {
-                            if ((window as any)._bubbleLongPress)
-                              clearTimeout((window as any)._bubbleLongPress);
-                          }}
-                          onPointerCancel={(e) => {
-                            if ((window as any)._bubbleLongPress)
-                              clearTimeout((window as any)._bubbleLongPress);
-                          }}
-                          onBlur={(e) => {
-                            const txt = e.currentTarget.innerText || "";
-                            updateBubbleText(b.id, txt);
-                          }}
-                          onInput={(e) => {
-                            const txt = e.currentTarget.innerText || "";
-                            setNewBubbleText(txt);
-                            updateBubbleText(b.id, txt);
-                          }}
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                          }}
-                          className="text-xs break-words text-center min-w-[60px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text py-0.5 px-1 font-semibold"
-                          title="Double click outside text to delete bubble"
-                        >
-                          {b.text}
-                        </div>
-                      </div>
-                    )}
+                    <InteractiveBubble
+                      bubble={b}
+                      isActive={activeBubbleId === b.id}
+                      onUpdateTail={(tailX, tailY) => updateBubbleTail(b.id, tailX, tailY)}
+                      onUpdateText={(text) => {
+                        setNewBubbleText(text);
+                        updateBubbleText(b.id, text);
+                      }}
+                      removeBubble={() => removeBubble(b.id)}
+                      onActivate={() => {
+                        setActiveBubbleId(b.id);
+                        setNewBubbleText(b.text);
+                        setBubbleStyle(b.style);
+                      }}
+                    />
 
                     {/* Little Red Drag Handle with Red Cross Arrow Icon when active */}
                     {activeBubbleId === b.id && (

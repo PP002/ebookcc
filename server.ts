@@ -744,28 +744,26 @@ async function startServer() {
 
       const cleanedItem = JSON.parse(JSON.stringify(item));
 
+      interface MediaUploadTask {
+        fileName: string;
+        buffer: Buffer;
+        mimeType: string;
+        updateUrl: (url: string) => void;
+      }
+
+      const uploadTasks: MediaUploadTask[] = [];
+
       // 1. Process cover image
       if (cleanedItem.cover && cleanedItem.cover.startsWith("data:image")) {
         const parsed = parseBase64DataUrl(cleanedItem.cover);
         if (parsed) {
           const fileName = `media/${workId}/cover.${parsed.ext}`;
-          const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
-          fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
-          fs.writeFileSync(localFilePath, parsed.buffer);
-
-          if (isConfigured && s3) {
-            try {
-              await s3.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: fileName,
-                Body: parsed.buffer,
-                ContentType: parsed.mimeType
-              }));
-            } catch (err: any) {
-              console.warn(`[R2] Cover upload to remote bucket failed:`, err.message);
-            }
-          }
-          cleanedItem.cover = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+          uploadTasks.push({
+            fileName,
+            buffer: parsed.buffer,
+            mimeType: parsed.mimeType,
+            updateUrl: (url) => { cleanedItem.cover = url; }
+          });
         }
       }
 
@@ -773,70 +771,48 @@ async function startServer() {
       if (cleanedItem.type === "comic" && Array.isArray(cleanedItem.pages)) {
         let imgIndex = 1;
 
-        const processNodeImages = async (node: any, pageIdx: number) => {
+        const collectNodeTasks = (node: any, pageIdx: number) => {
           if (!node) return;
           if (node.type === "panel") {
             if (node.imageUrl && node.imageUrl.startsWith("data:image")) {
               const parsed = parseBase64DataUrl(node.imageUrl);
               if (parsed) {
-                const fileName = `media/${workId}/page-${pageIdx + 1}-panel-${imgIndex}.${parsed.ext}`;
-                imgIndex++;
-                const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
-                fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
-                fs.writeFileSync(localFilePath, parsed.buffer);
-
-                if (isConfigured && s3) {
-                  try {
-                    await s3.send(new PutObjectCommand({
-                      Bucket: bucket,
-                      Key: fileName,
-                      Body: parsed.buffer,
-                      ContentType: parsed.mimeType
-                    }));
-                  } catch (err: any) {
-                    console.warn(`[R2] Panel image upload failed:`, err.message);
-                  }
-                }
-                node.imageUrl = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+                const fileName = `media/${workId}/page-${pageIdx + 1}-panel-${imgIndex++}.${parsed.ext}`;
+                const targetNode = node;
+                uploadTasks.push({
+                  fileName,
+                  buffer: parsed.buffer,
+                  mimeType: parsed.mimeType,
+                  updateUrl: (url) => { targetNode.imageUrl = url; }
+                });
               }
             }
 
             if (node.drawing && node.drawing.startsWith("data:image")) {
               const parsed = parseBase64DataUrl(node.drawing);
               if (parsed) {
-                const fileName = `media/${workId}/page-${pageIdx + 1}-drawing-${imgIndex}.${parsed.ext}`;
-                imgIndex++;
-                const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
-                fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
-                fs.writeFileSync(localFilePath, parsed.buffer);
-
-                if (isConfigured && s3) {
-                  try {
-                    await s3.send(new PutObjectCommand({
-                      Bucket: bucket,
-                      Key: fileName,
-                      Body: parsed.buffer,
-                      ContentType: parsed.mimeType
-                    }));
-                  } catch (err: any) {
-                    console.warn(`[R2] Drawing image upload failed:`, err.message);
-                  }
-                }
-                node.drawing = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
+                const fileName = `media/${workId}/page-${pageIdx + 1}-drawing-${imgIndex++}.${parsed.ext}`;
+                const targetNode = node;
+                uploadTasks.push({
+                  fileName,
+                  buffer: parsed.buffer,
+                  mimeType: parsed.mimeType,
+                  updateUrl: (url) => { targetNode.drawing = url; }
+                });
               }
             }
           } else if (node.type === "split") {
-            if (node.left) await processNodeImages(node.left, pageIdx);
-            if (node.right) await processNodeImages(node.right, pageIdx);
-            if (node.c1) await processNodeImages(node.c1, pageIdx);
-            if (node.c2) await processNodeImages(node.c2, pageIdx);
+            if (node.left) collectNodeTasks(node.left, pageIdx);
+            if (node.right) collectNodeTasks(node.right, pageIdx);
+            if (node.c1) collectNodeTasks(node.c1, pageIdx);
+            if (node.c2) collectNodeTasks(node.c2, pageIdx);
           }
         };
 
         for (let i = 0; i < cleanedItem.pages.length; i++) {
           const page = cleanedItem.pages[i];
           if (page && page.tree) {
-            await processNodeImages(page.tree, i);
+            collectNodeTasks(page.tree, i);
           }
         }
       }
@@ -851,30 +827,46 @@ async function startServer() {
           const rawDataUrl = match[1];
           const parsed = parseBase64DataUrl(rawDataUrl);
           if (parsed) {
-            const fileName = `media/${workId}/inline-${inlineIdx}.${parsed.ext}`;
-            inlineIdx++;
+            const fileName = `media/${workId}/inline-${inlineIdx++}.${parsed.ext}`;
+            const targetDataUrl = rawDataUrl;
+            uploadTasks.push({
+              fileName,
+              buffer: parsed.buffer,
+              mimeType: parsed.mimeType,
+              updateUrl: (url) => {
+                cleanedItem.content = cleanedItem.content.replace(targetDataUrl, url);
+              }
+            });
+          }
+        }
+      }
 
-            const localFilePath = path.join(LOCAL_MEDIA_DIR, fileName);
-            fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
-            fs.writeFileSync(localFilePath, parsed.buffer);
+      // Execute all media uploads in parallel
+      if (uploadTasks.length > 0) {
+        await Promise.all(
+          uploadTasks.map(async (task) => {
+            const localFilePath = path.join(LOCAL_MEDIA_DIR, task.fileName);
+            try {
+              fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+              fs.writeFileSync(localFilePath, task.buffer);
+            } catch (_) {}
 
             if (isConfigured && s3) {
               try {
                 await s3.send(new PutObjectCommand({
                   Bucket: bucket,
-                  Key: fileName,
-                  Body: parsed.buffer,
-                  ContentType: parsed.mimeType
+                  Key: task.fileName,
+                  Body: task.buffer,
+                  ContentType: task.mimeType
                 }));
               } catch (err: any) {
-                console.warn(`[R2] Inline html image upload failed:`, err.message);
+                console.warn(`[R2] Parallel upload for ${task.fileName} to remote bucket failed:`, err.message);
               }
             }
-            const newUrl = `/api/media/file/${encodeURIComponent(bucket)}/${fileName}`;
-            contentHtml = contentHtml.replace(rawDataUrl, newUrl);
-          }
-        }
-        cleanedItem.content = contentHtml;
+
+            task.updateUrl(`/api/media/file/${encodeURIComponent(bucket)}/${task.fileName}`);
+          })
+        );
       }
 
       // Save work JSON to R2
@@ -927,31 +919,34 @@ async function startServer() {
           const remoteKeys = new Set<string>();
 
           if (listRes.Contents && Array.isArray(listRes.Contents)) {
-            for (const obj of listRes.Contents) {
-              if (obj.Key && obj.Key.endsWith(".json")) {
-                remoteKeys.add(obj.Key);
+            const jsonObjects = listRes.Contents.filter(obj => obj.Key && obj.Key.endsWith(".json"));
+
+            await Promise.all(
+              jsonObjects.map(async (obj) => {
+                const key = obj.Key!;
+                remoteKeys.add(key);
                 try {
                   const getObjRes = await s3.send(new GetObjectCommand({
                     Bucket: bucket,
-                    Key: obj.Key
+                    Key: key
                   }));
                   if (getObjRes.Body) {
                     const str = await getObjRes.Body.transformToString("utf-8");
                     const item = JSON.parse(str);
                     if (item && item.id) {
                       r2WorksMap.set(item.id, item);
-                      
+
                       // Sync local server cache
-                      const localJsonPath = path.join(LOCAL_MEDIA_DIR, obj.Key);
+                      const localJsonPath = path.join(LOCAL_MEDIA_DIR, key);
                       fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
                       fs.writeFileSync(localJsonPath, JSON.stringify(item, null, 2), "utf-8");
                     }
                   }
                 } catch (fetchItemErr: any) {
-                  console.warn(`[R2] Could not fetch published item ${obj.Key}: bucket=${bucket}`, fetchItemErr.message);
+                  console.warn(`[R2] Could not fetch published item ${key}: bucket=${bucket}`, fetchItemErr.message);
                 }
-              }
-            }
+              })
+            );
           }
 
           // Purge local server cache for items deleted from remote R2 storage

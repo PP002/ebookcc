@@ -122,25 +122,25 @@ export async function publishWorkToR2(
   item: any,
   config?: R2Config
 ): Promise<{ success: boolean; item: any; message: string }> {
-  // Sync to Supabase table if connected
+  // Sync to Supabase table asynchronously in background if connected
   const supabase = getActiveSupabaseClient();
   if (supabase) {
-    try {
-      await supabase.from('published_works').upsert({
-        id: item.id,
-        title: item.title || 'Untitled',
-        type: item.type || 'comic',
-        author: item.author || 'Anonymous',
-        author_id: item.author_id || item.authorId || '',
-        cover_url: item.coverUrl || item.cover_url || '',
-        pages: item.pages || [],
-        content: item.content || '',
-        description: item.description || '',
-        timestamp: item.timestamp || Date.now()
-      });
-    } catch (sbErr: any) {
-      console.warn("Supabase published_works table sync skipped/failed:", sbErr.message);
-    }
+    supabase.from('published_works').upsert({
+      id: item.id,
+      title: item.title || 'Untitled',
+      type: item.type || 'comic',
+      author: item.author || 'Anonymous',
+      author_id: item.author_id || item.authorId || '',
+      cover_url: item.coverUrl || item.cover_url || '',
+      pages: item.pages || [],
+      content: item.content || '',
+      description: item.description || '',
+      timestamp: item.timestamp || Date.now()
+    }).then(({ error }) => {
+      if (error) console.warn("Supabase published_works table sync notice:", error.message);
+    }).catch(sbErr => {
+      console.warn("Supabase published_works table sync skipped/failed:", sbErr?.message);
+    });
   }
 
   try {

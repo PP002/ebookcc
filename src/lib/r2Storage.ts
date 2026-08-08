@@ -65,8 +65,10 @@ export async function uploadMediaToR2(
   folder: string = "media",
   config?: R2Config
 ): Promise<{ success: boolean; url: string; key?: string; error?: string }> {
+  const fullDataUrl = base64Data.startsWith("data:") ? base64Data : `data:image/jpeg;base64,${base64Data}`;
+
+  // Method 1: Try direct presigned S3 upload if R2 configured
   try {
-    const fullDataUrl = base64Data.startsWith("data:") ? base64Data : `data:image/jpeg;base64,${base64Data}`;
     const blobRes = await fetch(fullDataUrl);
     const blob = await blobRes.blob();
     const mimeType = blob.type || "application/octet-stream";
@@ -79,6 +81,9 @@ export async function uploadMediaToR2(
 
     const finalFilename = filename || `media-${Date.now()}.${ext}`;
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+
     const presignRes = await fetch(`${getApiUrl()}/api/get-presigned-url`, {
       method: "POST",
       headers: {
@@ -89,33 +94,64 @@ export async function uploadMediaToR2(
         fileName: finalFilename,
         fileType: mimeType,
         folder
-      })
-    });
+      }),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
     
-    const presignData = await presignRes.json();
-    if (!presignRes.ok) {
-      return { success: false, url: "", error: presignData.error || "Failed to get presigned URL" };
-    }
+    if (presignRes.ok) {
+      const presignData = await presignRes.json();
+      const { uploadUrl, key, bucket } = presignData;
+      if (uploadUrl && key) {
+        const uploadController = new AbortController();
+        const uploadTimer = setTimeout(() => uploadController.abort(), 6000);
 
-    const { uploadUrl, key, bucket } = presignData;
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: blob,
+          headers: {
+            "Content-Type": mimeType
+          },
+          signal: uploadController.signal
+        }).finally(() => clearTimeout(uploadTimer));
 
-    const uploadRes = await fetch(uploadUrl, {
-      method: "PUT",
-      body: blob,
-      headers: {
-        "Content-Type": mimeType
+        if (uploadRes.ok) {
+          const fileUrl = `/api/media/file/${encodeURIComponent(bucket)}/${key}`;
+          return { success: true, url: fileUrl, key };
+        }
       }
-    });
-
-    if (!uploadRes.ok) {
-      return { success: false, url: "", error: "Failed to upload file to R2 directly" };
     }
+  } catch (_) {}
 
-    const fileUrl = `/api/media/file/${encodeURIComponent(bucket)}/${key}`;
-    return { success: true, url: fileUrl, key };
+  // Method 2: Rapid Server Endpoint Fallback (/api/media/upload)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    const fallbackRes = await fetch(`${getApiUrl()}/api/media/upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getR2Headers(config)
+      },
+      body: JSON.stringify({
+        base64Image: fullDataUrl,
+        filename,
+        folder
+      }),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
+
+    if (fallbackRes.ok) {
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData.url) {
+        return { success: true, url: fallbackData.url, key: fallbackData.key };
+      }
+    }
   } catch (err: any) {
-    return { success: false, url: "", error: err.message || "R2 media upload exception" };
+    console.warn("Fallback upload notice:", err?.message || err);
   }
+
+  return { success: false, url: "", error: "Failed uploading media object" };
 }
 
 export async function compressBase64ToWebP(
@@ -240,6 +276,27 @@ export async function processParallelMediaUploads(
   }
 }
 
+export function fastBase64Hash(str: string): string {
+  if (!str || typeof str !== "string") return "empty";
+  const len = str.length;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x097c1fda;
+
+  const sampleSize = 800;
+  const step = len > sampleSize ? Math.floor(len / sampleSize) : 1;
+
+  for (let i = 0; i < len; i += step) {
+    const code = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 0x01000193);
+    h2 = Math.imul(h2 ^ code, 0x05924715);
+  }
+
+  const hashPart = ((h1 ^ h2) >>> 0).toString(36);
+  const lenPart = len.toString(36);
+  const startPart = str.slice(0, 16).replace(/[^a-zA-Z0-9]/g, "");
+  return `${lenPart}_${hashPart}_${startPart}`;
+}
+
 export async function publishWorkToR2(
   item: any,
   config?: R2Config,
@@ -251,15 +308,59 @@ export async function publishWorkToR2(
   const cleanedItem = JSON.parse(JSON.stringify(item));
   const uploadTasks: ClientUploadTask[] = [];
 
-  // 1. Cover
-  if (cleanedItem.cover && cleanedItem.cover.startsWith("data:image")) {
-    const rawCover = cleanedItem.cover;
+  // Look up previously published version to reuse unchanged assets
+  let prevItem: any = null;
+  try {
+    const localJson = localStorage.getItem("ebookcc_published_items");
+    if (localJson) {
+      const list = JSON.parse(localJson);
+      prevItem = list.find((w: any) => w && String(w.id) === String(item.id));
+    }
+  } catch (_) {}
+
+  const existingAssetHashes: Record<string, string> = prevItem && prevItem.assetHashes ? { ...prevItem.assetHashes } : {};
+  const newAssetHashes: Record<string, string> = {};
+  let skippedCount = 0;
+
+  const handleAsset = (
+    rawUrl: string | undefined,
+    prefix: string,
+    updateFn: (url: string) => void
+  ) => {
+    if (!rawUrl || typeof rawUrl !== "string") return;
+
+    // 1. If ALREADY a hosted media URL (not a base64 data string)
+    if (!rawUrl.startsWith("data:")) {
+      skippedCount++;
+      return;
+    }
+
+    // 2. Base64 data URL: calculate fast content hash
+    const hash = fastBase64Hash(rawUrl);
+
+    // 3. If hash matches previously uploaded asset, REUSE instantly without re-uploading
+    if (existingAssetHashes[hash]) {
+      updateFn(existingAssetHashes[hash]);
+      newAssetHashes[hash] = existingAssetHashes[hash];
+      skippedCount++;
+      return;
+    }
+
+    // 4. New or modified asset -> enqueue for parallel compression & upload
     uploadTasks.push({
-      filename: `cover.webp`,
+      filename: `${prefix}-${hash.slice(0, 16)}.webp`,
       folder: `media/${workId}`,
-      dataUrl: rawCover,
-      updateUrl: (url) => { cleanedItem.cover = url; }
+      dataUrl: rawUrl,
+      updateUrl: (uploadedUrl) => {
+        updateFn(uploadedUrl);
+        newAssetHashes[hash] = uploadedUrl;
+      }
     });
+  };
+
+  // 1. Cover
+  if (cleanedItem.cover) {
+    handleAsset(cleanedItem.cover, "cover", (url) => { cleanedItem.cover = url; });
   }
 
   // 2. Comic pages & panels
@@ -268,26 +369,16 @@ export async function publishWorkToR2(
     const collectNodeTasks = (node: any, pageIdx: number) => {
       if (!node) return;
       if (node.type === "panel") {
-        if (node.imageUrl && node.imageUrl.startsWith("data:image")) {
+        if (node.imageUrl) {
           const targetNode = node;
-          const rawUrl = node.imageUrl;
-          const fileName = `page-${pageIdx + 1}-panel-${imgIdx++}.webp`;
-          uploadTasks.push({
-            filename: fileName,
-            folder: `media/${workId}`,
-            dataUrl: rawUrl,
-            updateUrl: (url) => { targetNode.imageUrl = url; }
+          handleAsset(node.imageUrl, `p${pageIdx + 1}-panel-${imgIdx++}`, (url) => {
+            targetNode.imageUrl = url;
           });
         }
-        if (node.drawing && node.drawing.startsWith("data:image")) {
+        if (node.drawing) {
           const targetNode = node;
-          const rawUrl = node.drawing;
-          const fileName = `page-${pageIdx + 1}-drawing-${imgIdx++}.webp`;
-          uploadTasks.push({
-            filename: fileName,
-            folder: `media/${workId}`,
-            dataUrl: rawUrl,
-            updateUrl: (url) => { targetNode.drawing = url; }
+          handleAsset(node.drawing, `p${pageIdx + 1}-draw-${imgIdx++}`, (url) => {
+            targetNode.drawing = url;
           });
         }
       } else if (node.type === "split") {
@@ -314,25 +405,29 @@ export async function publishWorkToR2(
 
     for (const match of matches) {
       const rawDataUrl = match[1];
-      const fileName = `inline-${inlineIdx++}.webp`;
       const targetDataUrl = rawDataUrl;
-      uploadTasks.push({
-        filename: fileName,
-        folder: `media/${workId}`,
-        dataUrl: rawDataUrl,
-        updateUrl: (url) => {
-          cleanedItem.content = cleanedItem.content.replace(targetDataUrl, url);
-        }
+      handleAsset(rawDataUrl, `inline-${inlineIdx++}`, (url) => {
+        cleanedItem.content = cleanedItem.content.replace(targetDataUrl, url);
       });
     }
   }
 
   // Execute Parallel Compression & Batch Uploads
   if (uploadTasks.length > 0) {
+    if (onProgress) {
+      const msg = skippedCount > 0
+        ? `[Delta Sync] ${skippedCount} unchanged assets skipped, uploading ${uploadTasks.length} modified pages...`
+        : `Compressing & uploading ${uploadTasks.length} comic assets...`;
+      onProgress(15, msg);
+    }
     const startTime = Date.now();
     await processParallelMediaUploads(uploadTasks, config, onProgress, 6);
-    console.log(`[R2 Rapid Publish] Uploaded ${uploadTasks.length} assets in parallel in ${Date.now() - startTime}ms`);
+    console.log(`[R2 Rapid Publish] Uploaded ${uploadTasks.length} modified assets (skipped ${skippedCount} unchanged) in ${Date.now() - startTime}ms`);
+  } else if (skippedCount > 0) {
+    if (onProgress) onProgress(80, `[Delta Sync] All ${skippedCount} assets up-to-date! Skipping re-upload.`);
   }
+
+  cleanedItem.assetHashes = { ...existingAssetHashes, ...newAssetHashes };
 
   if (onProgress) onProgress(90, "Saving lightweight manifest...");
 

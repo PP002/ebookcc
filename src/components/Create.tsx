@@ -3007,6 +3007,10 @@ export const Create: React.FC<CreateProps> = ({
     });
     const itemToSave = r2Result.item || newItem;
 
+    if (createMode === "comic" && Array.isArray(itemToSave.pages)) {
+      setComicPages(itemToSave.pages);
+    }
+
     let publishedItems: any[] = [];
     try {
       const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";

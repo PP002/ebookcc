@@ -532,6 +532,15 @@ async function startServer() {
     return { mimeType, buffer, ext };
   }
 
+  async function safeS3Send(s3: any, command: any, timeoutMs = 3500): Promise<any> {
+    if (!s3) throw new Error("S3 client is null");
+    const sendPromise = s3.send(command);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`S3 operation timed out after ${timeoutMs}ms`)), timeoutMs)
+    );
+    return Promise.race([sendPromise, timeoutPromise]);
+  }
+
   async function resolveImageBuffer(req: express.Request): Promise<Buffer> {
     if (req.body.fileKey) {
       const { s3, bucket } = getR2ClientAndBucket(req);
@@ -651,15 +660,15 @@ async function startServer() {
 
       if (isConfigured && s3) {
         try {
-          await s3.send(new PutObjectCommand({
+          await safeS3Send(s3, new PutObjectCommand({
             Bucket: bucket,
             Key: objectKey,
             Body: buffer,
             ContentType: mimeType,
-          }));
+          }), 3500);
           console.log(`[R2] Uploaded media object to R2 bucket "${bucket}": ${objectKey}`);
         } catch (r2Err: any) {
-          console.warn(`[R2] Failed to upload to remote R2 bucket "${bucket}", saved to local cache:`, r2Err.message);
+          console.warn(`[R2] Saved locally, remote R2 upload skipped/notice:`, r2Err.message);
         }
       }
 
@@ -858,14 +867,14 @@ async function startServer() {
 
             if (isConfigured && s3) {
               try {
-                await s3.send(new PutObjectCommand({
+                await safeS3Send(s3, new PutObjectCommand({
                   Bucket: bucket,
                   Key: task.fileName,
                   Body: task.buffer,
                   ContentType: task.mimeType
-                }));
+                }), 3500);
               } catch (err: any) {
-                console.warn(`[R2] Parallel upload for ${task.fileName} to remote bucket failed:`, err.message);
+                console.warn(`[R2] Parallel upload for ${task.fileName} notice:`, err.message);
               }
             }
 
@@ -884,15 +893,15 @@ async function startServer() {
 
       if (isConfigured && s3) {
         try {
-          await s3.send(new PutObjectCommand({
+          await safeS3Send(s3, new PutObjectCommand({
             Bucket: bucket,
             Key: jsonKey,
             Body: jsonBuffer,
             ContentType: "application/json"
-          }));
+          }), 3500);
           console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
         } catch (r2SaveErr: any) {
-          console.warn(`[R2] Save published work JSON to R2 bucket failed, saved locally:`, r2SaveErr.message);
+          console.warn(`[R2] Save published work JSON to R2 bucket notice, saved locally:`, r2SaveErr.message);
         }
       }
 

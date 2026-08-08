@@ -511,11 +511,16 @@ async function startServer() {
     if (!dataUrl || typeof dataUrl !== 'string') return null;
     if (!dataUrl.startsWith("data:")) return null;
 
-    const matches = dataUrl.match(/^data:([a-zA-Z0-9-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) return null;
+    const commaIdx = dataUrl.indexOf(",");
+    if (commaIdx === -1) return null;
 
-    const mimeType = matches[1];
-    const base64Data = matches[2];
+    const header = dataUrl.slice(0, commaIdx);
+    const base64Data = dataUrl.slice(commaIdx + 1);
+
+    const mimeMatch = header.match(/^data:([a-zA-Z0-9-+\/]+);base64/);
+    if (!mimeMatch) return null;
+
+    const mimeType = mimeMatch[1];
     const buffer = Buffer.from(base64Data, "base64");
     
     let ext = "png";

@@ -2999,18 +2999,44 @@ export const Create: React.FC<CreateProps> = ({
       timestamp: Date.now()
     };
 
-    const toastId = toast.loading("Saving work & media assets to cloud storage...");
+    const toastId = toast.loading("Rapidly preparing comic book assets...");
 
-    // Publish to cloud media storage
-    const r2Result = await publishWorkToR2(newItem);
+    // Publish to cloud media storage with real-time progress & parallel uploads
+    const r2Result = await publishWorkToR2(newItem, undefined, (progress, stage) => {
+      toast.loading(`[${progress}%] ${stage}`, { id: toastId });
+    });
     const itemToSave = r2Result.item || newItem;
 
-    const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
-    const publishedItems = JSON.parse(publishedItemsJson);
+    let publishedItems: any[] = [];
+    try {
+      const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
+      publishedItems = JSON.parse(publishedItemsJson);
+    } catch (_) {
+      publishedItems = [];
+    }
     const filtered = publishedItems.filter((item: any) => item.id !== itemToSave.id);
     filtered.unshift(itemToSave);
 
-    localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+    try {
+      localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+    } catch (quotaErr) {
+      console.warn("localStorage quota exceeded, saving lightweight items to local storage", quotaErr);
+      try {
+        const pruned = filtered.map((item: any) => {
+          if (!item) return item;
+          const copy = { ...item };
+          if (typeof copy.cover === "string" && copy.cover.startsWith("data:")) {
+            delete copy.cover;
+          }
+          if (copy.content && copy.content.length > 20000) {
+            copy.content = copy.content.slice(0, 20000);
+          }
+          return copy;
+        });
+        localStorage.setItem("ebookcc_published_items", JSON.stringify(pruned));
+      } catch (_) {}
+    }
+
     setPublishedWorks(filtered);
 
     window.dispatchEvent(new Event("ebookcc_published"));

@@ -118,29 +118,246 @@ export async function uploadMediaToR2(
   }
 }
 
+export async function compressBase64ToWebP(
+  dataUrl: string,
+  maxDimension = 1600,
+  quality = 0.82
+): Promise<{ base64Url: string; blob: Blob; ext: string; mimeType: string }> {
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
+    try {
+      const res = await fetch(dataUrl || "");
+      const blob = await res.blob();
+      return { base64Url: dataUrl, blob, ext: "png", mimeType: blob.type || "image/png" };
+    } catch (_) {
+      return { base64Url: dataUrl, blob: new Blob([]), ext: "png", mimeType: "image/png" };
+    }
+  }
+
+  // If already small (<120KB), fast convert to Blob
+  if (dataUrl.length < 130000) {
+    try {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const mimeType = blob.type || "image/png";
+      const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
+      return { base64Url: dataUrl, blob, ext, mimeType };
+    } catch (_) {}
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        const webpUrl = canvas.toDataURL("image/webp", quality);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve({ base64Url: webpUrl, blob, ext: "webp", mimeType: "image/webp" });
+            } else {
+              fetch(webpUrl).then(r => r.blob()).then(b => resolve({ base64Url: webpUrl, blob: b, ext: "webp", mimeType: "image/webp" }));
+            }
+          },
+          "image/webp",
+          quality
+        );
+      } else {
+        fetch(dataUrl).then(r => r.blob()).then(b => resolve({ base64Url: dataUrl, blob: b, ext: "png", mimeType: b.type || "image/png" }));
+      }
+    };
+    img.onerror = () => {
+      fetch(dataUrl).then(r => r.blob()).then(b => resolve({ base64Url: dataUrl, blob: b, ext: "png", mimeType: b.type || "image/png" }));
+    };
+    img.src = dataUrl;
+  });
+}
+
+export interface ClientUploadTask {
+  filename: string;
+  folder: string;
+  dataUrl: string;
+  updateUrl: (url: string) => void;
+}
+
+export async function processParallelMediaUploads(
+  tasks: ClientUploadTask[],
+  config?: R2Config,
+  onProgress?: (progress: number, stage: string) => void,
+  concurrency = 6
+): Promise<void> {
+  if (tasks.length === 0) return;
+
+  let completed = 0;
+  const total = tasks.length;
+
+  if (onProgress) onProgress(10, `Compressing & uploading ${total} comic assets in parallel...`);
+
+  const runTask = async (task: ClientUploadTask) => {
+    try {
+      // Step 1: Compress image on client
+      const compressed = await compressBase64ToWebP(task.dataUrl, 1600, 0.82);
+
+      // Step 2: Upload to R2 / media endpoint
+      const result = await uploadMediaToR2(
+        compressed.base64Url,
+        task.filename,
+        task.folder,
+        config
+      );
+
+      if (result.success && result.url) {
+        task.updateUrl(result.url);
+      }
+    } catch (err) {
+      console.warn(`[Client Parallel Upload] Failed uploading ${task.filename}:`, err);
+    } finally {
+      completed++;
+      const percent = Math.min(85, 10 + Math.round((completed / total) * 75));
+      if (onProgress) onProgress(percent, `Uploaded asset ${completed}/${total}`);
+    }
+  };
+
+  // Run in chunks with concurrency pool
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    const chunk = tasks.slice(i, i + concurrency);
+    await Promise.all(chunk.map(task => runTask(task)));
+  }
+}
+
 export async function publishWorkToR2(
   item: any,
-  config?: R2Config
+  config?: R2Config,
+  onProgress?: (progress: number, stage: string) => void
 ): Promise<{ success: boolean; item: any; message: string }> {
+  if (onProgress) onProgress(5, "Preparing comic book assets for rapid publish...");
+
+  const workId = String(item.id || Date.now()).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const cleanedItem = JSON.parse(JSON.stringify(item));
+  const uploadTasks: ClientUploadTask[] = [];
+
+  // 1. Cover
+  if (cleanedItem.cover && cleanedItem.cover.startsWith("data:image")) {
+    const rawCover = cleanedItem.cover;
+    uploadTasks.push({
+      filename: `cover.webp`,
+      folder: `media/${workId}`,
+      dataUrl: rawCover,
+      updateUrl: (url) => { cleanedItem.cover = url; }
+    });
+  }
+
+  // 2. Comic pages & panels
+  if (cleanedItem.type === "comic" && Array.isArray(cleanedItem.pages)) {
+    let imgIdx = 1;
+    const collectNodeTasks = (node: any, pageIdx: number) => {
+      if (!node) return;
+      if (node.type === "panel") {
+        if (node.imageUrl && node.imageUrl.startsWith("data:image")) {
+          const targetNode = node;
+          const rawUrl = node.imageUrl;
+          const fileName = `page-${pageIdx + 1}-panel-${imgIdx++}.webp`;
+          uploadTasks.push({
+            filename: fileName,
+            folder: `media/${workId}`,
+            dataUrl: rawUrl,
+            updateUrl: (url) => { targetNode.imageUrl = url; }
+          });
+        }
+        if (node.drawing && node.drawing.startsWith("data:image")) {
+          const targetNode = node;
+          const rawUrl = node.drawing;
+          const fileName = `page-${pageIdx + 1}-drawing-${imgIdx++}.webp`;
+          uploadTasks.push({
+            filename: fileName,
+            folder: `media/${workId}`,
+            dataUrl: rawUrl,
+            updateUrl: (url) => { targetNode.drawing = url; }
+          });
+        }
+      } else if (node.type === "split") {
+        if (node.left) collectNodeTasks(node.left, pageIdx);
+        if (node.right) collectNodeTasks(node.right, pageIdx);
+        if (node.c1) collectNodeTasks(node.c1, pageIdx);
+        if (node.c2) collectNodeTasks(node.c2, pageIdx);
+      }
+    };
+
+    for (let i = 0; i < cleanedItem.pages.length; i++) {
+      const page = cleanedItem.pages[i];
+      if (page && page.tree) {
+        collectNodeTasks(page.tree, i);
+      }
+    }
+  }
+
+  // 3. Novel inline images
+  if (cleanedItem.type === "novel" && typeof cleanedItem.content === "string") {
+    let contentHtml = cleanedItem.content;
+    const matches = [...contentHtml.matchAll(/src=["'](data:image\/[a-zA-Z0-9-+\/]+;base64,[^"']+)["']/g)];
+    let inlineIdx = 1;
+
+    for (const match of matches) {
+      const rawDataUrl = match[1];
+      const fileName = `inline-${inlineIdx++}.webp`;
+      const targetDataUrl = rawDataUrl;
+      uploadTasks.push({
+        filename: fileName,
+        folder: `media/${workId}`,
+        dataUrl: rawDataUrl,
+        updateUrl: (url) => {
+          cleanedItem.content = cleanedItem.content.replace(targetDataUrl, url);
+        }
+      });
+    }
+  }
+
+  // Execute Parallel Compression & Batch Uploads
+  if (uploadTasks.length > 0) {
+    const startTime = Date.now();
+    await processParallelMediaUploads(uploadTasks, config, onProgress, 6);
+    console.log(`[R2 Rapid Publish] Uploaded ${uploadTasks.length} assets in parallel in ${Date.now() - startTime}ms`);
+  }
+
+  if (onProgress) onProgress(90, "Saving lightweight manifest...");
+
   // Sync to Supabase table asynchronously in background if connected
   const supabase = getActiveSupabaseClient();
   if (supabase) {
-    supabase.from('published_works').upsert({
-      id: item.id,
-      title: item.title || 'Untitled',
-      type: item.type || 'comic',
-      author: item.author || 'Anonymous',
-      author_id: item.author_id || item.authorId || '',
-      cover_url: item.coverUrl || item.cover_url || '',
-      pages: item.pages || [],
-      content: item.content || '',
-      description: item.description || '',
-      timestamp: item.timestamp || Date.now()
-    }).then(({ error }) => {
-      if (error) console.warn("Supabase published_works table sync notice:", error.message);
-    }).catch(sbErr => {
-      console.warn("Supabase published_works table sync skipped/failed:", sbErr?.message);
-    });
+    (async () => {
+      try {
+        const { error } = await supabase.from('published_works').upsert({
+          id: cleanedItem.id,
+          title: cleanedItem.title || 'Untitled',
+          type: cleanedItem.type || 'comic',
+          author: cleanedItem.author || 'Anonymous',
+          author_id: cleanedItem.author_id || cleanedItem.authorId || '',
+          cover_url: cleanedItem.coverUrl || cleanedItem.cover || '',
+          pages: cleanedItem.pages || [],
+          content: cleanedItem.content || '',
+          description: cleanedItem.description || '',
+          timestamp: cleanedItem.timestamp || Date.now()
+        });
+        if (error) console.warn("Supabase published_works table sync notice:", error.message);
+      } catch (sbErr: any) {
+        console.warn("Supabase published_works table sync skipped/failed:", sbErr?.message);
+      }
+    })();
   }
 
   try {
@@ -150,24 +367,37 @@ export async function publishWorkToR2(
         "Content-Type": "application/json",
         ...getR2Headers(config)
       },
-      body: JSON.stringify({ item })
+      body: JSON.stringify({ item: cleanedItem })
     });
 
-    const data = await res.json();
+    const contentType = res.headers.get("content-type") || "";
     if (!res.ok) {
-      throw new Error(data.error || "Server failed to publish work to R2 storage");
+      let errorMsg = `Server error HTTP ${res.status}`;
+      if (contentType.includes("application/json")) {
+        const errData = await res.json().catch(() => ({}));
+        errorMsg = errData.error || errorMsg;
+      }
+      throw new Error(errorMsg);
     }
+
+    if (!contentType.includes("application/json")) {
+      throw new Error("Server API unavailable or returned non-JSON");
+    }
+
+    const data = await res.json();
+    if (onProgress) onProgress(100, "Published successfully!");
 
     return {
       success: true,
-      item: data.item || item,
+      item: data.item || cleanedItem,
       message: data.message || "Published work saved to cloud media storage"
     };
   } catch (err: any) {
-    console.warn("R2 publication fallback to local storage:", err.message);
+    console.warn("R2 publication fallback notice:", err.message);
+    if (onProgress) onProgress(100, "Saved locally");
     return {
       success: false,
-      item,
+      item: cleanedItem,
       message: err.message || "Fallback to local storage"
     };
   }
@@ -187,7 +417,8 @@ export async function fetchPublishedWorksFromR2(
       }
     });
 
-    if (res.ok) {
+    const contentType = res.headers.get("content-type") || "";
+    if (res.ok && contentType.includes("application/json")) {
       const data = await res.json();
       if (data && Array.isArray(data.works)) {
         worksList = data.works;

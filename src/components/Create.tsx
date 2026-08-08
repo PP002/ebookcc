@@ -3005,6 +3005,13 @@ export const Create: React.FC<CreateProps> = ({
     const r2Result = await publishWorkToR2(newItem, undefined, (progress, stage) => {
       toast.loading(`[${progress}%] ${stage}`, { id: toastId });
     });
+
+    if (!r2Result.success) {
+      toast.dismiss(toastId);
+      toast.error(`R2 Cloud Publish Failed: ${r2Result.message || "Could not publish work to Cloudflare R2"}`);
+      return;
+    }
+
     const itemToSave = r2Result.item || newItem;
 
     if (createMode === "comic" && Array.isArray(itemToSave.pages)) {

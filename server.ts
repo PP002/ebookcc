@@ -97,6 +97,11 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
+  app.use((req, res, next) => {
+    console.log(`[Express] ${req.method} ${req.url}`);
+    next();
+  });
+
   // Health checks
   app.get('/health', (req, res) => res.status(200).send('OK'));
   app.get('/api/health', (req, res) => res.status(200).send('OK'));
@@ -532,7 +537,7 @@ async function startServer() {
     return { mimeType, buffer, ext };
   }
 
-  async function safeS3Send(s3: any, command: any, timeoutMs = 3500): Promise<any> {
+  async function safeS3Send(s3: any, command: any, timeoutMs = 30000): Promise<any> {
     if (!s3) throw new Error("S3 client is null");
     const sendPromise = s3.send(command);
     const timeoutPromise = new Promise((_, reject) =>
@@ -658,18 +663,21 @@ async function startServer() {
       fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
       fs.writeFileSync(localFilePath, buffer);
 
-      if (isConfigured && s3) {
-        try {
-          await safeS3Send(s3, new PutObjectCommand({
-            Bucket: bucket,
-            Key: objectKey,
-            Body: buffer,
-            ContentType: mimeType,
-          }), 3500);
-          console.log(`[R2] Uploaded media object to R2 bucket "${bucket}": ${objectKey}`);
-        } catch (r2Err: any) {
-          console.warn(`[R2] Saved locally, remote R2 upload skipped/notice:`, r2Err.message);
-        }
+      if (!isConfigured || !s3) {
+        return res.status(500).json({ error: "Cloudflare R2 is not configured. Please configure R2 API credentials in App Settings." });
+      }
+
+      try {
+        await safeS3Send(s3, new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: buffer,
+          ContentType: mimeType,
+        }), 30000);
+        console.log(`[R2] Uploaded media object to R2 bucket "${bucket}": ${objectKey}`);
+      } catch (r2Err: any) {
+        console.error(`[R2] Media upload to R2 bucket "${bucket}" failed:`, r2Err.message);
+        return res.status(500).json({ error: `R2 Upload Failed: ${r2Err.message}` });
       }
 
       const fileUrl = `/api/media/file/${encodeURIComponent(bucket)}/${objectKey}`;
@@ -855,6 +863,10 @@ async function startServer() {
         }
       }
 
+      if (!isConfigured || !s3) {
+        return res.status(500).json({ error: "Cloudflare R2 is not configured. Please configure R2 API credentials in App Settings." });
+      }
+
       // Execute all media uploads in parallel
       if (uploadTasks.length > 0) {
         await Promise.all(
@@ -865,17 +877,16 @@ async function startServer() {
               fs.writeFileSync(localFilePath, task.buffer);
             } catch (_) {}
 
-            if (isConfigured && s3) {
-              try {
-                await safeS3Send(s3, new PutObjectCommand({
-                  Bucket: bucket,
-                  Key: task.fileName,
-                  Body: task.buffer,
-                  ContentType: task.mimeType
-                }), 3500);
-              } catch (err: any) {
-                console.warn(`[R2] Parallel upload for ${task.fileName} notice:`, err.message);
-              }
+            try {
+              await safeS3Send(s3, new PutObjectCommand({
+                Bucket: bucket,
+                Key: task.fileName,
+                Body: task.buffer,
+                ContentType: task.mimeType
+              }), 30000);
+            } catch (err: any) {
+              console.error(`[R2] Parallel upload for ${task.fileName} failed:`, err.message);
+              throw new Error(`Failed uploading asset ${task.fileName} to R2: ${err.message}`);
             }
 
             task.updateUrl(`/api/media/file/${encodeURIComponent(bucket)}/${task.fileName}`);
@@ -891,18 +902,17 @@ async function startServer() {
       fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
       fs.writeFileSync(localJsonPath, jsonBuffer);
 
-      if (isConfigured && s3) {
-        try {
-          await safeS3Send(s3, new PutObjectCommand({
-            Bucket: bucket,
-            Key: jsonKey,
-            Body: jsonBuffer,
-            ContentType: "application/json"
-          }), 3500);
-          console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
-        } catch (r2SaveErr: any) {
-          console.warn(`[R2] Save published work JSON to R2 bucket notice, saved locally:`, r2SaveErr.message);
-        }
+      try {
+        await safeS3Send(s3, new PutObjectCommand({
+          Bucket: bucket,
+          Key: jsonKey,
+          Body: jsonBuffer,
+          ContentType: "application/json"
+        }), 30000);
+        console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
+      } catch (r2SaveErr: any) {
+        console.error(`[R2] Save published work JSON to R2 bucket failed:`, r2SaveErr.message);
+        throw new Error(`Failed writing published work manifest to R2: ${r2SaveErr.message}`);
       }
 
       return res.json({
@@ -2434,6 +2444,11 @@ STRICT INSTRUCTIONS:
       app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
     }
   }
+
+  // 404 handler for unhandled /api/* routes (e.g. POST to missing endpoints)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: "Endpoint not found on Express server", method: req.method, path: req.path });
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

@@ -82,7 +82,7 @@ export async function uploadMediaToR2(
     const finalFilename = filename || `media-${Date.now()}.${ext}`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
+    const timer = setTimeout(() => controller.abort(), 30000);
 
     const presignRes = await fetch(`${getApiUrl()}/api/get-presigned-url`, {
       method: "POST",
@@ -103,7 +103,7 @@ export async function uploadMediaToR2(
       const { uploadUrl, key, bucket } = presignData;
       if (uploadUrl && key) {
         const uploadController = new AbortController();
-        const uploadTimer = setTimeout(() => uploadController.abort(), 6000);
+        const uploadTimer = setTimeout(() => uploadController.abort(), 30000);
 
         const uploadRes = await fetch(uploadUrl, {
           method: "PUT",
@@ -125,7 +125,7 @@ export async function uploadMediaToR2(
   // Method 2: Rapid Server Endpoint Fallback (/api/media/upload)
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 30000);
 
     const fallbackRes = await fetch(`${getApiUrl()}/api/media/upload`, {
       method: "POST",
@@ -146,12 +146,16 @@ export async function uploadMediaToR2(
       if (fallbackData.url) {
         return { success: true, url: fallbackData.url, key: fallbackData.key };
       }
+    } else {
+      const errData = await fallbackRes.json().catch(() => ({}));
+      return { success: false, url: "", error: errData.error || `Server HTTP ${fallbackRes.status}` };
     }
   } catch (err: any) {
-    console.warn("Fallback upload notice:", err?.message || err);
+    console.warn("R2 upload error:", err?.message || err);
+    return { success: false, url: "", error: err?.message || "Upload network request failed" };
   }
 
-  return { success: false, url: "", error: "Failed uploading media object" };
+  return { success: false, url: "", error: "Failed uploading media object to Cloudflare R2" };
 }
 
 export async function compressBase64ToWebP(
@@ -235,7 +239,7 @@ export async function processParallelMediaUploads(
   tasks: ClientUploadTask[],
   config?: R2Config,
   onProgress?: (progress: number, stage: string) => void,
-  concurrency = 6
+  concurrency = 4
 ): Promise<void> {
   if (tasks.length === 0) return;
 
@@ -259,9 +263,12 @@ export async function processParallelMediaUploads(
 
       if (result.success && result.url) {
         task.updateUrl(result.url);
+      } else {
+        throw new Error(result.error || `Failed uploading asset ${task.filename} to Cloudflare R2`);
       }
-    } catch (err) {
-      console.warn(`[Client Parallel Upload] Failed uploading ${task.filename}:`, err);
+    } catch (err: any) {
+      console.error(`[Client Parallel Upload] Failed uploading ${task.filename}:`, err);
+      throw err;
     } finally {
       completed++;
       const percent = Math.min(85, 10 + Math.round((completed / total) * 75));
@@ -421,15 +428,24 @@ export async function publishWorkToR2(
       onProgress(15, msg);
     }
     const startTime = Date.now();
-    await processParallelMediaUploads(uploadTasks, config, onProgress, 6);
-    console.log(`[R2 Rapid Publish] Uploaded ${uploadTasks.length} modified assets (skipped ${skippedCount} unchanged) in ${Date.now() - startTime}ms`);
+    try {
+      await processParallelMediaUploads(uploadTasks, config, onProgress, 4);
+      console.log(`[R2 Rapid Publish] Uploaded ${uploadTasks.length} modified assets (skipped ${skippedCount} unchanged) in ${Date.now() - startTime}ms`);
+    } catch (uploadErr: any) {
+      console.error("R2 asset upload failed:", uploadErr);
+      return {
+        success: false,
+        item: cleanedItem,
+        message: uploadErr.message || "Failed uploading comic image assets to Cloudflare R2"
+      };
+    }
   } else if (skippedCount > 0) {
     if (onProgress) onProgress(80, `[Delta Sync] All ${skippedCount} assets up-to-date! Skipping re-upload.`);
   }
 
   cleanedItem.assetHashes = { ...existingAssetHashes, ...newAssetHashes };
 
-  if (onProgress) onProgress(90, "Saving lightweight manifest...");
+  if (onProgress) onProgress(90, "Saving lightweight manifest to Cloudflare R2...");
 
   // Sync to Supabase table asynchronously in background if connected
   const supabase = getActiveSupabaseClient();
@@ -456,14 +472,18 @@ export async function publishWorkToR2(
   }
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
+
     const res = await fetch(`${getApiUrl()}/api/published-works`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...getR2Headers(config)
       },
-      body: JSON.stringify({ item: cleanedItem })
-    });
+      body: JSON.stringify({ item: cleanedItem }),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
 
     const contentType = res.headers.get("content-type") || "";
     if (!res.ok) {
@@ -480,7 +500,7 @@ export async function publishWorkToR2(
     }
 
     const data = await res.json();
-    if (onProgress) onProgress(100, "Published successfully!");
+    if (onProgress) onProgress(100, "Published successfully to Cloudflare R2!");
 
     return {
       success: true,
@@ -488,12 +508,11 @@ export async function publishWorkToR2(
       message: data.message || "Published work saved to cloud media storage"
     };
   } catch (err: any) {
-    console.warn("R2 publication fallback notice:", err.message);
-    if (onProgress) onProgress(100, "Saved locally");
+    console.error("R2 publication error:", err.message);
     return {
       success: false,
       item: cleanedItem,
-      message: err.message || "Fallback to local storage"
+      message: err.message || "Failed publishing work manifest to Cloudflare R2"
     };
   }
 }
@@ -505,12 +524,16 @@ export async function fetchPublishedWorksFromR2(
 
   // Try fetching from server R2 API first
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+
     const res = await fetch(`${getApiUrl()}/api/published-works`, {
       method: "GET",
       headers: {
         ...getR2Headers(config)
-      }
-    });
+      },
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
 
     const contentType = res.headers.get("content-type") || "";
     if (res.ok && contentType.includes("application/json")) {

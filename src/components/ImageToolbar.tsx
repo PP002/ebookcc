@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { AnimatePresence, motion } from 'motion/react';
 import { Palette, Contrast, ArrowUp, ArrowDown, Crop, Move, Image as ImageIcon, Bot, Trash2, X, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/context/LanguageContext';
 // import { DragControls } from 'motion/react';
 
 export interface ImageToolbarProps {
@@ -34,6 +35,7 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
   onClickAskAI,
   onRegenerate
 }) => {
+  const { t } = useLanguage();
   const [isColorFolded, setIsColorFolded] = useState(true);
 
   // Normalize color to match array values if it comes in as RGB
@@ -137,7 +139,7 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
       }} title="Replace Image">
         <ImageIcon className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0 text-[#2DC6CF]" onClick={onClickAskAI} title="Ask AI">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0 text-[#2DC6CF]" onClick={onClickAskAI} title={t("askAiAgent")}>
         <Bot className="h-4 w-4" />
       </Button>
       {onRegenerate && (

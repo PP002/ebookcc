@@ -59,6 +59,7 @@ import {
   UnfinishedStory
 } from "@/lib/historyCache";
 import { publishWorkToR2, fetchPublishedWorksFromR2, deletePublishedWorkFromR2 } from "@/lib/r2Storage";
+import { useLanguage } from "@/context/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -1078,6 +1079,7 @@ function CreateMetroTile({
   onEdit: (item: any) => void;
   onDelete: (e: React.MouseEvent, item: any) => void;
 }) {
+  const { t } = useLanguage();
   const [slideIndex, setSlideIndex] = useState(0);
 
   const isAuthor = checkIsAuthor(book, user);
@@ -1339,12 +1341,12 @@ function CreateMetroTile({
               className="flex-1 py-1 px-2 bg-primary text-primary-foreground hover:bg-primary/90 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
             >
               <PenTool className="w-3 h-3" />
-              Edit
+              {t("edit")}
             </button>
             <button
               onClick={(e) => onDelete(e, book)}
               className="p-1 bg-slate-900 border border-slate-800 hover:border-red-500/50 text-slate-400 hover:text-red-400 hover:bg-red-950/40 text-[10px] transition-colors flex items-center justify-center"
-              title="Delete Work"
+              title={t("deleteWork")}
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -1356,7 +1358,7 @@ function CreateMetroTile({
               {book.author || "Author"}
             </span>
             <span className="text-[9px] font-mono bg-slate-900 border border-slate-800 px-1 py-0.5 text-slate-500">
-              Read-Only
+              {t("readOnly")}
             </span>
           </div>
         )}
@@ -1369,6 +1371,7 @@ export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
 }) => {
+  const { t } = useLanguage();
   const { llmEngine, geminiApiKey, user, setShowAuthDialog } = useAppSettings();
   const [showPublishAuthHint, setShowPublishAuthHint] = useState(false);
   const [createMode, setCreateMode] = useState<"select" | "comic" | "document">(
@@ -3599,9 +3602,9 @@ export const Create: React.FC<CreateProps> = ({
       <div className="w-full flex-1 overflow-y-auto min-h-0 p-4 md:p-8">
         <div className="max-w-5xl mx-auto space-y-12 flex flex-col items-stretch pb-24">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">Choose a Canvas</h1>
+          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">{t("createCardTitle")}</h1>
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
-            Select the type of creation you want to start with.
+            {t("createCardDesc")}
           </p>
         </div>
         
@@ -3636,9 +3639,9 @@ export const Create: React.FC<CreateProps> = ({
             </div>
             <div>
               <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
-                Free Comic Book & Manga Creator
+                {t("freeComicCreatorTitle")}
               </h3>
-              <p className="text-xs text-muted-foreground">Draw panel pages, add classic and action speech bubbles, and render storyboard shapes.</p>
+              <p className="text-xs text-muted-foreground">{t("freeComicCreatorDesc")}</p>
             </div>
           </Card>
 
@@ -3656,9 +3659,9 @@ export const Create: React.FC<CreateProps> = ({
             </div>
             <div>
               <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
-                Rich Text Script & Document Editor
+                {t("richTextEditorTitle")}
               </h3>
-              <p className="text-xs text-muted-foreground">Write stories, novels, scripts, or screenplays with headings and inline illustrations.</p>
+              <p className="text-xs text-muted-foreground">{t("richTextEditorDesc")}</p>
             </div>
           </Card>
         </div>
@@ -3669,7 +3672,7 @@ export const Create: React.FC<CreateProps> = ({
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-black tracking-wider uppercase text-foreground flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-primary" />
-                Published Works
+                {t("publishedWorks")}
               </h3>
               {user && (
                 <span className="text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -3686,7 +3689,7 @@ export const Create: React.FC<CreateProps> = ({
                   className="h-7 text-xs font-semibold"
                   onClick={() => setShowAuthDialog(true)}
                 >
-                  <UserPlus className="w-3 h-3 mr-1" /> Sign In to Sync
+                  <UserPlus className="w-3 h-3 mr-1" /> {t("signInToSync")}
                 </Button>
               )}
               <span className="text-xs text-muted-foreground font-mono">{publishedWorks.filter((item) => checkIsAuthor(item, user)).length} work(s)</span>
@@ -3696,9 +3699,9 @@ export const Create: React.FC<CreateProps> = ({
           {publishedWorks.filter((item) => checkIsAuthor(item, user)).length === 0 ? (
             <Card className="p-6 text-center bg-card/40 border border-dashed flex flex-col items-center justify-center gap-2 rounded-none">
               <BookOpen className="w-8 h-8 text-muted-foreground/40" />
-              <p className="text-sm font-medium text-muted-foreground">No published works found.</p>
+              <p className="text-sm font-medium text-muted-foreground">{t("noPublishedWorks")}</p>
               <p className="text-xs text-muted-foreground/80 max-w-sm">
-                Create a comic or story and click "Publish" in the editor header to feature it here and on the main bookshelf.
+                {t("noPublishedWorksDesc")}
               </p>
             </Card>
           ) : (
@@ -3721,7 +3724,7 @@ export const Create: React.FC<CreateProps> = ({
         {unfinishedComics.length > 0 && (
           <div className="space-y-4 pt-8 border-t">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">Previous Unfinished Comics</h3>
+              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedComics")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{unfinishedComics.length} item(s)</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -3832,7 +3835,7 @@ export const Create: React.FC<CreateProps> = ({
         {unfinishedStories.length > 0 && (
           <div className="space-y-4 pt-8 border-t">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">Previous Unfinished Stories</h3>
+              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{unfinishedStories.length} item(s)</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -3990,7 +3993,7 @@ export const Create: React.FC<CreateProps> = ({
                     }}
                   >
                     <Bot className="w-4 h-4 sm:mr-1.5" />{" "}
-                    <span className="hidden sm:inline">Ask AI</span>
+                    <span className="hidden sm:inline">{t("askAiAgent")}</span>
                   </Button>
                 </div>
               ) : (

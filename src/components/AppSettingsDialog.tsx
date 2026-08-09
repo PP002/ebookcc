@@ -3,11 +3,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Settings, Sparkles, Database, Cloud, ChevronDown, ChevronUp, User, LogOut, Loader2, CheckCircle2 } from 'lucide-react';
 import { useAppSettings, getSupabase } from '@/context/AppSettingsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AuthDialog } from './AuthDialog';
 
 export function AppSettingsDialog() {
+  const { t } = useLanguage();
   const { 
     llmEngine, setLlmEngine,
     geminiApiKey, setGeminiApiKey,
@@ -92,14 +94,14 @@ export function AppSettingsDialog() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold">
               <Settings className="w-5 h-5 text-primary" />
-              App Settings
+              {t("appSettings")}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Engine Selector Dropdown */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold">AI Provider</label>
+              <label className="text-sm font-semibold">{t("aiProvider")}</label>
               <select
                 value={localEngine}
                 onChange={(e) => {
@@ -125,8 +127,8 @@ export function AppSettingsDialog() {
                 }}
                 className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
               >
-                <option className="bg-background text-foreground" value="pollinations">Free AI (Default)</option>
-                <option className="bg-background text-foreground" value="puter">Puter.js (Mistral/Pixtral)</option>
+                <option className="bg-background text-foreground" value="pollinations">{t("freeAiDefault")}</option>
+                <option className="bg-background text-foreground" value="puter">{t("puterJs")}</option>
                 <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
                 <option className="bg-background text-foreground" value="openai">OpenAI</option>
                 <option className="bg-background text-foreground" value="claude">Claude</option>
@@ -140,15 +142,15 @@ export function AppSettingsDialog() {
             {localEngine === 'gemini' ? (
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="flex items-center gap-2 text-sm font-semibold text-emerald-500 mb-1">
-                  <Sparkles className="w-4 h-4" /> Gemini AI Cloud Engine
+                  <Sparkles className="w-4 h-4" /> {t("geminiAiCloudEngine")}
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  We use <code className="bg-muted px-1 py-0.5 rounded text-[10px]">gemini-flash-latest</code> by default. You need a personal API key to process images or run translations.
-                  <br/><strong className="text-emerald-500 font-semibold mt-1 inline-block"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline">🔥 Get your free Gemini API Key here (15 requests per minute free)</a></strong>
+                  {t("geminiDesc")}
+                  <br/><strong className="text-emerald-500 font-semibold mt-1 inline-block"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline">{t("getGeminiKeyFree")}</a></strong>
                 </p>
                 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold block text-foreground">Gemini API Key</label>
+                  <label className="text-xs font-bold block text-foreground">{t("geminiApiKeyLabel")}</label>
                   <input
                     type="password"
                     value={localGeminiKey}
@@ -156,9 +158,9 @@ export function AppSettingsDialog() {
                     placeholder="AIzaSy..."
                     className="w-full text-sm p-2 border border-border bg-background rounded-md outline-none focus:border-emerald-500 font-mono tracking-tight transition-colors shadow-sm"
                   />
-                  <p className="text-[10px] text-muted-foreground mt-1 mb-2">Your key is stored only in your browser's local storage.</p>
+                  <p className="text-[10px] text-muted-foreground mt-1 mb-2">{t("geminiKeyStorageNote")}</p>
                   
-                  <label className="text-xs font-bold block text-foreground mt-3">Model Name</label>
+                  <label className="text-xs font-bold block text-foreground mt-3">{t("modelNameLabel")}</label>
                    <select
                     value={['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'].includes(localModel) ? localModel : 'gemini-flash-latest'}
                     onChange={(e) => setLocalModel(e.target.value)}
@@ -179,7 +181,7 @@ export function AppSettingsDialog() {
                     <Sparkles className="w-3.5 h-3.5" /> Puter.js
                   </h4>
                   <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                    Puter.js provides access to Mistral/Pixtral models for OCR. A login prompt will appear if you are not already signed in to Puter.
+                    {t("puterDesc")}
                   </p>
                 </div>
               </div>
@@ -187,10 +189,10 @@ export function AppSettingsDialog() {
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="p-3 bg-muted/60 border rounded-md">
                   <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                    <Sparkles className="w-3.5 h-3.5" /> Quick AI Generation
+                    <Sparkles className="w-3.5 h-3.5" /> {t("quickAiGenTitle")}
                   </h4>
                   <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                    Simply sign in to start generating AI comics, stories, and translations instantly. No need to enter or manage API keys manually!
+                    {t("quickAiGenDesc")}
                   </p>
                 </div>
               </div>
@@ -202,12 +204,12 @@ export function AppSettingsDialog() {
                   </h4>
                   <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
                     {localEngine === 'local' 
-                      ? "Connect to Ollama, LM Studio, or any OpenAI-compatible custom endpoint. The model must support JSON mode and vision capabilities." 
-                      : `Provide the correct Base URL, API Key, and Model name for ${localEngine}. We expect an OpenAI-compatible /chat/completions endpoint (except for Claude if your proxy supports it).`}
+                      ? t("localLlmDesc") 
+                      : t("otherProviderDesc")}
                   </p>
                   <div className="space-y-3">
                     <div>
-                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Base URL</label>
+                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("apiBaseUrl")}</label>
                       <input
                         value={localUrl}
                         onChange={(e) => setLocalUrl(e.target.value)}
@@ -221,7 +223,7 @@ export function AppSettingsDialog() {
                       />
                     </div>
                     <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">Model Name</label>
+                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("modelNameLabel")}</label>
                       <select
                         value={
                           (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ? localModel :
@@ -274,7 +276,7 @@ export function AppSettingsDialog() {
                             <option className="bg-background text-foreground" value="deepseek-r1">deepseek-r1 (Reasoning)</option>
                           </>
                         )}
-                        <option className="bg-background text-foreground" value="custom">Custom Model...</option>
+                        <option className="bg-background text-foreground" value="custom">{t("customModel")}</option>
                       </select>
                       
                       {!(
@@ -335,7 +337,7 @@ export function AppSettingsDialog() {
                     variant="ghost"
                     size="icon"
                     onClick={handleLogout}
-                    title="Sign Out"
+                    title={t("signOut")}
                     className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -349,15 +351,15 @@ export function AppSettingsDialog() {
                   className="h-8 text-xs font-bold gap-1 border-primary/40 hover:border-primary hover:bg-primary/5 text-primary"
                 >
                   <User className="w-3.5 h-3.5" />
-                  <span>Sign in/Login</span>
+                  <span>{t("signInLogin")}</span>
                 </Button>
               )}
             </div>
 
             {/* Right actions */}
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowSettingsDialog(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSave}>Save & Continue</Button>
+              <Button variant="outline" size="sm" onClick={() => setShowSettingsDialog(false)}>{t("cancel")}</Button>
+              <Button size="sm" onClick={handleSave}>{t("saveAndContinue")}</Button>
             </div>
           </div>
         </DialogContent>

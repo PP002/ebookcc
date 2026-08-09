@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import slides from '../slide-config.json';
+import { useLanguage } from '../context/LanguageContext';
 
 export const Slideshow: React.FC = () => {
+  const { t } = useLanguage();
   const [index, setIndex] = useState(0);
 
   const getSlideStyle = (slideIndex: number) => {
@@ -43,7 +45,7 @@ export const Slideshow: React.FC = () => {
         ))}
       </div>
       <p className="text-xl font-normal text-foreground px-4 py-1.5 rounded-full inline-block shadow-sm">
-        {slides[index].name}
+        {t((slides[index] as any).key || slides[index].name)}
       </p>
     </div>
   );

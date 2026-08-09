@@ -51,6 +51,13 @@ import {
 } from "./context/AppSettingsContext";
 import { AppSettingsDialog } from "./components/AppSettingsDialog";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import {
+  LanguageProvider,
+  useLanguage,
+  parseLanguageAndRouteFromPath,
+  buildPathWithLanguage,
+} from "./context/LanguageContext";
+import { LanguageSelector } from "./components/LanguageSelector";
 
 function GoogleAuthProviderWrapper({ children }: { children: React.ReactNode }) {
   const { googleClientId } = useAppSettings();
@@ -122,10 +129,12 @@ export default function App() {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <AppSettingsProvider>
-          <GoogleAuthProviderWrapper>
-            <AppContent />
-            <AppSettingsDialog />
-          </GoogleAuthProviderWrapper>
+          <LanguageProvider>
+            <GoogleAuthProviderWrapper>
+              <AppContent />
+              <AppSettingsDialog />
+            </GoogleAuthProviderWrapper>
+          </LanguageProvider>
         </AppSettingsProvider>
       </TooltipProvider>
     </ThemeProvider>
@@ -135,14 +144,13 @@ export default function App() {
 function AppContent() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { setShowSettingsDialog, user } = useAppSettings();
+  const { t, language, setLanguage, buildPath } = useLanguage();
+
   const [currentPath, setCurrentPath] = useState<
     "home" | "read" | "create" | "convert"
   >(() => {
-    const path = window.location.pathname.toLowerCase();
-    if (path === "/read") return "read";
-    if (path === "/create") return "create";
-    if (path === "/convert") return "convert";
-    return "home";
+    const { view } = parseLanguageAndRouteFromPath(window.location.pathname);
+    return view;
   });
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
@@ -150,16 +158,18 @@ function AppContent() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const path = window.location.pathname.toLowerCase();
-      if (path === "/read") setCurrentPath("read");
-      else if (path === "/create") setCurrentPath("create");
-      else if (path === "/convert") setCurrentPath("convert");
-      else setCurrentPath("home");
+      const { view, lang } = parseLanguageAndRouteFromPath(
+        window.location.pathname,
+      );
+      if (lang) {
+        setLanguage(lang);
+      }
+      setCurrentPath(view);
       setHeaderHidden(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [setLanguage]);
 
   useEffect(() => {
     const handleNav = (e: any) => {
@@ -228,7 +238,7 @@ function AppContent() {
     view: "home" | "read" | "create" | "convert",
     query?: string,
   ) => {
-    const path = view === "home" ? "/" : `/${view}${query || ""}`;
+    const path = buildPath(view) + (query || "");
     window.history.pushState(null, "", path);
     setCurrentPath(view);
     setHeaderHidden(false);
@@ -270,7 +280,7 @@ function AppContent() {
                 <BookOpen
                   className={`w-3.5 h-3.5 ${currentPath === "read" ? "text-primary-foreground" : "text-primary"}`}
                 />
-                <span className="hidden sm:inline portrait:hidden">Read</span>
+                <span className="hidden sm:inline portrait:hidden">{t("read")}</span>
               </Button>
               <Button
                 variant={currentPath === "create" ? "default" : "ghost"}
@@ -281,7 +291,7 @@ function AppContent() {
                 <PenTool
                   className={`w-3.5 h-3.5 ${currentPath === "create" ? "text-primary-foreground" : "text-primary"}`}
                 />
-                <span className="hidden sm:inline portrait:hidden">Create</span>
+                <span className="hidden sm:inline portrait:hidden">{t("create")}</span>
               </Button>
               <Button
                 variant={currentPath === "convert" ? "default" : "ghost"}
@@ -293,7 +303,7 @@ function AppContent() {
                   className={`w-3.5 h-3.5 ${currentPath === "convert" ? "text-primary-foreground" : "text-primary"}`}
                 />
                 <span className="hidden sm:inline portrait:hidden">
-                  Convert
+                  {t("convert")}
                 </span>
               </Button>
             </nav>
@@ -306,7 +316,7 @@ function AppContent() {
                 onClick={() => setShowSettingsDialog(true)}
                 className="w-8 h-8 !rounded-full rounded-full hover:bg-muted text-foreground/80 overflow-hidden !overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
                 style={{ borderRadius: "9999px" }}
-                title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
+                title={user ? (user.name ? `${user.name} (${user.email}) - ${t("appSettings")}` : `${user.email} - ${t("appSettings")}`) : t("appSettings")}
               >
                 {user ? (
                   (user.avatarUrl || user.photoURL) ? (
@@ -337,7 +347,7 @@ function AppContent() {
                   setTheme(resolvedTheme === "dark" ? "light" : "dark")
                 }
                 className="w-8 h-8 rounded-none hover:bg-muted text-foreground/80"
-                title="Toggle theme"
+                title={t("toggleTheme")}
               >
                 {resolvedTheme === "dark" ? (
                   <Sun className="w-4 h-4 text-amber-400" />
@@ -357,12 +367,10 @@ function AppContent() {
             <div className="w-full max-w-full py-8 px-4 sm:px-8 lg:px-12 space-y-12 h-full">
               <header className="flex flex-col items-center gap-2 text-center max-w-4xl mx-auto py-2 px-4">
                 <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground mt-4 uppercase font-mono">
-                  Your Ultimate All-in-One E-book & Comic Suite
+                  {t("heroTitle")}
                 </h1>
                 <p className="text-xs sm:text-sm text-muted-foreground font-semibold max-w-2xl mt-1 leading-relaxed">
-                  Read, convert, and create dynamic comics, text novels, or
-                  media-rich PDFs. Optimized for mobile, desktop, and E-ink
-                  devices.
+                  {t("heroSubtitle")}
                 </p>
                 <div className="w-full mt-6">
                   <Slideshow />
@@ -382,19 +390,17 @@ function AppContent() {
                     <div>
                       <h3
                         className="text-base font-bold text-foreground truncate"
-                        title="Guided Reading: Comics & Text Optimized"
+                        title={t("readCardTitle")}
                       >
-                        Guided Reading: Comics & Text Optimized
+                        {t("readCardTitle")}
                       </h3>
                       <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                        Optimized for mobile and E-ink screens. Focuses on comic
-                        panels for manga, or reflows dense book layouts so you
-                        can stop pinching and squinting.
+                        {t("readCardDesc")}
                       </p>
                     </div>
                   </div>
                   <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                    Access Bookshelf &rarr;
+                    {t("accessBookshelf")}
                   </div>
                 </Card>
 
@@ -410,19 +416,17 @@ function AppContent() {
                     <div>
                       <h3
                         className="text-base font-bold text-foreground truncate"
-                        title="Online Comic Maker & Novel Writer"
+                        title={t("createCardTitle")}
                       >
-                        Online Comic Maker & Novel Writer
+                        {t("createCardTitle")}
                       </h3>
                       <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                        An intuitive rich-text workspace. Author traditional
-                        e-book novels, compile script outlines, or design
-                        multi-panel comic strips and overlay balloons.
+                        {t("createCardDesc")}
                       </p>
                     </div>
                   </div>
                   <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                    Launch Canvas Creator &rarr;
+                    {t("launchCanvasCreator")}
                   </div>
                 </Card>
 
@@ -438,20 +442,18 @@ function AppContent() {
                     <div>
                       <h3
                         className="text-base font-bold text-foreground flex items-center gap-1.5 truncate"
-                        title="Universal E-book Converter"
+                        title={t("convertCardTitle")}
                       >
-                        Universal E-book Converter{" "}
+                        {t("convertCardTitle")}{" "}
                         <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000 shrink-0" />
                       </h3>
                       <p className="text-[11px]/relaxed text-muted-foreground mt-2 font-medium line-clamp-3">
-                        Effortlessly batch-convert CBZ, CBR, PDF, and EPUB
-                        files. Compresses graphic novels and formats textbook
-                        layouts into Kindle-ready EPUBs.
+                        {t("convertCardDesc")}
                       </p>
                     </div>
                   </div>
                   <div className="mt-6 flex items-center text-xs font-bold text-primary group-hover:underline">
-                    Upload & Convert Now &rarr;
+                    {t("uploadAndConvertNow")}
                   </div>
                 </Card>
               </div>
@@ -476,78 +478,78 @@ function AppContent() {
                 id="key-features"
               >
                 <h2 className="text-xs font-extrabold tracking-tight mb-4 text-center text-primary uppercase font-mono">
-                  Key Suite Capabilities & Online Tools
+                  {t("keyFeaturesTitle")}
                 </h2>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5">
                   <FeatureCard
                     bg={mangaBg}
                     icon={Languages}
-                    title="AI Translation Tool"
-                    description="Translate Japanese raw manga and webtoons using cutting-edge AI OCR. Automatically detect speech bubbles and clean manga text online."
+                    title={t("featAiTranslateTitle")}
+                    description={t("featAiTranslateDesc")}
                   />
 
                   <FeatureCard
                     bg={multiAiBg}
                     icon={Bot}
-                    title="Choose Multi-AI Provider"
-                    description="Choose from free models, Gemini, OpenAI, Claude, or local LLMs for flexible text translation, OCR processing, and generation."
+                    title={t("featMultiAiTitle")}
+                    description={t("featMultiAiDesc")}
                   />
 
                   <FeatureCard
                     bg={panelSplitterBg}
                     icon={LayoutGrid}
-                    title="Comic Panel Splitter"
-                    description="Intelligently crop and split comic strips into guided view segments, delivering an optimized mobile e-reader experience for any device."
+                    title={t("featSplitterTitle")}
+                    description={t("featSplitterDesc")}
                   />
 
                   <FeatureCard
                     bg={cbzConverterBg}
                     icon={FileArchive}
-                    title="CBZ to EPUB Converter"
-                    description="Instantly convert zipped comic archives (CBZ/ZIP) into standard EPUB format eBooks, ensuring high compatibility with digital readers."
+                    title={t("featCbzEpubTitle")}
+                    description={t("featCbzEpubDesc")}
                   />
 
                   <FeatureCard
                     bg={aiAgentBg}
                     icon={Wand2}
-                    title="Create with AI Agent"
-                    description="Collaborate with an AI agent to generate storylines, format dialogue balloons, brainstorm comic panel layouts, and structure e-books."
+                    title={t("featAiAgentTitle")}
+                    description={t("featAiAgentDesc")}
                   />
 
                   <FeatureCard
                     bg={localProcessingBg}
                     icon={Server}
-                    title="Private Local Processing"
-                    description="Self-hosted configurations available with containerized environments, ensuring your comic projects remain private and securely offline."
+                    title={t("featLocalProcTitle")}
+                    description={t("featLocalProcDesc")}
                   />
 
                   <FeatureCard
                     bg={formatSupportBg}
                     icon={Files}
-                    title="Universal Format Support"
-                    description="Seamlessly open, view, and convert CBZ, CBR, EPUB, PDF, DOCX, TXT, WEBP, and HTML files with clean responsive rendering."
+                    title={t("featFormatSupportTitle")}
+                    description={t("featFormatSupportDesc")}
                   />
 
                   <FeatureCard
                     bg={penSupportBg}
                     icon={PenTool}
-                    title="Pen Support"
-                    description="This app supports Wacom or Apple Pencil features like tilt and pressure sensitivity. Draw like a professional artist."
+                    title={t("featPenSupportTitle")}
+                    description={t("featPenSupportDesc")}
                   />
                 </div>
               </section>
 
               {/* Footer */}
-              <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40">
-                <p className="flex flex-col sm:flex-row items-center justify-center gap-2 font-medium">
+              <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40 flex items-center justify-center">
+                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 font-medium">
                   <span>
-                    Made with{" "}
+                    {t("madeWith")}{" "}
                     <Heart className="w-3.5 h-3.5 inline text-rose-500 fill-rose-500" />{" "}
-                    by Pierre Kollo. Powered by advanced AI.
+                    {t("by")}
                   </span>
                   <span className="hidden sm:inline text-border">|</span>
                   <span>
-                    Contact:{" "}
+                    {t("contact")}:{" "}
                     <a
                       href="mailto:support@ebookcc.com"
                       className="underline hover:text-primary transition-colors"
@@ -555,7 +557,9 @@ function AppContent() {
                       support@ebookcc.com
                     </a>
                   </span>
-                </p>
+                  <span className="hidden sm:inline text-border">|</span>
+                  <LanguageSelector />
+                </div>
               </footer>
             </div>
           </div>
@@ -590,7 +594,7 @@ function AppContent() {
             className="flex items-center justify-center gap-1.5 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-semibold py-1.5 px-3 portrait:w-9 portrait:h-9 portrait:p-0 rounded shadow-sm border-0 transition-all text-xs group pointer-events-auto cursor-pointer"
           >
             <Coffee className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform duration-300" />
-            <span className="portrait:hidden">Buy me a coffee</span>
+            <span className="portrait:hidden">{t("buyCoffee")}</span>
             <Heart className="w-3 h-3 fill-white text-white animate-pulse portrait:hidden" />
           </button>
         </div>
@@ -614,12 +618,10 @@ function AppContent() {
 
             <div className="space-y-2">
               <h3 className="text-xl font-extrabold uppercase font-mono text-foreground">
-                Support EBookCC! 🎉
+                {t("supportEbookcc")}
               </h3>
               <p className="text-muted-foreground text-xs leading-relaxed font-semibold">
-                Thank you for using EbookCC! If this tool made your reading and
-                editing experience better, please consider supporting the
-                creator with a coffee. Every support keeps the servers ticking!
+                {t("supportCoffeeDesc")}
               </p>
             </div>
 
@@ -632,7 +634,7 @@ function AppContent() {
                 className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-extrabold py-3 px-6 rounded-none shadow-md transition-all text-xs uppercase cursor-pointer"
               >
                 <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
-                <span>Support on Ko-fi</span>
+                <span>{t("supportKoFi")}</span>
                 <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
               </a>
 
@@ -641,7 +643,7 @@ function AppContent() {
                 className="rounded-none py-3 text-muted-foreground hover:text-foreground hover:bg-muted text-xs uppercase font-bold"
                 onClick={() => setShowCoffeeModal(false)}
               >
-                Maybe later
+                {t("maybeLater")}
               </Button>
             </div>
           </div>

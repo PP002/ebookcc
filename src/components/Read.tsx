@@ -16,6 +16,7 @@ import JSZip from 'jszip';
 import { runPredictAPI, autoCropImageBorders } from '@/components/Convert';
 import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
+import { useLanguage } from '@/context/LanguageContext';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -168,6 +169,7 @@ function ComicPageViewer({ page }: { page: any }) {
 }
 
 export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, onFullscreenChange }) => {
+  const { t } = useLanguage();
   const [selectedBook, setSelectedBook] = useState<BookItem | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [location, setLocation] = useState<string | number>(0);
@@ -649,8 +651,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       {!selectedBook ? (
         <div className="flex-1 flex flex-col items-stretch max-w-5xl mx-auto w-full py-8 px-4 space-y-8">
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">eBook & Comic Reader</h1>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">Open books, PDFs, and comics completely locally in your browser.</p>
+            <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">{t("readCardTitle")}</h1>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">{t("readCardDesc")}</p>
           </div>
 
           <div
@@ -666,12 +668,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             <input {...getInputProps()} />
             <div className="flex flex-col items-center gap-2 max-w-md">
               <Layers className="w-10 h-10 text-primary mb-2" />
-              <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop eBook Files Here</h2>
+              <h2 className="text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
               <p className="text-[11px] text-muted-foreground font-semibold mt-1 leading-relaxed">
-                Supported: <span className="text-foreground font-bold">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, FB2</span>
+                {t("supportedFormats")}: <span className="text-foreground font-bold">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, DOCX, TXT, HTML, FB2</span>
               </p>
               <p className="text-[10px] text-muted-foreground/70">
-                or click inside this workspace block to browse local files
+                {t("browseLocalFiles")}
               </p>
             </div>
           </div>
@@ -681,21 +683,21 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-bold tracking-tight text-foreground">Recently Read</h3>
+                  <h3 className="text-lg font-bold tracking-tight text-foreground">{t("recentlyRead")}</h3>
                 </div>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={async () => {
-                    if (confirm("Are you sure you want to clear your reading history?")) {
+                    if (confirm(t("confirmClearHistory"))) {
                       await clearAllHistory();
                       setRecentBooks([]);
-                      toast.success("History cleared.");
+                      toast.success(t("historyCleared"));
                     }
                   }}
                   className="text-xs text-muted-foreground hover:text-destructive h-8"
                 >
-                  Clear History
+                  {t("clearHistory")}
                 </Button>
               </div>
 
@@ -753,7 +755,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
                       <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
                         <span className="text-[10px] text-primary font-bold">
-                          Page {book.lastReadPage + 1}
+                          {t("page")} {book.lastReadPage + 1}
                         </span>
                         <Button
                           variant="ghost"
@@ -788,7 +790,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </Button>
                 <div className="w-px h-5 bg-border mx-1 shrink-0" />
                 <Button variant="ghost" size="sm" onClick={() => setSelectedBook(null)} className="h-8 gap-2 text-xs font-semibold px-3 shrink-0 hover:bg-transparent hover:text-foreground">
-                  <ChevronLeft className="w-3.5 h-3.5" /> Back
+                  <ChevronLeft className="w-3.5 h-3.5" /> {t("back")}
                 </Button>
                 <div className="ml-2 hidden sm:block shrink-0 max-w-[200px] md:max-w-[300px]">
                   <h2 className="text-sm font-bold text-foreground truncate">{selectedBook.title}</h2>
@@ -1210,7 +1212,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     {(isProcessingPage && gridView && !panelsCache[currentPage]) && (
                         <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none">
                             <div className="bg-background/80 text-foreground px-4 py-2 rounded-full text-xs shadow border animate-pulse backdrop-blur flex items-center gap-2">
-                                <Sparkles className="w-3.5 h-3.5" /> Detecting layout...
+                                <Sparkles className="w-3.5 h-3.5" /> {t("detectingLayout")}
                             </div>
                         </div>
                     )}

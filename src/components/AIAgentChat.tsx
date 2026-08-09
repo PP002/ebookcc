@@ -18,6 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { getApiUrl } from '@/lib/api';
 
 
@@ -48,6 +49,7 @@ export function AIAgentChat({
 }: {
   isFullscreen?: boolean;
 }) {
+  const { t } = useLanguage();
   const { llmEngine, geminiApiKey } = useAppSettings();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -543,7 +545,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
           <div className="bg-muted p-3 flex justify-between items-center border-b shrink-0 cursor-default">
             <div className="flex items-center gap-2">
               <Bot className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-sm">AI Agent</span>
+              <span className="font-semibold text-sm">{t("featAiAgentTitle")}</span>
             </div>
             <Button
               variant="ghost"
@@ -559,8 +561,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4 gap-4">
                 <span className="text-sm">
-                  👋 Hi! I can help brainstorm ideas, write scripts, or draw
-                  something. What would you like to create?
+                  {t("aiAgentGreeting")}
                 </span>
                 <div className="flex flex-col w-full gap-2 mt-2">
                   <Button
@@ -577,7 +578,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                       );
                     }}
                   >
-                    🎨 Create a comic book
+                    🎨 {t("createComicCardTitle")}
                   </Button>
                   <Button
                     variant="outline"
@@ -593,7 +594,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                       );
                     }}
                   >
-                    ✒️ Write a story
+                    ✒️ {t("writeAStory")}
                   </Button>
                   <Button
                     variant="outline"
@@ -609,7 +610,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                       );
                     }}
                   >
-                    📚 Convert ebook
+                    📚 {t("convertCardTitle")}
                   </Button>
                 </div>
               </div>
@@ -709,7 +710,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                                       setIsOpen(false);
                                     }}
                                   >
-                                    Insert into Project
+                                    {t("insertIntoProject")}
                                   </Button>
                                 </div>
                               );
@@ -774,7 +775,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
 
             <div className="flex flex-col bg-background border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-primary shadow-sm transition-all overflow-hidden">
               <textarea
-                placeholder="Ask anything..."
+                placeholder={t("askAiAgent")}
                 value={input}
                 onChange={(e) => {
                   setInput(e.target.value);
@@ -798,7 +799,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     size="icon"
                     className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => fileInputRef.current?.click()}
-                    title="Upload Image"
+                    title={t("uploadImageTooltip")}
                   >
                     <Paperclip className="w-3.5 h-3.5" />
                   </Button>
@@ -807,7 +808,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     size="icon"
                     className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => cameraInputRef.current?.click()}
-                    title="Take Photo"
+                    title={t("takePhotoTooltip")}
                   >
                     <Camera className="w-3.5 h-3.5" />
                   </Button>
@@ -846,7 +847,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                         );
                       }
                     }}
-                    title="Read Canvas/Sketch"
+                    title={t("readCanvasTooltip")}
                   >
                     <Layout className="w-3.5 h-3.5" />
                   </Button>
@@ -855,7 +856,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     size="icon"
                     className={`h-7 w-7 ${isListening ? "text-red-500 animate-pulse" : "text-muted-foreground hover:text-foreground"}`}
                     onClick={handleListen}
-                    title="Voice Input"
+                    title={t("voiceInputTooltip")}
                   >
                     {isListening ? (
                       <MicOff className="w-3.5 h-3.5" />
@@ -907,7 +908,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
           style={{ backgroundColor: "rgb(45, 198, 207)", color: "#000" }}
         >
           <Bot className="w-3.5 h-3.5" />
-          <span className="portrait:hidden">AI Agent</span>
+          <span className="portrait:hidden">{t("featAiAgentTitle")}</span>
         </button>
       )}
     </div>

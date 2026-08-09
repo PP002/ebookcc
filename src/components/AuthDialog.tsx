@@ -7,12 +7,15 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { GoogleLogin } from '@react-oauth/google';
 
+import { useLanguage } from '@/context/LanguageContext';
+
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
+  const { t } = useLanguage();
   const { 
     user, setUser, 
     supabaseUrl, supabaseAnonKey, googleClientId,
@@ -669,12 +672,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         <DialogHeader className="space-y-1">
           <DialogTitle className="text-xl font-bold flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
-            {isSignUp ? "Create Workspace Account" : "Sign In to eBookCC"}
+            {isSignUp ? t("createWorkspaceAccount") : t("signInToEbookCC")}
           </DialogTitle>
           <p className="text-xs text-muted-foreground">
             {isSignUp 
-              ? "Gain secure access to synchronize novels, comic layouts, and visual templates."
-              : "Access your cloud books and sync your publishing preferences."
+              ? t("gainSecureAccess")
+              : t("accessCloudBooks")
             }
           </p>
         </DialogHeader>
@@ -722,7 +725,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>Continue with Google</span>
+              <span>{t("continueWithGoogle")}</span>
             </Button>
           )}
 
@@ -731,7 +734,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               <div className="w-full border-t border-border/60" />
             </div>
             <div className="relative inline-block bg-background px-2.5 text-[10px] font-bold text-muted-foreground uppercase font-mono tracking-wider">
-              Or email login
+              {t("orEmailLogin")}
             </div>
           </div>
         </div>
@@ -740,7 +743,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               {isSignUp && (
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
-                    <User className="w-3.5 h-3.5" /> Display Name
+                    <User className="w-3.5 h-3.5" /> {t("displayName")}
                   </label>
                   <input
                     type="text"
@@ -754,7 +757,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5" /> Email Address
+                  <Mail className="w-3.5 h-3.5" /> {t("emailAddress")}
                 </label>
                 <input
                   type="email"
@@ -771,7 +774,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
-                        <Lock className="w-3.5 h-3.5" /> Password
+                        <Lock className="w-3.5 h-3.5" /> {t("password")}
                       </label>
                       {!isSignUp && (
                         <button
@@ -779,7 +782,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                           onClick={() => setShowResetPassword(true)}
                           className="text-xs text-primary hover:underline font-medium"
                         >
-                          Forgot password?
+                          {t("forgotPassword")}
                         </button>
                       )}
                     </div>
@@ -798,7 +801,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     <div className="p-3 bg-muted/40 border border-border rounded-lg space-y-2 text-left animate-in fade-in zoom-in duration-200">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                          <Shield className="w-3.5 h-3.5 text-primary" /> Authorization Code
+                          <Shield className="w-3.5 h-3.5 text-primary" /> {t("authorizationCode")}
                         </label>
                         <button
                           type="button"
@@ -808,12 +811,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                         >
                           {isSendingSignupCode ? (
                             <>
-                              <Loader2 className="w-3 h-3 animate-spin" /> Sending...
+                              <Loader2 className="w-3 h-3 animate-spin" /> {t("sendingCode")}
                             </>
                           ) : signupCodeSent ? (
-                            "Resend Code"
+                            t("resendCode")
                           ) : (
-                            "Send Code"
+                            t("sendCode")
                           )}
                         </button>
                       </div>
@@ -849,7 +852,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                         className="w-full h-8 text-xs border-amber-500/40 hover:bg-amber-500/10 text-amber-700 dark:text-amber-300 font-semibold"
                       >
                         {isResending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Mail className="w-3 h-3 mr-1" />}
-                        Resend Authorization Code
+                        {t("resendCode")}
                       </Button>
                     </div>
                   )}
@@ -864,12 +867,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     ) : isSignUp ? (
                       <>
                         <UserPlus className="w-4 h-4" />
-                        <span>Verify Code & Register Account</span>
+                        <span>{t("verifyCodeRegister")}</span>
                       </>
                     ) : (
                       <>
                         <LogIn className="w-4 h-4" />
-                        <span>Sign In Securely</span>
+                        <span>{t("signInSecurely")}</span>
                       </>
                     )}
                   </Button>
@@ -1032,7 +1035,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 onClick={() => setIsSignUp(!isSignUp)}
                 className="text-primary hover:underline font-semibold"
               >
-                {isSignUp ? "Already have an account? Sign In" : "Need a professional workspace? Sign Up Free"}
+                {isSignUp ? t("alreadyHaveAccount") : t("needWorkspaceSignUp")}
               </button>
             </div>
       </DialogContent>

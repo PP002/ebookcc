@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { ImageToolbar } from './ImageToolbar';
 import { Slideshow } from './Slideshow';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import JSZip from 'jszip';
 import Tesseract from 'tesseract.js';
 import { useTheme } from 'next-themes';
@@ -2440,6 +2441,7 @@ export default function Convert({
   setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void,
   onActiveStateChange?: (active: boolean) => void
 }) {
+  const { t } = useLanguage();
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
@@ -4710,7 +4712,7 @@ ${navItems}    </ol>
               <div className={`shrink-0 w-4 h-4 border flex items-center justify-center transition-colors ${ocrDuringBatch && splitDuringBatch && translateDuringBatch ? 'bg-primary border-primary' : 'border-muted-foreground'}`}>
                 {ocrDuringBatch && splitDuringBatch && translateDuringBatch && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
               </div>
-              <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">All (process all)</label>
+              <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">{t("allProcessAll")}</label>
             </div>
 
             <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-fit flex flex-col items-start">
@@ -4721,8 +4723,8 @@ ${navItems}    </ol>
                   className="w-4 h-4 border-muted-foreground rounded-none"
                 />
                 <div className="flex flex-col w-fit">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Crop Page Borders</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Detect and remove page margins</span>
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("cropPageBordersDesc")}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
@@ -4732,8 +4734,8 @@ ${navItems}    </ol>
                   className="w-4 h-4 border-muted-foreground rounded-none"
                 />
                 <div className="flex flex-col w-fit">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Split Panels</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Detect and individualize panels</span>
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("splitPanelsDesc")}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
@@ -4743,8 +4745,8 @@ ${navItems}    </ol>
                   className="w-4 h-4 border-muted-foreground rounded-none"
                 />
                 <div className="flex flex-col w-fit">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Extract Text (OCR)</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Extract text via Gemini Flash</span>
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("extractTextOcrDesc")}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
@@ -4754,7 +4756,7 @@ ${navItems}    </ol>
                   onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
                   className="w-4 h-4 border-muted-foreground rounded-none"
                 />
-                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">Translate Text</label>
+                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
               </div>
             </div>
 
@@ -4762,7 +4764,7 @@ ${navItems}    </ol>
               <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1 w-fit">
                 <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
                   <SelectTrigger className="w-[140px] h-8 text-[11px]">
-                    <SelectValue placeholder="Select Language" />
+                    <SelectValue placeholder={t("selectLanguage")} />
                   </SelectTrigger>
                   <SelectContent>
                     <div className="max-h-[200px] overflow-y-auto">
@@ -4783,7 +4785,7 @@ ${navItems}    </ol>
             disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
           >
             {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span className="whitespace-nowrap">Process Current Page</span>
+            <span className="whitespace-nowrap">{t("processCurrentPage")}</span>
           </Button>
 
           <Button 
@@ -4794,7 +4796,7 @@ ${navItems}    </ol>
           >
             {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             <span className="whitespace-nowrap">
-              {selectedPages.size > 0 ? `Batch Process Selected (${selectedPages.size})` : "Batch Process All"}
+              {selectedPages.size > 0 ? t("batchProcessSelected").replace("{count}", selectedPages.size.toString()) : t("batchProcessAll")}
             </span>
           </Button>
           
@@ -4806,7 +4808,7 @@ ${navItems}    </ol>
                     className="w-fit gap-2 h-9"
                     disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
                   >
-                    <Download className="w-4 h-4" /> <span className="whitespace-nowrap">Export</span>
+                    <Download className="w-4 h-4" /> <span className="whitespace-nowrap">{t("export")}</span>
                   </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
@@ -4830,7 +4832,7 @@ ${navItems}    </ol>
               rel="noopener noreferrer"
               className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4 w-fit"
             >
-              <span className="whitespace-nowrap">Send to Kindle</span> <ExternalLink className="w-3.5 h-3.5" />
+              <span className="whitespace-nowrap">{t("sendToKindle")}</span> <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
 
@@ -4844,7 +4846,7 @@ ${navItems}    </ol>
             }}
           >
             <Trash2 className="w-4 h-4" />
-            <span className="whitespace-nowrap">Clear All Pages</span>
+            <span className="whitespace-nowrap">{t("clearAllPages")}</span>
           </Button>
         </div>
       </div>
@@ -4867,18 +4869,18 @@ ${navItems}    </ol>
             <div className="flex flex-col items-center gap-4 max-w-md">
               <div className="p-4 bg-background rounded-none shrink-0 text-center">
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
-                <h2 className="text-sm font-black uppercase tracking-wider text-foreground">Drag & Drop Comic/eBook Files Here</h2>
+                <h2 className="text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
                 <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
-                  Supported: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP</span>
+                  {t("supportedFormats")}: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP</span>
                 </p>
                 <p className="text-[10px] text-muted-foreground/80 mt-1">
-                  or click inside this workspace block to browse local files
+                  {t("browseLocalFiles")}
                 </p>
               </div>
 
               <div className="text-center font-semibold text-[11px] text-muted-foreground bg-muted p-2.5">
                 <Sparkles className="w-3.5 h-3.5 inline mr-1 text-primary animate-pulse" />
-                OCR scanning, panel splitting, translation & eBook packager will guide you step by step.
+                {t("convertFeatureHint")}
               </div>
             </div>
           </div>
@@ -4888,23 +4890,23 @@ ${navItems}    </ol>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-primary" />
-                  <h3 className="text-xs font-black uppercase tracking-wider text-foreground">Recent Conversions</h3>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-foreground">{t("recentConversions")}</h3>
                 </div>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={async () => {
-                    if (confirm("Are you sure you want to clear all conversion history?")) {
+                    if (confirm(t("confirmClearConversions"))) {
                       for (const log of conversionLogs) {
                         await deleteConversionLog(log.id);
                       }
                       setConversionLogs([]);
-                      toast.success("Conversion history cleared.");
+                      toast.success(t("conversionHistoryCleared"));
                     }
                   }}
                   className="text-xs text-muted-foreground hover:text-destructive h-8 px-2"
                 >
-                  Clear History
+                  {t("clearHistory")}
                 </Button>
               </div>
 
@@ -4967,7 +4969,7 @@ ${navItems}    </ol>
                   size="icon"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                   className="w-8 h-8 shrink-0"
-                  title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                  title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
                   {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
                 </Button>
@@ -4988,7 +4990,7 @@ ${navItems}    </ol>
                         }}
                         className="h-8 px-3 gap-1.5 shrink-0 text-xs font-bold"
                       >
-                        <CheckSquare className="w-4 h-4" /> <span>Done</span>
+                        <CheckSquare className="w-4 h-4" /> <span>{t("done")}</span>
                       </Button>
                     ) : (
                       <DropdownMenu>
@@ -5040,20 +5042,20 @@ ${navItems}    </ol>
                             };
                             input.click();
                           }}>
-                            <Upload className="w-4 h-4 mr-2" /> Insert Image
+                            <Upload className="w-4 h-4 mr-2" /> {t("insertImage")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
                             setViewMode('preview');
                             setIsAddingTextMode(true);
                           }}>
-                            <Type className="w-4 h-4 mr-2" /> Add Text
+                            <Type className="w-4 h-4 mr-2" /> {t("addText")}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
                             setIsGridView(true);
                             setSelectedPages(new Set());
                             setLastSelectedIndex(null);
                           }}>
-                            <CheckSquare className="w-4 h-4 mr-2" /> Select
+                            <CheckSquare className="w-4 h-4 mr-2" /> {t("select")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -5114,7 +5116,7 @@ ${navItems}    </ol>
                       }}
                       className="gap-1.5 h-8 px-2 shrink-0 text-xs"
                     >
-                      <Upload className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Insert Image</span>
+                      <Upload className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("insertImage")}</span>
                     </Button>
                     <Button 
                       variant={(isAddingTextMode) ? "secondary" : "ghost"} 
@@ -5125,7 +5127,7 @@ ${navItems}    </ol>
                       }}
                       className="gap-1.5 h-8 px-2 shrink-0 text-xs"
                     >
-                      <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Add Text</span>
+                      <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("addText")}</span>
                     </Button>
                   </div>
                 </div>
@@ -5144,7 +5146,7 @@ ${navItems}    </ol>
                       }}
                       className={cn("gap-1.5 h-8 px-2 shrink-0 text-xs", isPortrait ? "hidden" : "hidden sm:flex")}
                     >
-                      <CheckSquare className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{isGridView ? "Done" : "Select"}</span>
+                      <CheckSquare className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{isGridView ? t("done") : t("select")}</span>
                     </Button>
 
                 {/* Bulk Actions Floating Bar (Sole Layer underneath Select) */}
@@ -5175,7 +5177,7 @@ ${navItems}    </ol>
                         }}
                         className="gap-1.5 h-7 px-2 shrink-0 text-[10px] font-bold uppercase tracking-wider"
                       >
-                        <Upload className="w-3.5 h-3.5" /> <span>Add Page</span>
+                        <Upload className="w-3.5 h-3.5" /> <span>{t("addPage")}</span>
                       </Button>
                       <Button
                         variant="ghost"
@@ -5189,7 +5191,7 @@ ${navItems}    </ol>
                         }}
                         className="gap-1.5 h-7 px-2 shrink-0 text-[10px] font-bold uppercase tracking-wider"
                       >
-                        <CheckSquare className="w-3.5 h-3.5" /> <span>{selectedPages.size === pages.length ? "Deselect All" : "Select All"}</span>
+                        <CheckSquare className="w-3.5 h-3.5" /> <span>{selectedPages.size === pages.length ? t("deselectAll") : t("selectAll")}</span>
                       </Button>
                       
                       {selectedPages.size > 0 && (
@@ -6078,8 +6080,8 @@ ${navItems}    </ol>
             className="flex flex-col items-center gap-8 px-12 py-12 rounded-lg bg-background shadow-2xl border border-border max-w-[500px] w-full mx-4"
           >
             <div className="text-center space-y-1">
-              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">Processing Batch...</h3>
-              <p className="text-muted-foreground font-medium text-lg leading-tight px-4">AI is analyzing and translating your comic</p>
+              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">{t("processingBatch")}</h3>
+              <p className="text-muted-foreground font-medium text-lg leading-tight px-4">{t("aiAnalyzingComic")}</p>
             </div>
 
             <RetroProgressBar progress={batchProgress} />
@@ -6090,7 +6092,7 @@ ${navItems}    </ol>
               className="mt-4 border-foreground text-foreground hover:bg-foreground hover:text-background transition-colors rounded-none"
               onClick={() => setIsBatchProcessing(false)}
             >
-              Stop Batch
+              {t("stopBatch")}
             </Button>
           </motion.div>
         </div>
@@ -6123,9 +6125,9 @@ ${navItems}    </ol>
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-2xl font-bold font-serif text-foreground">Export Complete! 🎉</h3>
+                <h3 className="text-2xl font-bold font-serif text-foreground">{t("exportComplete")}</h3>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                  Thank you for using EbookCC! If this tool saved you time and made your comic-reading journey better, please consider supporting the creator with a coffee.
+                  {t("supportCoffeeModalDesc")}
                 </p>
               </div>
 
@@ -6139,7 +6141,7 @@ ${navItems}    </ol>
                   className="flex items-center justify-center gap-2 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-semibold py-3 px-6 rounded-xl shadow-md transition-all text-sm group"
                 >
                   <Coffee className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
-                  <span>Support on Ko-fi</span>
+                  <span>{t("supportKoFi")}</span>
                   <Heart className="w-4 h-4 fill-white text-white animate-pulse" />
                 </a>
                 
@@ -6149,7 +6151,7 @@ ${navItems}    </ol>
                   className="rounded-xl py-3 text-muted-foreground hover:text-foreground hover:bg-muted"
                   onClick={() => setShowCoffeeModal(false)}
                 >
-                  Maybe later
+                  {t("maybeLater")}
                 </Button>
               </div>
             </motion.div>

@@ -2425,16 +2425,52 @@ STRICT INSTRUCTIONS:
     }
   });
 
+  // Explicit route handler for sitemap.xml and robots.txt
+  app.get(['/sitemap.xml', '/robots.txt'], (req, res) => {
+    const filename = req.path.slice(1);
+    const pubPath = path.join(process.cwd(), 'public', filename);
+    const distFilePath = path.join(process.cwd(), 'dist', filename);
+    if (fs.existsSync(pubPath)) {
+      res.setHeader('Content-Type', filename === 'sitemap.xml' ? 'application/xml' : 'text/plain');
+      return res.sendFile(pubPath);
+    } else if (fs.existsSync(distFilePath)) {
+      res.setHeader('Content-Type', filename === 'sitemap.xml' ? 'application/xml' : 'text/plain');
+      return res.sendFile(distFilePath);
+    }
+    return res.status(404).send('Not found');
+  });
+
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('Express Error:', err.message);
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Payload too large' });
     res.status(500).json({ error: err.message });
   });
 
+  // 404 handler for unhandled /api/* routes (e.g. POST/GET to missing API endpoints)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: "Endpoint not found on Express server", method: req.method, path: req.path });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
+    
+    // SPA catch-all route for development mode (e.g. /create, /fr, /fr/create, /read, /convert)
+    app.get('*', async (req, res, next) => {
+      try {
+        const url = req.originalUrl;
+        const indexPath = path.resolve(process.cwd(), 'index.html');
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        if (vite && vite.ssrFixStacktrace) {
+          vite.ssrFixStacktrace(e);
+        }
+        next(e);
+      }
+    });
   } else {
     if (process.env.API_ONLY === "true") {
       app.get('*', (req, res) => res.json({ status: "API Server Only" }));
@@ -2444,11 +2480,6 @@ STRICT INSTRUCTIONS:
       app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
     }
   }
-
-  // 404 handler for unhandled /api/* routes (e.g. POST to missing endpoints)
-  app.all('/api/*', (req, res) => {
-    res.status(404).json({ error: "Endpoint not found on Express server", method: req.method, path: req.path });
-  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

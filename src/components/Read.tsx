@@ -749,7 +749,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           {book.title}
                         </h4>
                         <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5">
-                          {book.author}
+                          {book.author === "Local File" ? t("localFile") : book.author}
                         </p>
                       </div>
 
@@ -784,7 +784,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   size="icon"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                   className="w-8 h-8 shrink-0"
-                  title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                  title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
                   {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
                 </Button>
@@ -805,7 +805,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                        size="icon" 
                        className="h-8 w-8" 
                        onClick={() => setCropBorders(!cropBorders)}
-                       title="Crop Page Borders"
+                       title={t("cropPageBorders")}
                      >
                         <Crop className="w-3.5 h-3.5" />
                      </Button>
@@ -814,7 +814,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                        size="icon" 
                        className="h-8 w-8" 
                        onClick={() => setGridView(!gridView)}
-                       title="Split Panels (Grid View)"
+                       title={t("splitPanels")}
                      >
                         <Grid className="w-3.5 h-3.5" />
                      </Button>
@@ -828,7 +828,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 >
                   <Settings className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title="Fullscreen">
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
                    <Maximize className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -850,7 +850,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   >
                   <div className="space-y-3 p-1">
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Font Size</label>
+                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontSizeLabel")}</label>
                         <div className="flex bg-muted rounded-md overflow-hidden p-0.5 items-center justify-between">
                              <button onClick={() => setFontSize(f => Math.max(8, f - 2))} className="px-3 py-1 flex-1 text-center font-bold hover:bg-background rounded text-muted-foreground cursor-pointer">-</button>
                              <input type="number" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value) || 18)} className="w-16 bg-transparent text-center focus:outline-none focus:ring-0 text-sm font-semibold text-foreground mx-1" />
@@ -858,12 +858,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Alignment</label>
+                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("alignmentLabel")}</label>
                         <div className="flex bg-muted rounded-md overflow-hidden p-0.5">
                            {[
-                             {id: 'text-left', label: 'Left'},
-                             {id: 'text-center', label: 'Center'},
-                             {id: 'text-justify', label: 'Justify'}
+                             {id: 'text-left', label: t("leftLabel")},
+                             {id: 'text-center', label: t("centerLabel")},
+                             {id: 'text-justify', label: t("justifyLabel")}
                            ].map(al => (
                              <button
                                key={al.id}
@@ -878,12 +878,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Font</label>
+                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontLabel")}</label>
                         <div className="flex flex-col gap-1">
                            {[
-                             {id: 'font-serif', label: 'Serif'},
-                             {id: 'font-sans', label: 'Sans-serif'},
-                             {id: 'font-mono', label: 'Monospace'}
+                             {id: 'font-serif', label: t("serifLabel")},
+                             {id: 'font-sans', label: t("sansSerifLabel")},
+                             {id: 'font-mono', label: t("monospaceLabel")}
                            ].map(font => (
                              <button
                                key={font.id}
@@ -898,13 +898,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Theme</label>
+                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("themeLabel")}</label>
                         <div className="grid grid-cols-2 gap-1.5">
                            {[
-                             {id: 'system', bg: '', text: '', label: 'System'},
-                             {id: 'sepia-light', bg: '#faf9f6', text: '#2c2c2c', label: 'Sepia Light'},
-                             {id: 'sepia-dark', bg: '#2c2c2c', text: '#d4d4d4', label: 'Sepia Dark'},
-                             {id: 'oled', bg: '#000000', text: '#d4d4d4', label: 'OLED'},
+                             {id: 'system', bg: '', text: '', label: t("system")},
+                             {id: 'sepia-light', bg: '#faf9f6', text: '#2c2c2c', label: t("sepiaLight")},
+                             {id: 'sepia-dark', bg: '#2c2c2c', text: '#d4d4d4', label: t("sepiaDark")},
+                             {id: 'oled', bg: '#000000', text: '#d4d4d4', label: t("oled")},
                            ].map(th => (
                              <button
                                key={th.id}
@@ -948,7 +948,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   className="absolute z-40 top-0 left-0 bottom-0 w-[160px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden"
                 >
                   <div className="p-3 border-b shrink-0 flex items-center justify-between">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Pages</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{t("pages")}</span>
                     <div className="flex items-center gap-1">
                       <Button 
                         variant="ghost" 
@@ -1016,14 +1016,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               <img src={thumbUrl} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
                             ) : (
                               <div className="text-[10px] font-medium text-muted-foreground p-1 text-center">
-                                Page {idx + 1}
+                                {t("page")} {idx + 1}
                               </div>
                             )}
                             <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
                               {idx + 1}
                             </div>
                             {panelsCache[idx] && (
-                              <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center" title="Layout Detected in Cache">
+                              <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center" title={t("layoutDetectedInCache")}>
                                 <Grid className="w-2.5 h-2.5" />
                               </div>
                             )}
@@ -1106,8 +1106,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </div>
               ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
                 <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title="Previous Page" />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
+                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
+                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-0">
                     <Document 
                       file={selectedBook.file} 
@@ -1143,8 +1143,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
                   return (
                     <>
-                       <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title="Previous Page" />
-                      <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
+                       <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
+                      <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
                       <div className="absolute inset-0 overflow-hidden pointer-events-none">
                          <div 
                             className={cn(
@@ -1187,8 +1187,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 })()
               ) : (
                 <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title="Previous Page" />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title="Next Page" />
+                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
+                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
                   <div className={cn(
                                  
                                  "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-4", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>

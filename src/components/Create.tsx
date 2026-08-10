@@ -621,6 +621,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
   removeBubble,
   onActivate,
 }) => {
+  const { t } = useLanguage();
   const [dimensions, setDimensions] = useState({ w: 120, h: 60 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -975,7 +976,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
             ? "text-black py-5 px-7 italic font-sans leading-tight"
             : "text-black py-2.5 px-4"
         }`}
-        title="Double click outside text to delete bubble"
+        title={t("doubleClickDeleteBubble")}
       >
         {bubble.text}
       </div>
@@ -989,7 +990,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
             left: `${tailX}px`,
             top: `${tailY}px`,
           }}
-          title="Drag to resize and reposition tail"
+          title={t("dragToResizeTail")}
         >
           <div className="w-1.5 h-1.5 bg-white rounded-full" />
         </div>
@@ -2239,7 +2240,7 @@ export const Create: React.FC<CreateProps> = ({
   }, [createMode, onActiveStateChange]);
 
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
-  const [newBubbleText, setNewBubbleText] = useState("Bubble dialogue...");
+  const [newBubbleText, setNewBubbleText] = useState("");
   const [bubbleStyle, setBubbleStyle] = useState<
     "classic" | "action" | "freehand"
   >("classic");
@@ -2414,7 +2415,7 @@ export const Create: React.FC<CreateProps> = ({
       }
     }
 
-    const hasManualText = newBubbleText && newBubbleText !== "Bubble dialogue..." && newBubbleText.trim() !== "";
+    const hasManualText = newBubbleText && newBubbleText.trim() !== "";
 
     // Fallback: If no handwriting strokes inside are found, but there are drawings and the user has manual text,
     // we use the largest stroke as the speech bubble outline!
@@ -2453,9 +2454,9 @@ export const Create: React.FC<CreateProps> = ({
 
     if (!detection || !targetPanelId || !targetLayout) {
       if (hasManualText) {
-        toast.info("Please use the Pen tool to draw a bubble outline on any panel first, then click Convert to place your typed text inside it!");
+        toast.info(t("usePenToolNotice"));
       } else {
-        toast.info("No speech bubble drawing detected. Draw a speech bubble outline and write some text inside it with the pen!");
+        toast.info(t("noBubbleDrawingNotice"));
       }
       cleanup();
       return;
@@ -2463,7 +2464,7 @@ export const Create: React.FC<CreateProps> = ({
 
     const pts = detection.bubbleOutline.stroke.points;
     if (!pts || pts.length === 0) {
-      toast.info("No points found in the detected bubble outline.");
+      toast.info(t("noPointsFoundNotice"));
       cleanup();
       return;
     }
@@ -2477,7 +2478,7 @@ export const Create: React.FC<CreateProps> = ({
     const strokeH = maxY - minY;
 
     if (strokeW < 1 && strokeH < 1) {
-      toast.warning("The drawn shape is too small. Draw a larger speech bubble!");
+      toast.warning(t("drawnShapeTooSmallNotice"));
       cleanup();
       return;
     }
@@ -2575,7 +2576,7 @@ export const Create: React.FC<CreateProps> = ({
       setActiveBubbleId(bubbleId);
       setBubbleStyle("freehand");
       setNewBubbleText(""); // Clear it so it doesn't trigger random fallbacks later
-      toast.success("Hand-drawn bubble created with your manual text!");
+      toast.success(t("handDrawnBubbleCreatedSuccess"));
       cleanup();
       return;
     }
@@ -2677,11 +2678,11 @@ export const Create: React.FC<CreateProps> = ({
         currentBubbles.map(b => b.id === bubbleId ? { ...b, text: finalTxt } : b)
       );
       setNewBubbleText(finalTxt);
-      toast.success("Handwriting transcribed successfully!");
+      toast.success(t("handwritingTranscribedSuccess"));
 
     } catch (err: any) {
       console.error(err);
-      toast.error("Handwriting transcribing failed: " + err.message);
+      toast.error(t("handwritingTranscribeFailed") + err.message);
       updateActivePageBubbles(
         currentBubbles.map(b => b.id === bubbleId ? { ...b, text: "Drawn bubble dialogue" } : b)
       );
@@ -2808,7 +2809,7 @@ export const Create: React.FC<CreateProps> = ({
         id: htmlEl.id,
         text:
           htmlEl.textContent ||
-          (htmlEl.tagName === "H1" ? "Untitled Title" : "Untitled Subtitle"),
+          (htmlEl.tagName === "H1" ? t("untitledTitle") : t("untitledSubtitle")),
         level: htmlEl.tagName === "H1" ? 1 : 2,
       };
     });
@@ -3536,14 +3537,14 @@ export const Create: React.FC<CreateProps> = ({
           className="gap-2 shrink-0 h-8 text-xs font-semibold"
         >
           <Download className="w-4 h-4" />{" "}
-          <span className="hidden sm:inline">Export</span>{" "}
+          <span className="hidden sm:inline">{t("export")}</span>{" "}
           <ChevronDown className="w-3 h-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuItem onClick={() => handlePublish()} className="cursor-pointer gap-2 font-medium">
           <Share2 className="w-4 h-4 text-primary shrink-0" />
-          <span>Publish</span>
+          <span>{t("publish")}</span>
         </DropdownMenuItem>
         <div className="w-full h-px bg-border my-1" />
         {createMode === "document" ? (
@@ -3577,7 +3578,7 @@ export const Create: React.FC<CreateProps> = ({
             </DropdownMenuItem>
             <div className="w-full h-px bg-border my-1" />
             <DropdownMenuItem onClick={() => handleExport("png")}>
-              Image (PNG)
+              {t("imageFormatPng")}
             </DropdownMenuItem>
           </>
         )}
@@ -3692,7 +3693,7 @@ export const Create: React.FC<CreateProps> = ({
                   <UserPlus className="w-3 h-3 mr-1" /> {t("signInToSync")}
                 </Button>
               )}
-              <span className="text-xs text-muted-foreground font-mono">{publishedWorks.filter((item) => checkIsAuthor(item, user)).length} work(s)</span>
+              <span className="text-xs text-muted-foreground font-mono">{t("worksCountLabel").replace("{count}", String(publishedWorks.filter((item) => checkIsAuthor(item, user)).length))}</span>
             </div>
           </div>
 
@@ -3725,7 +3726,7 @@ export const Create: React.FC<CreateProps> = ({
           <div className="space-y-4 pt-8 border-t">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedComics")}</h3>
-              <span className="text-xs text-muted-foreground font-mono">{unfinishedComics.length} item(s)</span>
+              <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedComics.length))}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {unfinishedComics.map((comic) => (
@@ -3781,7 +3782,7 @@ export const Create: React.FC<CreateProps> = ({
                           </div>
                           {comic.pages[0].bubbles?.length > 0 && (
                             <div className="absolute bottom-1 right-1 bg-primary text-primary-foreground text-[7px] font-black px-1">
-                              {comic.pages[0].bubbles.length} Bubbles
+                              {comic.pages[0].bubbles.length} {t("bubbles")}
                             </div>
                           )}
                         </div>
@@ -3808,7 +3809,7 @@ export const Create: React.FC<CreateProps> = ({
 
                     <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-2">
                       <span className="text-[10px] text-muted-foreground font-mono">
-                        {comic.pages.length} page(s)
+                        {t("pagesCountLabel").replace("{count}", String(comic.pages.length))}
                       </span>
                       <Button
                         variant="ghost"
@@ -3836,7 +3837,7 @@ export const Create: React.FC<CreateProps> = ({
           <div className="space-y-4 pt-8 border-t">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
-              <span className="text-xs text-muted-foreground font-mono">{unfinishedStories.length} item(s)</span>
+              <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedStories.length))}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {unfinishedStories.map((story) => (
@@ -3904,7 +3905,7 @@ export const Create: React.FC<CreateProps> = ({
                 size="icon"
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                 className="w-8 h-8 shrink-0"
-                title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
               >
                 {isSidebarOpen ? (
                   <PanelLeftClose className="w-4 h-4" />
@@ -3920,7 +3921,7 @@ export const Create: React.FC<CreateProps> = ({
                 className="gap-2 text-xs font-semibold px-3 shrink-0"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />{" "}
-                <span className="hidden sm:inline">Back</span>
+                <span className="hidden sm:inline">{t("back")}</span>
               </Button>
               <div className="w-px h-5 bg-border mx-1 shrink-0" />
               <div className="flex items-center gap-0.5">
@@ -3929,10 +3930,10 @@ export const Create: React.FC<CreateProps> = ({
                   size="sm"
                   className="gap-2 shrink-0 h-8 text-xs font-semibold"
                   onClick={insertImageToDoc}
-                  title="Insert Image"
+                  title={t("insertImageTooltip")}
                 >
                   <ImageIcon className="w-4 h-4" />{" "}
-                  <span className="hidden sm:inline">Image</span>
+                  <span className="hidden sm:inline">{t("image")}</span>
                 </Button>
               </div>
             </div>
@@ -3949,7 +3950,7 @@ export const Create: React.FC<CreateProps> = ({
                     onClick={() => execDocCommand("formatBlock", "H1")}
                   >
                     <Heading1 className="w-3.5 h-3.5 sm:mr-1.5" />{" "}
-                    <span className="hidden sm:inline">Title</span>
+                    <span className="hidden sm:inline">{t("title")}</span>
                   </Button>
                   <Button
                     variant="ghost"
@@ -3960,7 +3961,7 @@ export const Create: React.FC<CreateProps> = ({
                     onClick={() => execDocCommand("formatBlock", "H2")}
                   >
                     <Heading2 className="w-3.5 h-3.5 sm:mr-1.5" />{" "}
-                    <span className="hidden sm:inline">Subtitle</span>
+                    <span className="hidden sm:inline">{t("subtitle")}</span>
                   </Button>
                   <div className="w-px h-4 bg-border mx-1" />
                   <Button
@@ -3972,7 +3973,7 @@ export const Create: React.FC<CreateProps> = ({
                     onClick={() => execDocCommand("formatBlock", "P")}
                   >
                     <Type className="w-3.5 h-3.5 sm:mr-1.5" />{" "}
-                    <span className="hidden sm:inline">Text</span>
+                    <span className="hidden sm:inline">{t("text")}</span>
                   </Button>
                   <div className="w-px h-4 bg-border mx-1 border-r border-border" />
                   <Button
@@ -4001,7 +4002,7 @@ export const Create: React.FC<CreateProps> = ({
                   value={storyTitle}
                   onChange={(e) => setStoryTitle(e.target.value)}
                   className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
-                  placeholder="Story Title"
+                  placeholder={t("storyTitlePlaceholder")}
                 />
               )}
             </div>
@@ -4193,7 +4194,7 @@ export const Create: React.FC<CreateProps> = ({
                 >
                   <div className="p-3 border-b shrink-0 flex items-center justify-between bg-muted/30">
                     <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-                      <List className="w-3 h-3" /> Outline
+                      <List className="w-3 h-3" /> {t("outline")}
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto no-scrollbar py-2">
@@ -4223,7 +4224,7 @@ export const Create: React.FC<CreateProps> = ({
                     ))}
                     {tocItems.length === 0 && (
                       <div className="text-center p-4 text-xs font-semibold text-muted-foreground/60">
-                        Empty outline
+                        {t("emptyOutline")}
                       </div>
                     )}
                   </div>
@@ -4358,7 +4359,7 @@ export const Create: React.FC<CreateProps> = ({
               className="relative w-full max-w-4xl bg-card border shadow-sm p-8 md:p-12 overflow-y-auto font-serif text-lg leading-relaxed outline-none [&_img]:max-w-full [&_img]:my-4 [&_img]:rounded-md [&_h1]:text-4xl [&_h1]:font-extrabold [&_h1]:text-foreground [&_h1]:mb-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-muted-foreground [&_h2]:mb-4 [&_h2]:mt-8 [&_p]:mb-4 editor-doc h-full print-content"
               contentEditable
               suppressContentEditableWarning
-              data-placeholder="Start writing your story..."
+              data-placeholder={t("startWritingYourStory")}
               style={{ emptyCells: "show" }}
               onInput={updateToc}
             ></div>
@@ -4371,11 +4372,11 @@ export const Create: React.FC<CreateProps> = ({
             .editor-doc h2 { border-bottom: 1px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 1rem; }
             .editor-doc img { page-break-inside: avoid; break-inside: avoid; }
             .editor-doc p { cursor: text; outline: none; }
-            .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: 'Title'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: 'Subtitle'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc:empty:before, .editor-doc:has(> br:only-child):before { content: 'Start writing your story...'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc p:empty:before, .editor-doc p:has(> br:only-child):before { content: 'Start writing your story...'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc div:empty:before, .editor-doc div:has(> br:only-child):before { content: 'Start writing your story...'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: '${t("title").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: '${t("subtitle").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc:empty:before, .editor-doc:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc p:empty:before, .editor-doc p:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc div:empty:before, .editor-doc div:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
          `,
             }}
           />
@@ -4395,7 +4396,7 @@ export const Create: React.FC<CreateProps> = ({
               size="icon"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="w-8 h-8 shrink-0"
-              title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+              title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
             >
               {isSidebarOpen ? (
                 <PanelLeftClose className="w-4 h-4" />
@@ -4411,7 +4412,7 @@ export const Create: React.FC<CreateProps> = ({
               className="gap-1 text-xs font-semibold px-2 shrink-0"
             >
               <ChevronLeft className="w-3.5 h-3.5" />{" "}
-              <span className="hidden sm:inline">Back</span>
+              <span className="hidden sm:inline">{t("back")}</span>
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
@@ -4424,10 +4425,10 @@ export const Create: React.FC<CreateProps> = ({
                   if (val) setDrawTool("pen");
                 }}
                 className={`gap-1 px-2 text-xs font-semibold ${isDrawingMode ? "bg-primary/20 text-primary hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
-                title="Draw Mode (Hotkey: D)"
+                title={t("drawModeTooltip")}
               >
                 <PenTool className="w-4 h-4" />{" "}
-                <span className="hidden sm:inline">Draw</span>
+                <span className="hidden sm:inline">{t("draw")}</span>
               </Button>
             </div>
 
@@ -4440,7 +4441,7 @@ export const Create: React.FC<CreateProps> = ({
                     size="icon"
                     className="w-7 h-7 rounded-full"
                     onClick={() => setDrawTool("pen")}
-                    title="Pen (P)"
+                    title={t("penTooltip")}
                   >
                     <PenTool className="w-3.5 h-3.5" />
                   </Button>
@@ -4449,7 +4450,7 @@ export const Create: React.FC<CreateProps> = ({
                     size="icon"
                     className="w-7 h-7 rounded-full"
                     onClick={() => setDrawTool("erase")}
-                    title="Erase (E)"
+                    title={t("eraseTooltip")}
                   >
                     <Eraser className="w-3.5 h-3.5" />
                   </Button>
@@ -4458,7 +4459,7 @@ export const Create: React.FC<CreateProps> = ({
                     size="icon"
                     className="w-7 h-7 rounded-full"
                     onClick={() => setDrawTool("fill")}
-                    title="Fill (F)"
+                    title={t("fillTooltip")}
                   >
                     <PaintBucket className="w-3.5 h-3.5" />
                   </Button>
@@ -4467,7 +4468,7 @@ export const Create: React.FC<CreateProps> = ({
                     size="icon"
                     className="w-7 h-7 rounded-full"
                     onClick={() => setDrawTool("select")}
-                    title="Lasso (L)"
+                    title={t("lassoTooltip")}
                   >
                     <LassoSelect className="w-3.5 h-3.5" />
                   </Button>
@@ -4480,7 +4481,7 @@ export const Create: React.FC<CreateProps> = ({
                       touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
                     )}
                     onClick={() => setTouchOff(!touchOff)}
-                    title={touchOff ? "Touch Off (Pen only, Palm rejection active)" : "Touch On (Finger drawing enabled)"}
+                    title={touchOff ? t("touchOffTooltip") : t("touchOnTooltip")}
                   >
                     <Hand className="w-3.5 h-3.5" />
                   </Button>
@@ -4490,7 +4491,7 @@ export const Create: React.FC<CreateProps> = ({
                     value={drawColor}
                     onChange={(e) => setDrawColor(e.target.value)}
                     className="w-5 h-5 rounded cursor-pointer border-0 p-0"
-                    title="Color"
+                    title={t("colorTooltip")}
                   />
                   <input
                     type="range"
@@ -4499,7 +4500,7 @@ export const Create: React.FC<CreateProps> = ({
                     value={drawRadius}
                     onChange={(e) => setDrawRadius(parseInt(e.target.value))}
                     className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
-                    title="Brush Size"
+                    title={t("brushSizeTooltip")}
                   />
                 </div>
               </>
@@ -4512,7 +4513,7 @@ export const Create: React.FC<CreateProps> = ({
               value={comicTitle}
               onChange={(e) => setComicTitle(e.target.value)}
               className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
-              placeholder="Comic Title"
+              placeholder={t("comicTitlePlaceholder")}
             />
           </div>
 
@@ -4526,7 +4527,7 @@ export const Create: React.FC<CreateProps> = ({
               className="gap-2 shrink-0 h-8 text-xs font-semibold"
             >
               <MessageSquare className="w-3.5 h-3.5" />{" "}
-              <span className="hidden sm:inline">bubbles</span>
+              <span className="hidden sm:inline">{t("bubbles")}</span>
             </Button>
           </div>
         </div>
@@ -4587,7 +4588,7 @@ export const Create: React.FC<CreateProps> = ({
               >
                 <div className="p-3 border-b shrink-0 flex items-center justify-between">
                   <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                    Pages
+                    {t("pages")}
                   </span>
                   <Button
                     variant="ghost"
@@ -4604,7 +4605,7 @@ export const Create: React.FC<CreateProps> = ({
                       ]);
                       setActivePageIndex(comicPages.length);
                     }}
-                    title="Add Page"
+                    title={t("addPage")}
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </Button>
@@ -4618,7 +4619,7 @@ export const Create: React.FC<CreateProps> = ({
                     >
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-1">
                         <span className="text-[9px] font-bold text-white shadow-sm">
-                          Page {idx + 1}
+                          {t("page")} {idx + 1}
                         </span>
                       </div>
                       {comicPages.length > 1 && (
@@ -4808,7 +4809,7 @@ export const Create: React.FC<CreateProps> = ({
                           target.addEventListener("pointerup", onPointerUp);
                         }}
                         className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 border border-white rounded-full flex items-center justify-center cursor-move shadow-md z-50 text-white select-none touch-none hover:bg-red-600 transition-colors"
-                        title="Drag to move bubble"
+                        title={t("dragToMoveBubble")}
                       >
                         <Move className="w-3 h-3 text-white stroke-[3px]" />
                       </div>
@@ -4841,20 +4842,19 @@ export const Create: React.FC<CreateProps> = ({
                 >
                   <Card className="p-4 border border-border rounded-none shadow-none bg-card space-y-4">
                     <h3 className="text-sm font-bold text-foreground">
-                      Bubble Creator Dialogue
+                      {t("bubbleCreatorDialogue")}
                     </h3>
 
                     <div className="space-y-2">
                       <div className="flex justify-between items-center bg-muted/50 p-2 rounded-md border border-border">
                         <div className="flex flex-col flex-1 mr-2 gap-2">
                           <span className="text-[10px] font-mono font-bold text-muted-foreground flex items-center gap-1">
-                            <Sparkles className="w-3 h-3 text-primary" /> AI
-                            WRITER
+                            <Sparkles className="w-3 h-3 text-primary" /> {t("aiWriter")}
                           </span>
                           <input
                             value={aiPrompt}
                             onChange={(e) => setAiPrompt(e.target.value)}
-                            placeholder="E.g. Hero's dramatic entrance..."
+                            placeholder={t("heroEntrancePlaceholder")}
                             className="w-full text-xs p-1.5 border border-border bg-background rounded-sm outline-none focus:border-primary"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") generateText();
@@ -4867,11 +4867,11 @@ export const Create: React.FC<CreateProps> = ({
                           disabled={isGeneratingText || !aiPrompt.trim()}
                           className="h-8 text-[10px] mt-6"
                         >
-                          {isGeneratingText ? "..." : "Generate"}
+                          {isGeneratingText ? "..." : t("generate")}
                         </Button>
                       </div>
                       <label className="text-[10px] font-mono font-bold text-muted-foreground block mt-4">
-                        TEXT VALUE
+                        {t("textValue")}
                       </label>
                       <textarea
                         ref={textareaRef}
@@ -4883,13 +4883,13 @@ export const Create: React.FC<CreateProps> = ({
                         }}
                         className="w-full text-xs font-semibold p-2 border border-border bg-background h-16 resize-none rounded-none outline-none focus:border-primary"
                       />
-                      {newBubbleText && newBubbleText !== "Bubble dialogue..." && !activeBubbleId && (
+                      {newBubbleText && newBubbleText.trim() !== "" && !activeBubbleId && (
                         <div className="p-2 bg-indigo-50 border border-indigo-100 text-indigo-950 text-[10px] rounded-none mt-1 space-y-1 leading-normal">
                           <p className="font-semibold text-indigo-900 flex items-center gap-1">
-                            ✏️ Manual Text Entered
+                            ✏️ {t("manualTextEntered")}
                           </p>
                           <p>
-                            Draw a bubble outline on any panel with the <strong>Pen tool</strong>, then click <strong>Convert Hand-Drawn Bubble</strong> below to move this text inside that shape!
+                            {t("manualTextEnteredDesc")}
                           </p>
                         </div>
                       )}
@@ -4897,7 +4897,7 @@ export const Create: React.FC<CreateProps> = ({
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-muted-foreground block">
-                        BUBBLE EXPRESSION STYLE
+                        {t("bubbleExpressionStyle")}
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         {(["classic", "action", "freehand"] as const).map(
@@ -4923,7 +4923,7 @@ export const Create: React.FC<CreateProps> = ({
                                 }
                               }}
                             >
-                              {style}
+                              {style === "classic" ? t("classic") : style === "action" ? t("action") : t("freehand")}
                             </Button>
                           ),
                         )}
@@ -4933,7 +4933,7 @@ export const Create: React.FC<CreateProps> = ({
                     {bubbleStyle === "freehand" && (
                       <div className="p-2 border border-amber-200 bg-amber-50/50 rounded-none space-y-1.5 transition-all">
                         <p className="text-[10px] text-amber-800 leading-tight">
-                          ✍️ <strong>Freehand Mode:</strong> Draw a bubble outline on any panel using the pen tool, then click convert to transform it into an interactive bubble overlay with AI text transcription.
+                          ✍️ <strong>{t("freehand")}:</strong> {t("freehandModeDesc")}
                         </p>
                         <Button
                           variant="secondary"
@@ -4944,11 +4944,11 @@ export const Create: React.FC<CreateProps> = ({
                         >
                           {isTranscribing ? (
                             <>
-                              <span className="animate-spin text-amber-600">🌀</span> Transcribing Handwriting...
+                              <span className="animate-spin text-amber-600">🌀</span> {t("transcribingHandwriting")}
                             </>
                           ) : (
                             <>
-                              🪄 Convert Hand-Drawn Bubble
+                              🪄 {t("convertHandDrawnBubble")}
                             </>
                           )}
                         </Button>
@@ -4959,7 +4959,7 @@ export const Create: React.FC<CreateProps> = ({
                       onClick={addBubble}
                       className="w-full gap-2 rounded-none bg-primary hover:bg-primary/95 text-xs text-primary-foreground h-9 font-bold"
                     >
-                      <Plus className="w-4 h-4" /> Add Bubble to Panel
+                      <Plus className="w-4 h-4" /> {t("addBubbleToPanel")}
                     </Button>
                   </Card>
 
@@ -4991,7 +4991,7 @@ export const Create: React.FC<CreateProps> = ({
                       }}
                     >
                       <Trash2 className="w-4 h-4" />
-                      Reset Panel
+                      {t("resetPanel")}
                     </Button>
                   </div>
                 </motion.aside>

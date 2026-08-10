@@ -62,7 +62,7 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="relative flex items-center">
-        <Button size="icon" variant="ghost" className={cn("h-8 w-8 hover:bg-muted shrink-0", !isColorFolded && "text-primary")} onClick={() => setIsColorFolded(!isColorFolded)} title="Colors">
+        <Button size="icon" variant="ghost" className={cn("h-8 w-8 hover:bg-muted shrink-0", !isColorFolded && "text-primary")} onClick={() => setIsColorFolded(!isColorFolded)} title={t("colors")}>
           <Palette className="h-4 w-4" />
         </Button>
         
@@ -92,7 +92,7 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
                       }
                       setIsColorFolded(true);
                     }}
-                    title={c === 'none' ? 'No Outline' : c}
+                    title={c === 'none' ? t("noOutline") : c}
                   >
                     {c === 'none' && <X className="w-3 h-3 text-muted-foreground" />}
                   </button>
@@ -105,19 +105,19 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
 
       <div className="w-px h-5 bg-border mx-0.5" />
 
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onUpdate({ isHighContrast: !isHighContrast })} title="High Contrast">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onUpdate({ isHighContrast: !isHighContrast })} title={t("highContrast")}>
         <Contrast className={cn("h-4 w-4", isHighContrast && "text-primary")} />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onMoveLayer('up')} title="Layer Up (U)">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onMoveLayer('up')} title={t("layerUp")}>
         <ArrowUp className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onMoveLayer('down')} title="Layer Down (D)">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onClick={() => onMoveLayer('down')} title={t("layerDown")}>
         <ArrowDown className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className={cn("h-8 w-8 shrink-0 hover:bg-muted", isCropping && "text-primary bg-muted")} onClick={() => onCropToggle && onCropToggle()} title="Crop">
+      <Button size="icon" variant="ghost" className={cn("h-8 w-8 shrink-0 hover:bg-muted", isCropping && "text-primary bg-muted")} onClick={() => onCropToggle && onCropToggle()} title={t("crop")}>
         <Crop className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onPointerDown={onPointerDownMove} draggable={!!onDragStartMove} onDragStart={onDragStartMove} title="Move">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0" onPointerDown={onPointerDownMove} draggable={!!onDragStartMove} onDragStart={onDragStartMove} title={t("move")}>
         <Move className="h-4 w-4" />
       </Button>
       <div className="w-px h-5 bg-border mx-0.5" />
@@ -136,19 +136,19 @@ export const ImageToolbar: React.FC<ImageToolbarProps> = ({
               }
           };
           input.click();
-      }} title="Replace Image">
+      }} title={t("replaceImage")}>
         <ImageIcon className="h-4 w-4" />
       </Button>
       <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0 text-[#2DC6CF]" onClick={onClickAskAI} title={t("askAiAgent")}>
         <Bot className="h-4 w-4" />
       </Button>
       {onRegenerate && (
-        <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0 text-amber-500" onClick={onRegenerate} title="Regenerate Image">
+        <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted shrink-0 text-amber-500" onClick={onRegenerate} title={t("regenerateImage")}>
           <RefreshCw className="h-4 w-4" />
         </Button>
       )}
       <div className="w-px h-5 bg-border mx-0.5" />
-      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-destructive/10 text-destructive hover:text-destructive shrink-0" onClick={onDelete} title="Delete">
+      <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-destructive/10 text-destructive hover:text-destructive shrink-0" onClick={onDelete} title={t("delete")}>
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>

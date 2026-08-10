@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageToolbar } from './ImageToolbar';
 import { getStroke } from 'perfect-freehand';
+import { useLanguage } from '@/context/LanguageContext';
 
 export type Point = { 
   x: number; 
@@ -211,6 +212,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   touchOff = false,
   setTouchOff
 }) => {
+  const { t } = useLanguage();
   const addAtEdge = (edge: 'top' | 'bottom' | 'left' | 'right') => {
     let newTree: TreeNode;
     if (edge === 'left') {
@@ -264,7 +266,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           variant="secondary" 
           className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
           onClick={() => addAtEdge('top')}
-          title="Add panel at top edge"
+          title={t("addPanelTop")}
         >
           <Plus className="w-3.5 h-3.5 stroke-[3]" />
         </Button>
@@ -277,7 +279,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           variant="secondary" 
           className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
           onClick={() => addAtEdge('bottom')}
-          title="Add panel at bottom edge"
+          title={t("addPanelBottom")}
         >
           <Plus className="w-3.5 h-3.5 stroke-[3]" />
         </Button>
@@ -290,7 +292,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           variant="secondary" 
           className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
           onClick={() => addAtEdge('left')}
-          title="Add panel at left edge"
+          title={t("addPanelLeft")}
         >
           <Plus className="w-3.5 h-3.5 stroke-[3]" />
         </Button>
@@ -303,7 +305,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           variant="secondary" 
           className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
           onClick={() => addAtEdge('right')}
-          title="Add panel at right edge"
+          title={t("addPanelRight")}
         >
           <Plus className="w-3.5 h-3.5 stroke-[3]" />
         </Button>
@@ -1137,6 +1139,7 @@ const PanelView: React.FC<{
   touchOff,
   setTouchOff
 }) => {
+  const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isColorFolded, setIsColorFolded] = useState(true);
   const [isCropping, setIsCropping] = useState(false);
@@ -1249,8 +1252,8 @@ const PanelView: React.FC<{
             </div>
         ) : !isDrawingMode && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-zinc-400 font-mono text-sm pointer-events-none p-2" data-export-ignore="true">
-                <span>Tap to insert image</span>
-                <span className="text-xs text-zinc-400/70 mt-1">Double tap to remove</span>
+                <span>{t("tapToInsertImage")}</span>
+                <span className="text-xs text-zinc-400/70 mt-1">{t("doubleTapToRemove")}</span>
             </div>
         )}
         {showAiIcon && node.imageUrl && (

@@ -1,23 +1,96 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Core Root Navigation -->
   <url>
     <loc>https://ebookcc.com/</loc>
-    <changefreq>weekly</changefreq>
+    <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://ebookcc.com/read</loc>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://ebookcc.com/create</loc>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://ebookcc.com/convert</loc>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
+
+  <!-- English (en) -->
+  <url><loc>https://ebookcc.com/en</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/en/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/en/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/en/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Japanese (jp) -->
+  <url><loc>https://ebookcc.com/jp</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/jp/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/jp/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/jp/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Traditional Chinese (zh-Hant) -->
+  <url><loc>https://ebookcc.com/zh-Hant</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hant/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hant/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hant/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Simplified Chinese (zh-Hans) -->
+  <url><loc>https://ebookcc.com/zh-Hans</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hans/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hans/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/zh-Hans/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- French (fr) -->
+  <url><loc>https://ebookcc.com/fr</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/fr/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/fr/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/fr/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Spanish (es) -->
+  <url><loc>https://ebookcc.com/es</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/es/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/es/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/es/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Portuguese (pt) -->
+  <url><loc>https://ebookcc.com/pt</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/pt/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/pt/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/pt/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Korean (ko) -->
+  <url><loc>https://ebookcc.com/ko</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ko/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ko/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ko/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- German (de) -->
+  <url><loc>https://ebookcc.com/de</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/de/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/de/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/de/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Arabic (ar) -->
+  <url><loc>https://ebookcc.com/ar</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ar/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ar/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ar/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Russian (ru) -->
+  <url><loc>https://ebookcc.com/ru</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ru/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ru/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/ru/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Italian (it) -->
+  <url><loc>https://ebookcc.com/it</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/it/read</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/it/create</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ebookcc.com/it/convert</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
 </urlset>

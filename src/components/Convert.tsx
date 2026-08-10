@@ -2030,6 +2030,7 @@ const ManualTextItem = ({
   manualTextRef,
   setIsAddingTextMode
 }: ManualTextItemProps) => {
+  const { t } = useLanguage();
   const [isColorFolded, setIsColorFolded] = useState(true);
   const dragControls = useDragControls();
   const itemRef = React.useRef<HTMLDivElement>(null);
@@ -2251,7 +2252,7 @@ const ManualTextItem = ({
                 size="icon"
                 className={cn("w-7 h-7 hover:bg-muted shrink-0", !isColorFolded && "text-primary")}
                 onClick={() => setIsColorFolded(!isColorFolded)}
-                title={isColorFolded ? "Show Colors" : "Hide Colors"}
+                title={isColorFolded ? t("showColors") : t("hideColors")}
               >
                 <Palette className="w-4 h-4" />
               </Button>
@@ -2356,7 +2357,7 @@ const ManualTextItem = ({
                   }
                 }
               }}
-              title="Layer Up (U)"
+              title={t("layerUp")}
             >
               <ArrowUp className="h-4 w-4" />
             </Button>
@@ -2377,7 +2378,7 @@ const ManualTextItem = ({
                   }
                 }
               }}
-              title="Layer Down (D)"
+              title={t("layerDown")}
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
@@ -2386,7 +2387,7 @@ const ManualTextItem = ({
               variant="ghost"
               className="h-8 w-8"
               onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e); }}
-              title="Move"
+              title={t("move")}
             >
               <Move className="h-4 w-4" />
             </Button>
@@ -4948,7 +4949,7 @@ ${navItems}    </ol>
                         toast.success("Log removed.");
                       }}
                       className="w-8 h-8 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all rounded-none shrink-0"
-                      title="Remove from history"
+                      title={t("removeFromHistory")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -5255,7 +5256,7 @@ ${navItems}    </ol>
                               setSelectedPages(new Set());
                             }}
                             className="h-7 w-7 p-0 shrink-0"
-                            title="Ignore Selected"
+                            title={t("ignoreSelected")}
                           >
                             <X className="w-3.5 h-3.5" />
                           </Button>
@@ -5307,7 +5308,7 @@ ${navItems}    </ol>
                   onClick={() => setShowApiKeyModal(true)} 
                   className="w-8 h-8 !rounded-full rounded-full hover:bg-muted overflow-hidden !overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
                   style={{ borderRadius: "9999px" }}
-                  title={user ? (user.name ? `${user.name} (${user.email}) - App Settings` : `${user.email} - App Settings`) : "App Settings"}
+                  title={user ? (user.name ? `${user.name} (${user.email}) - ${t("appSettings")}` : `${user.email} - ${t("appSettings")}`) : t("appSettings")}
                 >
                   {user ? (
                     (user.avatarUrl || user.photoURL) ? (
@@ -5335,7 +5336,7 @@ ${navItems}    </ol>
                   size="icon" 
                   onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
                   className="w-8 h-8 rounded-md hover:bg-muted"
-                  title="Toggle Dark Mode"
+                  title={t("toggleDarkMode")}
                 >
                   {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
                 </Button>
@@ -5355,7 +5356,7 @@ ${navItems}    </ol>
                   className="relative z-40 w-[160px] border-r bg-background/95 backdrop-blur-md shadow-sm flex flex-col overflow-hidden h-full shrink-0"
                 >
                   <div className="p-3 border-b shrink-0 flex items-center justify-between">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Pages</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{t("pages")}</span>
                     <div className="flex items-center gap-1">
                       <Button 
                         variant="ghost" 
@@ -5748,10 +5749,10 @@ ${navItems}    </ol>
             >
               <div className="flex justify-between items-center">
                 <div className="space-y-1">
-                  <h2 className="text-2xl font-bold">{collageStep === 'template' ? 'Choose Layout' : 'Advanced Settings'}</h2>
+                  <h2 className="text-2xl font-bold">{collageStep === 'template' ? t('chooseLayout') : 'Advanced Settings'}</h2>
                   <p className="text-sm text-muted-foreground">
                     {collageStep === 'template' 
-                      ? `Select one or more templates for ${pendingFiles.length} images` 
+                      ? t('selectTemplates').replace('{count}', String(pendingFiles.length)) 
                       : 'Customize how images are rendered in the collage'}
                   </p>
                 </div>
@@ -5872,7 +5873,7 @@ ${navItems}    </ol>
                         }}
                       >
                         <Shuffle className="w-4 h-4 mr-2" />
-                        Random Layouts
+                        {t("randomLayouts")}
                       </Button>
                       <Button 
                         variant="outline"
@@ -5882,7 +5883,7 @@ ${navItems}    </ol>
                             processUploadedFiles(pendingFiles);
                         }}
                       >
-                        Skip Collage
+                        {t("skipCollage")}
                       </Button>
                     </div>
                     <Button 
@@ -5890,7 +5891,7 @@ ${navItems}    </ol>
                       disabled={selectedTemplates.length === 0 && !isRandomMode}
                       onClick={() => setCollageStep('settings')}
                     >
-                      Continue to Settings
+                      {t("continueToSettings")}
                       <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                   </>
@@ -5902,7 +5903,7 @@ ${navItems}    </ol>
                       onClick={() => setCollageStep('template')}
                     >
                       <ChevronLeft className="w-4 h-4 mr-2" />
-                      Back to Layouts
+                      {t("backToLayouts")}
                     </Button>
                     <Button 
                       className="flex-[2] h-12 font-bold"
@@ -6037,7 +6038,7 @@ ${navItems}    </ol>
                       }}
                     >
                       <Sparkles className="w-4 h-4 mr-2" />
-                      Generate {pendingFiles.length} Images to Collages
+                      {t("generateImagesToCollages").replace("{count}", String(pendingFiles.length))}
                     </Button>
                   </>
                 )}
@@ -6057,11 +6058,25 @@ ${navItems}    </ol>
               <Loader2 className="w-12 h-12 text-primary animate-spin" />
             )}
             <div className="text-center">
-              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">{loadingText}</h3>
+              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">
+                {(() => {
+                  switch (loadingText) {
+                    case "Initializing...": return t("initializing");
+                    case "Processing Files...": return t("processingFiles");
+                    case "Unzipping Archive...": return t("unzippingArchive");
+                    case "Extracting Images...": return t("extractingImages");
+                    case "Loading PDF...": return t("loadingPdf");
+                    case "Extracting Pages...": return t("extractingPages");
+                    case "Identifying files...": return t("identifyingFiles");
+                    case "Creating Collages...": return t("creatingCollages");
+                    default: return loadingText;
+                  }
+                })()}
+              </h3>
               <p className="text-muted-foreground font-medium text-lg leading-tight px-4 min-h-[3rem]">
                 {loadingText.toLowerCase().includes("collage") || loadingText.toLowerCase().includes("reading") || loadingText.toLowerCase().includes("identifying")
-                  ? "Organizing your images into layout templates" 
-                  : "Preparing your ebook pages for processing"}
+                  ? t("organizingImagesLayout") 
+                  : t("preparingEbookPages")}
               </p>
             </div>
 

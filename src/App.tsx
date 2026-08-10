@@ -7,6 +7,7 @@ import Convert from "./components/Convert";
 import logoImg from "./assets/logo.svg";
 import { Read } from "./components/Read";
 import { Create } from "./components/Create";
+import { FAQ } from "./components/FAQ";
 import { Bookshelf } from "./components/Bookshelf";
 import { AIAgentChat } from "./components/AIAgentChat";
 import { Toaster } from "@/components/ui/sonner";
@@ -17,6 +18,7 @@ import {
   BookOpen,
   PenTool,
   Wrench,
+  HelpCircle,
   Heart,
   Sparkles,
   Coffee,
@@ -147,7 +149,7 @@ function AppContent() {
   const { t, language, setLanguage, buildPath } = useLanguage();
 
   const [currentPath, setCurrentPath] = useState<
-    "home" | "read" | "create" | "convert"
+    "home" | "read" | "create" | "convert" | "faq"
   >(() => {
     const { view } = parseLanguageAndRouteFromPath(window.location.pathname);
     return view;
@@ -235,7 +237,7 @@ function AppContent() {
   }, []);
 
   const navigate = (
-    view: "home" | "read" | "create" | "convert",
+    view: "home" | "read" | "create" | "convert" | "faq",
     query?: string,
   ) => {
     const path = buildPath(view) + (query || "");
@@ -306,6 +308,7 @@ function AppContent() {
                   {t("convert")}
                 </span>
               </Button>
+
             </nav>
 
             {/* Right Layout Controls */}
@@ -558,6 +561,13 @@ function AppContent() {
                     </a>
                   </span>
                   <span className="hidden sm:inline text-border">|</span>
+                  <button
+                    onClick={() => navigate("faq")}
+                    className="underline hover:text-primary transition-colors cursor-pointer font-medium"
+                  >
+                    {t("faq") || "FAQ"}
+                  </button>
+                  <span className="hidden sm:inline text-border">|</span>
                   <LanguageSelector />
                 </div>
               </footer>
@@ -584,6 +594,7 @@ function AppContent() {
             onActiveStateChange={setHeaderHidden}
           />
         )}
+        {currentPath === "faq" && <FAQ navigate={navigate} />}
       </main>
 
       {/* Floating Global Ko-fi Button */}

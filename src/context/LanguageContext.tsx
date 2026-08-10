@@ -2059,7 +2059,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     allProcessAll: "전체 (일괄 처리)",
     cropPageBorders: "페이지 테두리 자르기",
     cropPageBordersDesc: "여백 감지 및 제거",
-    splitPanels: "컷 분割 (패널 분할)",
+    splitPanels: "컷 분할 (패널 분할)",
     splitPanelsDesc: "개별 컷 감지 및 분할",
     extractTextOcr: "텍스트 추출 (OCR)",
     extractTextOcrDesc: "Gemini Flash로 텍스트 추출",
@@ -3460,7 +3460,7 @@ export function detectBrowserLanguage(): LanguageCode {
 
 export function parseLanguageAndRouteFromPath(pathname: string): {
   lang: LanguageCode | null;
-  view: "home" | "read" | "create" | "convert";
+  view: "home" | "read" | "create" | "convert" | "faq";
 } {
   const cleanPath = pathname.trim();
   const segments = cleanPath.split("/").filter(Boolean);
@@ -3478,36 +3478,58 @@ export function parseLanguageAndRouteFromPath(pathname: string): {
 
   if (matchedLang) {
     const remainingSeg = segments[1] ? segments[1].toLowerCase() : "";
-    let view: "home" | "read" | "create" | "convert" = "home";
+    let view: "home" | "read" | "create" | "convert" | "faq" = "home";
     if (remainingSeg === "read") view = "read";
     else if (remainingSeg === "create") view = "create";
     else if (remainingSeg === "convert") view = "convert";
+    else if (remainingSeg === "faq") view = "faq";
     return { lang: matchedLang.code, view };
   }
 
-  let view: "home" | "read" | "create" | "convert" = "home";
+  let view: "home" | "read" | "create" | "convert" | "faq" = "home";
   const seg0 = firstSeg.toLowerCase();
   if (seg0 === "read") view = "read";
   else if (seg0 === "create") view = "create";
   else if (seg0 === "convert") view = "convert";
+  else if (seg0 === "faq") view = "faq";
 
   return { lang: null, view };
 }
 
 export function buildPathWithLanguage(
   lang: LanguageCode,
-  view: "home" | "read" | "create" | "convert"
+  view: "home" | "read" | "create" | "convert" | "faq"
 ): string {
   const viewPath = view === "home" ? "" : `/${view}`;
   return `/${lang}${viewPath}`;
 }
 
+export function getBcp47Locale(lang: LanguageCode): string {
+  switch (lang) {
+    case "en": return "en-US";
+    case "jp": return "ja-JP";
+    case "zh-Hant": return "zh-TW";
+    case "zh-Hans": return "zh-CN";
+    case "fr": return "fr-FR";
+    case "es": return "es-ES";
+    case "pt": return "pt-BR";
+    case "ko": return "ko-KR";
+    case "de": return "de-DE";
+    case "ar": return "ar-SA";
+    case "ru": return "ru-RU";
+    case "it": return "it-IT";
+    default: return "en-US";
+  }
+}
+
 interface LanguageContextType {
   language: LanguageCode;
+  localeCode: string;
   setLanguage: (code: LanguageCode) => void;
   currentOption: LanguageOption;
   t: (key: string) => string;
-  buildPath: (view: "home" | "read" | "create" | "convert") => string;
+  buildPath: (view: "home" | "read" | "create" | "convert" | "faq") => string;
+  formatDate: (date: Date | number, options?: Intl.DateTimeFormatOptions) => string;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(
@@ -3529,6 +3551,22 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
 
     return detectBrowserLanguage();
   });
+
+  const localeCode = getBcp47Locale(language);
+
+  const formatDate = useCallback(
+    (date: Date | number, options?: Intl.DateTimeFormatOptions) => {
+      const d = typeof date === "number" ? new Date(date) : date;
+      const defaultOptions: Intl.DateTimeFormatOptions = {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      };
+      return d.toLocaleDateString(localeCode, options || defaultOptions);
+    },
+    [localeCode]
+  );
 
   const updateDocumentAttributes = useCallback((langCode: LanguageCode) => {
     if (typeof document === "undefined") return;
@@ -3584,7 +3622,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const buildPath = useCallback(
-    (view: "home" | "read" | "create" | "convert") => {
+    (view: "home" | "read" | "create" | "convert" | "faq") => {
       return buildPathWithLanguage(language, view);
     },
     [language]
@@ -3594,10 +3632,12 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
     <LanguageContext.Provider
       value={{
         language,
+        localeCode,
         setLanguage,
         currentOption,
         t,
         buildPath,
+        formatDate,
       }}
     >
       {children}

@@ -2442,7 +2442,7 @@ export default function Convert({
   setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void,
   onActiveStateChange?: (active: boolean) => void
 }) {
-  const { t } = useLanguage();
+  const { t, formatDate, localeCode } = useLanguage();
   const [pages, setPages] = useState<PageData[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
@@ -2573,7 +2573,7 @@ export default function Convert({
   const generateMarkdown = () => {
     const exportPages = getExportablePages();
     let md = `# EbookCC Comic Transcription & Translation\n\n`;
-    md += `Detected and translated using **[EbookCC](https://ai.studio/build)** on ${new Date().toLocaleDateString()}.\n\n`;
+    md += `Detected and translated using **[EbookCC](https://ai.studio/build)** on ${formatDate(new Date())}.\n\n`;
     md += `## Comic Book Summary\n`;
     md += `- **Total Pages**: ${exportPages.length}\n`;
     md += `- **Generated At**: ${new Date().toUTCString()}\n\n`;
@@ -4934,7 +4934,7 @@ ${navItems}    </ol>
                             {log.targetFormat}
                           </span>
                           {log.size && <span>• {log.size}</span>}
-                          <span>• {new Date(log.timestamp).toLocaleDateString()}</span>
+                          <span>• {formatDate(log.timestamp)}</span>
                         </div>
                       </div>
                     </div>

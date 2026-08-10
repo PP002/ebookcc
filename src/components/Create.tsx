@@ -1372,7 +1372,7 @@ export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
 }) => {
-  const { t } = useLanguage();
+  const { t, formatDate } = useLanguage();
   const { llmEngine, geminiApiKey, user, setShowAuthDialog } = useAppSettings();
   const [showPublishAuthHint, setShowPublishAuthHint] = useState(false);
   const [createMode, setCreateMode] = useState<"select" | "comic" | "document">(
@@ -3588,8 +3588,7 @@ export const Create: React.FC<CreateProps> = ({
 
   if (createMode === "select") {
     const formatTime = (ts: number) => {
-      const date = new Date(ts);
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return formatDate(ts);
     };
 
     const getPreviewText = (html: string) => {

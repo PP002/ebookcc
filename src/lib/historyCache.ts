@@ -329,18 +329,43 @@ export async function deleteConversionLog(id: string): Promise<void> {
    ========================================================================== */
 
 export async function clearAllHistory(): Promise<void> {
-  localStorage.removeItem("ebookcc_recent_books_meta");
-  
+  try {
+    localStorage.removeItem("ebookcc_recent_books_meta");
+  } catch (e) {
+    console.error("Failed to remove localStorage history:", e);
+  }
+
   try {
     const db = await getDB();
-    const transaction = db.transaction(["read_books", "comics", "stories", "conversions"], "readwrite");
-    transaction.objectStore("read_books").clear();
-    transaction.objectStore("comics").clear();
-    transaction.objectStore("stories").clear();
-    transaction.objectStore("conversions").clear();
-    
-    return new Promise((resolve) => {
-      transaction.oncomplete = () => resolve();
+    if (!db) return;
+
+    const existingStores = Array.from(db.objectStoreNames);
+    const storesToClear = ["read_books", "comics", "stories", "conversions"].filter((s) =>
+      existingStores.includes(s)
+    );
+
+    if (storesToClear.length === 0) return;
+
+    return new Promise<void>((resolve) => {
+      try {
+        const transaction = db.transaction(storesToClear, "readwrite");
+        storesToClear.forEach((storeName) => {
+          try {
+            transaction.objectStore(storeName).clear();
+          } catch (err) {
+            console.error(`Error clearing store ${storeName}:`, err);
+          }
+        });
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => resolve();
+        transaction.onabort = () => resolve();
+
+        setTimeout(() => resolve(), 1000);
+      } catch (err) {
+        console.error("Error executing clearAllHistory transaction:", err);
+        resolve();
+      }
     });
   } catch (e) {
     console.error("Failed to clear database stores:", e);

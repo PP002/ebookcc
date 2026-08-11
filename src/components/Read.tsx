@@ -646,7 +646,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   } as any);
 
   return (
-    <div className={cn("relative flex-1 flex flex-col mx-auto w-full h-full min-h-0", !selectedBook ? "max-w-6xl p-2 overflow-y-auto" : "max-w-none p-0 overflow-hidden")}>
+    <div className={cn("relative flex-1 flex flex-col w-full h-full min-h-0", !selectedBook ? "overflow-y-auto" : "p-0 overflow-hidden")}>
       {/* Active Component Area */}
       {!selectedBook ? (
         <div className="flex-1 flex flex-col items-stretch max-w-5xl mx-auto w-full py-8 px-4 space-y-8">
@@ -688,14 +688,20 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  onClick={async () => {
-                    if (confirm(t("confirmClearHistory"))) {
-                      await clearAllHistory();
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (window.confirm(t("confirmClearHistory") || "Are you sure you want to clear your reading history?")) {
+                      localStorage.removeItem("ebookcc_recent_books_meta");
                       setRecentBooks([]);
-                      toast.success(t("historyCleared"));
+                      try {
+                        await clearAllHistory();
+                      } catch (err) {
+                        console.error("Error clearing history DB:", err);
+                      }
+                      toast.success(t("historyCleared") || "History cleared");
                     }
                   }}
-                  className="text-xs text-muted-foreground hover:text-destructive h-8"
+                  className="text-xs text-muted-foreground hover:text-destructive h-8 cursor-pointer"
                 >
                   {t("clearHistory")}
                 </Button>

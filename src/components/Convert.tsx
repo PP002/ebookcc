@@ -581,40 +581,6 @@ const getImageDimensions = (url: string): Promise<{width: number, height: number
 };
 
 const rotateImageIfNeeded = async (url: string, width: number, height: number): Promise<{url: string, width: number, height: number}> => {
-  if (width > height) {
-    const img = new Image();
-    if (url && !url.startsWith('blob:') && !url.startsWith('data:')) {
-      img.crossOrigin = "Anonymous";
-    }
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = url;
-    });
-
-    const canvas = document.createElement('canvas');
-    canvas.width = height; 
-    canvas.height = width;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return { url, width, height };
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Rotate 270 degrees clockwise
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate((270 * Math.PI) / 180);
-    ctx.drawImage(img, -width / 2, -height / 2);
-
-    await new Promise(r => setTimeout(r, 10));
-
-    return { 
-      url: canvas.toDataURL('image/jpeg', 0.95), 
-      width: canvas.width, 
-      height: canvas.height 
-    };
-  }
   return { url, width, height };
 };
 
@@ -5613,25 +5579,7 @@ ${navItems}    </ol>
                                         className="max-h-[calc(100vh-3rem)] w-auto block border border-black mx-auto"
                                         style={{ backgroundColor: activePage.bgColor || 'white' }}
                                       />
-                                      {activePage.status === 'done' && activePage.detectedTexts.length > 0 && (
-                                        <div className="mt-8 mb-12 p-8 text-black border-t text-left" style={{ backgroundColor: activePage.bgColor || 'white' }}>
-                                          <h3 className="text-lg font-bold mb-6 border-b pb-2 flex items-center gap-2">
-                                            <Book className="w-5 h-5 text-primary" /> Extracted Text
-                                          </h3>
-                                          <div className="space-y-6">
-                                            {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => (
-                                              <div key={idx} className="group relative">
-                                                <div className="absolute -left-6 top-1 text-[10px] text-muted-foreground opacity-50 font-mono">
-                                                  {(idx + 1).toString().padStart(2, '0')}
-                                                </div>
-                                                <p className="text-xl leading-relaxed font-serif whitespace-pre-wrap select-text">
-                                                  {item.text}
-                                                </p>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
+                                      {/* Extracted text hidden below main view */}
                                     </>
                                   )}
                                 <AnimatePresence>

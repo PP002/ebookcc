@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -432,10 +432,14 @@ function calculateOptimalFontSize(
 ): number {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
-  if (!context) return 14;
+  if (!context) return 12;
 
-  let minSize = 4;
-  let maxSize = Math.max(minSize, boxHeight * 0.95);
+  // Use conservative width and height bounds (82% of box) to account for padding & rendering variance
+  const targetW = Math.max(10, boxWidth * 0.82);
+  const targetH = Math.max(10, boxHeight * 0.82);
+
+  let minSize = 6;
+  let maxSize = Math.max(minSize, Math.min(24, targetH * 0.65));
   let optimalSize = minSize;
 
   const paragraphs = text.split(/\n|\\n/);
@@ -459,15 +463,15 @@ function calculateOptimalFontSize(
       for (const word of words) {
         if (!word) continue;
         
-        if (context.measureText(word).width > boxWidth * 0.95) {
-             isFitting = false;
-             break;
+        if (context.measureText(word).width > targetW) {
+          isFitting = false;
+          break;
         }
 
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
         const metrics = context.measureText(testLine);
         
-        if (metrics.width > boxWidth * 0.95 && currentLine !== '') {
+        if (metrics.width > targetW && currentLine !== '') {
           actualLines++;
           currentLine = word;
         } else {
@@ -480,15 +484,15 @@ function calculateOptimalFontSize(
       }
     }
     
-    if (!isFitting || (actualLines * lineHeight) > boxHeight * 0.95) {
-        maxSize = midSize;
+    if (!isFitting || (actualLines * lineHeight) > targetH) {
+      maxSize = midSize;
     } else {
-        optimalSize = midSize;
-        minSize = midSize;
+      optimalSize = midSize;
+      minSize = midSize;
     }
   }
   
-  return optimalSize;
+  return Math.max(6, Math.floor(optimalSize));
 }
 
 function getAverageColorFromCanvas(ctx: CanvasRenderingContext2D, box: [number, number, number, number]): string {
@@ -2462,6 +2466,7 @@ export default function Convert({
   const [isAddingTextMode, setIsAddingTextMode] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isProcessSidebarOpen, setIsProcessSidebarOpen] = useState(true);
 
   const [isPortrait, setIsPortrait] = useState(false);
 
@@ -5300,6 +5305,18 @@ ${navItems}    </ol>
                 <Button 
                   variant="ghost" 
                   size="icon" 
+                  onClick={() => setIsProcessSidebarOpen(!isProcessSidebarOpen)} 
+                  className={cn(
+                    "w-8 h-8 rounded-md hover:bg-muted transition-colors",
+                    isProcessSidebarOpen && "bg-muted/80 text-primary"
+                  )}
+                  title={isProcessSidebarOpen ? "Hide Process Panel" : "Show Process Panel"}
+                >
+                  {isProcessSidebarOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
                   onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
                   className="w-8 h-8 rounded-md hover:bg-muted"
                   title={t("toggleDarkMode")}
@@ -5584,35 +5601,48 @@ ${navItems}    </ol>
                                   )}
                                 <AnimatePresence>
                                   {viewMode === 'edit' && sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
-                                    const boxStyle = getBoxStyle(item.box_2d, activePage.width, activePage.height);
                                     const boxToUse = item.box_2d || [0,0,0,0];
                                     const [ymin, xmin, ymax, xmax] = boxToUse;
-                                    const textW = ((xmax - xmin) / 1000) * activePage.width;
-                                    const textH = ((ymax - ymin) / 1000) * (activePage.height || 1);
-                                    let estimatedFontSizePx = calculateOptimalFontSize(item.text.trim(), textW * 0.95, textH * 0.95);
-                                    const fontSizeCqi = activePage.width > 0 ? (Math.max(4, estimatedFontSizePx) / activePage.width) * 100 : 2;
+                                    const h = ymax - ymin;
+                                    const w = xmax - xmin;
+                                    const padY = Math.max(4, Math.round(h * 0.05));
+                                    const padX = Math.max(4, Math.round(w * 0.05));
+                                    const expYmin = Math.max(0, ymin - padY);
+                                    const expXmin = Math.max(0, xmin - padX);
+                                    const expYmax = Math.min(1000, ymax + padY);
+                                    const expXmax = Math.min(1000, xmax + padX);
+                                    const expandedBox: [number, number, number, number] = [expYmin, expXmin, expYmax, expXmax];
+
+                                    const boxStyle = getBoxStyle(expandedBox, activePage.width, activePage.height);
+                                    const textW = ((expXmax - expXmin) / 1000) * (activePage.width || 800);
+                                    const textH = ((expYmax - expYmin) / 1000) * (activePage.height || 1000);
+                                    const estimatedFontSizePx = calculateOptimalFontSize(item.text.trim(), textW, textH);
+                                    const fontSizeCqi = activePage.width > 0 ? (estimatedFontSizePx / activePage.width) * 100 : 2;
+                                    const isEditing = editingIndex === idx;
+
                                     return (
                                       <motion.div
                                         key={`${activePage.id}-${idx}`}
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: isEditing ? 1 : undefined }}
                                         className={cn(
-                                          "absolute group transition-all flex items-center justify-center overflow-hidden",
-                                          "cursor-pointer border border-transparent hover:border-primary hover:bg-primary/10",
-                                          editingIndex === idx && "border-primary bg-background z-10"
+                                          "absolute group transition-opacity duration-200 flex items-center justify-center overflow-hidden rounded-sm cursor-pointer",
+                                          isEditing
+                                            ? "opacity-100 border-2 border-primary bg-background shadow-lg z-20 pointer-events-auto"
+                                            : "opacity-0 hover:opacity-100 active:opacity-100 focus:opacity-100 border border-black/80 bg-[#fcfaf2] shadow-md z-10 pointer-events-auto"
                                         )}
-                                        style={{ ...boxStyle, backgroundColor: 'transparent' }}
+                                        style={boxStyle}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             setEditingIndex(idx);
                                             setTempText(item.text);
                                         }}
                                       >
-                                        {editingIndex === idx ? (
+                                        {isEditing ? (
                                           <div className="w-full h-full flex flex-col p-1 bg-background rounded-sm">
                                             <textarea
                                               autoFocus
-                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-foreground text-center"
+                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-foreground text-center font-semibold p-1"
                                               style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
                                               value={tempText}
                                               onChange={(e) => setTempText(e.target.value)}
@@ -5633,9 +5663,9 @@ ${navItems}    </ol>
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 opacity-100">
+                                          <div className="w-full h-full flex items-center justify-center overflow-hidden p-1 sm:p-1.5">
                                             <div 
-                                              className="font-medium text-foreground whitespace-pre-wrap text-center bg-card/90 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                              className="font-semibold text-black whitespace-pre-wrap text-center leading-snug w-full h-full flex items-center justify-center overflow-hidden"
                                               style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
                                             >
                                               {item.text}
@@ -5662,25 +5692,41 @@ ${navItems}    </ol>
                     )}
 
                     {/* Process Sidebar in Portrait or Grid View */}
-                    {(isPortrait || isGridView) && (
-                      <div className="mt-8 pb-12 border-t pt-8">
-                        <div className="w-fit mx-auto">
-                           {processSidebarContent}
-                        </div>
-                      </div>
-                    )}
+                    <AnimatePresence>
+                      {isProcessSidebarOpen && (isPortrait || isGridView) && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="mt-8 pb-12 border-t pt-8 overflow-hidden"
+                        >
+                          <div className="w-fit mx-auto">
+                             {processSidebarContent}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
               </div>
 
               {/* Right Sidebar for Landscape */}
-              {!isPortrait && !isGridView && (
-                <aside className="w-fit min-w-0 max-w-[320px] shrink-0 border-l bg-background/50 backdrop-blur-md flex flex-col h-full overflow-y-auto no-scrollbar sticky top-0">
-                  <div className="px-3 py-6 w-fit">
-                    {processSidebarContent}
-                  </div>
-                </aside>
-              )}
+              <AnimatePresence initial={false}>
+                {isProcessSidebarOpen && !isPortrait && !isGridView && (
+                  <motion.aside
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: "auto", opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+                    className="w-fit min-w-0 max-w-[320px] shrink-0 border-l bg-background/50 backdrop-blur-md flex flex-col h-full overflow-y-auto no-scrollbar sticky top-0 overflow-hidden"
+                  >
+                    <div className="px-3 py-6 w-fit">
+                      {processSidebarContent}
+                    </div>
+                  </motion.aside>
+                )}
+              </AnimatePresence>
             </div>
           </main>
         </div>

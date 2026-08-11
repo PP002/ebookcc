@@ -4638,21 +4638,21 @@ ${navItems}    </ol>
   };
 
   const processSidebarContent = (
-    <div className="space-y-6 w-fit flex flex-col items-center shrink-0">
+    <div className="space-y-5 w-full p-4 flex flex-col items-stretch">
       {activePage?.detectedTexts && activePage.detectedTexts.length > 0 && (
-        <div className="space-y-3 max-h-[320px] flex flex-col mb-4 w-fit items-center">
-          <div className="flex items-center shrink-0 gap-4 w-fit">
+        <div className="space-y-3 max-h-[320px] flex flex-col mb-2 w-full">
+          <div className="flex items-center justify-between shrink-0 gap-4 w-full">
             <span className="text-sm font-medium whitespace-nowrap">Page {currentPageIndex + 1} Texts</span>
             <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
               {activePage.detectedTexts.length}
             </span>
           </div>
-          <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px] w-fit">
+          <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px] w-full">
             {sortTextsReadingOrder(activePage.detectedTexts).map((t, i) => (
               <div 
                 key={i}
                 className={cn(
-                  "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2 min-w-0 max-w-[200px]",
+                  "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2 w-full",
                   editingIndex === i ? "border-primary bg-primary/5" : "border-border"
                 )}
                 onClick={() => {
@@ -4669,11 +4669,11 @@ ${navItems}    </ol>
         </div>
       )}
 
-      <div className={cn("shrink-0 w-fit", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
-        <div className="space-y-4 w-fit flex flex-col items-center">
-          <div className="flex flex-col gap-3 items-center w-fit pb-2">
+      <div className={cn("shrink-0 w-full", activePage?.detectedTexts && activePage.detectedTexts.length > 0 && "pt-4 border-t")}>
+        <div className="space-y-4 w-full flex flex-col items-start">
+          <div className="flex flex-col gap-3 items-start w-full pb-2">
             <div 
-              className="flex items-center gap-3 p-2 rounded-none hover:bg-accent/50 cursor-pointer transition-colors w-fit justify-center"
+              className="flex items-center gap-3 p-1.5 rounded-md hover:bg-accent/50 cursor-pointer transition-colors w-full"
               onClick={() => {
                 const allSelected = ocrDuringBatch && splitDuringBatch && translateDuringBatch;
                 setOcrDuringBatch(!allSelected);
@@ -4687,55 +4687,55 @@ ${navItems}    </ol>
               <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">{t("allProcessAll")}</label>
             </div>
 
-            <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-fit flex flex-col items-start">
-              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setDetectBgDuringBatch(!detectBgDuringBatch)}>
+            <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-full flex flex-col items-start">
+              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setDetectBgDuringBatch(!detectBgDuringBatch)}>
                 <Checkbox 
                   checked={detectBgDuringBatch} 
                   onCheckedChange={(c) => setDetectBgDuringBatch(!!c)}
-                  className="w-4 h-4 border-muted-foreground rounded-none"
+                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
-                <div className="flex flex-col w-fit">
+                <div className="flex flex-col min-w-0 flex-1">
                   <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("cropPageBordersDesc")}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
+              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
                 <Checkbox 
                   checked={splitDuringBatch} 
                   onCheckedChange={(c) => setSplitDuringBatch(!!c)}
-                  className="w-4 h-4 border-muted-foreground rounded-none"
+                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
-                <div className="flex flex-col w-fit">
+                <div className="flex flex-col min-w-0 flex-1">
                   <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("splitPanelsDesc")}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
+              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
                 <Checkbox 
                   checked={ocrDuringBatch} 
                   onCheckedChange={(c) => setOcrDuringBatch(!!c)}
-                  className="w-4 h-4 border-muted-foreground rounded-none"
+                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
-                <div className="flex flex-col w-fit">
+                <div className="flex flex-col min-w-0 flex-1">
                   <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{t("extractTextOcrDesc")}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("extractTextOcrDesc")}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3 cursor-pointer group w-fit" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
+              <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
                 <Checkbox 
                   id="translate-batch-sb" 
                   checked={translateDuringBatch} 
                   onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
-                  className="w-4 h-4 border-muted-foreground rounded-none"
+                  className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
                 />
                 <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
               </div>
             </div>
 
             {translateDuringBatch && (
-              <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1 w-fit">
+              <div className="mt-1 animate-in fade-in slide-in-from-top-1 px-1 w-full">
                 <Select value={batchTargetLanguage} onValueChange={setBatchTargetLanguage}>
-                  <SelectTrigger className="w-[140px] h-8 text-[11px]">
+                  <SelectTrigger className="w-full h-8 text-[11px]">
                     <SelectValue placeholder={t("selectLanguage")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -4752,38 +4752,38 @@ ${navItems}    </ol>
 
           <Button 
             variant="ghost"
-            className="w-fit gap-2 h-9" 
+            className="w-full justify-start gap-2 h-9 px-2.5" 
             onClick={() => processPage(currentPageIndex)} 
             disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
           >
-            {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Sparkles className="w-4 h-4 shrink-0" />}
             <span className="whitespace-nowrap">{t("processCurrentPage")}</span>
           </Button>
 
           <Button 
             variant="ghost"
-            className="w-fit gap-2 h-9" 
+            className="w-full justify-start gap-2 h-9 px-2.5" 
             onClick={handleBatchProcess} 
             disabled={isBatchProcessing || pages.length === 0 || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
           >
-            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Play className="w-4 h-4 shrink-0" />}
             <span className="whitespace-nowrap">
               {selectedPages.size > 0 ? t("batchProcessSelected").replace("{count}", selectedPages.size.toString()) : t("batchProcessAll")}
             </span>
           </Button>
           
-          <div className="pt-4 border-t mt-4 space-y-2 flex flex-col items-center w-fit">
+          <div className="pt-3 border-t mt-3 space-y-2 flex flex-col items-start w-full">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                   <Button 
                     variant="ghost" 
-                    className="w-fit gap-2 h-9"
+                    className="w-full justify-start gap-2 h-9 px-2.5"
                     disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
                   >
-                    <Download className="w-4 h-4" /> <span className="whitespace-nowrap">{t("export")}</span>
+                    <Download className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">{t("export")}</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
+              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="start">
                 <DropdownMenuItem onClick={downloadText} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> TXT
                 </DropdownMenuItem>
@@ -4802,7 +4802,7 @@ ${navItems}    </ol>
               href="https://www.amazon.com/sendtokindle/" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4 w-fit"
+              className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4 w-full pl-2"
             >
               <span className="whitespace-nowrap">{t("sendToKindle")}</span> <ExternalLink className="w-3.5 h-3.5" />
             </a>
@@ -4810,14 +4810,14 @@ ${navItems}    </ol>
 
           <Button 
             variant="ghost" 
-            className="w-fit gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-4 h-9" 
+            className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-3 h-9 px-2.5" 
             onClick={() => {
               setPages([]);
               setCurrentPageIndex(0);
               setHasEditedTextOrImage(false);
             }}
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-4 h-4 shrink-0" />
             <span className="whitespace-nowrap">{t("clearAllPages")}</span>
           </Button>
         </div>
@@ -5268,7 +5268,7 @@ ${navItems}    </ol>
                      }}
                    />
                  </motion.div>
-                 <h1 className="text-base font-bold tracking-tight text-foreground">EBookCC</h1>
+                 <h1 className="text-base font-bold tracking-tight text-foreground hidden sm:inline portrait:hidden">EBookCC</h1>
               </div>
 
               {/* Right Actions */}
@@ -5305,6 +5305,15 @@ ${navItems}    </ol>
                 <Button 
                   variant="ghost" 
                   size="icon" 
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
+                  className="w-8 h-8 rounded-md hover:bg-muted"
+                  title={t("toggleDarkMode")}
+                >
+                  {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
                   onClick={() => setIsProcessSidebarOpen(!isProcessSidebarOpen)} 
                   className={cn(
                     "w-8 h-8 rounded-md hover:bg-muted transition-colors",
@@ -5313,15 +5322,6 @@ ${navItems}    </ol>
                   title={isProcessSidebarOpen ? "Hide Process Panel" : "Show Process Panel"}
                 >
                   {isProcessSidebarOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
-                  className="w-8 h-8 rounded-md hover:bg-muted"
-                  title={t("toggleDarkMode")}
-                >
-                  {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
                 </Button>
               </div>
             </div>
@@ -5332,11 +5332,11 @@ ${navItems}    </ol>
             <AnimatePresence initial={false}>
               {isSidebarOpen && !isGridView && (
                 <motion.aside
-                  initial={{ x: -180, opacity: 0 }}
+                  initial={{ x: -200, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -180, opacity: 0 }}
+                  exit={{ x: -200, opacity: 0 }}
                   transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                  className="relative z-40 w-[160px] border-r bg-background/95 backdrop-blur-md shadow-sm flex flex-col overflow-hidden h-full shrink-0"
+                  className="absolute left-0 top-0 bottom-0 z-40 w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-xl flex flex-col overflow-hidden h-full"
                 >
                   <div className="p-3 border-b shrink-0 flex items-center justify-between">
                     <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{t("pages")}</span>
@@ -5416,11 +5416,8 @@ ${navItems}    </ol>
             <div className="flex-1 flex overflow-hidden relative">
               {/* Main Content Area */}
               <div className="flex-1 overflow-y-auto no-scrollbar relative h-full">
-                <div className={cn(
-                  "w-full pt-0",
-                  isPortrait ? "px-4 md:px-6 max-w-[1600px] mx-auto" : "pl-4 md:pl-6 pr-0 max-w-none"
-                )}>
-                  <div className={cn("w-full space-y-0", !isGridView && !isPortrait && "pr-4")}>
+                <div className="w-full pt-0 px-4 md:px-6 max-w-[1600px] mx-auto">
+                  <div className="w-full space-y-0">
                     
                     {isGridView ? (
                       <Card className="p-6 bg-foreground/5 rounded-none border border-muted min-h-[500px] mt-4">
@@ -5691,39 +5688,21 @@ ${navItems}    </ol>
                   </div>
                     )}
 
-                    {/* Process Sidebar in Portrait or Grid View */}
-                    <AnimatePresence>
-                      {isProcessSidebarOpen && (isPortrait || isGridView) && (
-                        <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="mt-8 pb-12 border-t pt-8 overflow-hidden"
-                        >
-                          <div className="w-fit mx-auto">
-                             {processSidebarContent}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
                 </div>
               </div>
 
-              {/* Right Sidebar for Landscape */}
+              {/* Right Sidebar */}
               <AnimatePresence initial={false}>
-                {isProcessSidebarOpen && !isPortrait && !isGridView && (
+                {isProcessSidebarOpen && (
                   <motion.aside
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "auto", opacity: 1 }}
-                    exit={{ width: 0, opacity: 0 }}
+                    initial={{ x: 300, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: 300, opacity: 0 }}
                     transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                    className="w-fit min-w-0 max-w-[320px] shrink-0 border-l bg-background/50 backdrop-blur-md flex flex-col h-full overflow-y-auto no-scrollbar sticky top-0 overflow-hidden"
+                    className="absolute right-0 top-0 bottom-0 z-40 w-fit min-w-[240px] max-w-[280px] sm:max-w-[320px] border-l bg-background/95 backdrop-blur-md shadow-2xl flex flex-col h-full overflow-y-auto no-scrollbar overflow-hidden"
                   >
-                    <div className="px-3 py-6 w-fit">
-                      {processSidebarContent}
-                    </div>
+                    {processSidebarContent}
                   </motion.aside>
                 )}
               </AnimatePresence>

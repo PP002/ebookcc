@@ -266,7 +266,7 @@ function AppContent() {
                   (e.currentTarget as HTMLImageElement).src = "/logo.svg";
                 }}
               />
-              <span className="font-sans font-bold text-base tracking-tight text-foreground">
+              <span className="font-sans font-bold text-base tracking-tight text-foreground hidden sm:inline portrait:hidden">
                 EBookCC
               </span>
             </div>

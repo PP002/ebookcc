@@ -44,11 +44,14 @@ function ComicPageViewer({ page }: { page: any }) {
 
   if (typeof page === 'string') {
     return (
-      <img
-        src={page}
-        alt="Comic Page"
-        className="w-full h-full object-contain pointer-events-auto select-none m-auto"
-      />
+      <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-white border border-zinc-900 rounded shadow-xl overflow-hidden flex items-center justify-center m-auto">
+        <img
+          src={page}
+          alt="Comic Page"
+          className="w-full h-full object-contain pointer-events-auto select-none m-auto bg-white"
+          referrerPolicy="no-referrer"
+        />
+      </div>
     );
   }
 
@@ -58,37 +61,36 @@ function ComicPageViewer({ page }: { page: any }) {
     if (node.type === "panel") {
       const hasImage = !!(node.imageUrl || node.drawing);
       return (
-        <div 
-          className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center border border-slate-900 min-w-0 min-h-0"
-          style={node.bgColor || node.color ? { backgroundColor: node.bgColor || node.color } : {}}
-        >
-          {node.imageUrl && (
-            <img
-              src={node.imageUrl}
-              alt="Panel"
-              className={cn(
-                "w-full h-full object-cover select-none pointer-events-auto",
-                node.isHighContrast && "grayscale contrast-125"
-              )}
-              referrerPolicy="no-referrer"
-            />
-          )}
-          {node.drawing && (
-            <img
-              src={node.drawing}
-              alt="Drawing"
-              className={cn(
-                "w-full h-full object-contain select-none pointer-events-auto",
-                !node.imageUrl && "bg-white"
-              )}
-              referrerPolicy="no-referrer"
-            />
-          )}
-          {!hasImage && node.prompt && (
-            <div className="p-3 text-center text-xs text-muted-foreground italic select-none">
-              {node.prompt}
-            </div>
-          )}
+        <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
+          <div 
+            className="relative w-full h-full bg-white overflow-hidden flex items-center justify-center border border-zinc-900 min-w-0 min-h-0"
+            style={node.bgColor || node.color ? { backgroundColor: node.bgColor || node.color } : { backgroundColor: "#ffffff" }}
+          >
+            {node.imageUrl && (
+              <img
+                src={node.imageUrl}
+                alt="Panel"
+                className={cn(
+                  "w-full h-full object-cover select-none pointer-events-auto bg-white",
+                  node.isHighContrast && "grayscale contrast-125"
+                )}
+                referrerPolicy="no-referrer"
+              />
+            )}
+            {node.drawing && (
+              <img
+                src={node.drawing}
+                alt="Drawing"
+                className="w-full h-full object-contain select-none pointer-events-auto bg-white"
+                referrerPolicy="no-referrer"
+              />
+            )}
+            {!hasImage && node.prompt && (
+              <div className="p-3 text-center text-xs text-muted-foreground italic select-none">
+                {node.prompt}
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -102,15 +104,14 @@ function ComicPageViewer({ page }: { page: any }) {
       return (
         <div
           className={cn(
-            "w-full h-full flex overflow-hidden min-w-0 min-h-0",
+            "w-full h-full flex overflow-hidden min-w-0 min-h-0 bg-white",
             isRow ? "flex-row" : "flex-col"
           )}
         >
-          <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1">
+          <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1 bg-white">
             {renderNode(c1)}
           </div>
-          <div className={isRow ? "w-1 bg-white dark:bg-slate-950 shrink-0" : "h-1 bg-white dark:bg-slate-950 shrink-0"} />
-          <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1">
+          <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1 bg-white">
             {renderNode(c2)}
           </div>
         </div>
@@ -132,12 +133,12 @@ function ComicPageViewer({ page }: { page: any }) {
   };
 
   return (
-    <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-background border border-border/80 rounded-lg shadow-lg overflow-hidden flex flex-col pointer-events-auto m-auto">
-      <div className="flex-1 relative overflow-hidden">
+    <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-white border border-zinc-900 rounded shadow-xl overflow-hidden flex flex-col pointer-events-auto m-auto p-[2px]">
+      <div className="flex-1 relative overflow-hidden bg-white w-full h-full">
         {page.tree ? renderNode(page.tree) : page.cover || page.imageUrl || page.image || page.url ? (
-          <img src={page.cover || page.imageUrl || page.image || page.url} className="w-full h-full object-contain" />
+          <img src={page.cover || page.imageUrl || page.image || page.url} className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+          <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground bg-white">
             Comic Page
           </div>
         )}

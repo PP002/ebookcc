@@ -31,44 +31,46 @@ function MiniPageGrid({ node }: { node: any }) {
 
   if (node.type === "panel") {
     return (
-      <div 
-        className="w-full h-full border border-border/60 bg-muted/30 overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
-        style={{ backgroundColor: node.color || node.bg || undefined }}
-      >
-        {node.imageUrl ? (
-          <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-        ) : node.drawing ? (
-          <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-        ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
-          <div className="w-full h-full flex items-center justify-center bg-muted text-[8px] text-muted-foreground font-bold">
-            🎨
-          </div>
-        ) : (
-          <div className="w-full h-full bg-muted/50" />
-        )}
+      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
+        <div 
+          className="w-full h-full border border-zinc-900 bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
+          style={{ backgroundColor: node.color || node.bg || '#ffffff' }}
+        >
+          {node.imageUrl ? (
+            <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover bg-white" referrerPolicy="no-referrer" />
+          ) : node.drawing ? (
+            <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
+          ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
+            <div className="w-full h-full flex items-center justify-center bg-white text-[8px] text-muted-foreground font-bold">
+              🎨
+            </div>
+          ) : (
+            <div className="w-full h-full bg-white" />
+          )}
+        </div>
       </div>
     );
   }
 
   if (node.type === "split") {
-    const isRow = node.dir === "row";
-    const pct = node.percent || 50;
+    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
+    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
     const c1 = node.c1 || node.left;
     const c2 = node.c2 || node.right;
 
     return (
-      <div className={`flex w-full h-full min-w-0 min-h-0 ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0">
+      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white">
           <MiniPageGrid node={c1} />
         </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0">
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white">
           <MiniPageGrid node={c2} />
         </div>
       </div>
     );
   }
 
-  return <div className="w-full h-full bg-muted/40" />;
+  return <div className="w-full h-full bg-white" />;
 }
 
 function MetroBookTile({
@@ -614,16 +616,16 @@ export function Bookshelf({
                   // COMIC SLIDE-BY-SLIDE VIEW
                   <div className="flex flex-col items-center justify-center space-y-4">
                     {selectedBook.pages && selectedBook.pages.length > 0 ? (
-                      <div className="relative max-w-lg w-full aspect-[3/4.2] rounded-lg border bg-muted/10 overflow-hidden shadow-md flex items-center justify-center">
+                      <div className="relative max-w-lg w-full aspect-[3/4.2] rounded border border-zinc-900 bg-white overflow-hidden shadow-md flex items-center justify-center p-[2px]">
                         {selectedBook.pages[activeComicPage]?.tree ? (
-                          <div className="w-full h-full p-2 bg-background flex flex-col overflow-hidden">
+                          <div className="w-full h-full bg-white flex flex-col overflow-hidden">
                             <MiniPageGrid node={selectedBook.pages[activeComicPage].tree} />
                           </div>
                         ) : (
                           <img 
                             src={selectedBook.pages[activeComicPage]?.cover || selectedBook.cover || undefined} 
                             alt={`Page ${activeComicPage + 1}`}
-                            className="w-full h-full object-contain"
+                            className="w-full h-full object-contain bg-white"
                             referrerPolicy="no-referrer"
                           />
                         )}

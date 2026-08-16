@@ -1,9 +1,14 @@
 name = "ebookcc"
+main = "src/worker.ts"
 compatibility_date = "2026-07-31"
 
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "ebookcc-media"
 
 [[r2_buckets]]
 binding = "MEDIA"

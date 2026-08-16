@@ -57,13 +57,28 @@ export interface AppSettings {
 
 const AppSettingsContext = createContext<AppSettings | undefined>(undefined);
 
-// Lazy init supabase client
+// Stable module-scope singleton Supabase instance
 let supabaseInstance: SupabaseClient | null = null;
+let currentSupabaseUrl = "";
+let currentSupabaseKey = "";
+
 export function getSupabase(url: string, key: string): SupabaseClient | null {
   if (!url || !key) return null;
-  if (!supabaseInstance) {
+  const cleanUrl = url.trim();
+  const cleanKey = key.trim();
+  if (!cleanUrl || !cleanKey) return null;
+
+  if (!supabaseInstance || currentSupabaseUrl !== cleanUrl || currentSupabaseKey !== cleanKey) {
     try {
-      supabaseInstance = createClient(url, key);
+      currentSupabaseUrl = cleanUrl;
+      currentSupabaseKey = cleanKey;
+      supabaseInstance = createClient(cleanUrl, cleanKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false, // Handled explicitly in AppSettingsContext to prevent duplicate event loops
+        },
+      });
     } catch (e) {
       console.error("Supabase initialization error:", e);
     }
@@ -114,22 +129,29 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   // Fetch safe configuration from backend on mount
   useEffect(() => {
     fetch(`${getApiUrl()}/api/config`)
-      .then(res => {
-        if (!res.ok) throw new Error("Config fetch failed");
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          // Received HTML or other non-JSON response (e.g. during DNS transition)
+          throw new Error("Server returned non-JSON response");
+        }
         return res.json();
       })
-      .then(data => {
-        let fetchedSupabaseUrl = data.supabaseUrl || "";
-        if (fetchedSupabaseUrl.includes("/supabase-api")) {
-          fetchedSupabaseUrl = "https://wipjqdmystqfzwsmvscx.supabase.co";
+      .then((data) => {
+        if (data && typeof data === "object") {
+          let fetchedSupabaseUrl = data.supabaseUrl || "";
+          if (fetchedSupabaseUrl.includes("/supabase-api")) {
+            fetchedSupabaseUrl = "https://wipjqdmystqfzwsmvscx.supabase.co";
+          }
+          if (fetchedSupabaseUrl) setSupabaseUrl((prev) => prev || fetchedSupabaseUrl);
+          if (data.supabaseAnonKey) setSupabaseAnonKey((prev) => prev || data.supabaseAnonKey);
+          if (data.r2BucketName) setR2BucketName((prev) => prev || data.r2BucketName);
+          if (data.r2Endpoint) setR2Endpoint((prev) => prev || data.r2Endpoint);
         }
-        setSupabaseUrl(prev => prev || fetchedSupabaseUrl);
-        setSupabaseAnonKey(prev => prev || data.supabaseAnonKey || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX");
-        setR2BucketName(prev => prev || data.r2BucketName || "");
-        setR2Endpoint(prev => prev || data.r2Endpoint || "");
       })
-      .catch(err => {
-        console.warn("Could not retrieve secure configuration from backend server, using default or local values.", err);
+      .catch((err) => {
+        console.debug("Backend config fetch notice:", err.message);
       });
   }, []);
 
@@ -331,14 +353,11 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (supabaseUrl) localStorage.setItem('supabase_url', supabaseUrl);
     else localStorage.removeItem('supabase_url');
-    // reset client on key change
-    supabaseInstance = null;
   }, [supabaseUrl]);
 
   useEffect(() => {
     if (supabaseAnonKey) localStorage.setItem('supabase_anon_key', supabaseAnonKey);
     else localStorage.removeItem('supabase_anon_key');
-    supabaseInstance = null;
   }, [supabaseAnonKey]);
 
   useEffect(() => {

@@ -12,9 +12,25 @@ export const onRequestPost = async (context: any) => {
   try {
     const { request, env } = context;
     const body = await request.json().catch(() => ({}));
+    const item = body.item || body;
     
-    if (!body || !body.id) {
+    if (!item || !item.id) {
        return new Response(JSON.stringify({ error: "Invalid payload" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const r2 = env.MEDIA_BUCKET || env.MEDIA;
+    const workId = String(item.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const jsonKey = `published_works/${workId}.json`;
+    const jsonBuffer = new TextEncoder().encode(JSON.stringify(item, null, 2));
+
+    if (r2 && typeof r2.put === "function") {
+      await r2.put(jsonKey, jsonBuffer, {
+        httpMetadata: { contentType: "application/json" }
+      });
+      return new Response(JSON.stringify({ success: true, message: "Published work saved to Cloudflare R2", item }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     const accessKeyId = env.R2_ACCESS_KEY_ID || "ed020adf41c86d841254e3dd0d4bee2a";
@@ -31,10 +47,6 @@ export const onRequestPost = async (context: any) => {
     }
 
     const aws = new AwsClient({ accessKeyId, secretAccessKey, service: "s3", region: "auto" });
-
-    const jsonKey = `published/${body.id}.json`;
-    const jsonBuffer = new TextEncoder().encode(JSON.stringify(body));
-    
     const url = new URL(`/${bucket}/${jsonKey}`, endpoint);
     
     const signedRequest = await aws.sign(url, {
@@ -49,7 +61,7 @@ export const onRequestPost = async (context: any) => {
       return new Response(JSON.stringify({ error: `R2 Upload Failed: ${errText}` }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    return new Response(JSON.stringify({ success: true, message: "Published work saved to Cloudflare R2 via Worker", item: body }), {
+    return new Response(JSON.stringify({ success: true, message: "Published work saved to Cloudflare R2", item }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
@@ -59,7 +71,34 @@ export const onRequestPost = async (context: any) => {
 };
 
 export const onRequestGet = async (context: any) => {
-  return new Response(JSON.stringify([]), {
+  try {
+    const { env } = context;
+    const r2 = env.MEDIA_BUCKET || env.MEDIA;
+    if (r2 && typeof r2.list === "function") {
+      const list = await r2.list({ prefix: "published_works/" });
+      const jsonObjs = list.objects.filter((o: any) => o.key.endsWith(".json"));
+      const worksList: any[] = [];
+      await Promise.all(
+        jsonObjs.map(async (obj: any) => {
+          try {
+            const itemObj = await r2.get(obj.key);
+            if (itemObj) {
+              const text = await itemObj.text();
+              const parsed = JSON.parse(text);
+              if (parsed && parsed.id) worksList.push(parsed);
+            }
+          } catch (_) {}
+        })
+      );
+      worksList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      return new Response(JSON.stringify({ success: true, works: worksList, source: "r2" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+  } catch (_) {}
+
+  return new Response(JSON.stringify({ success: true, works: [], source: "r2" }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" }
   });

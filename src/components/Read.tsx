@@ -59,11 +59,19 @@ function ComicPageViewer({ page }: { page: any }) {
     if (!node) return null;
 
     if (node.type === "panel") {
-      const hasImage = !!(node.imageUrl || node.drawing);
+      const hasImage = !!(
+        (node.imageUrl && typeof node.imageUrl === 'string' && node.imageUrl.trim() !== '') ||
+        (node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '') ||
+        (Array.isArray(node.drawings) && node.drawings.length > 0)
+      );
+
       return (
         <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
           <div 
-            className="relative w-full h-full bg-white overflow-hidden flex items-center justify-center border border-zinc-900 min-w-0 min-h-0"
+            className={cn(
+              "relative w-full h-full bg-white overflow-hidden flex items-center justify-center min-w-0 min-h-0",
+              hasImage ? "border border-zinc-900" : "border-none"
+            )}
             style={node.bgColor || node.color ? { backgroundColor: node.bgColor || node.color } : { backgroundColor: "#ffffff" }}
           >
             {node.imageUrl && (
@@ -84,11 +92,6 @@ function ComicPageViewer({ page }: { page: any }) {
                 className="w-full h-full object-contain select-none pointer-events-auto bg-white"
                 referrerPolicy="no-referrer"
               />
-            )}
-            {!hasImage && node.prompt && (
-              <div className="p-3 text-center text-xs text-muted-foreground italic select-none">
-                {node.prompt}
-              </div>
             )}
           </div>
         </div>

@@ -1026,20 +1026,25 @@ function MiniPageGrid({ node }: { node: any }) {
   if (!node) return null;
 
   if (node.type === "panel") {
+    const hasImage = !!(
+      (node.imageUrl && typeof node.imageUrl === 'string' && node.imageUrl.trim() !== '') ||
+      (node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '') ||
+      (Array.isArray(node.drawings) && node.drawings.length > 0)
+    );
+
     return (
       <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
         <div 
-          className="w-full h-full border border-zinc-900 bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0"
+          className={cn(
+            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
+            hasImage ? "border border-zinc-900" : "border-none"
+          )}
           style={{ backgroundColor: node.color || node.bg || '#ffffff' }}
         >
           {node.imageUrl ? (
             <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover bg-white" referrerPolicy="no-referrer" />
           ) : node.drawing ? (
             <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
-          ) : node.drawings && Array.isArray(node.drawings) && node.drawings.length > 0 ? (
-            <div className="w-full h-full flex items-center justify-center bg-white text-[8px] text-muted-foreground font-bold">
-              🎨
-            </div>
           ) : (
             <div className="w-full h-full bg-white" />
           )}

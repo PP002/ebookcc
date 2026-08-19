@@ -60,6 +60,7 @@ import {
   buildPathWithLanguage,
 } from "./context/LanguageContext";
 import { LanguageSelector } from "./components/LanguageSelector";
+import { usePageSEO } from "./hooks/usePageSEO";
 
 function GoogleAuthProviderWrapper({ children }: { children: React.ReactNode }) {
   const { googleClientId } = useAppSettings();
@@ -154,6 +155,10 @@ function AppContent() {
     const { view } = parseLanguageAndRouteFromPath(window.location.pathname);
     return view;
   });
+
+  // Dynamically sync Canonical URL, Hreflang alternates, OpenGraph & JSON-LD metadata for Google Search Console
+  usePageSEO({ view: currentPath, language });
+
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
   const [headerHidden, setHeaderHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);

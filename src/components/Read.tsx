@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play } from 'lucide-react';
+import { SplitPanelsIcon } from '@/components/icons/SplitPanelsIcon';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -37,6 +38,66 @@ interface BookItem {
   fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
   file?: File;
   fileBuffer?: ArrayBuffer;
+}
+
+function MiniPageGrid({ node }: { node: any }) {
+  if (!node) return null;
+
+  if (node.type === "panel") {
+    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
+    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
+      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
+      if (strokeImg) imgUrl = strokeImg.imageUrl;
+    }
+
+    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
+
+    return (
+      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
+        <div 
+          className={cn(
+            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
+            hasImage ? "border border-zinc-900" : "border-none"
+          )}
+          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
+        >
+          {hasImage ? (
+            <img 
+              src={imgUrl} 
+              alt="" 
+              className={cn(
+                "w-full h-full object-cover bg-white pointer-events-none select-none",
+                node.isHighContrast && "grayscale contrast-125"
+              )} 
+              referrerPolicy="no-referrer" 
+            />
+          ) : (
+            <div className="w-full h-full bg-white" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (node.type === "split") {
+    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
+    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
+    const c1 = node.c1 || node.left;
+    const c2 = node.c2 || node.right;
+
+    return (
+      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
+          <MiniPageGrid node={c1} />
+        </div>
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
+          <MiniPageGrid node={c2} />
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="w-full h-full bg-white" />;
 }
 
 function ComicPageViewer({ page }: { page: any }) {
@@ -170,6 +231,69 @@ function ComicPageViewer({ page }: { page: any }) {
       </div>
     </div>
   );
+}
+
+function isBookshelfComic(book: BookItem | null): boolean {
+  if (!book) return false;
+  if (book.fileType === 'comic') return true;
+  if (Array.isArray(book.pages) && book.pages.some(p => p && typeof p === 'object' && (p.tree || p.panels || p.bubbles))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Recursively extracts all asset panel images from a comic page in reading order.
+ * Works with ComicCreator layout trees (SplitNode / PanelNode), panel arrays, or direct page assets.
+ */
+function extractAssetPanelsFromPage(page: any): string[] {
+  if (!page) return [];
+  if (typeof page === 'string') {
+    return page.trim() !== '' ? [page] : [];
+  }
+
+  const panels: string[] = [];
+
+  const traverseNode = (node: any) => {
+    if (!node) return;
+
+    if (node.type === 'panel') {
+      const img = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
+      if (img && typeof img === 'string' && img.trim() !== '') {
+        panels.push(img);
+      } else if (Array.isArray(node.drawings) && node.drawings.length > 0) {
+        const strokeWithImg = node.drawings.find((d: any) => d && d.imageUrl && typeof d.imageUrl === 'string' && d.imageUrl.trim() !== '');
+        if (strokeWithImg) {
+          panels.push(strokeWithImg.imageUrl);
+        }
+      }
+    } else if (node.type === 'split') {
+      const c1 = node.c1 || node.left;
+      const c2 = node.c2 || node.right;
+      traverseNode(c1);
+      traverseNode(c2);
+    }
+  };
+
+  if (page.tree) {
+    traverseNode(page.tree);
+  } else if (Array.isArray(page.panels)) {
+    page.panels.forEach((p: any) => {
+      if (typeof p === 'string') {
+        if (p.trim() !== '') panels.push(p);
+      } else if (p && typeof p === 'object') {
+        const img = p.imageUrl || p.drawing || p.image || p.url || p.cover;
+        if (img && typeof img === 'string' && img.trim() !== '') panels.push(img);
+      }
+    });
+  } else if (page.imageUrl || page.cover || page.image || page.url) {
+    const single = page.imageUrl || page.cover || page.image || page.url;
+    if (typeof single === 'string' && single.trim() !== '') {
+      panels.push(single);
+    }
+  }
+
+  return panels;
 }
 
 export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, onFullscreenChange }) => {
@@ -308,8 +432,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [isProcessingPage, setIsProcessingPage] = useState(false);
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
 
+  // For bookshelf comics (or comics created in the app), immediately extract asset panel images for all pages
   useEffect(() => {
-    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' || selectedBook.fileType === 'comic') return;
+    if (!selectedBook) return;
+    if (isBookshelfComic(selectedBook)) {
+      const newCache: Record<number, string[]> = {};
+      selectedBook.pages.forEach((page, idx) => {
+        const panels = extractAssetPanelsFromPage(page);
+        if (panels.length > 0) {
+          newCache[idx] = panels;
+        } else if (page && typeof page === 'object' && (page.cover || page.imageUrl)) {
+          newCache[idx] = [page.cover || page.imageUrl];
+        }
+      });
+      setPanelsCache(newCache);
+    }
+  }, [selectedBook]);
+
+  useEffect(() => {
+    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' || isBookshelfComic(selectedBook)) return;
     
     let isActive = true;
 
@@ -448,7 +589,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
   // Notify user when they navigate to a page that hasn't finished layout detection yet
   useEffect(() => {
-    if (selectedBook && gridView && !panelsCache[currentPage]) {
+    if (selectedBook && !isBookshelfComic(selectedBook) && gridView && !panelsCache[currentPage]) {
       toast.info(`Page ${currentPage + 1} layout detection is in progress... Panels will render automatically when complete.`, {
         id: `grid-loading-${currentPage}`
       });
@@ -712,73 +853,80 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {recentBooks.map((book) => (
-                  <Card 
-                    key={book.id} 
-                    onClick={() => handleOpenRecent(book)}
-                    className="group relative flex flex-col bg-card hover:bg-accent/35 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm hover:shadow"
-                  >
-                    {/* Cover Preview - only for images (comic), others just text/icon */}
-                    {book.fileType === "images" ? (
-                      <div className="relative aspect-[3/4] bg-muted/20 overflow-hidden flex items-center justify-center border-b">
-                        <img 
-                          src={book.cover || undefined} 
-                          alt={book.title}
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                {recentBooks.map((book) => {
+                  const hasCoverImage = book.cover && typeof book.cover === 'string' && 
+                    (book.cover.startsWith('data:') || book.cover.startsWith('http') || book.cover.startsWith('blob:') || book.cover.startsWith('/')) &&
+                    !book.cover.includes('placehold.co');
+
+                  return (
+                    <Card 
+                      key={book.id} 
+                      onClick={() => handleOpenRecent(book)}
+                      className="group relative flex flex-col bg-card hover:bg-accent/35 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm hover:shadow"
+                    >
+                      {/* Cover Preview */}
+                      {hasCoverImage ? (
+                        <div className="relative aspect-[3/4] bg-white overflow-hidden flex items-center justify-center border-b">
+                          <img 
+                            src={book.cover} 
+                            alt={book.title}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 bg-white"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                              <Play className="w-4 h-4 fill-current ml-0.5" />
+                            </div>
+                          </div>
+                          <span className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none">
+                            {book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative aspect-[3/4] bg-accent/40 overflow-hidden flex flex-col items-center justify-center border-b p-4 select-none">
+                          <div className="text-muted-foreground/45 font-mono text-xs uppercase tracking-widest font-black mb-1">
+                            {book.fileType}
+                          </div>
+                          <BookOpen className="w-8 h-8 text-muted-foreground/50 mb-1" />
+                          <span className="text-[10px] text-muted-foreground/70 font-mono text-center line-clamp-2 max-w-full px-1">
+                            {book.title}
+                          </span>
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                              <Play className="w-4 h-4 fill-current ml-0.5" />
+                            </div>
                           </div>
                         </div>
-                        <span className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none">
-                          Comic
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="relative aspect-[3/4] bg-accent/40 overflow-hidden flex flex-col items-center justify-center border-b p-4 select-none">
-                        <div className="text-muted-foreground/45 font-mono text-xs uppercase tracking-widest font-black mb-1">
-                          {book.fileType}
-                        </div>
-                        <BookOpen className="w-8 h-8 text-muted-foreground/50 mb-1" />
-                        <span className="text-[10px] text-muted-foreground/70 font-mono text-center line-clamp-2 max-w-full px-1">
-                          {book.title}
-                        </span>
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                            <Play className="w-4 h-4 fill-current ml-0.5" />
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Book Metadata */}
-                    <div className="p-3 flex-1 flex flex-col justify-between space-y-1">
-                      <div>
-                        <h4 className="text-xs font-bold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
-                          {book.title}
-                        </h4>
-                        <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5">
-                          {book.author === "Local File" ? t("localFile") : book.author}
-                        </p>
-                      </div>
+                      {/* Book Metadata */}
+                      <div className="p-3 flex-1 flex flex-col justify-between space-y-1">
+                        <div>
+                          <h4 className="text-xs font-bold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
+                            {book.title}
+                          </h4>
+                          <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5">
+                            {book.author === "Local File" ? t("localFile") : book.author}
+                          </p>
+                        </div>
 
-                      <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
-                        <span className="text-[10px] text-primary font-bold">
-                          {t("page")} {book.lastReadPage + 1}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => handleDeleteRecent(e, book.id)}
-                          className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
+                          <span className="text-[10px] text-primary font-bold">
+                            {t("page")} {book.lastReadPage + 1}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => handleDeleteRecent(e, book.id)}
+                            className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -823,10 +971,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                        variant={gridView ? "default" : "outline"}
                        size="icon" 
                        className="h-8 w-8" 
-                       onClick={() => setGridView(!gridView)}
+                       onClick={() => {
+                         setGridView(!gridView);
+                         setCurrentPanelIndex(0);
+                       }}
                        title={t("splitPanels")}
                      >
-                        <Grid className="w-3.5 h-3.5" />
+                        <SplitPanelsIcon className="w-3.5 h-3.5" />
                      </Button>
                    </>
                 )}
@@ -1004,37 +1155,78 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   </div>
                   <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2" id="thumbnail-container">
                     {selectedBook.fileType === 'pdf' ? (
-                      <div className="p-4 text-xs text-center text-muted-foreground">PDF Thumbnails preview is standard</div>
+                      <div className="space-y-2">
+                        {Array.from({ length: pdfNumPages || 0 }).map((_, idx) => (
+                          <div 
+                            key={idx}
+                            id={`thumb-${idx}`}
+                            onClick={() => setCurrentPage(idx)}
+                            className={cn(
+                              "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center shadow-xs",
+                              currentPage === idx 
+                                ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
+                                : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
+                            )}
+                          >
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-white p-2 text-center pointer-events-none">
+                              <BookOpen className="w-5 h-5 text-muted-foreground/50 mb-1" />
+                              <span className="text-[10px] font-bold text-foreground">
+                                {t("page")} {idx + 1}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10">
+                              {idx + 1}
+                            </div>
+                          </div>
+                        ))}
+                        {(!pdfNumPages || pdfNumPages === 0) && (
+                          <div className="p-4 text-xs text-center text-muted-foreground">PDF Loading...</div>
+                        )}
+                      </div>
                     ) : selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' ? (
                       <div className="p-4 text-xs text-center text-muted-foreground">Table of Contents / Text Mode</div>
                     ) : (
                       selectedBook.pages.map((p, idx) => {
-                        const thumbUrl = typeof p === 'string' ? p : (p?.cover || p?.tree?.imageUrl || p?.tree?.drawing || p?.tree?.left?.imageUrl || p?.tree?.c1?.imageUrl);
+                        const isComicObj = typeof p === 'object' && p && (p.tree || p.panels);
+                        const panels = extractAssetPanelsFromPage(p);
+                        const thumbUrl = typeof p === 'string' 
+                          ? p 
+                          : (panels.length > 0 ? panels[0] : (p?.cover || p?.imageUrl || p?.image || p?.tree?.imageUrl || p?.tree?.drawing));
+
                         return (
                           <div 
                             key={idx}
                             id={`thumb-${idx}`}
                             onClick={() => setCurrentPage(idx)}
                             className={cn(
-                              "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-background flex items-center justify-center",
+                              "group relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center",
                               currentPage === idx 
                                 ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
                                 : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
                             )}
                           >
-                            {thumbUrl ? (
-                              <img src={thumbUrl} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
+                            {isComicObj && p.tree ? (
+                              <div className="absolute inset-0 bg-white flex items-center justify-center p-[2px] pointer-events-none overflow-hidden select-none">
+                                <MiniPageGrid node={p.tree} />
+                              </div>
+                            ) : thumbUrl ? (
+                              <img 
+                                src={thumbUrl} 
+                                className="w-full h-full object-cover bg-white pointer-events-none select-none" 
+                                alt={`Thumb ${idx + 1}`}
+                                referrerPolicy="no-referrer"
+                              />
                             ) : (
-                              <div className="text-[10px] font-medium text-muted-foreground p-1 text-center">
+                              <div className="text-[10px] font-medium text-muted-foreground p-1 text-center bg-white w-full h-full flex items-center justify-center">
                                 {t("page")} {idx + 1}
                               </div>
                             )}
-                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 shadow-xs">
                               {idx + 1}
                             </div>
                             {panelsCache[idx] && (
-                              <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center" title={t("layoutDetectedInCache")}>
-                                <Grid className="w-2.5 h-2.5" />
+                              <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center z-10" title={t("layoutDetectedInCache")}>
+                                <SplitPanelsIcon className="w-2.5 h-2.5" />
                               </div>
                             )}
                           </div>
@@ -1200,10 +1392,27 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
                   <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
                   <div className={cn(
-                                 
-                                 "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-4", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
+                    "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-4", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
                     {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
-                       <img key={currentPanelIndex} src={panelsCache[currentPage][currentPanelIndex] || undefined} className="w-full h-full object-contain pointer-events-auto select-none" />
+                      <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none p-2 sm:p-4">
+                        <div className="relative max-h-full max-w-full aspect-auto bg-white border border-zinc-900 rounded-md shadow-2xl overflow-hidden flex items-center justify-center p-1.5 sm:p-3">
+                          <img 
+                            key={`${currentPage}-${currentPanelIndex}`} 
+                            src={panelsCache[currentPage][currentPanelIndex] || undefined} 
+                            alt={`Page ${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
+                            className="max-h-[80vh] max-w-full object-contain pointer-events-auto select-none bg-white transition-opacity duration-200" 
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        {panelsCache[currentPage].length > 1 && (
+                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-md text-foreground border border-border px-3 py-1 rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 pointer-events-none z-20">
+                            <SplitPanelsIcon className="w-3 h-3 text-primary" />
+                            <span>{currentPanelIndex + 1} / {panelsCache[currentPage].length}</span>
+                            <span className="text-muted-foreground">•</span>
+                            <span className="text-muted-foreground">{t("page")} {currentPage + 1} / {selectedBook.pages.length}</span>
+                          </div>
+                        )}
+                      </div>
                     ) : cropBorders && croppedCache[currentPage] ? (
                        <img 
                          src={croppedCache[currentPage] || undefined} 

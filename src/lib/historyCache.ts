@@ -123,6 +123,59 @@ export interface ConversionLog {
    READ BOOK CACHE
    ========================================================================== */
 
+async function resolveThumbnailCover(cover?: string, pages?: any[]): Promise<string> {
+  let candidate = cover;
+  if (!candidate || typeof candidate !== 'string' || (!candidate.startsWith('data:') && !candidate.startsWith('http') && !candidate.startsWith('blob:') && !candidate.startsWith('/'))) {
+    if (pages && pages.length > 0) {
+      const first = pages[0];
+      if (typeof first === 'string' && (first.startsWith('data:') || first.startsWith('http') || first.startsWith('blob:') || first.startsWith('/'))) {
+        candidate = first;
+      } else if (first && typeof first === 'object') {
+        const directImg = first.cover || first.imageUrl || first.image || first.url;
+        if (directImg && typeof directImg === 'string') {
+          candidate = directImg;
+        } else if (first.tree) {
+          const findImageInTree = (node: any): string | null => {
+            if (!node) return null;
+            if (node.type === 'panel') {
+              if (node.imageUrl) return node.imageUrl;
+              if (node.drawing) return node.drawing;
+              if (node.bgImageUrl) return node.bgImageUrl;
+              if (Array.isArray(node.drawings) && node.drawings.length > 0) {
+                const imgStroke = node.drawings.find((d: any) => d && d.imageUrl);
+                if (imgStroke) return imgStroke.imageUrl;
+              }
+            } else if (node.type === 'split') {
+              return findImageInTree(node.c1 || node.left) || findImageInTree(node.c2 || node.right);
+            }
+            return null;
+          };
+          const found = findImageInTree(first.tree);
+          if (found) candidate = found;
+        }
+      }
+    }
+  }
+
+  if (candidate && candidate.startsWith('blob:')) {
+    try {
+      const res = await fetch(candidate);
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(candidate!);
+        reader.readAsDataURL(blob);
+      });
+      return dataUrl;
+    } catch (_) {
+      return candidate;
+    }
+  }
+
+  return candidate || 'https://placehold.co/150x220/png?text=eBook';
+}
+
 export async function saveRecentBook(
   book: {
     id: string;
@@ -137,11 +190,13 @@ export async function saveRecentBook(
   lastReadPage: number,
   lastReadLocation?: string | number
 ): Promise<void> {
+  const resolvedCover = await resolveThumbnailCover(book.cover, book.pages);
+
   const metadata: RecentBookMetadata = {
     id: book.id,
     title: book.title,
     author: book.author || 'Local File',
-    cover: book.cover && typeof book.cover === 'string' && (book.cover.startsWith('data:') || book.cover.startsWith('http')) ? book.cover : (book.cover || 'https://placehold.co/150x220/png?text=eBook'),
+    cover: resolvedCover,
     fileType: book.fileType,
     lastReadPage,
     lastReadLocation,
@@ -168,7 +223,7 @@ export async function saveRecentBook(
       id: book.id,
       title: book.title,
       author: book.author,
-      cover: book.cover,
+      cover: resolvedCover,
       fileType: book.fileType,
       pages: Array.isArray(book.pages)
         ? book.pages.filter(p => typeof p === 'string' ? !p.startsWith('blob:') : true)

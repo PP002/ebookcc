@@ -241,6 +241,66 @@ const cropImageToCover = async (
   });
 };
 
+function MiniPageGrid({ node }: { node: any }) {
+  if (!node) return null;
+
+  if (node.type === "panel") {
+    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
+    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
+      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
+      if (strokeImg) imgUrl = strokeImg.imageUrl;
+    }
+
+    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
+
+    return (
+      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
+        <div 
+          className={cn(
+            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
+            hasImage ? "border border-zinc-900" : "border-none"
+          )}
+          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
+        >
+          {hasImage ? (
+            <img 
+              src={imgUrl} 
+              alt="" 
+              className={cn(
+                "w-full h-full object-cover bg-white pointer-events-none select-none",
+                node.isHighContrast && "grayscale contrast-125"
+              )} 
+              referrerPolicy="no-referrer" 
+            />
+          ) : (
+            <div className="w-full h-full bg-white" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (node.type === "split") {
+    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
+    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
+    const c1 = node.c1 || node.left;
+    const c2 = node.c2 || node.right;
+
+    return (
+      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
+          <MiniPageGrid node={c1} />
+        </div>
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
+          <MiniPageGrid node={c2} />
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="w-full h-full bg-white" />;
+}
+
 const computePanels = (
   node: any,
   x: number,
@@ -4621,19 +4681,36 @@ export const Create: React.FC<CreateProps> = ({
                     <div
                       key={page.id}
                       onClick={() => setActivePageIndex(idx)}
-                      className={`relative aspect-[3/4] w-full rounded-md border overflow-hidden cursor-pointer bg-zinc-100 transition-all ${activePageIndex === idx ? "border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/50"}`}
+                      className={cn(
+                        "group relative aspect-[3/4] w-full rounded-md border overflow-hidden cursor-pointer bg-white transition-all shadow-xs",
+                        activePageIndex === idx 
+                          ? "border-primary ring-2 ring-primary/40 shadow-sm" 
+                          : "border-border hover:border-primary/50 opacity-90 hover:opacity-100"
+                      )}
                     >
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-1">
-                        <span className="text-[9px] font-bold text-white shadow-sm">
+                      {/* Mini Page Grid Thumbnail */}
+                      <div className="absolute inset-0 bg-white flex items-center justify-center p-[2px] pointer-events-none overflow-hidden select-none">
+                        <MiniPageGrid node={page.tree} />
+                      </div>
+
+                      {/* Page Index Badge */}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-1.5 pt-3 pointer-events-none flex items-center justify-between z-10">
+                        <span className="text-[9px] font-bold text-white shadow-xs">
                           {t("page")} {idx + 1}
                         </span>
+                        {Array.isArray(page.bubbles) && page.bubbles.length > 0 && (
+                          <span className="text-[8px] bg-white/30 text-white px-1 py-0.2 rounded-full font-medium">
+                            {page.bubbles.length} 💬
+                          </span>
+                        )}
                       </div>
+
                       {comicPages.length > 1 && (
-                        <div className="absolute top-1 right-1 opacity-0 hover:opacity-100 transition-opacity">
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                           <Button
                             variant="destructive"
                             size="icon"
-                            className="w-5 h-5 rounded-full"
+                            className="w-5 h-5 rounded-full shadow-md"
                             onClick={(e) => {
                               e.stopPropagation();
                               const newPages = comicPages.filter(

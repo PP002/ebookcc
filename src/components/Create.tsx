@@ -241,66 +241,6 @@ const cropImageToCover = async (
   });
 };
 
-function MiniPageGrid({ node }: { node: any }) {
-  if (!node) return null;
-
-  if (node.type === "panel") {
-    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
-    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
-      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
-      if (strokeImg) imgUrl = strokeImg.imageUrl;
-    }
-
-    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
-
-    return (
-      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
-        <div 
-          className={cn(
-            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
-            hasImage ? "border border-zinc-900" : "border-none"
-          )}
-          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
-        >
-          {hasImage ? (
-            <img 
-              src={imgUrl} 
-              alt="" 
-              className={cn(
-                "w-full h-full object-cover bg-white pointer-events-none select-none",
-                node.isHighContrast && "grayscale contrast-125"
-              )} 
-              referrerPolicy="no-referrer" 
-            />
-          ) : (
-            <div className="w-full h-full bg-white" />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (node.type === "split") {
-    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
-    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
-    const c1 = node.c1 || node.left;
-    const c2 = node.c2 || node.right;
-
-    return (
-      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c1} />
-        </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c2} />
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="w-full h-full bg-white" />;
-}
-
 const computePanels = (
   node: any,
   x: number,
@@ -1086,25 +1026,33 @@ function MiniPageGrid({ node }: { node: any }) {
   if (!node) return null;
 
   if (node.type === "panel") {
-    const hasImage = !!(
-      (node.imageUrl && typeof node.imageUrl === 'string' && node.imageUrl.trim() !== '') ||
-      (node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '') ||
-      (Array.isArray(node.drawings) && node.drawings.length > 0)
-    );
+    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
+    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
+      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
+      if (strokeImg) imgUrl = strokeImg.imageUrl;
+    }
+
+    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
 
     return (
-      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
+      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
         <div 
           className={cn(
             "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
             hasImage ? "border border-zinc-900" : "border-none"
           )}
-          style={{ backgroundColor: node.color || node.bg || '#ffffff' }}
+          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
         >
-          {node.imageUrl ? (
-            <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover bg-white" referrerPolicy="no-referrer" />
-          ) : node.drawing ? (
-            <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
+          {hasImage ? (
+            <img 
+              src={imgUrl} 
+              alt="" 
+              className={cn(
+                "w-full h-full object-cover bg-white pointer-events-none select-none",
+                node.isHighContrast && "grayscale contrast-125"
+              )} 
+              referrerPolicy="no-referrer" 
+            />
           ) : (
             <div className="w-full h-full bg-white" />
           )}
@@ -1121,10 +1069,10 @@ function MiniPageGrid({ node }: { node: any }) {
 
     return (
       <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white">
+        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
           <MiniPageGrid node={c1} />
         </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white">
+        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
           <MiniPageGrid node={c2} />
         </div>
       </div>

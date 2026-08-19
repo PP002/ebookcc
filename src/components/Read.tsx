@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play } from 'lucide-react';
-import { SplitPanelsIcon } from '@/components/icons/SplitPanelsIcon';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -20,6 +19,24 @@ import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, 
 import { useLanguage } from '@/context/LanguageContext';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+function SplitPanelsIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="7" y="3.5" width="10" height="17" rx="1.5" />
+      <path d="M4.5 7H2.5v10h2" />
+      <path d="M19.5 7h2v10h-2" />
+    </svg>
+  );
+}
 
 interface ReadProps {
   setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void;

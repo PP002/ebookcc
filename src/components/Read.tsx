@@ -17,6 +17,7 @@ import { runPredictAPI, autoCropImageBorders } from '@/components/Convert';
 import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 import { useLanguage } from '@/context/LanguageContext';
+import { ComicPageRenderer, ComicTreeNodeView } from '@/components/ComicPageRenderer';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -55,199 +56,6 @@ interface BookItem {
   fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
   file?: File;
   fileBuffer?: ArrayBuffer;
-}
-
-function MiniPageGrid({ node }: { node: any }) {
-  if (!node) return null;
-
-  if (node.type === "panel") {
-    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
-    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
-      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
-      if (strokeImg) imgUrl = strokeImg.imageUrl;
-    }
-
-    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
-
-    return (
-      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
-        <div 
-          className={cn(
-            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
-            hasImage ? "border border-zinc-900" : "border-none"
-          )}
-          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
-        >
-          {hasImage ? (
-            <img 
-              src={imgUrl} 
-              alt="" 
-              className={cn(
-                "w-full h-full object-cover bg-white pointer-events-none select-none",
-                node.isHighContrast && "grayscale contrast-125"
-              )} 
-              referrerPolicy="no-referrer" 
-            />
-          ) : (
-            <div className="w-full h-full bg-white" />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (node.type === "split") {
-    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
-    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
-    const c1 = node.c1 || node.left;
-    const c2 = node.c2 || node.right;
-
-    return (
-      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c1} />
-        </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c2} />
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="w-full h-full bg-white" />;
-}
-
-function ComicPageViewer({ page }: { page: any }) {
-  if (!page) return null;
-
-  if (typeof page === 'string') {
-    return (
-      <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-white border border-zinc-900 rounded shadow-xl overflow-hidden flex items-center justify-center m-auto">
-        <img
-          src={page}
-          alt="Comic Page"
-          className="w-full h-full object-contain pointer-events-auto select-none m-auto bg-white"
-          referrerPolicy="no-referrer"
-        />
-      </div>
-    );
-  }
-
-  const renderNode = (node: any): React.ReactNode => {
-    if (!node) return null;
-
-    if (node.type === "panel") {
-      const hasImage = !!(
-        (node.imageUrl && typeof node.imageUrl === 'string' && node.imageUrl.trim() !== '') ||
-        (node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '') ||
-        (Array.isArray(node.drawings) && node.drawings.length > 0)
-      );
-
-      return (
-        <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
-          <div 
-            className={cn(
-              "relative w-full h-full bg-white overflow-hidden flex items-center justify-center min-w-0 min-h-0",
-              hasImage ? "border border-zinc-900" : "border-none"
-            )}
-            style={node.bgColor || node.color ? { backgroundColor: node.bgColor || node.color } : { backgroundColor: "#ffffff" }}
-          >
-            {node.imageUrl && (
-              <img
-                src={node.imageUrl}
-                alt="Panel"
-                className={cn(
-                  "w-full h-full object-cover select-none pointer-events-auto bg-white",
-                  node.isHighContrast && "grayscale contrast-125"
-                )}
-                referrerPolicy="no-referrer"
-              />
-            )}
-            {node.drawing && (
-              <img
-                src={node.drawing}
-                alt="Drawing"
-                className="w-full h-full object-contain select-none pointer-events-auto bg-white"
-                referrerPolicy="no-referrer"
-              />
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (node.type === "split") {
-      const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
-      const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
-      const c1 = node.c1 || node.left;
-      const c2 = node.c2 || node.right;
-
-      return (
-        <div
-          className={cn(
-            "w-full h-full flex overflow-hidden min-w-0 min-h-0 bg-white",
-            isRow ? "flex-row" : "flex-col"
-          )}
-        >
-          <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1 bg-white">
-            {renderNode(c1)}
-          </div>
-          <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="relative overflow-hidden min-w-0 min-h-0 flex flex-1 bg-white">
-            {renderNode(c2)}
-          </div>
-        </div>
-      );
-    }
-
-    return null;
-  };
-
-  const getBubbleStyleClass = (style: string) => {
-    switch (style) {
-      case "action":
-        return "border border-red-500 bg-yellow-100 text-red-600 font-extrabold uppercase rounded-none px-3.5 py-2 shadow-[2px_2px_0px_0px_rgba(239,68,68,1)] text-xs text-center relative";
-      case "freehand":
-        return "border-2 border-slate-800 bg-white text-slate-900 rounded-[35%_65%_60%_40%_/_50%_60%_40%_50%] px-4 py-2 italic font-serif shadow-md text-xs text-center relative";
-      default:
-        return "border border-slate-900 bg-white text-black font-semibold rounded-2xl px-4 py-2 shadow-sm text-xs text-center relative";
-    }
-  };
-
-  return (
-    <div className="relative h-full max-h-full max-w-full aspect-[3/4] bg-white border border-zinc-900 rounded shadow-xl overflow-hidden flex flex-col pointer-events-auto m-auto p-[2px]">
-      <div className="flex-1 relative overflow-hidden bg-white w-full h-full">
-        {page.tree ? renderNode(page.tree) : page.cover || page.imageUrl || page.image || page.url ? (
-          <img src={page.cover || page.imageUrl || page.image || page.url} className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground bg-white">
-            Comic Page
-          </div>
-        )}
-
-        {Array.isArray(page.bubbles) &&
-          page.bubbles.map((b: any, bIdx: number) => {
-            if (!b || !b.text) return null;
-            const posX = typeof b.x === "number" ? b.x : 20;
-            const posY = typeof b.y === "number" ? b.y : 20;
-
-            return (
-              <div
-                key={b.id || bIdx}
-                className="absolute z-20 pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  left: `${posX}%`,
-                  top: `${posY}%`,
-                }}
-              >
-                <div className={getBubbleStyleClass(b.style || "classic")}>
-                  {b.text}
-                </div>
-              </div>
-            );
-          })}
-      </div>
-    </div>
-  );
 }
 
 function isBookshelfComic(book: BookItem | null): boolean {
@@ -1224,7 +1032,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           >
                             {isComicObj && p.tree ? (
                               <div className="absolute inset-0 bg-white flex items-center justify-center p-[2px] pointer-events-none overflow-hidden select-none">
-                                <MiniPageGrid node={p.tree} />
+                                <ComicTreeNodeView node={p.tree} />
                               </div>
                             ) : thumbUrl ? (
                               <img 
@@ -1409,9 +1217,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
                   <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
                   <div className={cn(
-                    "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-4", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
+                    "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
                     {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
-                      <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none p-2 sm:p-4">
+                      <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none p-0 sm:p-2">
                         <div className="relative max-h-full max-w-full aspect-auto bg-white border border-zinc-900 rounded-md shadow-2xl overflow-hidden flex items-center justify-center p-1.5 sm:p-3">
                           <img 
                             key={`${currentPage}-${currentPanelIndex}`} 
@@ -1434,15 +1242,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                        <img 
                          src={croppedCache[currentPage] || undefined} 
                          alt={`Page ${currentPage + 1}`} 
-                         className="w-full h-full object-contain pointer-events-auto select-none"
+                         className="max-h-full max-w-full object-contain pointer-events-auto select-none"
                        />
                     ) : selectedBook.fileType === "comic" || typeof selectedBook.pages[currentPage] === "object" ? (
-                       <ComicPageViewer page={selectedBook.pages[currentPage]} />
+                       <ComicPageRenderer 
+                         page={selectedBook.pages[currentPage]} 
+                         className="h-full max-h-full max-w-full" 
+                       />
                     ) : (
                        <img 
                          src={selectedBook.pages[currentPage] || undefined} 
                          alt={`Page ${currentPage + 1}`} 
-                         className="w-full h-full object-contain pointer-events-auto select-none"
+                         className="max-h-full max-w-full object-contain pointer-events-auto select-none"
                        />
                     )}
                     {(isProcessingPage && gridView && !panelsCache[currentPage]) && (

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { ComicPageRenderer, ComicTreeNodeView } from '@/components/ComicPageRenderer';
 
 interface PublishedItem {
   id: string;
@@ -25,59 +26,6 @@ interface PublishedItem {
 }
 
 const defaultBooks: PublishedItem[] = [];
-
-// Mini helper component to render complete comic page tree layout
-function MiniPageGrid({ node }: { node: any }) {
-  if (!node) return null;
-
-  if (node.type === "panel") {
-    const hasImage = !!(
-      (node.imageUrl && typeof node.imageUrl === 'string' && node.imageUrl.trim() !== '') ||
-      (node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '') ||
-      (Array.isArray(node.drawings) && node.drawings.length > 0)
-    );
-
-    return (
-      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[2px]">
-        <div 
-          className={cn(
-            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
-            hasImage ? "border border-zinc-900" : "border-none"
-          )}
-          style={{ backgroundColor: node.color || node.bg || '#ffffff' }}
-        >
-          {node.imageUrl ? (
-            <img src={node.imageUrl || undefined} alt="" className="w-full h-full object-cover bg-white" referrerPolicy="no-referrer" />
-          ) : node.drawing ? (
-            <img src={node.drawing || undefined} alt="" className="w-full h-full object-contain bg-white" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="w-full h-full bg-white" />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (node.type === "split") {
-    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
-    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
-    const c1 = node.c1 || node.left;
-    const c2 = node.c2 || node.right;
-
-    return (
-      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white">
-          <MiniPageGrid node={c1} />
-        </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white">
-          <MiniPageGrid node={c2} />
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="w-full h-full bg-white" />;
-}
 
 function MetroBookTile({
   book,
@@ -248,8 +196,8 @@ function MetroBookTile({
               className="w-full h-full flex flex-col items-center justify-center overflow-hidden"
             >
               {currentComicPage?.tree ? (
-                <div className="w-full h-full p-1 bg-background border border-border/60 flex flex-col overflow-hidden rounded">
-                  <MiniPageGrid node={currentComicPage.tree} />
+                <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
+                  <ComicTreeNodeView node={currentComicPage.tree} />
                 </div>
               ) : currentComicPage?.image ? (
                 <img
@@ -622,20 +570,12 @@ export function Bookshelf({
                   // COMIC SLIDE-BY-SLIDE VIEW
                   <div className="flex flex-col items-center justify-center space-y-4">
                     {selectedBook.pages && selectedBook.pages.length > 0 ? (
-                      <div className="relative max-w-lg w-full aspect-[3/4.2] rounded border border-zinc-900 bg-white overflow-hidden shadow-md flex items-center justify-center p-[2px]">
-                        {selectedBook.pages[activeComicPage]?.tree ? (
-                          <div className="w-full h-full bg-white flex flex-col overflow-hidden">
-                            <MiniPageGrid node={selectedBook.pages[activeComicPage].tree} />
-                          </div>
-                        ) : (
-                          <img 
-                            src={selectedBook.pages[activeComicPage]?.cover || selectedBook.cover || undefined} 
-                            alt={`Page ${activeComicPage + 1}`}
-                            className="w-full h-full object-contain bg-white"
-                            referrerPolicy="no-referrer"
-                          />
-                        )}
-                        <div className="absolute top-2 right-2 px-2 py-1 bg-black/75 text-white text-[10px] font-bold font-mono rounded">
+                      <div className="relative max-w-lg w-full h-[65vh] flex items-center justify-center">
+                        <ComicPageRenderer 
+                          page={selectedBook.pages[activeComicPage]} 
+                          className="h-full max-h-full max-w-full"
+                        />
+                        <div className="absolute top-2 right-2 px-2 py-1 bg-black/75 text-white text-[10px] font-bold font-mono rounded z-30 pointer-events-none">
                           Page {activeComicPage + 1} of {selectedBook.pages.length}
                         </div>
                       </div>

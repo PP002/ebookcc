@@ -62,6 +62,7 @@ import { publishWorkToR2, fetchPublishedWorksFromR2, deletePublishedWorkFromR2 }
 import { useLanguage } from "@/context/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
+import { ComicTreeNodeView } from "@/components/ComicPageRenderer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -1022,66 +1023,6 @@ function checkIsAuthor(item: any, user: any) {
   return true;
 }
 
-function MiniPageGrid({ node }: { node: any }) {
-  if (!node) return null;
-
-  if (node.type === "panel") {
-    let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
-    if (!imgUrl && Array.isArray(node.drawings) && node.drawings.length > 0) {
-      const strokeImg = node.drawings.find((d: any) => d && d.imageUrl);
-      if (strokeImg) imgUrl = strokeImg.imageUrl;
-    }
-
-    const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
-
-    return (
-      <div className="w-full h-full bg-white relative overflow-hidden flex items-center justify-center p-[1px] min-w-0 min-h-0">
-        <div 
-          className={cn(
-            "w-full h-full bg-white overflow-hidden relative flex items-center justify-center min-w-0 min-h-0",
-            hasImage ? "border border-zinc-900" : "border-none"
-          )}
-          style={{ backgroundColor: node.bgColor || node.color || node.bg || '#ffffff' }}
-        >
-          {hasImage ? (
-            <img 
-              src={imgUrl} 
-              alt="" 
-              className={cn(
-                "w-full h-full object-cover bg-white pointer-events-none select-none",
-                node.isHighContrast && "grayscale contrast-125"
-              )} 
-              referrerPolicy="no-referrer" 
-            />
-          ) : (
-            <div className="w-full h-full bg-white" />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (node.type === "split") {
-    const isRow = node.dir === "row" || node.dir === "h" || node.dir === "horizontal" || node.direction === "horizontal";
-    const pct = typeof node.percent === "number" ? node.percent : (typeof node.splitRatio === "number" ? node.splitRatio : 50);
-    const c1 = node.c1 || node.left;
-    const c2 = node.c2 || node.right;
-
-    return (
-      <div className={`flex w-full h-full min-w-0 min-h-0 bg-white ${isRow ? "flex-row" : "flex-col"}`}>
-        <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c1} />
-        </div>
-        <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0 bg-white overflow-hidden">
-          <MiniPageGrid node={c2} />
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="w-full h-full bg-white" />;
-}
-
 function CreateMetroTile({
   book,
   index,
@@ -1248,8 +1189,8 @@ function CreateMetroTile({
               className="w-full h-full flex flex-col items-center justify-center overflow-hidden bg-white"
             >
               {currentComicPage?.tree ? (
-                <div className="w-full h-full p-1 bg-white border border-zinc-900 flex flex-col overflow-hidden">
-                  <MiniPageGrid node={currentComicPage.tree} />
+                <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
+                  <ComicTreeNodeView node={currentComicPage.tree} />
                 </div>
               ) : currentComicPage?.image ? (
                 <img
@@ -4638,7 +4579,7 @@ export const Create: React.FC<CreateProps> = ({
                     >
                       {/* Mini Page Grid Thumbnail */}
                       <div className="absolute inset-0 bg-white flex items-center justify-center p-[2px] pointer-events-none overflow-hidden select-none">
-                        <MiniPageGrid node={page.tree} />
+                        <ComicTreeNodeView node={page.tree} />
                       </div>
 
                       {/* Page Index Badge */}
@@ -4685,7 +4626,7 @@ export const Create: React.FC<CreateProps> = ({
 
         <div className="flex-1 w-full min-h-0 relative h-full flex flex-col lg:flex-row bg-background overflow-hidden">
           {/* Main Canvas Area */}
-          <div className="flex-1 relative h-full flex justify-center items-center p-2 lg:p-4 min-w-0 min-h-0 bg-background/50 overflow-hidden">
+          <div className="flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden">
             <div className="relative max-h-full max-w-full inline-flex justify-center items-center h-full">
               <svg
                 viewBox="0 0 3 4"

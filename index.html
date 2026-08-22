@@ -366,6 +366,29 @@
               errDiv.innerHTML = '<strong>Legacy Browser Notice:</strong> Some advanced features may require modern browser support. <button onclick="window.location.reload()" style="margin-top:6px;display:block;padding:4px 10px;background:#991b1b;color:#fff;border:none;border-radius:4px;cursor:pointer;">Retry Load</button>';
             }
           });
+
+          // 17. Legacy Browser Timeout Notice (for default BB10 WebKit browser lacking ES module support)
+          setTimeout(function() {
+            var loader = document.getElementById('app-loading');
+            if (loader && !window.__REACT_MOUNTED__) {
+              var info = document.getElementById('app-legacy-info');
+              if (!info) {
+                info = document.createElement('div');
+                info.id = 'app-legacy-info';
+                info.style.cssText = 'margin-top:20px;padding:16px;max-width:480px;background:#ffffff;border:2px solid #000000;border-radius:0;box-shadow:4px 4px 0 #000000;text-align:left;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;color:#000000;';
+                info.innerHTML = '<h3 style="margin:0 0 8px 0;font-size:15px;font-weight:bold;">Browser Compatibility Notice</h3>' +
+                  '<p style="margin:0 0 10px 0;">The application suite is optimized for Chromium-based browsers (e.g., Chrome 68+, Kiwi, Brave, Edge). The built-in BlackBerry 10 WebKit browser lacks support for ES6 JavaScript modules.</p>' +
+                  '<div style="background:#f4f4f5;border-left:3px solid #000;padding:8px 10px;margin-bottom:12px;font-size:12px;">' +
+                  '<strong>Recommended:</strong> Open this page using <strong>Chrome for BlackBerry (APK)</strong> or <strong>Kiwi Browser</strong> for full comic creation, AI translation, and EPUB packaging.' +
+                  '</div>' +
+                  '<div style="display:flex;gap:8px;">' +
+                  '<a href="/api/health" style="display:inline-block;padding:6px 12px;background:#000000;color:#ffffff;text-decoration:none;font-weight:bold;font-size:12px;border-radius:0;">Check Server API</a>' +
+                  '<button onclick="window.location.reload()" style="padding:6px 12px;background:#f4f4f5;color:#000000;border:1px solid #000000;font-weight:bold;font-size:12px;border-radius:0;cursor:pointer;">Retry</button>' +
+                  '</div>';
+                loader.appendChild(info);
+              }
+            }
+          }, 3500);
         }
       })();
     </script>

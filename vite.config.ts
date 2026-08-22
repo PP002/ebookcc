@@ -1,4 +1,3 @@
-import legacy from '@vitejs/plugin-legacy';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -9,16 +8,23 @@ export default defineConfig(({mode}) => {
     plugins: [
       react(),
       tailwindcss(),
-      legacy({
-        targets: ['chrome >= 49', 'firefox >= 52', 'safari >= 9', 'ios_saf >= 9', 'edge >= 15'],
-        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-      }),
     ],
     esbuild: {
       target: 'es2015',
+      legalComments: 'none',
     },
     build: {
       target: 'es2015',
+      cssTarget: 'chrome60',
+      minify: 'esbuild',
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+          },
+        },
+      },
     },
     resolve: {
       alias: {

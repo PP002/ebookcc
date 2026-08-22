@@ -273,7 +273,73 @@
             };
           }
 
-          // 11. crypto.getRandomValues polyfill if needed
+          // 11. AbortController / AbortSignal polyfill for fetch cancellation
+          if (typeof window.AbortController === 'undefined') {
+            window.AbortController = function() {
+              var self = this;
+              this.signal = {
+                aborted: false,
+                addEventListener: function() {},
+                removeEventListener: function() {},
+                dispatchEvent: function() { return true; },
+                onabort: null
+              };
+              this.abort = function() {
+                self.signal.aborted = true;
+                if (typeof self.signal.onabort === 'function') {
+                  self.signal.onabort();
+                }
+              };
+            };
+          }
+
+          // 12. TextEncoder / TextDecoder basic polyfill
+          if (typeof window.TextEncoder === 'undefined') {
+            window.TextEncoder = function() {};
+            window.TextEncoder.prototype.encode = function(str) {
+              var utf8 = unescape(encodeURIComponent(str || ''));
+              var arr = new Uint8Array(utf8.length);
+              for (var i = 0; i < utf8.length; i++) {
+                arr[i] = utf8.charCodeAt(i);
+              }
+              return arr;
+            };
+          }
+          if (typeof window.TextDecoder === 'undefined') {
+            window.TextDecoder = function() {};
+            window.TextDecoder.prototype.decode = function(bytes) {
+              if (!bytes) return '';
+              var utf8 = '';
+              for (var i = 0; i < bytes.length; i++) {
+                utf8 += String.fromCharCode(bytes[i]);
+              }
+              try {
+                return decodeURIComponent(escape(utf8));
+              } catch (e) {
+                return utf8;
+              }
+            };
+          }
+
+          // 13. ResizeObserver stub polyfill
+          if (typeof window.ResizeObserver === 'undefined') {
+            window.ResizeObserver = function(callback) {
+              this.observe = function(target) {};
+              this.unobserve = function(target) {};
+              this.disconnect = function() {};
+            };
+          }
+
+          // 14. IntersectionObserver stub polyfill
+          if (typeof window.IntersectionObserver === 'undefined') {
+            window.IntersectionObserver = function(callback) {
+              this.observe = function(target) {};
+              this.unobserve = function(target) {};
+              this.disconnect = function() {};
+            };
+          }
+
+          // 15. crypto.getRandomValues polyfill if needed
           if (!window.crypto) {
             window.crypto = {};
           }
@@ -285,6 +351,21 @@
               return arr;
             };
           }
+
+          // 16. Fallback error logger to prevent silent white-screen crashes
+          window.addEventListener('error', function(e) {
+            var loader = document.getElementById('app-loading');
+            if (loader) {
+              var errDiv = document.getElementById('app-error-banner');
+              if (!errDiv) {
+                errDiv = document.createElement('div');
+                errDiv.id = 'app-error-banner';
+                errDiv.style.cssText = 'margin-top:16px;padding:12px 16px;background:#fef2f2;border:1px solid #f87171;color:#991b1b;border-radius:8px;font-size:13px;max-width:480px;text-align:left;';
+                loader.appendChild(errDiv);
+              }
+              errDiv.innerHTML = '<strong>Legacy Browser Notice:</strong> Some advanced features may require modern browser support. <button onclick="window.location.reload()" style="margin-top:6px;display:block;padding:4px 10px;background:#991b1b;color:#fff;border:none;border-radius:4px;cursor:pointer;">Retry Load</button>';
+            }
+          });
         }
       })();
     </script>

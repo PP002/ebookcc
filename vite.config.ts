@@ -10,9 +10,16 @@ export default defineConfig(({mode}) => {
       react(),
       tailwindcss(),
       legacy({
-        targets: ['> 0.5%', 'last 2 versions', 'Firefox ESR', 'not dead'],
+        targets: ['chrome >= 49', 'firefox >= 52', 'safari >= 9', 'ios_saf >= 9', 'edge >= 15'],
+        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
       }),
     ],
+    esbuild: {
+      target: 'es2015',
+    },
+    build: {
+      target: 'es2015',
+    },
     resolve: {
       alias: {
         '@': path.resolve(process.cwd(), './src'),
@@ -20,7 +27,10 @@ export default defineConfig(({mode}) => {
       dedupe: ['react', 'react-dom'],
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-dropzone']
+      include: ['react', 'react-dom', 'react-dropzone'],
+      esbuildOptions: {
+        target: 'es2015',
+      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

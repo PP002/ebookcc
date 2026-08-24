@@ -8,6 +8,7 @@ import HTMLtoDOCX from 'html-to-docx';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { resolveSEORoute, injectSEOMetadata } from "./src/seoMetadata";
 
 // ─────────────────────────────────────────────
 // Types
@@ -1069,6 +1070,202 @@ async function startServer() {
     } catch (e: any) {
       console.error("[API /api/published-works DELETE] Error:", e);
       return res.status(500).json({ error: e.message || "Failed deleting work" });
+    }
+  });
+
+  // ─────────────────────────────────────────────
+  // Book Notes / Comments API Routes (R2 + Local Cache)
+  // ─────────────────────────────────────────────
+
+  // Route: GET /api/books/:bookId/comments
+  app.get("/api/books/:bookId/comments", async (req, res): Promise<any> => {
+    try {
+      const bookId = decodeURIComponent(req.params.bookId).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      const jsonKey = `comments/${bookId}.json`;
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+
+      let comments: any[] = [];
+
+      // 1. Try remote Cloudflare R2 if configured
+      if (isConfigured && s3) {
+        try {
+          const getObjRes = await s3.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey
+          }));
+          if (getObjRes.Body) {
+            const str = await getObjRes.Body.transformToString("utf-8");
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) {
+              comments = parsed;
+              // Sync local server cache
+              fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
+              fs.writeFileSync(localJsonPath, JSON.stringify(comments, null, 2), "utf-8");
+              return res.json({ success: true, comments, source: "r2" });
+            }
+          }
+        } catch (r2Err: any) {
+          // Object might not exist yet (NoSuchKey), which is normal for books with 0 comments
+          if (r2Err.name !== "NoSuchKey") {
+            console.debug(`[R2 Comments GET notice]: ${r2Err.message}`);
+          }
+        }
+      }
+
+      // 2. Fallback to local server cache
+      if (fs.existsSync(localJsonPath)) {
+        try {
+          const raw = fs.readFileSync(localJsonPath, "utf-8");
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            comments = parsed;
+          }
+        } catch (_) {}
+      }
+
+      return res.json({ success: true, comments, source: "local" });
+    } catch (e: any) {
+      console.error("[API /api/books/:bookId/comments GET] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed retrieving comments" });
+    }
+  });
+
+  // Route: POST /api/books/:bookId/comments
+  app.post("/api/books/:bookId/comments", async (req, res): Promise<any> => {
+    try {
+      const bookId = decodeURIComponent(req.params.bookId).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const { comment } = req.body || {};
+
+      if (!comment || typeof comment !== "object" || !comment.content || !comment.content.trim()) {
+        return res.status(400).json({ error: "Comment content is required" });
+      }
+
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      const jsonKey = `comments/${bookId}.json`;
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+
+      let existingList: any[] = [];
+
+      // Try reading current list from R2 or local cache
+      if (isConfigured && s3) {
+        try {
+          const getRes = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: jsonKey }));
+          if (getRes.Body) {
+            const str = await getRes.Body.transformToString("utf-8");
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) existingList = parsed;
+          }
+        } catch (_) {}
+      } else if (fs.existsSync(localJsonPath)) {
+        try {
+          const raw = fs.readFileSync(localJsonPath, "utf-8");
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) existingList = parsed;
+        } catch (_) {}
+      }
+
+      const newComment = {
+        id: comment.id || `c_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        bookId,
+        bookTitle: comment.bookTitle || "",
+        userId: comment.userId || "anonymous",
+        userName: (comment.userName || "Reader").trim(),
+        userAvatar: comment.userAvatar || "",
+        page: typeof comment.page === "number" ? Math.max(0, comment.page) : 0,
+        location: comment.location || null,
+        content: comment.content.trim(),
+        timestamp: comment.timestamp || Date.now(),
+        isLocal: false,
+        replyToId: comment.replyToId ? String(comment.replyToId) : null,
+        replyToName: comment.replyToName ? String(comment.replyToName).trim() : null,
+        replyToSnippet: comment.replyToSnippet ? String(comment.replyToSnippet).trim() : null,
+      };
+
+      const updatedList = [newComment, ...existingList.filter(c => c.id !== newComment.id)].slice(0, 500);
+      const jsonBuffer = Buffer.from(JSON.stringify(updatedList, null, 2), "utf-8");
+
+      // Save to local cache
+      fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
+      fs.writeFileSync(localJsonPath, jsonBuffer);
+
+      // Save to Cloudflare R2 if configured
+      if (isConfigured && s3) {
+        try {
+          await s3.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey,
+            Body: jsonBuffer,
+            ContentType: "application/json"
+          }));
+        } catch (r2PutErr: any) {
+          console.warn(`[R2 Comments Put Error]:`, r2PutErr.message);
+        }
+      }
+
+      return res.json({
+        success: true,
+        comment: newComment,
+        comments: updatedList,
+        message: "Comment saved successfully to R2 media storage!"
+      });
+    } catch (e: any) {
+      console.error("[API /api/books/:bookId/comments POST] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed saving comment" });
+    }
+  });
+
+  // Route: DELETE /api/books/:bookId/comments/:commentId
+  app.delete("/api/books/:bookId/comments/:commentId", async (req, res): Promise<any> => {
+    try {
+      const bookId = decodeURIComponent(req.params.bookId).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const commentId = decodeURIComponent(req.params.commentId);
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      const jsonKey = `comments/${bookId}.json`;
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+
+      let existingList: any[] = [];
+
+      if (isConfigured && s3) {
+        try {
+          const getRes = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: jsonKey }));
+          if (getRes.Body) {
+            const str = await getRes.Body.transformToString("utf-8");
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) existingList = parsed;
+          }
+        } catch (_) {}
+      } else if (fs.existsSync(localJsonPath)) {
+        try {
+          const raw = fs.readFileSync(localJsonPath, "utf-8");
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) existingList = parsed;
+        } catch (_) {}
+      }
+
+      const updatedList = existingList.filter(c => c.id !== commentId);
+      const jsonBuffer = Buffer.from(JSON.stringify(updatedList, null, 2), "utf-8");
+
+      // Save to local cache
+      fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
+      fs.writeFileSync(localJsonPath, jsonBuffer);
+
+      // Save to R2
+      if (isConfigured && s3) {
+        try {
+          await s3.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey,
+            Body: jsonBuffer,
+            ContentType: "application/json"
+          }));
+        } catch (_) {}
+      }
+
+      return res.json({ success: true, message: "Comment deleted", comments: updatedList });
+    } catch (e: any) {
+      console.error("[API /api/books/:bookId/comments DELETE] Error:", e);
+      return res.status(500).json({ error: e.message || "Failed deleting comment" });
     }
   });
 
@@ -2456,14 +2653,20 @@ STRICT INSTRUCTIONS:
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
     
-    // SPA catch-all route for development mode (e.g. /create, /fr, /fr/create, /read, /convert)
+    // SPA catch-all route for development mode with dynamic SEO injection & 301 redirects
     app.get('*', async (req, res, next) => {
       try {
         const url = req.originalUrl;
+        const resolution = resolveSEORoute(req.path);
+        if (resolution.redirectTo && resolution.redirectTo !== req.path) {
+          return res.redirect(301, resolution.redirectTo);
+        }
+
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
         template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+        const { html } = injectSEOMetadata(template, req.path);
+        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(html);
       } catch (e: any) {
         if (vite && vite.ssrFixStacktrace) {
           vite.ssrFixStacktrace(e);
@@ -2476,8 +2679,28 @@ STRICT INSTRUCTIONS:
       app.get('*', (req, res) => res.json({ status: "API Server Only" }));
     } else {
       const distPath = path.join(process.cwd(), 'dist');
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+      // Serve static files but do NOT auto-serve index.html for page routes
+      app.use(express.static(distPath, { index: false }));
+
+      app.get('*', (req, res) => {
+        try {
+          const resolution = resolveSEORoute(req.path);
+          if (resolution.redirectTo && resolution.redirectTo !== req.path) {
+            return res.redirect(301, resolution.redirectTo);
+          }
+
+          const indexPath = path.join(distPath, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            const template = fs.readFileSync(indexPath, 'utf-8');
+            const { html } = injectSEOMetadata(template, req.path);
+            return res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(html);
+          }
+          res.sendFile(indexPath);
+        } catch (err: any) {
+          console.error("SSR SEO error:", err);
+          res.sendFile(path.join(distPath, 'index.html'));
+        }
+      });
     }
   }
 

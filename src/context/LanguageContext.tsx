@@ -8,9 +8,9 @@ import React, {
 
 export type LanguageCode =
   | "en"
-  | "jp"
-  | "zh-Hant"
+  | "ja"
   | "zh-Hans"
+  | "zh-Hant"
   | "fr"
   | "es"
   | "pt"
@@ -29,10 +29,10 @@ export interface LanguageOption {
 }
 
 export const LANGUAGES: LanguageOption[] = [
-  { code: "en", path: "/en", name: "English", nativeName: "English", flag: "🇺🇸" },
-  { code: "jp", path: "/jp", name: "Japanese", nativeName: "日本語", flag: "🇯🇵" },
-  { code: "zh-Hant", path: "/zh-Hant", name: "Traditional Chinese", nativeName: "繁體中文", flag: "🇭🇰" },
-  { code: "zh-Hans", path: "/zh-Hans", name: "Simplified Chinese", nativeName: "简体中文", flag: "🇨🇳" },
+  { code: "en", path: "/", name: "English", nativeName: "English", flag: "🇺🇸" },
+  { code: "ja", path: "/ja", name: "Japanese", nativeName: "日本語", flag: "🇯🇵" },
+  { code: "zh-Hans", path: "/zh-hans", name: "Simplified Chinese", nativeName: "简体中文", flag: "🇨🇳" },
+  { code: "zh-Hant", path: "/zh-hant", name: "Traditional Chinese", nativeName: "繁體中文", flag: "🇭🇰" },
   { code: "fr", path: "/fr", name: "French", nativeName: "Français", flag: "🇫🇷" },
   { code: "es", path: "/es", name: "Spanish", nativeName: "Español", flag: "🇪🇸" },
   { code: "pt", path: "/pt", name: "Portuguese", nativeName: "Português", flag: "🇧🇷" },
@@ -326,7 +326,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     handwritingTranscribeFailed: "Handwriting transcribing failed: ",
     dialogueGeneratedSuccess: "Dialogue generated!",
   },
-  jp: {
+  ja: {
     madeWith: "制作",
     by: "Pierre Kollo による制作。高度なAIを搭載。",
     contact: "お問い合わせ",
@@ -3442,13 +3442,18 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
   },
 };
 
+// Aliases for seamless legacy / lowercase access
+(TRANSLATIONS as any).jp = TRANSLATIONS.ja;
+(TRANSLATIONS as any)["zh-hans"] = TRANSLATIONS["zh-Hans"];
+(TRANSLATIONS as any)["zh-hant"] = TRANSLATIONS["zh-Hant"];
+
 export function detectBrowserLanguage(): LanguageCode {
   if (typeof window === "undefined") return "en";
   const navLangs = navigator.languages || [navigator.language || "en"];
   for (const rawLang of navLangs) {
     if (!rawLang) continue;
     const lang = rawLang.toLowerCase();
-    if (lang.startsWith("ja") || lang.startsWith("jp")) return "jp";
+    if (lang.startsWith("ja") || lang.startsWith("jp")) return "ja";
     if (
       lang.includes("hant") ||
       lang === "zh-tw" ||
@@ -3474,38 +3479,44 @@ export function parseLanguageAndRouteFromPath(pathname: string): {
   lang: LanguageCode | null;
   view: "home" | "read" | "create" | "convert" | "faq";
 } {
-  const cleanPath = pathname.trim();
+  const cleanPath = (pathname || "/").trim();
   const segments = cleanPath.split("/").filter(Boolean);
 
   if (segments.length === 0) {
-    return { lang: null, view: "home" };
+    return { lang: "en", view: "home" };
   }
 
-  const firstSeg = segments[0];
-  const matchedLang = LANGUAGES.find(
-    (l) =>
-      l.code.toLowerCase() === firstSeg.toLowerCase() ||
-      l.path.toLowerCase() === `/${firstSeg.toLowerCase()}`
-  );
+  const firstSeg = segments[0].toLowerCase();
+  
+  let matchedLang: LanguageCode | null = null;
+  if (firstSeg === "en") matchedLang = "en";
+  else if (firstSeg === "ja" || firstSeg === "jp") matchedLang = "ja";
+  else if (firstSeg === "zh-hans" || firstSeg === "zh-cn" || firstSeg === "zh") matchedLang = "zh-Hans";
+  else if (firstSeg === "zh-hant" || firstSeg === "zh-tw" || firstSeg === "zh-hk") matchedLang = "zh-Hant";
+  else if (firstSeg === "fr") matchedLang = "fr";
+  else if (firstSeg === "es") matchedLang = "es";
+  else if (firstSeg === "pt") matchedLang = "pt";
+  else if (firstSeg === "ko") matchedLang = "ko";
+  else if (firstSeg === "de") matchedLang = "de";
+  else if (firstSeg === "ar") matchedLang = "ar";
+  else if (firstSeg === "ru") matchedLang = "ru";
+  else if (firstSeg === "it") matchedLang = "it";
 
   if (matchedLang) {
     const remainingSeg = segments[1] ? segments[1].toLowerCase() : "";
     let view: "home" | "read" | "create" | "convert" | "faq" = "home";
-    if (remainingSeg === "read") view = "read";
-    else if (remainingSeg === "create") view = "create";
-    else if (remainingSeg === "convert") view = "convert";
-    else if (remainingSeg === "faq") view = "faq";
-    return { lang: matchedLang.code, view };
+    if (remainingSeg === "read" || remainingSeg === "create" || remainingSeg === "convert" || remainingSeg === "faq") {
+      view = remainingSeg;
+    }
+    return { lang: matchedLang, view };
   }
 
   let view: "home" | "read" | "create" | "convert" | "faq" = "home";
-  const seg0 = firstSeg.toLowerCase();
-  if (seg0 === "read") view = "read";
-  else if (seg0 === "create") view = "create";
-  else if (seg0 === "convert") view = "convert";
-  else if (seg0 === "faq") view = "faq";
+  if (firstSeg === "read" || firstSeg === "create" || firstSeg === "convert" || firstSeg === "faq") {
+    view = firstSeg;
+  }
 
-  return { lang: null, view };
+  return { lang: "en", view };
 }
 
 export function buildPathWithLanguage(
@@ -3513,15 +3524,31 @@ export function buildPathWithLanguage(
   view: "home" | "read" | "create" | "convert" | "faq"
 ): string {
   const viewPath = view === "home" ? "" : `/${view}`;
-  return `/${lang}${viewPath}`;
+  if (lang === "en") {
+    return viewPath || "/";
+  }
+  const code = (lang as string).toLowerCase();
+  const prefix =
+    code === "ja" || code === "jp"
+      ? "/ja"
+      : code === "zh-hans" || code === "zh-cn" || code === "zh"
+      ? "/zh-hans"
+      : code === "zh-hant" || code === "zh-tw" || code === "zh-hk"
+      ? "/zh-hant"
+      : `/${code}`;
+  return `${prefix}${viewPath}`;
 }
 
 export function getBcp47Locale(lang: LanguageCode): string {
-  switch (lang) {
+  const code = (lang as string).toLowerCase();
+  switch (code) {
     case "en": return "en-US";
+    case "ja":
     case "jp": return "ja-JP";
-    case "zh-Hant": return "zh-TW";
-    case "zh-Hans": return "zh-CN";
+    case "zh-hant":
+    case "zh-tw": return "zh-TW";
+    case "zh-hans":
+    case "zh-cn": return "zh-CN";
     case "fr": return "fr-FR";
     case "es": return "es-ES";
     case "pt": return "pt-BR";

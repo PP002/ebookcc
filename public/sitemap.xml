@@ -1,1300 +1,1258 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 1. ROOT BASE NAVIGATION URLS                  -->
-  <!-- ───────────────────────────────────────────── -->
-  
-  <!-- Home Base -->
+
+  <!-- ========================================== -->
+  <!-- 1. English (Default / x-default Root URLs) -->
+  <!-- ========================================== -->
+
+  <!-- English: Home -->
   <url>
     <loc>https://ebookcc.com/</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
 
-  <!-- Read Base -->
+  <!-- English: Read -->
   <url>
     <loc>https://ebookcc.com/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
 
-  <!-- Create Base -->
+  <!-- English: Create -->
   <url>
     <loc>https://ebookcc.com/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
 
-  <!-- Convert Base -->
+  <!-- English: Convert -->
   <url>
     <loc>https://ebookcc.com/convert</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
 
-  <!-- FAQ Base -->
+  <!-- English: FAQ -->
   <url>
     <loc>https://ebookcc.com/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 2. ENGLISH (en)                               -->
-  <!-- ───────────────────────────────────────────── -->
+  <!-- ========================================== -->
+  <!-- 2. Japanese (ja)                           -->
+  <!-- ========================================== -->
+
   <url>
-    <loc>https://ebookcc.com/en</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/ja</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/en/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/en/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/en/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/en/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 3. JAPANESE (jp / ja)                         -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/jp</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/jp/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/jp/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/jp/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/jp/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/ja/read</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 4. TRADITIONAL CHINESE (zh-Hant)              -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/zh-Hant</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hant/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hant/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hant/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hant/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/ja/create</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 5. SIMPLIFIED CHINESE (zh-Hans)               -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/zh-Hans</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hans/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hans/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hans/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/zh-Hans/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/ja/convert</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 6. FRENCH (fr)                                -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/fr</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/ja/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 3. Simplified Chinese (zh-hans)            -->
+  <!-- ========================================== -->
+
+  <url>
+    <loc>https://ebookcc.com/zh-hans</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
+
   <url>
-    <loc>https://ebookcc.com/fr/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/fr/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/fr/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/fr/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/zh-hans/read</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 7. SPANISH (es)                               -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/es</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/es/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/es/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/es/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/es/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/zh-hans/create</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 8. PORTUGUESE (pt)                            -->
-  <!-- ───────────────────────────────────────────── -->
   <url>
-    <loc>https://ebookcc.com/pt</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/pt/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/pt/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/pt/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/pt/faq</loc>
-    <lastmod>2026-08-19</lastmod>
+    <loc>https://ebookcc.com/zh-hans/convert</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 9. KOREAN (ko)                                -->
-  <!-- ───────────────────────────────────────────── -->
+  <url>
+    <loc>https://ebookcc.com/zh-hans/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 4. Traditional Chinese (zh-hant)           -->
+  <!-- ========================================== -->
+
+  <url>
+    <loc>https://ebookcc.com/zh-hant</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/zh-hant/read</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/zh-hant/create</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/zh-hant/convert</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/zh-hant/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 5. Korean (ko)                             -->
+  <!-- ========================================== -->
+
   <url>
     <loc>https://ebookcc.com/ko</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ko/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ko/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ko/convert</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ko/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 10. GERMAN (de)                               -->
-  <!-- ───────────────────────────────────────────── -->
+  <!-- ========================================== -->
+  <!-- 6. French (fr)                             -->
+  <!-- ========================================== -->
+
+  <url>
+    <loc>https://ebookcc.com/fr</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/fr/read</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/fr/create</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/fr/convert</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/fr/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 7. Spanish (es)                            -->
+  <!-- ========================================== -->
+
+  <url>
+    <loc>https://ebookcc.com/es</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/es/read</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/es/create</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/es/convert</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/es/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 8. Portuguese (pt)                         -->
+  <!-- ========================================== -->
+
+  <url>
+    <loc>https://ebookcc.com/pt</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/pt/read</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/pt/create</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/pt/convert</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/pt/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 9. German (de)                             -->
+  <!-- ========================================== -->
+
   <url>
     <loc>https://ebookcc.com/de</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/de/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/de/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/de/convert</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/de/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 11. ARABIC (ar)                               -->
-  <!-- ───────────────────────────────────────────── -->
+  <!-- ========================================== -->
+  <!-- 10. Arabic (ar)                            -->
+  <!-- ========================================== -->
+
   <url>
     <loc>https://ebookcc.com/ar</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ar/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ar/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ar/convert</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/ar/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 12. RUSSIAN (ru)                              -->
-  <!-- ───────────────────────────────────────────── -->
+  <!-- ========================================== -->
+  <!-- 11. Russian (ru)                           -->
+  <!-- ========================================== -->
+
   <url>
     <loc>https://ebookcc.com/ru</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/ru/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/ru/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/ru/convert</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
-  </url>
-  <url>
-    <loc>https://ebookcc.com/ru/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
     <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
 
-  <!-- ───────────────────────────────────────────── -->
-  <!-- 13. ITALIAN (it)                              -->
-  <!-- ───────────────────────────────────────────── -->
+  <url>
+    <loc>https://ebookcc.com/ru/read</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/ru/create</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/ru/convert</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
+  </url>
+
+  <url>
+    <loc>https://ebookcc.com/ru/faq</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
+  </url>
+
+  <!-- ========================================== -->
+  <!-- 12. Italian (it)                           -->
+  <!-- ========================================== -->
+
   <url>
     <loc>https://ebookcc.com/it</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it"/>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/it/read</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/read"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/read"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/read"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/read" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/read" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/read" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/read" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/read" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/read" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/read" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/read" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/read" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/read" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/read" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/it/create</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/create"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/create"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/create"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/create" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/create" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/create" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/create" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/create" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/create" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/create" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/create" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/create" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/create" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/create" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/it/convert</loc>
-    <lastmod>2026-08-19</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/convert"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/convert"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/convert"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert"/>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/convert" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/convert" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/convert" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/convert" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/convert" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/convert" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/convert" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/convert" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/convert" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/convert" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/convert" />
   </url>
+
   <url>
     <loc>https://ebookcc.com/it/faq</loc>
-    <lastmod>2026-08-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq"/>
-    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/en/faq"/>
-    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/jp/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-Hant/faq"/>
-    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-Hans/faq"/>
-    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq"/>
-    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq"/>
-    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq"/>
-    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq"/>
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq"/>
-    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq"/>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ebookcc.com/faq" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://ebookcc.com/ja/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://ebookcc.com/zh-hans/faq" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://ebookcc.com/zh-hant/faq" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://ebookcc.com/fr/faq" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://ebookcc.com/es/faq" />
+    <xhtml:link rel="alternate" hreflang="pt" href="https://ebookcc.com/pt/faq" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://ebookcc.com/ko/faq" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://ebookcc.com/de/faq" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://ebookcc.com/ar/faq" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ebookcc.com/ru/faq" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://ebookcc.com/it/faq" />
   </url>
+
 </urlset>

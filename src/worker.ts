@@ -642,6 +642,137 @@ export default {
     }
 
     // ─────────────────────────────────────────────
+    // Route: GET /api/books/:bookId/comments
+    // ─────────────────────────────────────────────
+    if (url.pathname.match(/^\/api\/books\/[^/]+\/comments$/) && request.method === "GET") {
+      try {
+        const match = url.pathname.match(/^\/api\/books\/([^/]+)\/comments$/);
+        const rawId = match ? match[1] : "";
+        const bookId = decodeURIComponent(rawId).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const jsonKey = `comments/${bookId}.json`;
+        const r2 = getR2Bucket(env);
+
+        if (r2) {
+          const itemObj = await r2.get(jsonKey);
+          if (itemObj) {
+            const text = await itemObj.text();
+            const comments = JSON.parse(text);
+            return jsonResponse({ success: true, comments: Array.isArray(comments) ? comments : [], source: "r2" });
+          }
+          return jsonResponse({ success: true, comments: [], source: "r2" });
+        }
+
+        return jsonResponse({ success: true, comments: [], source: "r2" });
+      } catch (err: any) {
+        return jsonResponse({ error: err.message || "Failed retrieving comments" }, 500);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: POST /api/books/:bookId/comments
+    // ─────────────────────────────────────────────
+    if (url.pathname.match(/^\/api\/books\/[^/]+\/comments$/) && request.method === "POST") {
+      try {
+        const match = url.pathname.match(/^\/api\/books\/([^/]+)\/comments$/);
+        const rawId = match ? match[1] : "";
+        const bookId = decodeURIComponent(rawId).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const jsonKey = `comments/${bookId}.json`;
+        const body = (await request.json().catch(() => ({}))) as any;
+        const comment = body.comment || body;
+
+        if (!comment || !comment.content || !comment.content.trim()) {
+          return jsonResponse({ error: "Comment content is required" }, 400);
+        }
+
+        const r2 = getR2Bucket(env);
+        let existingList: any[] = [];
+
+        if (r2) {
+          const itemObj = await r2.get(jsonKey);
+          if (itemObj) {
+            try {
+              const text = await itemObj.text();
+              const parsed = JSON.parse(text);
+              if (Array.isArray(parsed)) existingList = parsed;
+            } catch (_) {}
+          }
+        }
+
+        const newComment = {
+          id: comment.id || `c_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          bookId,
+          bookTitle: comment.bookTitle || "",
+          userId: comment.userId || "anonymous",
+          userName: (comment.userName || "Reader").trim(),
+          userAvatar: comment.userAvatar || "",
+          page: typeof comment.page === "number" ? Math.max(0, comment.page) : 0,
+          location: comment.location || null,
+          content: comment.content.trim(),
+          timestamp: comment.timestamp || Date.now(),
+          isLocal: false,
+          replyToId: comment.replyToId ? String(comment.replyToId) : null,
+          replyToName: comment.replyToName ? String(comment.replyToName).trim() : null,
+          replyToSnippet: comment.replyToSnippet ? String(comment.replyToSnippet).trim() : null,
+        };
+
+        const updatedList = [newComment, ...existingList.filter((c) => c.id !== newComment.id)].slice(0, 500);
+        const jsonBuffer = new TextEncoder().encode(JSON.stringify(updatedList, null, 2));
+
+        if (r2) {
+          await r2.put(jsonKey, jsonBuffer, {
+            httpMetadata: { contentType: "application/json" },
+          });
+        }
+
+        return jsonResponse({
+          success: true,
+          comment: newComment,
+          comments: updatedList,
+          message: "Comment saved successfully!",
+        });
+      } catch (err: any) {
+        return jsonResponse({ error: err.message || "Failed saving comment" }, 500);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: DELETE /api/books/:bookId/comments/:commentId
+    // ─────────────────────────────────────────────
+    if (url.pathname.match(/^\/api\/books\/[^/]+\/comments\/[^/]+$/) && request.method === "DELETE") {
+      try {
+        const match = url.pathname.match(/^\/api\/books\/([^/]+)\/comments\/([^/]+)$/);
+        const rawBookId = match ? match[1] : "";
+        const rawCommentId = match ? match[2] : "";
+        const bookId = decodeURIComponent(rawBookId).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const commentId = decodeURIComponent(rawCommentId);
+        const jsonKey = `comments/${bookId}.json`;
+        const r2 = getR2Bucket(env);
+
+        if (r2) {
+          const itemObj = await r2.get(jsonKey);
+          if (itemObj) {
+            try {
+              const text = await itemObj.text();
+              const parsed = JSON.parse(text);
+              if (Array.isArray(parsed)) {
+                const filtered = parsed.filter((c) => c.id !== commentId);
+                const jsonBuffer = new TextEncoder().encode(JSON.stringify(filtered, null, 2));
+                await r2.put(jsonKey, jsonBuffer, {
+                  httpMetadata: { contentType: "application/json" },
+                });
+                return jsonResponse({ success: true, comments: filtered, message: "Comment deleted" });
+              }
+            } catch (_) {}
+          }
+        }
+
+        return jsonResponse({ success: true, message: "Comment deleted" });
+      } catch (err: any) {
+        return jsonResponse({ error: err.message || "Failed deleting comment" }, 500);
+      }
+    }
+
+    // ─────────────────────────────────────────────
     // Fallback: Proxy other /api/* routes to backend server
     // (e.g. Gemini OCR, AI translation, DOCX export)
     // ─────────────────────────────────────────────

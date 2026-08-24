@@ -133,7 +133,7 @@ const UI_STRINGS: Record<LanguageCode, FAQUIStrings> = {
     btnRead: "Ouvrir le Lecteur Web",
     btnCreate: "Créer une BD ou une Histoire"
   },
-  jp: {
+  ja: {
     badge: "ヘルプセンター & ナレッジベース",
     title: "よくある質問 (FAQ)",
     subtitle: "EBookCCでの電子書籍、コミック、生マンガの翻訳、Kindle向けEPUBファイルの閲覧・変換・作成に関するすべての情報。",
@@ -709,7 +709,7 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         }
       ];
 
-    case "jp":
+    case "ja":
       return [
         {
           id: "faq-1",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -18,6 +18,9 @@ import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 import { useLanguage } from '@/context/LanguageContext';
 import { ComicPageRenderer, ComicTreeNodeView } from '@/components/ComicPageRenderer';
+import { ReaderNotesSidebar } from '@/components/ReaderNotesSidebar';
+import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
+import { fetchPublishedWorksFromR2 } from '@/lib/r2Storage';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -56,6 +59,19 @@ interface BookItem {
   fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
   file?: File;
   fileBuffer?: ArrayBuffer;
+  isBookshelf?: boolean;
+}
+
+function checkIfBookshelf(book: BookItem | null): boolean {
+  if (!book) return false;
+  if (book.isBookshelf) return true;
+  if (book.id && !book.id.startsWith("uploaded-")) {
+    try {
+      const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+      if (pub.some((item: any) => item.id === book.id)) return true;
+    } catch (_) {}
+  }
+  return false;
 }
 
 function isBookshelfComic(book: BookItem | null): boolean {
@@ -135,6 +151,27 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const { theme, setTheme } = useTheme();
 
   const [recentBooks, setRecentBooks] = useState<RecentBookMetadata[]>([]);
+  const [isNotesSidebarOpen, setIsNotesSidebarOpen] = useState<boolean>(false);
+  const [notesCount, setNotesCount] = useState<number>(0);
+
+  const refreshNotesCount = useCallback(async () => {
+    if (!selectedBook) {
+      setNotesCount(0);
+      return;
+    }
+    const isShelf = checkIfBookshelf(selectedBook);
+    if (isShelf) {
+      const list = await fetchCloudComments(selectedBook.id);
+      setNotesCount(list.length);
+    } else {
+      const list = getLocalNotes(selectedBook.id);
+      setNotesCount(list.length);
+    }
+  }, [selectedBook]);
+
+  useEffect(() => {
+    refreshNotesCount();
+  }, [refreshNotesCount]);
 
   useEffect(() => {
     if (!selectedBook) {
@@ -191,50 +228,67 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
   // Listen for Bookshelf open in Reader
   useEffect(() => {
-    const triggerId = sessionStorage.getItem("ebookcc_open_read_id");
-    const triggerType = sessionStorage.getItem("ebookcc_open_read_type");
-    
-    if (triggerId && triggerType) {
-      sessionStorage.removeItem("ebookcc_open_read_id");
-      sessionStorage.removeItem("ebookcc_open_read_type");
+    const loadFromBookshelf = async () => {
+      const triggerId = sessionStorage.getItem("ebookcc_open_read_id");
+      const triggerType = sessionStorage.getItem("ebookcc_open_read_type");
+      
+      if (triggerId && triggerType) {
+        sessionStorage.removeItem("ebookcc_open_read_id");
+        sessionStorage.removeItem("ebookcc_open_read_type");
 
-      try {
-        const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-        const book = pub.find((item: any) => item.id === triggerId);
-        if (book) {
-          if (triggerType === "novel") {
-            setSelectedBook({
-              id: book.id,
-              title: book.title,
-              author: book.author || "Creative Publisher",
-              cover: book.cover || "",
-              chapters: 1,
-              rating: 5,
-              fileType: "text",
-              pages: [book.content || ""]
-            });
-            setCurrentPage(0);
-          } else if (triggerType === "comic") {
-            const pagesList = Array.isArray(book.pages) && book.pages.length > 0 
-              ? book.pages 
-              : (book.cover ? [{ cover: book.cover }] : []);
-            setSelectedBook({
-              id: book.id,
-              title: book.title,
-              author: book.author || "Creative Publisher",
-              cover: book.cover || "",
-              chapters: 1,
-              rating: 5,
-              fileType: "comic",
-              pages: pagesList
-            });
-            setCurrentPage(0);
+        try {
+          let book: any = null;
+          const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+          book = pub.find((item: any) => item.id === triggerId);
+
+          if (!book) {
+            try {
+              const r2WorksRes = await fetchPublishedWorksFromR2();
+              if (r2WorksRes?.works && Array.isArray(r2WorksRes.works)) {
+                book = r2WorksRes.works.find((item: any) => item.id === triggerId);
+              }
+            } catch (_) {}
           }
+
+          if (book) {
+            if (triggerType === "novel" || book.type === "novel") {
+              setSelectedBook({
+                id: book.id,
+                title: book.title,
+                author: book.author || "Creative Publisher",
+                cover: book.cover || "",
+                chapters: 1,
+                rating: 5,
+                fileType: "text",
+                pages: [book.content || ""],
+                isBookshelf: true,
+              });
+              setCurrentPage(0);
+            } else {
+              const pagesList = Array.isArray(book.pages) && book.pages.length > 0 
+                ? book.pages 
+                : (book.cover ? [{ cover: book.cover }] : []);
+              setSelectedBook({
+                id: book.id,
+                title: book.title,
+                author: book.author || "Creative Publisher",
+                cover: book.cover || "",
+                chapters: 1,
+                rating: 5,
+                fileType: "comic",
+                pages: pagesList,
+                isBookshelf: true,
+              });
+              setCurrentPage(0);
+            }
+          }
+        } catch (err) {
+          console.error("Failed loading from bookshelf", err);
         }
-      } catch (err) {
-        console.error("Failed loading from bookshelf", err);
       }
-    }
+    };
+
+    loadFromBookshelf();
   }, []);
 
   useEffect(() => {
@@ -511,14 +565,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't page if user is typing in an input
-      if (document.activeElement?.tagName === 'INPUT') return;
+      // Don't page if user is typing in an input or if note float window is active
+      if (isNotesSidebarOpen) return;
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       if (e.key === 'ArrowRight') nextPage();
       else if (e.key === 'ArrowLeft') prevPage();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextPage, prevPage]);
+  }, [nextPage, prevPage, isNotesSidebarOpen]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -806,16 +861,32 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                      </Button>
                    </>
                 )}
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
+                   <Maximize className="w-3.5 h-3.5" />
+                </Button>
                 <Button 
                   variant={settingsOpen ? "default" : "outline"} 
                   size="icon" 
                   className="h-8 w-8" 
                   onClick={() => setSettingsOpen(!settingsOpen)}
+                  title={t("settings") || "Settings"}
                 >
                   <Settings className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
-                   <Maximize className="w-3.5 h-3.5" />
+                <Button 
+                  variant={isNotesSidebarOpen ? "default" : "outline"} 
+                  size="icon" 
+                  className="h-8 w-8 relative" 
+                  onClick={() => setIsNotesSidebarOpen(!isNotesSidebarOpen)}
+                  title={checkIfBookshelf(selectedBook) ? "Notes & Discussion" : "Notes"}
+                  id="reader-notes-toggle-btn"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  {notesCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[8px] font-bold rounded-full min-w-[14px] h-3.5 px-0.5 flex items-center justify-center pointer-events-none shadow-xs">
+                      {notesCount > 99 ? '99+' : notesCount}
+                    </span>
+                  )}
                 </Button>
               </div>
             </div>
@@ -823,6 +894,28 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           )}
 
           <main className="flex-1 relative w-full overflow-hidden flex min-h-0 bg-background text-foreground">
+            {/* Notes & Comments Floating Sidebar */}
+            <ReaderNotesSidebar
+              isOpen={isNotesSidebarOpen}
+              onClose={() => {
+                setIsNotesSidebarOpen(false);
+                refreshNotesCount();
+              }}
+              bookId={selectedBook.id}
+              bookTitle={selectedBook.title}
+              isBookshelf={checkIfBookshelf(selectedBook)}
+              currentPage={currentPage}
+              totalPages={selectedBook.fileType === 'pdf' && pdfNumPages ? pdfNumPages : (selectedBook.pages?.length || 1)}
+              onNavigateToPage={(pageNumber) => {
+                const targetIdx = Math.max(0, pageNumber - 1);
+                const maxP = (selectedBook.fileType === 'pdf' && pdfNumPages ? pdfNumPages : (selectedBook.pages?.length || 1)) - 1;
+                setCurrentPage(Math.min(targetIdx, maxP));
+                if (selectedBook.fileType === 'epub') {
+                  setLocation(pageNumber);
+                }
+              }}
+            />
+
             {/* Settings Overlay */}
             <AnimatePresence>
               {settingsOpen && (
@@ -911,16 +1004,33 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               )}
             </AnimatePresence>
 
-            {/* Fullscreen exit button */}
+            {/* Fullscreen floating controls */}
             {isFullscreen && (
-              <Button
-                variant="secondary"
-                size="icon"
-                className="absolute z-[100] top-4 right-4 bg-background/80 hover:bg-background/90 text-foreground shadow-md backdrop-blur-md"
-                onClick={() => setIsFullscreen(false)}
-              >
-                <Minimize className="w-4 h-4" />
-              </Button>
+              <div className="absolute z-[100] top-4 right-4 flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="bg-background/80 hover:bg-background/90 text-foreground shadow-md backdrop-blur-md relative"
+                  onClick={() => setIsNotesSidebarOpen(!isNotesSidebarOpen)}
+                  title="Notes & Comments"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {notesCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[8px] font-bold rounded-full min-w-[14px] h-3.5 px-0.5 flex items-center justify-center pointer-events-none shadow-xs">
+                      {notesCount > 99 ? '99+' : notesCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="bg-background/80 hover:bg-background/90 text-foreground shadow-md backdrop-blur-md"
+                  onClick={() => setIsFullscreen(false)}
+                  title="Exit Fullscreen"
+                >
+                  <Minimize className="w-4 h-4" />
+                </Button>
+              </div>
             )}
 
             {/* Sidebar Thumbnails */}

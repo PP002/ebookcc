@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -297,9 +297,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     }
   }, [isFullscreen, onFullscreenChange]);
 
+  const isTextBook = Boolean(
+    selectedBook &&
+    (selectedBook.fileType === 'text' || selectedBook.fileType === 'epub') &&
+    !isBookshelfComic(selectedBook)
+  );
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontFamily, setFontFamily] = useState('font-serif');
-  const [readTheme, setReadTheme] = useState({ id: 'system', bg: '', text: '' });
   const [fontSize, setFontSize] = useState<number>(18);
   const [textAlign, setTextAlign] = useState('text-left');
   
@@ -562,6 +567,110 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       });
     }
   }, [selectedBook, gridView, panelsCache, currentPage, currentPanelIndex]);
+
+  // Touch gestures for swipe (finger slide left/right) & double-tap (toggle fullscreen)
+  const touchStartRef = React.useRef<{ x: number; y: number; time: number } | null>(null);
+  const lastTapRef = React.useRef<{ time: number; x: number; y: number } | null>(null);
+  const isSwipingRef = React.useRef<boolean>(false);
+  const lastToggleTimeRef = React.useRef<number>(0);
+
+  const toggleFullscreenSafe = useCallback(() => {
+    const now = Date.now();
+    if (now - lastToggleTimeRef.current < 350) return;
+    lastToggleTimeRef.current = now;
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        time: Date.now(),
+      };
+    } else {
+      touchStartRef.current = null;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (!touchStartRef.current) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+
+      const startX = touchStartRef.current.x;
+      const startY = touchStartRef.current.y;
+      const startTime = touchStartRef.current.time;
+      const endX = touch.clientX;
+      const endY = touch.clientY;
+      const elapsed = Date.now() - startTime;
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // 1. Finger slide / Horizontal swipe to flip page
+      if (elapsed < 700 && absX > 40 && absX > absY * 1.2) {
+        isSwipingRef.current = true;
+        setTimeout(() => {
+          isSwipingRef.current = false;
+        }, 300);
+
+        if (deltaX < 0) {
+          // Swiped left -> Next page
+          nextPage();
+        } else {
+          // Swiped right -> Previous page
+          prevPage();
+        }
+        touchStartRef.current = null;
+        lastTapRef.current = null;
+        return;
+      }
+
+      // 2. Double tap to switch between full screen and normal
+      if (absX < 25 && absY < 25 && elapsed < 350) {
+        const now = Date.now();
+        const lastTap = lastTapRef.current;
+
+        if (
+          lastTap &&
+          now - lastTap.time < 350 &&
+          Math.hypot(endX - lastTap.x, endY - lastTap.y) < 45
+        ) {
+          toggleFullscreenSafe();
+          lastTapRef.current = null;
+          touchStartRef.current = null;
+          return;
+        } else {
+          lastTapRef.current = { time: now, x: endX, y: endY };
+        }
+      }
+
+      touchStartRef.current = null;
+    },
+    [nextPage, prevPage, toggleFullscreenSafe]
+  );
+
+  const handleLeftClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isSwipingRef.current) return;
+      prevPage();
+    },
+    [prevPage]
+  );
+
+  const handleRightClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isSwipingRef.current) return;
+      nextPage();
+    },
+    [nextPage]
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -864,15 +973,17 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
                    <Maximize className="w-3.5 h-3.5" />
                 </Button>
-                <Button 
-                  variant={settingsOpen ? "default" : "outline"} 
-                  size="icon" 
-                  className="h-8 w-8" 
-                  onClick={() => setSettingsOpen(!settingsOpen)}
-                  title={t("settings") || "Settings"}
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </Button>
+                {isTextBook && (
+                  <Button 
+                    variant={settingsOpen ? "default" : "outline"} 
+                    size="icon" 
+                    className="h-8 w-8" 
+                    onClick={() => setSettingsOpen(!settingsOpen)}
+                    title={t("settings") || "Settings"}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </Button>
+                )}
                 <Button 
                   variant={isNotesSidebarOpen ? "default" : "outline"} 
                   size="icon" 
@@ -918,7 +1029,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
             {/* Settings Overlay */}
             <AnimatePresence>
-              {settingsOpen && (
+              {settingsOpen && isTextBook && (
                 <>
                   <div className="fixed inset-0 z-[55]" onClick={() => setSettingsOpen(false)} />
                   <motion.div
@@ -948,7 +1059,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                key={al.id}
                                onClick={() => setTextAlign(al.id)}
                                className={cn(
-                                 
                                  "flex-1 py-1 text-sm font-semibold rounded shadow-sm hover:bg-background/50", textAlign === al.id ? "bg-background text-foreground" : "text-muted-foreground bg-transparent shadow-none")}
                              >
                                {al.label}
@@ -968,7 +1078,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                key={font.id}
                                onClick={() => setFontFamily(font.id)}
                                className={cn(
-                                 
                                  "text-left px-3 py-1.5 text-sm font-semibold rounded hover:bg-muted/70", font.id, fontFamily === font.id ? "bg-muted text-foreground" : "text-muted-foreground bg-transparent")}
                              >
                                {font.label} abc
@@ -978,24 +1087,31 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                      </div>
                      <div className="space-y-1.5">
                         <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("themeLabel")}</label>
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="flex bg-muted rounded-md overflow-hidden p-0.5">
                            {[
-                             {id: 'system', bg: '', text: '', label: t("system")},
-                             {id: 'sepia-light', bg: '#faf9f6', text: '#2c2c2c', label: t("sepiaLight")},
-                             {id: 'sepia-dark', bg: '#2c2c2c', text: '#d4d4d4', label: t("sepiaDark")},
-                             {id: 'oled', bg: '#000000', text: '#d4d4d4', label: t("oled")},
-                           ].map(th => (
-                             <button
-                               key={th.id}
-                               onClick={() => setReadTheme(th)}
-                               style={th.bg ? { backgroundColor: th.bg, color: th.text, borderColor: th.text } : {}}
-                               className={cn(
-                                 
-                                 "flex items-center justify-center gap-2 px-2 py-2 text-xs font-semibold rounded border", !th.bg && "bg-background text-foreground", readTheme.id === th.id ? "ring-2 ring-primary ring-offset-1 ring-offset-popover" : "opacity-80 hover:opacity-100")}
-                             >
-                               {th.label}
-                             </button>
-                           ))}
+                             { id: 'light', label: t("lightTheme") || "Light", icon: Sun },
+                             { id: 'dark', label: t("darkTheme") || "Dark", icon: Moon },
+                             { id: 'system', label: t("system") || "System", icon: Laptop },
+                           ].map((th) => {
+                             const Icon = th.icon;
+                             const isActive = theme === th.id;
+                             return (
+                               <button
+                                 key={th.id}
+                                 type="button"
+                                 onClick={() => setTheme(th.id)}
+                                 className={cn(
+                                   "flex-1 py-1.5 px-2 text-xs font-semibold rounded flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                                   isActive
+                                     ? "bg-background text-foreground shadow-xs"
+                                     : "text-muted-foreground hover:text-foreground bg-transparent"
+                                 )}
+                               >
+                                 <Icon className="w-3.5 h-3.5" />
+                                 <span>{th.label}</span>
+                               </button>
+                             );
+                           })}
                         </div>
                      </div>
                   </div>
@@ -1003,35 +1119,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </>
               )}
             </AnimatePresence>
-
-            {/* Fullscreen floating controls */}
-            {isFullscreen && (
-              <div className="absolute z-[100] top-4 right-4 flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="bg-background/80 hover:bg-background/90 text-foreground shadow-md backdrop-blur-md relative"
-                  onClick={() => setIsNotesSidebarOpen(!isNotesSidebarOpen)}
-                  title="Notes & Comments"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  {notesCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[8px] font-bold rounded-full min-w-[14px] h-3.5 px-0.5 flex items-center justify-center pointer-events-none shadow-xs">
-                      {notesCount > 99 ? '99+' : notesCount}
-                    </span>
-                  )}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="bg-background/80 hover:bg-background/90 text-foreground shadow-md backdrop-blur-md"
-                  onClick={() => setIsFullscreen(false)}
-                  title="Exit Fullscreen"
-                >
-                  <Minimize className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
 
             {/* Sidebar Thumbnails */}
             <AnimatePresence initial={false}>
@@ -1173,7 +1260,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               )}
             </AnimatePresence>
 
-            <div ref={containerRef} className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300">
+            <div 
+              ref={containerRef} 
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onDoubleClick={toggleFullscreenSafe}
+              className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none"
+            >
               {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) ? (
                 <div className="absolute inset-0 z-0">
                   <ReactReader
@@ -1243,8 +1336,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </div>
               ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
                 <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
+                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
+                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-0">
                     <Document 
                       file={selectedBook.file} 
@@ -1280,16 +1373,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
                   return (
                     <>
-                       <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
-                      <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
+                      <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
+                      <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
                       <div className="absolute inset-0 overflow-hidden pointer-events-none">
                          <div 
-                            className={cn(
-                                 
-                                 "w-full h-full pointer-events-auto", !readTheme.bg ? 'bg-background text-foreground' : '')}
+                            className="w-full h-full pointer-events-auto bg-background text-foreground"
                             style={{
-                               backgroundColor: readTheme.bg || undefined,
-                               color: readTheme.text || undefined,
                                transform: `translateX(-${currentPage * containerSize.width}px)`,
                                transition: 'transform 0.3s ease'
                             }}
@@ -1324,10 +1413,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 })()
               ) : (
                 <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); prevPage(); }} title={t("previousPage")} />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={(e) => { e.stopPropagation(); nextPage(); }} title={t("nextPage")} />
-                  <div className={cn(
-                    "absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0", !readTheme.bg ? 'bg-background' : '')} style={{ backgroundColor: readTheme.bg || undefined }}>
+                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
+                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
+                  <div className="absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0 bg-background">
                     {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
                       <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none p-0 sm:p-2">
                         <div className="relative max-h-full max-w-full aspect-auto bg-white border border-zinc-900 rounded-md shadow-2xl overflow-hidden flex items-center justify-center p-1.5 sm:p-3">

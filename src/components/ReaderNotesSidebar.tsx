@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { useLanguage } from "@/context/LanguageContext";
 import {
   BookComment,
   getOrCreateGuestUser,
@@ -48,6 +49,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
   onNavigateToPage,
 }) => {
   const { user } = useAppSettings();
+  const { t, formatDate } = useLanguage();
   const [comments, setComments] = useState<BookComment[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -124,7 +126,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
     if (e) e.preventDefault();
     const trimmed = inputText.trim();
     if (!trimmed) {
-      toast.error("Please enter a note or comment before posting.");
+      toast.error(t("enterNotePrompt"));
       return;
     }
 
@@ -166,12 +168,12 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
           setComments((prev) => [result.comment!, ...prev.filter((c) => c.id !== result.comment!.id)]);
           setInputText("");
           setReplyingTo(null);
-          toast.success(replyingTo ? "Reply posted!" : "Comment published!");
+          toast.success(replyingTo ? t("replyPosted") : t("commentPublished"));
         } else {
-          toast.error("Could not post comment. Please try again.");
+          toast.error(t("commentFailed"));
         }
       } catch (err: any) {
-        toast.error(`Error: ${err.message || "Failed posting comment"}`);
+        toast.error(`Error: ${err.message || t("commentFailed")}`);
       } finally {
         setIsSubmitting(false);
       }
@@ -208,7 +210,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
         setComments((prev) => [savedNote, ...prev]);
         setInputText("");
         setReplyingTo(null);
-        toast.success(replyingTo ? "Reply saved." : "Note saved.");
+        toast.success(replyingTo ? t("replySaved") : t("noteSaved"));
       } catch (err: any) {
         toast.error(`Failed to save note: ${err.message}`);
       } finally {
@@ -224,7 +226,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
       deleteLocalNote(bookId, note.id);
       setComments((prev) => prev.filter((c) => c.id !== note.id));
       if (replyingTo?.id === note.id) setReplyingTo(null);
-      toast.success("Note removed.");
+      toast.success(t("noteRemoved"));
     } else {
       const guest = getOrCreateGuestUser();
       const currentUserId = user ? (user.uid || user.email) : guest.id;
@@ -232,9 +234,9 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
         await deleteCloudComment(bookId, note.id, currentUserId);
         setComments((prev) => prev.filter((c) => c.id !== note.id));
         if (replyingTo?.id === note.id) setReplyingTo(null);
-        toast.success("Comment deleted.");
+        toast.success(t("commentDeleted"));
       } catch (err) {
-        toast.error("Failed deleting comment.");
+        toast.error(t("deleteCommentFailed"));
       }
     }
   };
@@ -243,7 +245,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
     e.stopPropagation();
     if (pageNumber > 0) {
       onNavigateToPage(pageNumber);
-      toast.info(`Jumped to Page ${pageNumber}`, {
+      toast.info(`${t("jumpedToPage")} ${pageNumber}`, {
         duration: 1500,
       });
     }
@@ -259,11 +261,10 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
   const formatTimestamp = (ts: number) => {
     if (!ts) return "";
     const diff = Date.now() - ts;
-    if (diff < 60000) return "Just now";
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    const date = new Date(ts);
-    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (diff < 60000) return t("justNow");
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}${t("minutesAgo")}`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}${t("hoursAgo")}`;
+    return formatDate(ts, { month: "short", day: "numeric" });
   };
 
   const guest = getOrCreateGuestUser();
@@ -302,7 +303,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                   )}
                 </div>
                 <h3 className="text-sm font-bold text-foreground leading-tight flex items-center gap-1.5">
-                  {isBookshelf ? "Discussion" : "Notes"}
+                  {isBookshelf ? t("discussion") : t("notes")}
                   <span className="text-[11px] font-mono px-1.5 py-0.2 bg-primary/15 text-primary rounded-full font-semibold">
                     {comments.length}
                   </span>
@@ -314,7 +315,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                 size="icon"
                 className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-md"
                 onClick={onClose}
-                title="Close"
+                title={t("cancel")}
               >
                 <X className="w-4 h-4" />
               </Button>
@@ -328,7 +329,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                   <div className="flex items-center gap-1.5 min-w-0 truncate">
                     <CornerDownRight className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate text-[11.5px]">
-                      Replying to <span className="font-bold">{replyingTo.userName}</span>
+                      {t("replyingTo")} <span className="font-bold">{replyingTo.userName}</span>
                       {replyingTo.page > 0 && <span className="font-mono ml-0.5">(P.{replyingTo.page})</span>}
                       : <span className="italic opacity-85">"{replyingTo.content.slice(0, 40)}{replyingTo.content.length > 40 ? "..." : ""}"</span>
                     </span>
@@ -337,7 +338,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                     type="button"
                     onClick={() => setReplyingTo(null)}
                     className="p-1 hover:bg-primary/20 rounded text-primary transition-colors shrink-0"
-                    title="Cancel reply"
+                    title={t("cancelReply")}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -354,10 +355,10 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                     onKeyDown={handleKeyDown}
                     placeholder={
                       replyingTo
-                        ? `Reply to ${replyingTo.userName}... (Ctrl+Enter to post)`
+                        ? t("replyPlaceholder", { name: replyingTo.userName })
                         : isBookshelf
-                        ? `Leave a thought on Page ${displayCurrentPageNumber}... (Ctrl+Enter to post)`
-                        : `Write a note on Page ${displayCurrentPageNumber}...`
+                        ? t("thoughtPlaceholder", { page: displayCurrentPageNumber })
+                        : t("notePlaceholder", { page: displayCurrentPageNumber })
                     }
                     rows={replyingTo ? 2 : 3}
                     className="w-full text-xs p-2.5 rounded-lg border border-border/60 bg-muted/15 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none resize-none transition-colors"
@@ -368,7 +369,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                   <div className="text-[10.5px] text-muted-foreground/80 truncate">
                     {!user && (
                       <span className="italic">
-                        Posting as <span className="font-semibold text-foreground/90">{guest.name}</span>
+                        {t("postingAs")} <span className="font-semibold text-foreground/90">{guest.name}</span>
                       </span>
                     )}
                   </div>
@@ -382,7 +383,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                         onClick={() => setReplyingTo(null)}
                         className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                       >
-                        Cancel
+                        {t("cancel")}
                       </Button>
                     )}
                     <Button
@@ -396,7 +397,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                       ) : (
                         <Send className="w-3 h-3" />
                       )}
-                      {replyingTo ? "Reply" : isBookshelf ? "Post" : "Save"}
+                      {replyingTo ? t("reply") : isBookshelf ? t("post") : t("save")}
                     </Button>
                   </div>
                 </div>
@@ -408,7 +409,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
               {isLoading && comments.length === 0 ? (
                 <div className="py-12 flex flex-col items-center justify-center text-muted-foreground gap-2">
                   <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                  <span className="text-xs">Loading...</span>
+                  <span className="text-xs">{t("loadingNotes")}</span>
                 </div>
               ) : comments.length === 0 ? (
                 <div className="py-12 flex flex-col items-center justify-center text-center text-muted-foreground gap-2 px-4">
@@ -420,7 +421,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                     )}
                   </div>
                   <p className="text-xs font-semibold text-foreground">
-                    {isBookshelf ? "No comments yet" : "No notes yet"}
+                    {isBookshelf ? t("noCommentsYet") : t("noNotesYet")}
                   </p>
                 </div>
               ) : (
@@ -445,7 +446,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                           ? "bg-primary/5 border-primary/30 shadow-xs hover:border-primary/60"
                           : "bg-muted/10 border-border/50 hover:border-border hover:bg-muted/20"
                       }`}
-                      title="Tap to reply / discuss"
+                      title={t("tapToDiscuss")}
                     >
                       {/* Note Header: User & Quick Locate Mark beside User Name */}
                       <div className="flex items-center justify-between gap-1.5">
@@ -475,7 +476,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                               type="button"
                               onClick={(e) => handleQuickLocate(e, note.page)}
                               className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary hover:text-primary-foreground text-primary font-mono text-[10px] font-bold transition-all group cursor-pointer shadow-2xs border border-primary/20"
-                              title={`Jump to Page ${note.page}`}
+                              title={`${t("jumpToPage")} ${note.page}`}
                             >
                               <Compass className="w-2.5 h-2.5 group-hover:rotate-45 transition-transform" />
                               <span>P. {note.page}</span>
@@ -497,7 +498,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                               handleStartReply(note);
                             }}
                             className="p-1 text-muted-foreground/60 hover:text-primary transition-colors rounded opacity-80 group-hover:opacity-100"
-                            title="Reply"
+                            title={t("reply")}
                           >
                             <Reply className="w-3 h-3" />
                           </button>
@@ -507,7 +508,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                               type="button"
                               onClick={(e) => handleDelete(e, note)}
                               className="p-1 text-muted-foreground/50 hover:text-destructive transition-colors rounded"
-                              title="Delete note"
+                              title={t("deleteNote")}
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -520,7 +521,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
                         <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/60 text-[10px] text-muted-foreground font-medium border border-border/40 w-fit max-w-full truncate">
                           <CornerDownRight className="w-2.5 h-2.5 shrink-0 text-primary" />
                           <span className="truncate">
-                            Replying to <span className="font-semibold text-foreground">@{note.replyToName}</span>
+                            {t("replyingTo")} <span className="font-semibold text-foreground">@{note.replyToName}</span>
                             {note.replyToSnippet ? `: "${note.replyToSnippet.slice(0, 35)}..."` : ""}
                           </span>
                         </div>
@@ -539,7 +540,7 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
             {/* Clean Footer */}
             <div className="p-2 border-t border-border/40 bg-muted/30 text-[10px] text-muted-foreground flex items-center justify-between px-3">
               <span className="text-[10px] text-muted-foreground/80">
-                Tap comment to discuss
+                {t("tapToDiscuss")}
               </span>
               <span className="font-mono">
                 p. {displayCurrentPageNumber} / {totalPages || 1}

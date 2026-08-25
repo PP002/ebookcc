@@ -2,9 +2,6 @@ import React, { useState, useMemo } from "react";
 import {
   HelpCircle,
   Search,
-  BookOpen,
-  PenTool,
-  Wrench,
   ChevronDown,
   ChevronUp,
   Sparkles,
@@ -119,75 +116,6 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
                 {ui.clear}
               </button>
             )}
-          </div>
-        </div>
-
-        {/* Quick Solution CTA Cards with Internal Links */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div
-            onClick={() => navigate("read")}
-            className="group relative p-5 bg-card hover:bg-muted/50 border border-border rounded-xl transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between"
-          >
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-base group-hover:text-primary transition-colors flex items-center justify-between">
-                <span>{ui.cardReaderTitle}</span>
-                <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-              </h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {ui.cardReaderDesc}
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-border/50 text-[11px] font-bold text-primary flex items-center gap-1">
-              <span>{ui.cardReaderAction}</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          <div
-            onClick={() => navigate("convert")}
-            className="group relative p-5 bg-card hover:bg-muted/50 border border-border rounded-xl transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between"
-          >
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold">
-                <Wrench className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-base group-hover:text-primary transition-colors flex items-center justify-between">
-                <span>{ui.cardConverterTitle}</span>
-                <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-              </h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {ui.cardConverterDesc}
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-border/50 text-[11px] font-bold text-primary flex items-center gap-1">
-              <span>{ui.cardConverterAction}</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          <div
-            onClick={() => navigate("create")}
-            className="group relative p-5 bg-card hover:bg-muted/50 border border-border rounded-xl transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between"
-          >
-            <div className="space-y-2">
-              <div className="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center font-bold">
-                <PenTool className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-base group-hover:text-primary transition-colors flex items-center justify-between">
-                <span>{ui.cardStudioTitle}</span>
-                <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-              </h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {ui.cardStudioDesc}
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-border/50 text-[11px] font-bold text-primary flex items-center gap-1">
-              <span>{ui.cardStudioAction}</span>
-              <span>→</span>
-            </div>
           </div>
         </div>
 
@@ -373,32 +301,6 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
                 ))}
               </ul>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <Button
-              onClick={() => navigate("convert")}
-              className="gap-2 text-xs font-bold px-5 py-2.5 rounded-lg"
-            >
-              <Wrench className="w-4 h-4" />
-              <span>{ui.btnConvert}</span>
-            </Button>
-            <Button
-              onClick={() => navigate("read")}
-              variant="outline"
-              className="gap-2 text-xs font-bold px-5 py-2.5 rounded-lg"
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>{ui.btnRead}</span>
-            </Button>
-            <Button
-              onClick={() => navigate("create")}
-              variant="secondary"
-              className="gap-2 text-xs font-bold px-5 py-2.5 rounded-lg"
-            >
-              <PenTool className="w-4 h-4" />
-              <span>{ui.btnCreate}</span>
-            </Button>
           </div>
         </div>
       </div>

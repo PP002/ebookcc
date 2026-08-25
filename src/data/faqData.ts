@@ -579,8 +579,137 @@ export function getFAQUIStrings(lang: LanguageCode): FAQUIStrings {
   return UI_STRINGS[lang] || UI_STRINGS.en;
 }
 
+const EN_FAQ_ITEMS: FAQItem[] = [
+  {
+    id: "faq-1",
+    category: "ebooks",
+    question: "How do I convert CBZ, CBR, or PDF comics to EPUB for Kindle, Kobo, or Apple Books?",
+    answer: "You can convert CBZ, CBR, or PDF comic archives directly into EPUB using the universal converter on EBookCC. Upload your archive, choose 'EPUB' or 'Kindle EPUB' output, enable image compression or page splitting if needed, and click Convert. The resulting EPUB maintains high image quality while optimizing file size for e-readers.",
+    keywords: ["cbz", "cbr", "pdf", "epub", "kindle", "kobo", "apple books", "convert"],
+    links: [
+      { text: "Open Batch Converter", view: "convert", description: "Convert CBZ, CBR, PDF & EPUB files in bulk" },
+      { text: "Launch Web Reader", view: "read", description: "Read EPUB or CBZ books directly in your browser" }
+    ]
+  },
+  {
+    id: "faq-2",
+    category: "ebooks",
+    question: "How do I send converted EPUB e-books directly to my Kindle device?",
+    answer: "After converting your files to EPUB on EBookCC, download the EPUB file and use Amazon's official 'Send to Kindle' service (amazon.com/sendtokindle) or email the file to your Kindle delivery address. Modern Kindle devices and apps natively accept standard EPUB files.",
+    keywords: ["send to kindle", "amazon kindle", "epub kindle", "paperwhite", "e-reader"],
+    links: [{ text: "Convert for Kindle", view: "convert", description: "Format comics and text books for Amazon Kindle" }]
+  },
+  {
+    id: "faq-3",
+    category: "ebooks",
+    question: "Can I reflow or extract clean text from PDF textbooks and scanned documents?",
+    answer: "Yes! EBookCC incorporates an AI OCR and text reflow engine. When you upload a PDF textbook or scanned image bundle, OCR recognizes the text, cleans line breaks, and allows you to export reflowable EPUB, HTML, or plain text.",
+    keywords: ["ocr", "pdf textbook", "reflow", "extract text", "scanned pdf", "epub"],
+    links: [{ text: "Try PDF OCR & Converter", view: "convert", description: "Extract text and convert to reflowable EPUB" }]
+  },
+  {
+    id: "faq-4",
+    category: "comics",
+    question: "How does the dual-page manga splitter work for smartphone reading?",
+    answer: "Double-page manga spreads are often hard to read on small phone screens. EBookCC automatically detects dual-page spreads, splits them vertically into clean single pages, and organizes the reading order according to Japanese right-to-left or Western left-to-right flow.",
+    keywords: ["manga", "dual page", "page splitter", "mobile reading", "spreads"],
+    links: [
+      { text: "Try Page Splitter", view: "convert", description: "Split dual-page spreads into single mobile pages" },
+      { text: "Launch Manga Reader", view: "read", description: "Read with guided panel zoom & webtoon scroll mode" }
+    ]
+  },
+  {
+    id: "faq-5",
+    category: "comics",
+    question: "How do I automatically translate raw Japanese manga, Korean Webtoons, or foreign comics?",
+    answer: "EBookCC includes a built-in AI Manga & Webtoon Translator. It uses computer vision to automatically detect speech bubbles, extracts text via OCR (Japanese, Korean, Chinese, English), removes the original text, and overlays clean translated text in your choice of 12+ languages.",
+    keywords: ["translate manga", "ai ocr", "raw manga", "webtoon", "speech bubble", "translation"],
+    links: [
+      { text: "Translate Raw Manga Online", view: "convert", description: "AI speech bubble detection, inpainting & translation" },
+      { text: "Create Comics & Stories", view: "create", description: "Design multi-panel comics with speech balloons" }
+    ]
+  },
+  {
+    id: "faq-6",
+    category: "comics",
+    question: "How can I create my own AI comics, manga strips, or visual novels?",
+    answer: "EBookCC features an interactive Comic & Story Studio canvas. You can draw with Wacom or Apple Pencil pressure sensitivity, generate panel imagery and storylines with AI prompts, add custom speech bubbles, and export directly as CBZ or EPUB.",
+    keywords: ["create comic", "ai comic generator", "manga maker", "canvas creator", "story studio"],
+    links: [{ text: "Open Comic Studio", view: "create", description: "Design multi-panel comics and generate AI stories" }]
+  },
+  {
+    id: "faq-7",
+    category: "ai",
+    question: "Which AI models can I use for translation, OCR, and comic creation?",
+    answer: "EBookCC supports multiple AI providers: Google Gemini (Gemini 2.5 Flash / Pro), OpenAI (GPT-4o), Anthropic Claude, and local LLMs via Ollama or LM Studio for complete offline privacy.",
+    keywords: ["ai models", "gemini", "openai", "claude", "ollama", "lm studio"],
+    links: [{ text: "Configure AI & API Keys", view: "home", description: "Set up Gemini or local AI models in app settings" }]
+  },
+  {
+    id: "faq-8",
+    category: "general",
+    question: "Is EBookCC completely free to use and are my files private?",
+    answer: "Yes! EBookCC runs entirely inside your modern web browser. All file processing, image cropping, EPUB compilation, and reading take place locally on your client device. Your private files are never sold or uploaded to unauthorized external servers.",
+    keywords: ["privacy", "offline", "free ebook reader", "browser local processing", "security"],
+    links: [
+      { text: "Read Privately in Web Reader", view: "read", description: "Load local books into private browser reader" },
+      { text: "Back to Home", view: "home", description: "Explore all features and tools" }
+    ]
+  },
+  {
+    id: "faq-9",
+    category: "ebooks",
+    question: "What file formats are supported for reading and conversion?",
+    answer: "EBookCC supports a wide array of formats including EPUB, PDF, CBZ, CBR, MOBI, AZW3, TXT, DOCX, HTML, WEBP, PNG, JPG, and ZIP comic archives. You can read them directly or batch convert them with one click.",
+    keywords: ["formats", "epub", "pdf", "cbz", "cbr", "mobi", "docx", "webp"],
+    links: [{ text: "Batch Format Converter", view: "convert", description: "Convert between EPUB, CBZ, PDF & MOBI" }]
+  },
+  {
+    id: "faq-10",
+    category: "general",
+    question: "How do I read books and comics on E-Ink devices (Kindle, Onyx Boox, Kobo)?",
+    answer: "EBookCC includes a dedicated E-Ink reading mode featuring high-contrast black-and-white palettes, bold typography, flicker-free transitions, and key/tap navigation optimized for electronic paper displays.",
+    keywords: ["e-ink", "onyx boox", "kobo", "kindle browser", "e-paper mode", "high contrast"],
+    links: [{ text: "Read with E-Ink Mode", view: "read", description: "Enjoy high-contrast, flicker-free reading" }]
+  },
+  {
+    id: "faq-11",
+    category: "comics",
+    question: "How do I add freehand speech bubbles and custom dialogue text?",
+    answer: "In the Comic Studio, select the Speech Bubble tool to draw freehand bubbles or choose from preset templates (speech, thought, shout, whisper). Drag tail handles to target characters, and enter dialogue with automatic text auto-sizing.",
+    keywords: ["freehand bubbles", "speech bubbles", "dialogue", "comic studio", "comic bubbles"],
+    links: [{ text: "Open Comic Studio", view: "create", description: "Draw speech bubbles and design panels" }]
+  },
+  {
+    id: "faq-12",
+    category: "comics",
+    question: "How does split-panel online reading work in the Web Reader?",
+    answer: "The Web Reader includes a panel-splitting mode that breaks complex comic pages into individual panel close-ups. You can navigate through panels sequentially with keyboard arrows or swipe gestures.",
+    keywords: ["split panels", "read online", "panel zoom", "manga reader", "guided view"],
+    links: [{ text: "Launch Web Reader", view: "read", description: "Read comics with guided panel zoom" }]
+  },
+  {
+    id: "faq-13",
+    category: "comics",
+    question: "How do I create custom comic collages and multi-panel layouts?",
+    answer: "Using the Comic Studio, you can place multi-panel grid layouts, combine multiple illustrations into a cohesive collage, configure borders and background colors, and export as CBZ or EPUB.",
+    keywords: ["comic collage", "create collage", "panel layouts", "comic maker"],
+    links: [{ text: "Create Comic Collage", view: "create", description: "Design and export multi-panel collages" }]
+  },
+  {
+    id: "faq-14",
+    category: "ai",
+    question: "How does YOLO AI automatically detect comic panels and speech bubbles?",
+    answer: "EBookCC integrates computer vision models (including YOLO-based panel detection) that scan comic pages to automatically separate rectangular panels, locate speech bubbles, and extract text coordinates without manual cropping.",
+    keywords: ["yolo detect", "panel detection", "ai ocr", "automatic cropping", "speech bubbles"],
+    links: [{ text: "Try YOLO & OCR Detection", view: "convert", description: "Batch detect panels and extract text" }]
+  }
+];
+
 export function getFAQItems(lang: LanguageCode): FAQItem[] {
   switch (lang) {
+    case "en":
+      return EN_FAQ_ITEMS;
     case "fr":
       return [
         {
@@ -969,6 +1098,6 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
 
     default:
       // Fallback to English for other languages (or can be localized further)
-      return getFAQItems("en");
+      return EN_FAQ_ITEMS;
   }
 }

@@ -313,7 +313,6 @@ function AppContent() {
                   {t("convert")}
                 </span>
               </Button>
-
             </nav>
 
             {/* Right Layout Controls */}

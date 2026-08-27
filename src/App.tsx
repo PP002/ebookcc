@@ -590,6 +590,7 @@ function AppContent() {
           <Create
             setActiveView={(view) => navigate(view)}
             onActiveStateChange={setHeaderHidden}
+            onFullscreenChange={setIsFullscreen}
           />
         )}
         {currentPath === "convert" && (

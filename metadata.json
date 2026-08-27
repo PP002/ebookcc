@@ -1,6 +1,6 @@
 {
   "name": "EbookCC",
-  "description": "Detect and edit comic speech bubbles with AI-powered OCR and selectable text overlays.",
+  "description": "Detect and edit comic speech bubbles with AI OCR, custom comic grid panel layouts, and interactive full-canvas zoom/pan workspace.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

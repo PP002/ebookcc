@@ -79,6 +79,7 @@ import { ImageToolbar } from "./ImageToolbar";
 import {
   ComicCanvas,
   createGridTree,
+  cloneTreeWithEmptyPanels,
   fillFirstEmptyPanel,
   updatePanelImage,
   TreeNode,
@@ -95,6 +96,7 @@ import { getApiUrl } from '@/lib/api';
 interface CreateProps {
   setActiveView: (view: "home" | "read" | "create" | "convert") => void;
   onActiveStateChange?: (active: boolean) => void;
+  onFullscreenChange?: (fullscreen: boolean) => void;
 }
 
 interface Bubble {
@@ -1327,6 +1329,7 @@ function CreateMetroTile({
 export const Create: React.FC<CreateProps> = ({
   setActiveView,
   onActiveStateChange,
+  onFullscreenChange,
 }) => {
   const { t, formatDate } = useLanguage();
   const { llmEngine, geminiApiKey, user, setShowAuthDialog } = useAppSettings();
@@ -2196,6 +2199,18 @@ export const Create: React.FC<CreateProps> = ({
   }, [createMode, onActiveStateChange]);
 
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
+  const [isComicPanelExpanded, setIsComicPanelExpanded] = useState(false);
+
+  useEffect(() => {
+    onFullscreenChange?.(isComicPanelExpanded);
+  }, [isComicPanelExpanded, onFullscreenChange]);
+
+  useEffect(() => {
+    return () => {
+      onFullscreenChange?.(false);
+    };
+  }, [onFullscreenChange]);
+
   const [newBubbleText, setNewBubbleText] = useState("");
   const [bubbleStyle, setBubbleStyle] = useState<
     "classic" | "action" | "freehand"
@@ -4343,9 +4358,9 @@ export const Create: React.FC<CreateProps> = ({
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
       <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
-        <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
+        <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative">
           {/* Left Actions */}
-          <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar py-1 shrink-0">
+          <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar py-1 shrink-0 z-20 relative">
             <Button
               variant="ghost"
               size="icon"
@@ -4462,18 +4477,18 @@ export const Create: React.FC<CreateProps> = ({
             )}
           </div>
 
-          {/* Centered Comic Title */}
-          <div className="flex-1 flex items-center justify-center mx-4">
+          {/* Centered Comic Title - Statically pinned to horizontal center so left/right buttons do not shift its position */}
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none flex items-center justify-center max-w-[calc(100%-160px)]">
             <input
               value={comicTitle}
               onChange={(e) => setComicTitle(e.target.value)}
-              className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
+              className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[140px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[340px] truncate pointer-events-auto"
               placeholder={t("comicTitlePlaceholder")}
             />
           </div>
 
           {/* Right Actions */}
-          <div className="flex items-center gap-2 pr-2 shrink-0">
+          <div className="flex items-center gap-2 pr-2 shrink-0 z-20 relative ml-auto">
             {renderExportMenu()}
             <Button
               variant="ghost"
@@ -4550,11 +4565,13 @@ export const Create: React.FC<CreateProps> = ({
                     size="icon"
                     className="h-5 w-5 rounded-none hover:bg-muted"
                     onClick={() => {
+                      const currentTree = comicPages[activePageIndex]?.tree || comicPages[0]?.tree;
+                      const newTree = currentTree ? cloneTreeWithEmptyPanels(currentTree) : createGridTree(3, 2);
                       setComicPages([
                         ...comicPages,
                         {
                           id: Date.now().toString(),
-                          tree: createGridTree(3, 2),
+                          tree: newTree,
                           bubbles: [],
                         },
                       ]);
@@ -4627,14 +4644,28 @@ export const Create: React.FC<CreateProps> = ({
         <div className="flex-1 w-full min-h-0 relative h-full flex flex-col lg:flex-row bg-background overflow-hidden">
           {/* Main Canvas Area */}
           <div className="flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden">
-            <div className="relative max-h-full max-w-full inline-flex justify-center items-center h-full">
-              <svg
-                viewBox="0 0 3 4"
-                className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none"
-              />
+            <div
+              className={cn(
+                "relative flex justify-center items-center transition-all duration-300",
+                isComicPanelExpanded
+                  ? "w-full h-full"
+                  : "max-h-full max-w-full inline-flex h-full"
+              )}
+            >
+              {!isComicPanelExpanded && (
+                <svg
+                  viewBox="0 0 3 4"
+                  className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none"
+                />
+              )}
               <div
                 ref={comicRef}
-                className="absolute top-0 left-0 w-full h-full bg-background ring-1 ring-border shadow-2xl overflow-hidden"
+                className={cn(
+                  "w-full h-full bg-background overflow-hidden",
+                  isComicPanelExpanded
+                    ? "relative flex items-center justify-center"
+                    : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
+                )}
               >
                 <ComicCanvas
                   tree={comicTree}
@@ -4645,10 +4676,11 @@ export const Create: React.FC<CreateProps> = ({
                   drawRadius={drawRadius}
                   touchOff={touchOff}
                   setTouchOff={setTouchOff}
+                  onExpandedChange={setIsComicPanelExpanded}
                 />
 
-                {/* Bubble overlays layer */}
-                {bubbles.map((b) => (
+                {/* Bubble overlays layer - hidden in full canvas mode */}
+                {!isComicPanelExpanded && bubbles.map((b) => (
                   <div
                     key={b.id}
                     data-bubble-id={b.id}

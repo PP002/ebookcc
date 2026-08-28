@@ -1442,10 +1442,12 @@ export const Create: React.FC<CreateProps> = ({
   const [publishedWorks, setPublishedWorks] = useState<any[]>([]);
 
   const loadPublishedWorks = async () => {
+    let localItems: any[] = [];
     try {
       const raw = localStorage.getItem("ebookcc_published_items") || "[]";
       const items = JSON.parse(raw);
       if (Array.isArray(items)) {
+        localItems = items;
         setPublishedWorks(items);
       } else {
         setPublishedWorks([]);
@@ -1457,7 +1459,44 @@ export const Create: React.FC<CreateProps> = ({
     try {
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
-        const sorted = [...res.works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const r2Works = res.works;
+        const mergedMap = new Map<string, any>();
+
+        // 1. Populate from R2
+        r2Works.forEach((work: any) => {
+          if (work && work.id) {
+            mergedMap.set(String(work.id), work);
+          }
+        });
+
+        // 2. Merge local items
+        localItems.forEach((localWork: any) => {
+          if (localWork && localWork.id) {
+            const existing = mergedMap.get(String(localWork.id));
+            if (!existing || (localWork.timestamp || 0) >= (existing.timestamp || 0)) {
+              mergedMap.set(String(localWork.id), localWork);
+            }
+          }
+        });
+
+        // 3. Deduplicate by author + title + type (keep the latest updated version)
+        const dedupedMap = new Map<string, any>();
+        Array.from(mergedMap.values()).forEach((item: any) => {
+          const authorKey = item.authorId || item.authorEmail || item.author || "anon";
+          const titleKey = (item.title || "").trim().toLowerCase();
+          const comboKey = `${item.type || 'work'}_${authorKey}_${titleKey}`;
+
+          if (dedupedMap.has(comboKey)) {
+            const existing = dedupedMap.get(comboKey);
+            if ((item.timestamp || 0) >= (existing.timestamp || 0)) {
+              dedupedMap.set(comboKey, item);
+            }
+          } else {
+            dedupedMap.set(comboKey, item);
+          }
+        });
+
+        const sorted = Array.from(dedupedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
         setPublishedWorks(sorted);
       }
@@ -2937,6 +2976,39 @@ export const Create: React.FC<CreateProps> = ({
       ? (currentStoryId || "story-" + Date.now()) 
       : (currentComicId || "comic-" + Date.now());
 
+    const targetType = createMode === "document" ? "novel" : "comic";
+    const cleanTitle = title.trim();
+
+    // Check if there is an existing published work that matches:
+    // 1) Same active ID, OR
+    // 2) Same author AND same title (case-insensitive) AND same type
+    let existingPublishedItem: any = null;
+    let publishedList: any[] = [];
+    try {
+      publishedList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+      if (Array.isArray(publishedList)) {
+        existingPublishedItem = publishedList.find((p: any) => p && String(p.id) === String(activeId));
+        if (!existingPublishedItem) {
+          existingPublishedItem = publishedList.find((p: any) => 
+            p && 
+            checkIsAuthor(p, user) && 
+            (p.type === targetType) &&
+            p.title && p.title.trim().toLowerCase() === cleanTitle.toLowerCase()
+          );
+        }
+      }
+    } catch (_) {}
+
+    const finalWorkId = existingPublishedItem ? existingPublishedItem.id : activeId;
+
+    if (finalWorkId !== activeId) {
+      if (createMode === "document") {
+        setCurrentStoryId(finalWorkId);
+      } else {
+        setCurrentComicId(finalWorkId);
+      }
+    }
+
     // Lookup cover image if present
     let coverUrl = "";
     if (createMode === "comic") {
@@ -2955,21 +3027,21 @@ export const Create: React.FC<CreateProps> = ({
         foundImg = findFirstImage(page.tree);
         if (foundImg) break;
       }
-      coverUrl = foundImg || "";
+      coverUrl = foundImg || (existingPublishedItem?.cover || "");
     }
 
     const newItem = {
-      id: activeId,
-      title: title.trim(),
-      author: user?.name || user?.email || "Creative Publisher",
-      authorEmail: user?.email,
-      authorId: user?.uid,
-      type: createMode === "document" ? "novel" : "comic",
+      id: finalWorkId,
+      title: cleanTitle,
+      author: user?.name || user?.email || (existingPublishedItem?.author || "Creative Publisher"),
+      authorEmail: user?.email || existingPublishedItem?.authorEmail,
+      authorId: user?.uid || existingPublishedItem?.authorId,
+      type: targetType,
       cover: coverUrl,
       description: createMode === "document" 
         ? "A captivating novel authored in the eBookCC creative workspace." 
         : `An action-packed visual comic strip with ${comicPages.length} custom layouts.`,
-      content: createMode === "document" ? (editorRef.current?.innerHTML || "") : undefined,
+      content: createMode === "document" ? (editorRef.current?.innerHTML || loadedHtmlContent || "") : undefined,
       pages: createMode === "comic" ? comicPages : undefined,
       timestamp: Date.now()
     };
@@ -2993,14 +3065,19 @@ export const Create: React.FC<CreateProps> = ({
       setComicPages(itemToSave.pages);
     }
 
-    let publishedItems: any[] = [];
-    try {
-      const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
-      publishedItems = JSON.parse(publishedItemsJson);
-    } catch (_) {
-      publishedItems = [];
-    }
-    const filtered = publishedItems.filter((item: any) => item.id !== itemToSave.id);
+    // Filter out both matching ID and matching author + title + type
+    const filtered = publishedList.filter((item: any) => {
+      if (!item) return false;
+      if (String(item.id) === String(itemToSave.id)) return false;
+      if (
+        checkIsAuthor(item, user) &&
+        item.type === targetType &&
+        item.title && item.title.trim().toLowerCase() === cleanTitle.toLowerCase()
+      ) {
+        return false;
+      }
+      return true;
+    });
     filtered.unshift(itemToSave);
 
     try {
@@ -3025,11 +3102,32 @@ export const Create: React.FC<CreateProps> = ({
 
     setPublishedWorks(filtered);
 
+    // Clean up draft from IndexedDB
+    try {
+      if (createMode === "comic") {
+        await deleteUnfinishedComic(activeId);
+        if (finalWorkId !== activeId) {
+          await deleteUnfinishedComic(finalWorkId);
+          await deletePublishedWorkFromR2(activeId);
+        }
+        const remainingComics = await getUnfinishedComics();
+        setUnfinishedComics(remainingComics);
+      } else {
+        await deleteUnfinishedStory(activeId);
+        if (finalWorkId !== activeId) {
+          await deleteUnfinishedStory(finalWorkId);
+          await deletePublishedWorkFromR2(activeId);
+        }
+        const remainingStories = await getUnfinishedStories();
+        setUnfinishedStories(remainingStories);
+      }
+    } catch (_) {}
+
     window.dispatchEvent(new Event("ebookcc_published"));
     window.dispatchEvent(new Event("storage"));
 
     toast.dismiss(toastId);
-    toast.success(`Published "${title}" successfully to cloud storage & bookshelf!`);
+    toast.success(`Published "${cleanTitle}" successfully to cloud storage & bookshelf!`);
   };
 
   const handleExport = async (format: string) => {
@@ -3703,7 +3801,20 @@ export const Create: React.FC<CreateProps> = ({
                 <Card 
                   key={comic.id}
                   onClick={() => {
-                    setCurrentComicId(comic.id);
+                    let matchedPubId = comic.id;
+                    try {
+                      const pubList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+                      const matched = pubList.find((p: any) => 
+                        p && (
+                          String(p.id) === String(comic.id) ||
+                          (checkIsAuthor(p, user) && p.type === "comic" && p.title && p.title.trim().toLowerCase() === comic.title.trim().toLowerCase())
+                        )
+                      );
+                      if (matched && matched.id) {
+                        matchedPubId = matched.id;
+                      }
+                    } catch (_) {}
+                    setCurrentComicId(matchedPubId);
                     setComicTitle(comic.title);
                     setComicPagesState(comic.pages);
                     setActivePageIndex(comic.activePageIndex || 0);
@@ -3814,7 +3925,20 @@ export const Create: React.FC<CreateProps> = ({
                 <Card 
                   key={story.id}
                   onClick={() => {
-                    setCurrentStoryId(story.id);
+                    let matchedPubId = story.id;
+                    try {
+                      const pubList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+                      const matched = pubList.find((p: any) => 
+                        p && (
+                          String(p.id) === String(story.id) ||
+                          (checkIsAuthor(p, user) && p.type === "novel" && p.title && p.title.trim().toLowerCase() === story.title.trim().toLowerCase())
+                        )
+                      );
+                      if (matched && matched.id) {
+                        matchedPubId = matched.id;
+                      }
+                    } catch (_) {}
+                    setCurrentStoryId(matchedPubId);
                     setStoryTitle(story.title);
                     setLoadedHtmlContent(story.htmlContent);
                     setCreateMode("document");

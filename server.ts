@@ -864,11 +864,7 @@ async function startServer() {
         }
       }
 
-      if (!isConfigured || !s3) {
-        return res.status(500).json({ error: "Cloudflare R2 is not configured. Please configure R2 API credentials in App Settings." });
-      }
-
-      // Execute all media uploads in parallel
+      // Execute all media uploads in parallel (save locally and sync to S3 if configured)
       if (uploadTasks.length > 0) {
         await Promise.all(
           uploadTasks.map(async (task) => {
@@ -878,24 +874,25 @@ async function startServer() {
               fs.writeFileSync(localFilePath, task.buffer);
             } catch (_) {}
 
-            try {
-              await safeS3Send(s3, new PutObjectCommand({
-                Bucket: bucket,
-                Key: task.fileName,
-                Body: task.buffer,
-                ContentType: task.mimeType
-              }), 30000);
-            } catch (err: any) {
-              console.error(`[R2] Parallel upload for ${task.fileName} failed:`, err.message);
-              throw new Error(`Failed uploading asset ${task.fileName} to R2: ${err.message}`);
+            if (isConfigured && s3) {
+              try {
+                await safeS3Send(s3, new PutObjectCommand({
+                  Bucket: bucket,
+                  Key: task.fileName,
+                  Body: task.buffer,
+                  ContentType: task.mimeType
+                }), 30000);
+              } catch (err: any) {
+                console.warn(`[R2] Parallel upload for ${task.fileName} failed:`, err.message);
+              }
             }
 
-            task.updateUrl(`/api/media/file/${encodeURIComponent(bucket)}/${task.fileName}`);
+            task.updateUrl(`/api/media/file/${encodeURIComponent(bucket || "local")}/${task.fileName}`);
           })
         );
       }
 
-      // Save work JSON to R2
+      // Save work JSON to local server cache and S3
       const jsonKey = `published_works/${workId}.json`;
       const jsonBuffer = Buffer.from(JSON.stringify(cleanedItem, null, 2), "utf-8");
 
@@ -903,23 +900,24 @@ async function startServer() {
       fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
       fs.writeFileSync(localJsonPath, jsonBuffer);
 
-      try {
-        await safeS3Send(s3, new PutObjectCommand({
-          Bucket: bucket,
-          Key: jsonKey,
-          Body: jsonBuffer,
-          ContentType: "application/json"
-        }), 30000);
-        console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
-      } catch (r2SaveErr: any) {
-        console.error(`[R2] Save published work JSON to R2 bucket failed:`, r2SaveErr.message);
-        throw new Error(`Failed writing published work manifest to R2: ${r2SaveErr.message}`);
+      if (isConfigured && s3) {
+        try {
+          await safeS3Send(s3, new PutObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey,
+            Body: jsonBuffer,
+            ContentType: "application/json"
+          }), 30000);
+          console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
+        } catch (r2SaveErr: any) {
+          console.warn(`[R2] Save published work JSON to R2 bucket failed:`, r2SaveErr.message);
+        }
       }
 
       return res.json({
         success: true,
         item: cleanedItem,
-        message: `Published "${cleanedItem.title || 'work'}" successfully to R2 media storage (${bucket})!`
+        message: `Published "${cleanedItem.title || 'work'}" successfully!`
       });
     } catch (e: any) {
       console.error("[API /api/published-works POST] Error:", e);

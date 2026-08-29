@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   BookOpen,
   PenTool,
@@ -1408,6 +1408,17 @@ export const Create: React.FC<CreateProps> = ({
   const isPublishedComicRef = useRef<boolean>(false);
   const isPublishedStoryRef = useRef<boolean>(false);
 
+  // Comic page flipping refs and gestures
+  const comicPagesLengthRef = useRef(comicPages.length);
+  comicPagesLengthRef.current = comicPages.length;
+  const comicPagesRef = useRef(comicPages);
+  comicPagesRef.current = comicPages;
+  const activePageIndexRef = useRef(activePageIndex);
+  activePageIndexRef.current = activePageIndex;
+  const comicWorkspaceRef = useRef<HTMLDivElement>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const isSwipingComicPageRef = useRef<boolean>(false);
+
   const checkNodeForImagesOrDrawings = (node: TreeNode): boolean => {
     if (!node) return false;
     if (node.type === 'panel') {
@@ -1686,12 +1697,72 @@ export const Create: React.FC<CreateProps> = ({
   const comicTree = activePage.tree;
   const bubbles = activePage.bubbles;
 
+  const handleAddNewPage = useCallback(() => {
+    const currentPages = comicPagesRef.current;
+    const currentIndex = activePageIndexRef.current;
+    const currentTree = currentPages[currentIndex]?.tree || currentPages[0]?.tree;
+    const newTree = currentTree ? cloneTreeWithEmptyPanels(currentTree) : createGridTree(3, 2);
+    const newPage: ComicPage = {
+      id: Date.now().toString(),
+      tree: newTree,
+      bubbles: [],
+    };
+    const insertIndex = currentIndex + 1;
+    const newPages = [
+      ...currentPages.slice(0, insertIndex),
+      newPage,
+      ...currentPages.slice(insertIndex),
+    ];
+    setComicPages(newPages);
+    setActivePageIndex(insertIndex);
+  }, [setComicPages]);
+
+  const handleDeleteCurrentPage = useCallback(() => {
+    const currentPages = comicPagesRef.current;
+    const currentIndex = activePageIndexRef.current;
+    if (currentPages.length <= 1) {
+      const defaultTree = createGridTree(3, 2);
+      setComicPages([
+        {
+          id: Date.now().toString(),
+          tree: defaultTree,
+          bubbles: [],
+        },
+      ]);
+      setActivePageIndex(0);
+      return;
+    }
+    const newPages = currentPages.filter((_, i) => i !== currentIndex);
+    const nextIndex = Math.min(currentIndex, newPages.length - 1);
+    setComicPages(newPages);
+    setActivePageIndex(Math.max(0, nextIndex));
+  }, [setComicPages]);
+
+  const flipToPrevComicPage = useCallback(() => {
+    setActivePageIndex((prev) => {
+      if (prev > 0) {
+        return prev - 1;
+      }
+      return prev;
+    });
+  }, []);
+
+  const flipToNextComicPage = useCallback(() => {
+    setActivePageIndex((prev) => {
+      if (prev < comicPagesLengthRef.current - 1) {
+        return prev + 1;
+      }
+      return prev;
+    });
+  }, []);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (
-        ["INPUT", "TEXTAREA"].includes(target.tagName) ||
-        target.isContentEditable
+        ["INPUT", "TEXTAREA"].includes(target?.tagName || "") ||
+        target?.isContentEditable ||
+        Boolean(target?.closest?.('[contenteditable="true"]'))
       )
         return;
 
@@ -1713,9 +1784,76 @@ export const Create: React.FC<CreateProps> = ({
           }
           return;
         }
+
+        if (createMode === "comic") {
+          if (
+            !isAIGeneratorOpen &&
+            !isAIFullComicDialogOpen &&
+            !isAIFullStoryDialogOpen &&
+            !showPublishAuthHint
+          ) {
+            // Also support CTRL+N / CMD+N as fallback for N
+            if (e.key.toLowerCase() === "n") {
+              e.preventDefault();
+              handleAddNewPage();
+              return;
+            }
+
+            // Also support CTRL+DELETE / CMD+DELETE as fallback
+            if (
+              e.key === "Delete" ||
+              e.key === "Backspace" ||
+              e.code === "Delete" ||
+              e.code === "Backspace"
+            ) {
+              e.preventDefault();
+              handleDeleteCurrentPage();
+              return;
+            }
+          }
+        }
       }
 
       if (createMode === "comic") {
+        // Single key shortcuts when not in dialogs/inputs
+        if (
+          !isAIGeneratorOpen &&
+          !isAIFullComicDialogOpen &&
+          !isAIFullStoryDialogOpen &&
+          !showPublishAuthHint
+        ) {
+          // 'N' shortcut to add new page directly following current page
+          if (e.key.toLowerCase() === "n") {
+            e.preventDefault();
+            handleAddNewPage();
+            return;
+          }
+
+          // 'DELETE' / 'Backspace' shortcut to delete current page
+          if (
+            e.key === "Delete" ||
+            e.key === "Backspace" ||
+            e.code === "Delete" ||
+            e.code === "Backspace"
+          ) {
+            e.preventDefault();
+            handleDeleteCurrentPage();
+            return;
+          }
+
+          // Arrow keys and PageUp/PageDown to flip comic pages
+          if (e.key === "ArrowLeft" || e.key === "PageUp") {
+            e.preventDefault();
+            flipToPrevComicPage();
+            return;
+          }
+          if (e.key === "ArrowRight" || e.key === "PageDown") {
+            e.preventDefault();
+            flipToNextComicPage();
+            return;
+          }
+        }
+
         const key = e.key.toLowerCase();
         if (key === "d") {
           setIsDrawingMode((prev) => {
@@ -1733,7 +1871,118 @@ export const Create: React.FC<CreateProps> = ({
     };
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [createMode, isDrawingMode]);
+  }, [
+    createMode,
+    isDrawingMode,
+    isAIGeneratorOpen,
+    isAIFullComicDialogOpen,
+    isAIFullStoryDialogOpen,
+    showPublishAuthHint,
+    handleAddNewPage,
+    handleDeleteCurrentPage,
+    flipToPrevComicPage,
+    flipToNextComicPage,
+  ]);
+
+  // Finger swipe gesture for flipping comic pages on touch devices
+  useEffect(() => {
+    if (createMode !== "comic") return;
+    const el = comicWorkspaceRef.current;
+    if (!el) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        touchStartPosRef.current = null;
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      if (
+        target?.closest?.(
+          'button, input, textarea, select, [data-bubble-id], [contenteditable="true"], .bubble-overlay, [data-export-ignore="true"]'
+        )
+      ) {
+        touchStartPosRef.current = null;
+        return;
+      }
+
+      // If drawing mode is on with finger drawing allowed (touchOff = false),
+      // let drawings on panels proceed unless touched on workspace background/border
+      if (isDrawingMode && !touchOff) {
+        if (
+          target?.closest?.("svg[data-panel-drawing]") ||
+          target?.closest?.(".panel-drawing-layer")
+        ) {
+          touchStartPosRef.current = null;
+          return;
+        }
+      }
+
+      const touch = e.touches[0];
+      touchStartPosRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        time: Date.now(),
+      };
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        touchStartPosRef.current = null;
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!touchStartPosRef.current) return;
+
+      const touch = e.changedTouches[0];
+      if (!touch) {
+        touchStartPosRef.current = null;
+        return;
+      }
+
+      const start = touchStartPosRef.current;
+      touchStartPosRef.current = null;
+
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      const elapsed = Date.now() - start.time;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      // Fast horizontal swipe gesture (distance >= 40px, under 700ms, more horizontal than vertical)
+      if (elapsed < 700 && absX >= 40 && absX > absY * 1.25) {
+        isSwipingComicPageRef.current = true;
+        setTimeout(() => {
+          isSwipingComicPageRef.current = false;
+        }, 300);
+
+        if (deltaX < 0) {
+          // Swiped Left -> Flip to Next page
+          flipToNextComicPage();
+        } else {
+          // Swiped Right -> Flip to Previous page
+          flipToPrevComicPage();
+        }
+      }
+    };
+
+    const handleTouchCancel = () => {
+      touchStartPosRef.current = null;
+    };
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
+    el.addEventListener("touchmove", handleTouchMove, { passive: true });
+    el.addEventListener("touchend", handleTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+
+    return () => {
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchmove", handleTouchMove);
+      el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("touchcancel", handleTouchCancel);
+    };
+  }, [createMode, isDrawingMode, touchOff, flipToNextComicPage, flipToPrevComicPage]);
 
   useEffect(() => {
     const handleUp = () => setIsDraggingToolbar(false);
@@ -4657,20 +4906,8 @@ export const Create: React.FC<CreateProps> = ({
                     variant="ghost"
                     size="icon"
                     className="h-5 w-5 rounded-none hover:bg-muted"
-                    onClick={() => {
-                      const currentTree = comicPages[activePageIndex]?.tree || comicPages[0]?.tree;
-                      const newTree = currentTree ? cloneTreeWithEmptyPanels(currentTree) : createGridTree(3, 2);
-                      setComicPages([
-                        ...comicPages,
-                        {
-                          id: Date.now().toString(),
-                          tree: newTree,
-                          bubbles: [],
-                        },
-                      ]);
-                      setActivePageIndex(comicPages.length);
-                    }}
-                    title={t("addPage")}
+                    onClick={handleAddNewPage}
+                    title={`${t("addPage")} (N)`}
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </Button>
@@ -4710,6 +4947,7 @@ export const Create: React.FC<CreateProps> = ({
                             variant="destructive"
                             size="icon"
                             className="w-5 h-5 rounded-full shadow-md"
+                            title={`${t("delete") || "Delete"} (Delete)`}
                             onClick={(e) => {
                               e.stopPropagation();
                               const newPages = comicPages.filter(
@@ -4736,7 +4974,10 @@ export const Create: React.FC<CreateProps> = ({
 
         <div className="flex-1 w-full min-h-0 relative h-full flex flex-col lg:flex-row bg-background overflow-hidden">
           {/* Main Canvas Area */}
-          <div className="flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden">
+          <div
+            ref={comicWorkspaceRef}
+            className="flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden"
+          >
             <div
               className={cn(
                 "relative flex justify-center items-center transition-all duration-300",
@@ -4761,6 +5002,7 @@ export const Create: React.FC<CreateProps> = ({
                 )}
               >
                 <ComicCanvas
+                  key={`comic-page-${activePage.id || activePageIndex}`}
                   tree={comicTree}
                   onChange={updateActivePageTree}
                   isDrawingMode={isDrawingMode}
@@ -4915,8 +5157,6 @@ export const Create: React.FC<CreateProps> = ({
                 ))}
               </div>
             </div>
-
-            {/* removed hint */}
           </div>
 
           {/* Sidebar Controls */}

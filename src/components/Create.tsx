@@ -52,9 +52,11 @@ import {
   saveUnfinishedComic,
   getUnfinishedComics,
   deleteUnfinishedComic,
+  removeUnfinishedComicDraft,
   saveUnfinishedStory,
   getUnfinishedStories,
   deleteUnfinishedStory,
+  removeUnfinishedStoryDraft,
   UnfinishedComic,
   UnfinishedStory
 } from "@/lib/historyCache";
@@ -1402,6 +1404,10 @@ export const Create: React.FC<CreateProps> = ({
   const [storyTitle, setStoryTitle] = useState<string>("Untitled Story");
   const [loadedHtmlContent, setLoadedHtmlContent] = useState<string | null>(null);
 
+  // Publication state guards to prevent unwanted auto-save after successful publishing
+  const isPublishedComicRef = useRef<boolean>(false);
+  const isPublishedStoryRef = useRef<boolean>(false);
+
   const checkNodeForImagesOrDrawings = (node: TreeNode): boolean => {
     if (!node) return false;
     if (node.type === 'panel') {
@@ -1442,12 +1448,10 @@ export const Create: React.FC<CreateProps> = ({
   const [publishedWorks, setPublishedWorks] = useState<any[]>([]);
 
   const loadPublishedWorks = async () => {
-    let localItems: any[] = [];
     try {
       const raw = localStorage.getItem("ebookcc_published_items") || "[]";
       const items = JSON.parse(raw);
       if (Array.isArray(items)) {
-        localItems = items;
         setPublishedWorks(items);
       } else {
         setPublishedWorks([]);
@@ -1459,44 +1463,7 @@ export const Create: React.FC<CreateProps> = ({
     try {
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
-        const r2Works = res.works;
-        const mergedMap = new Map<string, any>();
-
-        // 1. Populate from R2
-        r2Works.forEach((work: any) => {
-          if (work && work.id) {
-            mergedMap.set(String(work.id), work);
-          }
-        });
-
-        // 2. Merge local items
-        localItems.forEach((localWork: any) => {
-          if (localWork && localWork.id) {
-            const existing = mergedMap.get(String(localWork.id));
-            if (!existing || (localWork.timestamp || 0) >= (existing.timestamp || 0)) {
-              mergedMap.set(String(localWork.id), localWork);
-            }
-          }
-        });
-
-        // 3. Deduplicate by author + title + type (keep the latest updated version)
-        const dedupedMap = new Map<string, any>();
-        Array.from(mergedMap.values()).forEach((item: any) => {
-          const authorKey = item.authorId || item.authorEmail || item.author || "anon";
-          const titleKey = (item.title || "").trim().toLowerCase();
-          const comboKey = `${item.type || 'work'}_${authorKey}_${titleKey}`;
-
-          if (dedupedMap.has(comboKey)) {
-            const existing = dedupedMap.get(comboKey);
-            if ((item.timestamp || 0) >= (existing.timestamp || 0)) {
-              dedupedMap.set(comboKey, item);
-            }
-          } else {
-            dedupedMap.set(comboKey, item);
-          }
-        });
-
-        const sorted = Array.from(dedupedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const sorted = [...res.works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
         setPublishedWorks(sorted);
       }
@@ -1509,6 +1476,7 @@ export const Create: React.FC<CreateProps> = ({
       return;
     }
     if (item.type === "comic" || (item.pages && Array.isArray(item.pages))) {
+      isPublishedComicRef.current = true;
       setCurrentComicId(item.id);
       setComicTitle(item.title || "Untitled Comic");
       if (item.pages && Array.isArray(item.pages)) {
@@ -1518,6 +1486,7 @@ export const Create: React.FC<CreateProps> = ({
       setCreateMode("comic");
       toast.success(`Loaded published comic "${item.title || 'Untitled'}" into workspace`);
     } else {
+      isPublishedStoryRef.current = true;
       setCurrentStoryId(item.id);
       setStoryTitle(item.title || "Untitled Story");
       setLoadedHtmlContent(item.content || "<h1><br></h1><p><br></p>");
@@ -1551,14 +1520,47 @@ export const Create: React.FC<CreateProps> = ({
     }
   };
 
-  // Load lists on select screen
+  // Load lists on select screen and sync/cleanup published works from unfinished drafts
   useEffect(() => {
     if (createMode === "select") {
-      getUnfinishedComics().then(setUnfinishedComics);
-      getUnfinishedStories().then(setUnfinishedStories);
+      (async () => {
+        let publishedList: any[] = [];
+        try {
+          const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+          publishedList = JSON.parse(raw);
+        } catch (_) {}
+
+        const publishedIds = new Set(publishedList.map((p: any) => String(p?.id || "")).filter(Boolean));
+        const publishedTitles = new Set(publishedList.map((p: any) => String(p?.title || "").trim().toLowerCase()).filter(Boolean));
+
+        const comics = await getUnfinishedComics();
+        const cleanedComics: UnfinishedComic[] = [];
+        for (const c of comics) {
+          if (publishedIds.has(String(c.id)) || (c.title && publishedTitles.has(c.title.trim().toLowerCase()))) {
+            await deleteUnfinishedComic(c.id);
+          } else {
+            cleanedComics.push(c);
+          }
+        }
+        setUnfinishedComics(cleanedComics);
+
+        const stories = await getUnfinishedStories();
+        const cleanedStories: UnfinishedStory[] = [];
+        for (const s of stories) {
+          if (publishedIds.has(String(s.id)) || (s.title && publishedTitles.has(s.title.trim().toLowerCase()))) {
+            await deleteUnfinishedStory(s.id);
+          } else {
+            cleanedStories.push(s);
+          }
+        }
+        setUnfinishedStories(cleanedStories);
+      })();
+
       loadPublishedWorks();
       setCurrentComicId(null);
       setCurrentStoryId(null);
+      isPublishedComicRef.current = false;
+      isPublishedStoryRef.current = false;
     }
   }, [createMode]);
 
@@ -1575,6 +1577,7 @@ export const Create: React.FC<CreateProps> = ({
         getUnfinishedStories().then((stories) => {
           const match = stories.find(s => s.id === triggerId);
           if (match) {
+            isPublishedStoryRef.current = false;
             setCurrentStoryId(match.id);
             setStoryTitle(match.title);
             setLoadedHtmlContent(match.htmlContent);
@@ -1585,6 +1588,7 @@ export const Create: React.FC<CreateProps> = ({
               const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
               const found = pub.find((item: any) => item.id === triggerId);
               if (found) {
+                isPublishedStoryRef.current = true;
                 setCurrentStoryId(found.id);
                 setStoryTitle(found.title);
                 setLoadedHtmlContent(found.content || "");
@@ -1599,6 +1603,7 @@ export const Create: React.FC<CreateProps> = ({
         getUnfinishedComics().then((comics) => {
           const match = comics.find(c => c.id === triggerId);
           if (match) {
+            isPublishedComicRef.current = false;
             setCurrentComicId(match.id);
             setComicTitle(match.title);
             setComicPagesState(match.pages);
@@ -1610,6 +1615,7 @@ export const Create: React.FC<CreateProps> = ({
               const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
               const found = pub.find((item: any) => item.id === triggerId);
               if (found && found.pages) {
+                isPublishedComicRef.current = true;
                 setCurrentComicId(found.id);
                 setComicTitle(found.title);
                 setComicPagesState(found.pages);
@@ -1628,12 +1634,14 @@ export const Create: React.FC<CreateProps> = ({
   // Auto-save comic
   useEffect(() => {
     if (createMode === "comic") {
+      if (isPublishedComicRef.current) return;
       const activeId = currentComicId || "comic-" + Date.now();
       if (!currentComicId) {
         setCurrentComicId(activeId);
       }
       if (!isComicDefaultState(comicPages)) {
         const timer = setTimeout(() => {
+          if (isPublishedComicRef.current) return;
           saveUnfinishedComic({
             id: activeId,
             title: comicTitle,
@@ -1658,6 +1666,7 @@ export const Create: React.FC<CreateProps> = ({
   const setComicPages = (
     newPagesOrUpdater: ComicPage[] | ((prev: ComicPage[]) => ComicPage[]),
   ) => {
+    isPublishedComicRef.current = false;
     setComicPagesState((prev) => {
       const nextPages =
         typeof newPagesOrUpdater === "function"
@@ -2274,11 +2283,13 @@ export const Create: React.FC<CreateProps> = ({
   // Periodic/title-triggered auto-save for story
   useEffect(() => {
     if (createMode === "document" && editorRef.current) {
+      if (isPublishedStoryRef.current) return;
       const activeId = currentStoryId || "story-" + Date.now();
       if (!currentStoryId) {
         setCurrentStoryId(activeId);
       }
       const handleInput = () => {
+        isPublishedStoryRef.current = false;
         const html = editorRef.current?.innerHTML || "";
         if (hasStoryEditedContent(html)) {
           saveUnfinishedStory({
@@ -2294,7 +2305,7 @@ export const Create: React.FC<CreateProps> = ({
       
       // Also save when title changes
       const html = el.innerHTML;
-      if (hasStoryEditedContent(html)) {
+      if (!isPublishedStoryRef.current && hasStoryEditedContent(html)) {
         saveUnfinishedStory({
           id: activeId,
           title: storyTitle,
@@ -2976,39 +2987,6 @@ export const Create: React.FC<CreateProps> = ({
       ? (currentStoryId || "story-" + Date.now()) 
       : (currentComicId || "comic-" + Date.now());
 
-    const targetType = createMode === "document" ? "novel" : "comic";
-    const cleanTitle = title.trim();
-
-    // Check if there is an existing published work that matches:
-    // 1) Same active ID, OR
-    // 2) Same author AND same title (case-insensitive) AND same type
-    let existingPublishedItem: any = null;
-    let publishedList: any[] = [];
-    try {
-      publishedList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-      if (Array.isArray(publishedList)) {
-        existingPublishedItem = publishedList.find((p: any) => p && String(p.id) === String(activeId));
-        if (!existingPublishedItem) {
-          existingPublishedItem = publishedList.find((p: any) => 
-            p && 
-            checkIsAuthor(p, user) && 
-            (p.type === targetType) &&
-            p.title && p.title.trim().toLowerCase() === cleanTitle.toLowerCase()
-          );
-        }
-      }
-    } catch (_) {}
-
-    const finalWorkId = existingPublishedItem ? existingPublishedItem.id : activeId;
-
-    if (finalWorkId !== activeId) {
-      if (createMode === "document") {
-        setCurrentStoryId(finalWorkId);
-      } else {
-        setCurrentComicId(finalWorkId);
-      }
-    }
-
     // Lookup cover image if present
     let coverUrl = "";
     if (createMode === "comic") {
@@ -3027,21 +3005,21 @@ export const Create: React.FC<CreateProps> = ({
         foundImg = findFirstImage(page.tree);
         if (foundImg) break;
       }
-      coverUrl = foundImg || (existingPublishedItem?.cover || "");
+      coverUrl = foundImg || "";
     }
 
     const newItem = {
-      id: finalWorkId,
-      title: cleanTitle,
-      author: user?.name || user?.email || (existingPublishedItem?.author || "Creative Publisher"),
-      authorEmail: user?.email || existingPublishedItem?.authorEmail,
-      authorId: user?.uid || existingPublishedItem?.authorId,
-      type: targetType,
+      id: activeId,
+      title: title.trim(),
+      author: user?.name || user?.email || "Creative Publisher",
+      authorEmail: user?.email,
+      authorId: user?.uid,
+      type: createMode === "document" ? "novel" : "comic",
       cover: coverUrl,
       description: createMode === "document" 
         ? "A captivating novel authored in the eBookCC creative workspace." 
         : `An action-packed visual comic strip with ${comicPages.length} custom layouts.`,
-      content: createMode === "document" ? (editorRef.current?.innerHTML || loadedHtmlContent || "") : undefined,
+      content: createMode === "document" ? (editorRef.current?.innerHTML || "") : undefined,
       pages: createMode === "comic" ? comicPages : undefined,
       timestamp: Date.now()
     };
@@ -3062,22 +3040,17 @@ export const Create: React.FC<CreateProps> = ({
     const itemToSave = r2Result.item || newItem;
 
     if (createMode === "comic" && Array.isArray(itemToSave.pages)) {
-      setComicPages(itemToSave.pages);
+      setComicPagesState(itemToSave.pages);
     }
 
-    // Filter out both matching ID and matching author + title + type
-    const filtered = publishedList.filter((item: any) => {
-      if (!item) return false;
-      if (String(item.id) === String(itemToSave.id)) return false;
-      if (
-        checkIsAuthor(item, user) &&
-        item.type === targetType &&
-        item.title && item.title.trim().toLowerCase() === cleanTitle.toLowerCase()
-      ) {
-        return false;
-      }
-      return true;
-    });
+    let publishedItems: any[] = [];
+    try {
+      const publishedItemsJson = localStorage.getItem("ebookcc_published_items") || "[]";
+      publishedItems = JSON.parse(publishedItemsJson);
+    } catch (_) {
+      publishedItems = [];
+    }
+    const filtered = publishedItems.filter((item: any) => item.id !== itemToSave.id);
     filtered.unshift(itemToSave);
 
     try {
@@ -3102,32 +3075,48 @@ export const Create: React.FC<CreateProps> = ({
 
     setPublishedWorks(filtered);
 
-    // Clean up draft from IndexedDB
-    try {
-      if (createMode === "comic") {
-        await deleteUnfinishedComic(activeId);
-        if (finalWorkId !== activeId) {
-          await deleteUnfinishedComic(finalWorkId);
-          await deletePublishedWorkFromR2(activeId);
-        }
-        const remainingComics = await getUnfinishedComics();
-        setUnfinishedComics(remainingComics);
-      } else {
-        await deleteUnfinishedStory(activeId);
-        if (finalWorkId !== activeId) {
-          await deleteUnfinishedStory(finalWorkId);
-          await deletePublishedWorkFromR2(activeId);
-        }
-        const remainingStories = await getUnfinishedStories();
-        setUnfinishedStories(remainingStories);
+    // =========================================================================
+    // REMOVE PREVIOUS UNFINISHED WORKS FROM CREATE LANDING PAGE & DELETE CACHE LOCALLY
+    // =========================================================================
+    if (createMode === "comic") {
+      isPublishedComicRef.current = true;
+      await deleteUnfinishedComic(activeId);
+      if (currentComicId && currentComicId !== activeId) {
+        await deleteUnfinishedComic(currentComicId);
       }
-    } catch (_) {}
+      if (itemToSave.id && itemToSave.id !== activeId) {
+        await deleteUnfinishedComic(itemToSave.id);
+      }
+      if (title && title.trim()) {
+        await removeUnfinishedComicDraft(title);
+      }
+      const remainingComics = await getUnfinishedComics();
+      setUnfinishedComics(remainingComics);
+    } else if (createMode === "document") {
+      isPublishedStoryRef.current = true;
+      await deleteUnfinishedStory(activeId);
+      if (currentStoryId && currentStoryId !== activeId) {
+        await deleteUnfinishedStory(currentStoryId);
+      }
+      if (itemToSave.id && itemToSave.id !== activeId) {
+        await deleteUnfinishedStory(itemToSave.id);
+      }
+      if (title && title.trim()) {
+        await removeUnfinishedStoryDraft(title);
+      }
+      const remainingStories = await getUnfinishedStories();
+      setUnfinishedStories(remainingStories);
+    }
+
+    sessionStorage.removeItem("ebookcc_open_workspace_id");
+    sessionStorage.removeItem("ebookcc_open_workspace_type");
 
     window.dispatchEvent(new Event("ebookcc_published"));
     window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("ebookcc_history_updated"));
 
     toast.dismiss(toastId);
-    toast.success(`Published "${cleanTitle}" successfully to cloud storage & bookshelf!`);
+    toast.success(`Published "${title}" successfully to cloud storage & bookshelf!`);
   };
 
   const handleExport = async (format: string) => {
@@ -3801,20 +3790,7 @@ export const Create: React.FC<CreateProps> = ({
                 <Card 
                   key={comic.id}
                   onClick={() => {
-                    let matchedPubId = comic.id;
-                    try {
-                      const pubList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-                      const matched = pubList.find((p: any) => 
-                        p && (
-                          String(p.id) === String(comic.id) ||
-                          (checkIsAuthor(p, user) && p.type === "comic" && p.title && p.title.trim().toLowerCase() === comic.title.trim().toLowerCase())
-                        )
-                      );
-                      if (matched && matched.id) {
-                        matchedPubId = matched.id;
-                      }
-                    } catch (_) {}
-                    setCurrentComicId(matchedPubId);
+                    setCurrentComicId(comic.id);
                     setComicTitle(comic.title);
                     setComicPagesState(comic.pages);
                     setActivePageIndex(comic.activePageIndex || 0);
@@ -3925,20 +3901,7 @@ export const Create: React.FC<CreateProps> = ({
                 <Card 
                   key={story.id}
                   onClick={() => {
-                    let matchedPubId = story.id;
-                    try {
-                      const pubList = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-                      const matched = pubList.find((p: any) => 
-                        p && (
-                          String(p.id) === String(story.id) ||
-                          (checkIsAuthor(p, user) && p.type === "novel" && p.title && p.title.trim().toLowerCase() === story.title.trim().toLowerCase())
-                        )
-                      );
-                      if (matched && matched.id) {
-                        matchedPubId = matched.id;
-                      }
-                    } catch (_) {}
-                    setCurrentStoryId(matchedPubId);
+                    setCurrentStoryId(story.id);
                     setStoryTitle(story.title);
                     setLoadedHtmlContent(story.htmlContent);
                     setCreateMode("document");
@@ -4094,7 +4057,10 @@ export const Create: React.FC<CreateProps> = ({
               ) : (
                 <input
                   value={storyTitle}
-                  onChange={(e) => setStoryTitle(e.target.value)}
+                  onChange={(e) => {
+                    setStoryTitle(e.target.value);
+                    isPublishedStoryRef.current = false;
+                  }}
                   className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[180px] sm:max-w-[300px]"
                   placeholder={t("storyTitlePlaceholder")}
                 />
@@ -4605,7 +4571,10 @@ export const Create: React.FC<CreateProps> = ({
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none flex items-center justify-center max-w-[calc(100%-160px)]">
             <input
               value={comicTitle}
-              onChange={(e) => setComicTitle(e.target.value)}
+              onChange={(e) => {
+                setComicTitle(e.target.value);
+                isPublishedComicRef.current = false;
+              }}
               className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[140px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[340px] truncate pointer-events-auto"
               placeholder={t("comicTitlePlaceholder")}
             />

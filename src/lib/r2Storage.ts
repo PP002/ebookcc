@@ -430,13 +430,7 @@ export async function publishWorkToR2(
     const localJson = localStorage.getItem("ebookcc_published_items");
     if (localJson) {
       const list = JSON.parse(localJson);
-      const targetTitle = (item.title || "").trim().toLowerCase();
-      prevItem = list.find((w: any) => 
-        w && (
-          String(w.id) === String(item.id) ||
-          (w.type === item.type && w.title && w.title.trim().toLowerCase() === targetTitle)
-        )
-      );
+      prevItem = list.find((w: any) => w && String(w.id) === String(item.id));
     }
   } catch (_) {}
 
@@ -637,19 +631,7 @@ export async function publishWorkToR2(
   try {
     const localJson = localStorage.getItem("ebookcc_published_items") || "[]";
     const localItems = JSON.parse(localJson);
-    const authorKey = cleanedItem.authorId || cleanedItem.authorEmail || cleanedItem.author || "";
-    const cleanTitle = (cleanedItem.title || "").trim().toLowerCase();
-
-    const filtered = localItems.filter((w: any) => {
-      if (!w) return false;
-      if (String(w.id) === String(cleanedItem.id)) return false;
-      const wAuthorKey = w.authorId || w.authorEmail || w.author || "";
-      const wTitle = (w.title || "").trim().toLowerCase();
-      if (w.type === cleanedItem.type && wAuthorKey === authorKey && wTitle === cleanTitle) {
-        return false;
-      }
-      return true;
-    });
+    const filtered = localItems.filter((w: any) => w && String(w.id) !== String(cleanedItem.id));
     filtered.unshift(cleanedItem);
     localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
   } catch (_) {}

@@ -306,6 +306,17 @@ export async function deleteUnfinishedComic(id: string): Promise<void> {
   });
 }
 
+export async function removeUnfinishedComicDraft(idOrTitle: string): Promise<void> {
+  if (!idOrTitle) return;
+  const target = idOrTitle.trim().toLowerCase();
+  const list = await getUnfinishedComics();
+  for (const item of list) {
+    if (item.id === idOrTitle || (item.title && item.title.trim().toLowerCase() === target)) {
+      await deleteUnfinishedComic(item.id);
+    }
+  }
+}
+
 
 /* ==========================================================================
    STORIES CACHE
@@ -339,6 +350,17 @@ export async function deleteUnfinishedStory(id: string): Promise<void> {
   await executeTransaction("stories", "readwrite", (store) => {
     return store.delete(id);
   });
+}
+
+export async function removeUnfinishedStoryDraft(idOrTitle: string): Promise<void> {
+  if (!idOrTitle) return;
+  const target = idOrTitle.trim().toLowerCase();
+  const list = await getUnfinishedStories();
+  for (const item of list) {
+    if (item.id === idOrTitle || (item.title && item.title.trim().toLowerCase() === target)) {
+      await deleteUnfinishedStory(item.id);
+    }
+  }
 }
 
 

@@ -326,12 +326,10 @@ export function Bookshelf({
 
   // Load books from localStorage & Cloudflare R2 media storage
   const loadBooks = async () => {
-    let localBooks: PublishedItem[] = [];
     try {
       const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
       const userPublished = JSON.parse(userPublishedJson);
       if (Array.isArray(userPublished)) {
-        localBooks = userPublished;
         setBooks(userPublished);
       }
     } catch (e) {
@@ -341,46 +339,10 @@ export function Bookshelf({
     try {
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
+        // Sync directly with authoritative R2 media storage.
+        // Removes any local book that no longer exists in R2 storage!
         const r2Works = res.works;
-        
-        // Merge map keyed by ID
-        const mergedMap = new Map<string, any>();
-
-        // 1. Populate from R2 works
-        r2Works.forEach((work: any) => {
-          if (work && work.id) {
-            mergedMap.set(String(work.id), work);
-          }
-        });
-
-        // 2. Merge local items: if local is newer or has full content, preserve local
-        localBooks.forEach((localWork: any) => {
-          if (localWork && localWork.id) {
-            const existing = mergedMap.get(String(localWork.id));
-            if (!existing || (localWork.timestamp || 0) >= (existing.timestamp || 0)) {
-              mergedMap.set(String(localWork.id), localWork);
-            }
-          }
-        });
-
-        // 3. Deduplicate by author + title + type (keep the newest version)
-        const dedupedMap = new Map<string, any>();
-        Array.from(mergedMap.values()).forEach((item: any) => {
-          const authorKey = item.authorId || item.authorEmail || item.author || "anon";
-          const titleKey = (item.title || "").trim().toLowerCase();
-          const comboKey = `${item.type || 'work'}_${authorKey}_${titleKey}`;
-
-          if (dedupedMap.has(comboKey)) {
-            const existing = dedupedMap.get(comboKey);
-            if ((item.timestamp || 0) >= (existing.timestamp || 0)) {
-              dedupedMap.set(comboKey, item);
-            }
-          } else {
-            dedupedMap.set(comboKey, item);
-          }
-        });
-
-        const sorted = Array.from(dedupedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const sorted = [...r2Works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
         setBooks(sorted);
       }

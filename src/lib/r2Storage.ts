@@ -735,43 +735,7 @@ export async function fetchPublishedWorksFromR2(
     console.warn("Failed fetching published works from R2 API:", err);
   }
 
-  // 2. Direct S3 list from Cloudflare R2 if credentials configured
-  const { accessKey, secretKey, bucket, endpoint } = getR2ResolvedCredentials(config);
-  if (accessKey && secretKey && endpoint) {
-    try {
-      const aws = new AwsClient({
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
-        service: "s3",
-        region: "auto"
-      });
-      const listUrl = new URL(`/${bucket}?prefix=published_works/`, endpoint);
-      const signedListReq = await aws.sign(listUrl, { method: "GET" });
-      const listRes = await fetch(signedListReq);
-      if (listRes.ok) {
-        const xmlText = await listRes.text();
-        const keyMatches = [...xmlText.matchAll(/<Key>(published_works\/[^<]+\.json)<\/Key>/g)];
-        await Promise.all(
-          keyMatches.map(async (match) => {
-            const key = match[1];
-            try {
-              const getUrl = new URL(`/${bucket}/${key}`, endpoint);
-              const signedGetReq = await aws.sign(getUrl, { method: "GET" });
-              const getRes = await fetch(signedGetReq);
-              if (getRes.ok) {
-                const item = await getRes.json();
-                mergeItem(item);
-              }
-            } catch (_) {}
-          })
-        );
-      }
-    } catch (directS3Err) {
-      console.debug("Direct S3 list notice:", directS3Err);
-    }
-  }
-
-  // 3. Query Supabase database published_works table if connected
+  // 2. Query Supabase database published_works table if connected
   const supabase = getActiveSupabaseClient();
   if (supabase) {
     try {

@@ -3288,8 +3288,13 @@ export const Create: React.FC<CreateProps> = ({
 
     const itemToSave = r2Result.item || newItem;
 
-    if (createMode === "comic" && Array.isArray(itemToSave.pages)) {
-      setComicPagesState(itemToSave.pages);
+    if (createMode === "comic") {
+      setCurrentComicId(itemToSave.id);
+      if (Array.isArray(itemToSave.pages)) {
+        setComicPagesState(itemToSave.pages);
+      }
+    } else if (createMode === "document") {
+      setCurrentStoryId(itemToSave.id);
     }
 
     let publishedItems: any[] = [];

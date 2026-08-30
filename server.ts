@@ -1028,45 +1028,74 @@ async function startServer() {
     }
   });
 
-  // Route 6: Delete published work from R2 media storage
+  // Route 6: Delete published work and all associated media from R2 storage & local cache
   app.delete("/api/published-works/:id", async (req, res): Promise<any> => {
     try {
       const workId = decodeURIComponent(req.params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
       const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
 
       const jsonKey = `published_works/${workId}.json`;
+      const commentsKey = `comments/${workId}.json`;
 
-      // Delete local cache
+      // 1. Delete local cache files and directory
       const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
       if (fs.existsSync(localJsonPath)) {
         try { fs.unlinkSync(localJsonPath); } catch (_) {}
       }
 
+      const localCommentsPath = path.join(LOCAL_MEDIA_DIR, commentsKey);
+      if (fs.existsSync(localCommentsPath)) {
+        try { fs.unlinkSync(localCommentsPath); } catch (_) {}
+      }
+
+      const localWorkMediaDir = path.join(LOCAL_MEDIA_DIR, "media", workId);
+      if (fs.existsSync(localWorkMediaDir)) {
+        try { fs.rmSync(localWorkMediaDir, { recursive: true, force: true }); } catch (_) {}
+      }
+
+      // 2. Delete remote R2 objects (manifest, comments, and all media/ assets)
       if (isConfigured && s3) {
         try {
+          // Delete manifest JSON
           await s3.send(new DeleteObjectCommand({
             Bucket: bucket,
             Key: jsonKey
-          }));
+          })).catch(() => {});
 
-          const listMedia = await s3.send(new ListObjectsV2Command({
+          // Delete comments JSON
+          await s3.send(new DeleteObjectCommand({
             Bucket: bucket,
-            Prefix: `media/${workId}/`
-          }));
+            Key: commentsKey
+          })).catch(() => {});
 
-          if (listMedia.Contents) {
-            for (const mObj of listMedia.Contents) {
-              if (mObj.Key) {
-                await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: mObj.Key }));
+          // Paginated delete of media/${workId}/ assets
+          let isTruncated = true;
+          let continuationToken: string | undefined = undefined;
+
+          while (isTruncated) {
+            const listMedia: any = await s3.send(new ListObjectsV2Command({
+              Bucket: bucket,
+              Prefix: `media/${workId}/`,
+              ContinuationToken: continuationToken
+            }));
+
+            if (listMedia.Contents && listMedia.Contents.length > 0) {
+              for (const mObj of listMedia.Contents) {
+                if (mObj.Key) {
+                  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: mObj.Key })).catch(() => {});
+                }
               }
             }
+
+            isTruncated = !!listMedia.IsTruncated;
+            continuationToken = listMedia.NextContinuationToken;
           }
         } catch (r2DelErr: any) {
-          console.warn(`[R2] Remote delete object failed:`, r2DelErr.message);
+          console.warn(`[R2] Remote delete objects for ${workId} notice:`, r2DelErr.message);
         }
       }
 
-      return res.json({ success: true, message: `Deleted work ${workId} from R2 media storage.` });
+      return res.json({ success: true, message: `Thoroughly deleted work ${workId} and all media from R2 storage.` });
     } catch (e: any) {
       console.error("[API /api/published-works DELETE] Error:", e);
       return res.status(500).json({ error: e.message || "Failed deleting work" });

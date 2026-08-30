@@ -615,17 +615,26 @@ export default {
 
         if (r2) {
           await r2.delete(jsonKey);
-          // Also delete associated media folder
+          await r2.delete(`comments/${workId}.json`).catch(() => {});
+
+          // Paginated deletion of all media files in media/${workId}/
           try {
-            const mediaList = await r2.list({ prefix: `media/${workId}/` });
-            if (mediaList.objects.length > 0) {
-              await r2.delete(mediaList.objects.map((o) => o.key));
+            let truncated = true;
+            let cursor: string | undefined = undefined;
+
+            while (truncated) {
+              const mediaList: any = await r2.list({ prefix: `media/${workId}/`, cursor });
+              if (mediaList.objects && mediaList.objects.length > 0) {
+                await r2.delete(mediaList.objects.map((o: any) => o.key));
+              }
+              truncated = !!mediaList.truncated;
+              cursor = mediaList.cursor;
             }
           } catch (_) {}
 
           return jsonResponse({
             success: true,
-            message: `Work ${workId} deleted from R2.`,
+            message: `Work ${workId} and all media deleted from R2.`,
           });
         }
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { 
   BookOpen, Play, ChevronLeft, ChevronRight, X, Clock, Eye, 
-  Sparkles, ExternalLink, ZoomIn, Info, User
+  Sparkles, ExternalLink, ZoomIn, Info, User, PenTool, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,6 +17,8 @@ interface PublishedItem {
   id: string;
   title: string;
   author: string;
+  authorId?: string;
+  authorEmail?: string;
   type: 'comic' | 'novel';
   cover: string;
   description: string;
@@ -31,14 +33,18 @@ function MetroBookTile({
   book,
   index,
   onOpen,
+  onEdit,
   onDelete,
-  isDefault
+  isDefault,
+  isAuthor
 }: {
   book: PublishedItem;
   index: number;
   onOpen: () => void;
+  onEdit?: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
-  isDefault: boolean;
+  isDefault?: boolean;
+  isAuthor?: boolean;
 }) {
   const [slideIndex, setSlideIndex] = useState(0);
 
@@ -295,16 +301,43 @@ function MetroBookTile({
       </div>
 
       {/* BOTTOM FOOTER METRO TILE TITLE & AUTHOR */}
-      <div className="relative z-10 px-3 py-2 bg-card/95 border-t border-border/80 backdrop-blur-xs">
+      <div className="relative z-10 px-2.5 py-2 bg-card/95 border-t border-border/80 backdrop-blur-xs flex flex-col gap-1.5">
         <h4 className="text-xs font-bold text-card-foreground truncate group-hover:text-primary transition-colors tracking-tight font-sans">
           {book.title}
         </h4>
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5 font-medium">
-          <span className="truncate flex items-center gap-1 max-w-[160px]">
-            <User className="w-3 h-3 text-muted-foreground shrink-0" />
-            {book.author}
-          </span>
-        </div>
+        
+        {isAuthor && onEdit ? (
+          <div className="flex items-center justify-between gap-1.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(e);
+              }}
+              className="flex-1 py-1 px-2 bg-primary text-primary-foreground hover:bg-primary/90 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 rounded-xs transition-colors cursor-pointer"
+              title="Edit in Creator Workspace"
+            >
+              <PenTool className="w-3 h-3" />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(e);
+              }}
+              className="p-1 bg-muted/60 border border-border hover:border-destructive/60 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xs text-[10px] transition-colors flex items-center justify-center cursor-pointer"
+              title="Delete from Bookshelf & Storage"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5 font-medium">
+            <span className="truncate flex items-center gap-1 max-w-[140px]">
+              <User className="w-3 h-3 text-muted-foreground shrink-0" />
+              {book.author}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -340,7 +373,6 @@ export function Bookshelf({
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
         // Sync directly with authoritative R2 media storage.
-        // Removes any local book that no longer exists in R2 storage!
         const r2Works = res.works;
         const sorted = [...r2Works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
@@ -362,7 +394,6 @@ export function Bookshelf({
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('ebookcc_published', handleSync);
       window.removeEventListener('focus', handleSync);
-      
     };
   }, []);
 
@@ -388,7 +419,7 @@ export function Bookshelf({
 
   const deletePublishedBook = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (confirm("Are you sure you want to remove this book from the public bookshelf?")) {
+    if (confirm("Are you sure you want to remove this book from the public bookshelf? All associated files in R2 cloud storage will also be deleted.")) {
       try {
         const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
         const userPublished = JSON.parse(userPublishedJson);
@@ -402,7 +433,7 @@ export function Bookshelf({
         window.dispatchEvent(new Event("storage"));
 
         await loadBooks();
-        toast.success("Book removed successfully from R2 media storage & bookshelf.");
+        toast.success("Book and all cloud assets removed successfully from R2 storage.");
       } catch (err) {
         toast.error("Failed to delete book.");
       }
@@ -421,6 +452,24 @@ export function Bookshelf({
   if (books.length === 0) {
     return null;
   }
+
+  // Helper to extract safe page array
+  const selectedComicPages = selectedBook
+    ? (Array.isArray(selectedBook.pages)
+        ? selectedBook.pages
+        : typeof selectedBook.pages === 'string'
+        ? (() => { try { return JSON.parse(selectedBook.pages); } catch (_) { return []; } })()
+        : [])
+    : [];
+
+  const isSelectedAuthor = selectedBook && (
+    !selectedBook.id.startsWith("default-") && (
+      !selectedBook.authorId || 
+      (user && user.uid === selectedBook.authorId) || 
+      (user && user.email === selectedBook.authorEmail) ||
+      (user && user.name === selectedBook.author)
+    )
+  );
 
   return (
     <div className="w-full py-8 border-t border-border/40 max-w-full" id="bookshelf-section">
@@ -466,16 +515,30 @@ export function Bookshelf({
             ref={shelfRef}
             className="flex gap-6 overflow-x-auto pb-6 scroll-smooth select-none px-1 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           >
-            {books.map((book, idx) => (
-              <MetroBookTile
-                key={book.id}
-                book={book}
-                index={idx}
-                onOpen={() => handleOpenBook(book)}
-                onDelete={(e) => deletePublishedBook(e, book.id)}
-                isDefault={book.id.startsWith("default-")}
-              />
-            ))}
+            {books.map((book, idx) => {
+              const isAuthor = !book.id.startsWith("default-") && (
+                !book.authorId || 
+                (user && user.uid === book.authorId) || 
+                (user && user.email === book.authorEmail) ||
+                (user && user.name === book.author)
+              );
+
+              return (
+                <MetroBookTile
+                  key={book.id}
+                  book={book}
+                  index={idx}
+                  onOpen={() => handleOpenBook(book)}
+                  onEdit={onOpenInWorkspace ? (e) => {
+                    e.stopPropagation();
+                    onOpenInWorkspace(book.type, book.id);
+                  } : undefined}
+                  onDelete={(e) => deletePublishedBook(e, book.id)}
+                  isDefault={book.id.startsWith("default-")}
+                  isAuthor={isAuthor}
+                />
+              );
+            })}
           </div>
         </div>
       </div>
@@ -533,7 +596,7 @@ export function Bookshelf({
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="h-8 text-xs font-semibold gap-1.5"
+                      className="h-8 text-xs font-semibold gap-1.5 bg-primary/10 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
                       onClick={() => {
                         const type = selectedBook.type;
                         const id = selectedBook.id;
@@ -541,8 +604,25 @@ export function Bookshelf({
                         onOpenInWorkspace(type, id);
                       }}
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Workspace</span>
+                      <PenTool className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Edit in Workspace</span>
+                    </Button>
+                  )}
+
+                  {/* Delete button in dialog if author */}
+                  {isSelectedAuthor && (
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10" 
+                      title="Delete from Bookshelf & Storage"
+                      onClick={(e) => {
+                        const id = selectedBook.id;
+                        setSelectedBook(null);
+                        deletePublishedBook(e, id);
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
 
@@ -569,14 +649,14 @@ export function Bookshelf({
                 ) : (
                   // COMIC SLIDE-BY-SLIDE VIEW
                   <div className="flex flex-col items-center justify-center space-y-4">
-                    {selectedBook.pages && selectedBook.pages.length > 0 ? (
+                    {selectedComicPages && selectedComicPages.length > 0 ? (
                       <div className="relative max-w-lg w-full h-[65vh] flex items-center justify-center">
                         <ComicPageRenderer 
-                          page={selectedBook.pages[activeComicPage]} 
+                          page={selectedComicPages[activeComicPage]} 
                           className="h-full max-h-full max-w-full"
                         />
                         <div className="absolute top-2 right-2 px-2 py-1 bg-black/75 text-white text-[10px] font-bold font-mono rounded z-30 pointer-events-none">
-                          Page {activeComicPage + 1} of {selectedBook.pages.length}
+                          Page {activeComicPage + 1} of {selectedComicPages.length}
                         </div>
                       </div>
                     ) : (
@@ -587,7 +667,7 @@ export function Bookshelf({
                     )}
 
                     {/* Pagination control footer for Comic */}
-                    {selectedBook.pages && selectedBook.pages.length > 0 && (
+                    {selectedComicPages && selectedComicPages.length > 0 && (
                       <div className="flex items-center gap-4 pt-2">
                         <Button
                           variant="outline"
@@ -600,13 +680,13 @@ export function Bookshelf({
                           Previous
                         </Button>
                         <span className="text-xs font-bold font-mono">
-                          {activeComicPage + 1} / {selectedBook.pages.length}
+                          {activeComicPage + 1} / {selectedComicPages.length}
                         </span>
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={activeComicPage === selectedBook.pages.length - 1}
-                          onClick={() => setActiveComicPage(prev => Math.min(selectedBook.pages!.length - 1, prev + 1))}
+                          disabled={activeComicPage === selectedComicPages.length - 1}
+                          onClick={() => setActiveComicPage(prev => Math.min(selectedComicPages.length - 1, prev + 1))}
                           className="h-8 px-3"
                         >
                           Next

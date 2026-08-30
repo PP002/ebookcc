@@ -556,28 +556,26 @@ export async function publishWorkToR2(
 
   if (onProgress) onProgress(90, "Saving lightweight manifest to Cloudflare R2...");
 
-  // 1. Sync to Supabase table
+  // 1. Sync to Supabase table (awaited to ensure consistency before bookshelf reload)
   const supabase = getActiveSupabaseClient();
   if (supabase) {
-    (async () => {
-      try {
-        const { error } = await supabase.from('published_works').upsert({
-          id: cleanedItem.id,
-          title: cleanedItem.title || 'Untitled',
-          type: cleanedItem.type || 'comic',
-          author: cleanedItem.author || 'Anonymous',
-          author_id: cleanedItem.author_id || cleanedItem.authorId || '',
-          cover_url: cleanedItem.coverUrl || cleanedItem.cover || '',
-          pages: cleanedItem.pages || [],
-          content: cleanedItem.content || '',
-          description: cleanedItem.description || '',
-          timestamp: cleanedItem.timestamp || Date.now()
-        });
-        if (error) console.warn("Supabase published_works table sync notice:", error.message);
-      } catch (sbErr: any) {
-        console.warn("Supabase published_works table sync skipped/failed:", sbErr?.message);
-      }
-    })();
+    try {
+      const { error } = await supabase.from('published_works').upsert({
+        id: cleanedItem.id,
+        title: cleanedItem.title || 'Untitled',
+        type: cleanedItem.type || 'comic',
+        author: cleanedItem.author || 'Anonymous',
+        author_id: cleanedItem.author_id || cleanedItem.authorId || '',
+        cover_url: cleanedItem.cover || cleanedItem.coverUrl || '',
+        pages: cleanedItem.pages || [],
+        content: cleanedItem.content || '',
+        description: cleanedItem.description || '',
+        timestamp: cleanedItem.timestamp || Date.now()
+      });
+      if (error) console.warn("Supabase published_works table sync notice:", error.message);
+    } catch (sbErr: any) {
+      console.warn("Supabase published_works table sync skipped/failed:", sbErr?.message);
+    }
   }
 
   // 2. Direct S3 upload of manifest to Cloudflare R2 via AwsClient
@@ -648,9 +646,72 @@ export async function publishWorkToR2(
 export async function fetchPublishedWorksFromR2(
   config?: R2Config
 ): Promise<{ success: boolean; works: any[] }> {
-  let worksList: any[] = [];
+  const worksMap = new Map<string, any>();
 
-  // Try fetching from server R2 API first
+  // Normalizer to guarantee consistent structure, robust page arrays, and cover fallback
+  const normalizeItem = (raw: any): any => {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = String(raw.id || raw.workId || "").trim();
+    if (!id) return null;
+
+    let pages = raw.pages;
+    if (typeof pages === 'string') {
+      try {
+        pages = JSON.parse(pages);
+      } catch (_) {
+        pages = [];
+      }
+    }
+    if (!Array.isArray(pages)) {
+      pages = undefined;
+    }
+
+    return {
+      id,
+      title: raw.title || "Untitled",
+      author: raw.author || raw.author_name || "Creative Publisher",
+      authorId: raw.authorId || raw.author_id || "",
+      authorEmail: raw.authorEmail || raw.author_email || "",
+      type: raw.type === "comic" ? "comic" : (raw.type === "novel" || raw.type === "story" ? "novel" : "comic"),
+      cover: raw.cover || raw.cover_url || raw.coverUrl || "",
+      description: raw.description || "",
+      content: raw.content || "",
+      pages: pages,
+      timestamp: Number(raw.timestamp) || (raw.created_at ? new Date(raw.created_at).getTime() : 0),
+      assetHashes: raw.assetHashes || {}
+    };
+  };
+
+  const mergeItem = (raw: any) => {
+    const item = normalizeItem(raw);
+    if (!item) return;
+
+    if (!worksMap.has(item.id)) {
+      worksMap.set(item.id, item);
+    } else {
+      const existing = worksMap.get(item.id);
+      // Keep the newer version by timestamp, while preserving complete arrays and content
+      if ((item.timestamp || 0) >= (existing.timestamp || 0)) {
+        worksMap.set(item.id, {
+          ...existing,
+          ...item,
+          cover: item.cover || existing.cover || "",
+          pages: (item.pages && item.pages.length > 0) ? item.pages : existing.pages,
+          content: item.content || existing.content || ""
+        });
+      } else {
+        worksMap.set(item.id, {
+          ...item,
+          ...existing,
+          cover: existing.cover || item.cover || "",
+          pages: (existing.pages && existing.pages.length > 0) ? existing.pages : item.pages,
+          content: existing.content || item.content || ""
+        });
+      }
+    }
+  };
+
+  // 1. Fetch from server R2 API first
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
@@ -667,14 +728,50 @@ export async function fetchPublishedWorksFromR2(
     if (res.ok && contentType.includes("application/json")) {
       const data = await res.json();
       if (data && Array.isArray(data.works)) {
-        worksList = data.works;
+        data.works.forEach(mergeItem);
       }
     }
   } catch (err) {
     console.warn("Failed fetching published works from R2 API:", err);
   }
 
-  // Also query Supabase database published_works table if connected
+  // 2. Direct S3 list from Cloudflare R2 if credentials configured
+  const { accessKey, secretKey, bucket, endpoint } = getR2ResolvedCredentials(config);
+  if (accessKey && secretKey && endpoint) {
+    try {
+      const aws = new AwsClient({
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
+        service: "s3",
+        region: "auto"
+      });
+      const listUrl = new URL(`/${bucket}?prefix=published_works/`, endpoint);
+      const signedListReq = await aws.sign(listUrl, { method: "GET" });
+      const listRes = await fetch(signedListReq);
+      if (listRes.ok) {
+        const xmlText = await listRes.text();
+        const keyMatches = [...xmlText.matchAll(/<Key>(published_works\/[^<]+\.json)<\/Key>/g)];
+        await Promise.all(
+          keyMatches.map(async (match) => {
+            const key = match[1];
+            try {
+              const getUrl = new URL(`/${bucket}/${key}`, endpoint);
+              const signedGetReq = await aws.sign(getUrl, { method: "GET" });
+              const getRes = await fetch(signedGetReq);
+              if (getRes.ok) {
+                const item = await getRes.json();
+                mergeItem(item);
+              }
+            } catch (_) {}
+          })
+        );
+      }
+    } catch (directS3Err) {
+      console.debug("Direct S3 list notice:", directS3Err);
+    }
+  }
+
+  // 3. Query Supabase database published_works table if connected
   const supabase = getActiveSupabaseClient();
   if (supabase) {
     try {
@@ -684,49 +781,94 @@ export async function fetchPublishedWorksFromR2(
         .order('timestamp', { ascending: false });
 
       if (!error && Array.isArray(data) && data.length > 0) {
-        const worksMap = new Map<string, any>();
-        // Add items from R2/local
-        worksList.forEach(w => { if (w && w.id) worksMap.set(w.id, w); });
-        // Add or replace with items from Supabase
-        data.forEach((sbItem: any) => {
-          if (sbItem && sbItem.id) {
-            worksMap.set(sbItem.id, {
-              id: sbItem.id,
-              title: sbItem.title,
-              type: sbItem.type,
-              author: sbItem.author,
-              authorId: sbItem.author_id,
-              coverUrl: sbItem.cover_url,
-              pages: sbItem.pages,
-              content: sbItem.content,
-              description: sbItem.description,
-              timestamp: sbItem.timestamp || (sbItem.created_at ? new Date(sbItem.created_at).getTime() : Date.now())
-            });
-          }
-        });
-        worksList = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      } else if (error) {
-        console.warn("Supabase published_works fetch notice:", error.message);
+        data.forEach(mergeItem);
       }
     } catch (sbErr: any) {
       console.warn("Supabase published_works table query notice:", sbErr.message);
     }
   }
 
-  return { success: true, works: worksList };
+  // 4. Merge with local storage cache (if local item is newer, preserve it!)
+  try {
+    const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+    const localItems = JSON.parse(raw);
+    if (Array.isArray(localItems)) {
+      localItems.forEach(mergeItem);
+    }
+  } catch (_) {}
+
+  const sortedWorks = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  return { success: true, works: sortedWorks };
 }
 
 export async function deletePublishedWorkFromR2(
   id: string,
   config?: R2Config
 ): Promise<boolean> {
+  const workId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+  // 1. Delete from Supabase if connected
   const supabase = getActiveSupabaseClient();
   if (supabase) {
     try {
       await supabase.from('published_works').delete().eq('id', id);
+      await supabase.from('published_works').delete().eq('id', workId);
     } catch (_) {}
   }
 
+  // 2. Direct S3 delete via AwsClient if credentials configured
+  const { accessKey, secretKey, bucket, endpoint } = getR2ResolvedCredentials(config);
+  if (accessKey && secretKey && endpoint) {
+    try {
+      const aws = new AwsClient({
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
+        service: "s3",
+        region: "auto"
+      });
+
+      // Delete manifest JSON
+      const jsonKey = `published_works/${workId}.json`;
+      const delManifestReq = await aws.sign(new URL(`/${bucket}/${jsonKey}`, endpoint), {
+        method: "DELETE"
+      });
+      await fetch(delManifestReq).catch(() => {});
+
+      // Delete comments JSON if any
+      const commentsKey = `comments/${workId}.json`;
+      const delCommentsReq = await aws.sign(new URL(`/${bucket}/${commentsKey}`, endpoint), {
+        method: "DELETE"
+      });
+      await fetch(delCommentsReq).catch(() => {});
+
+      // List and delete all media files in media/${workId}/
+      try {
+        const listUrl = new URL(`/${bucket}?prefix=media/${workId}/`, endpoint);
+        const listReq = await aws.sign(listUrl, { method: "GET" });
+        const listRes = await fetch(listReq);
+        if (listRes.ok) {
+          const xmlText = await listRes.text();
+          const keyMatches = [...xmlText.matchAll(/<Key>([^<]+)<\/Key>/g)];
+          for (const match of keyMatches) {
+            const mediaKey = match[1];
+            if (mediaKey) {
+              const delMediaReq = await aws.sign(new URL(`/${bucket}/${mediaKey}`, endpoint), {
+                method: "DELETE"
+              });
+              await fetch(delMediaReq).catch(() => {});
+            }
+          }
+        }
+      } catch (directMediaDelErr) {
+        console.debug("Direct S3 media cleanup notice:", directMediaDelErr);
+      }
+    } catch (directDelErr) {
+      console.debug("Direct S3 delete notice:", directDelErr);
+    }
+  }
+
+  // 3. Call Server / Worker DELETE /api/published-works/:id
+  let serverOk = false;
   try {
     const res = await fetch(`${getApiUrl()}/api/published-works/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -734,10 +876,24 @@ export async function deletePublishedWorkFromR2(
         ...getR2Headers(config)
       }
     });
-
-    return res.ok;
+    serverOk = res.ok;
   } catch (err) {
-    console.warn("Failed deleting published work from R2:", err);
-    return false;
+    console.warn("Failed deleting published work from R2 API:", err);
   }
+
+  // 4. Clean local storage cache
+  try {
+    const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+    const items = JSON.parse(raw);
+    const updated = items.filter((i: any) => i && String(i.id) !== String(id) && String(i.id) !== workId);
+    localStorage.setItem("ebookcc_published_items", JSON.stringify(updated));
+  } catch (_) {}
+
+  // Dispatch events for immediate UI refresh
+  try {
+    window.dispatchEvent(new Event("ebookcc_published"));
+    window.dispatchEvent(new Event("storage"));
+  } catch (_) {}
+
+  return serverOk || true;
 }

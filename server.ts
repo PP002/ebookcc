@@ -504,6 +504,7 @@ async function startServer() {
           accessKeyId,
           secretAccessKey,
         },
+        forcePathStyle: true,
       });
       return { s3, bucket, endpoint: cleanEndpoint, isConfigured: true };
     } catch (e) {

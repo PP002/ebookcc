@@ -1585,7 +1585,7 @@ export const Create: React.FC<CreateProps> = ({
       sessionStorage.removeItem("ebookcc_open_workspace_type");
 
       if (triggerType === "novel") {
-        getUnfinishedStories().then((stories) => {
+        getUnfinishedStories().then(async (stories) => {
           const match = stories.find(s => s.id === triggerId);
           if (match) {
             isPublishedStoryRef.current = false;
@@ -1596,8 +1596,15 @@ export const Create: React.FC<CreateProps> = ({
           } else {
             // Check published list
             try {
-              const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-              const found = pub.find((item: any) => item.id === triggerId);
+              let pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+              let found = pub.find((item: any) => item.id === triggerId);
+              if (!found) {
+                const r2Res = await fetchPublishedWorksFromR2();
+                if (r2Res.success && Array.isArray(r2Res.works)) {
+                  pub = r2Res.works;
+                  found = pub.find((item: any) => item.id === triggerId);
+                }
+              }
               if (found) {
                 isPublishedStoryRef.current = true;
                 setCurrentStoryId(found.id);
@@ -1611,7 +1618,7 @@ export const Create: React.FC<CreateProps> = ({
           }
         });
       } else if (triggerType === "comic") {
-        getUnfinishedComics().then((comics) => {
+        getUnfinishedComics().then(async (comics) => {
           const match = comics.find(c => c.id === triggerId);
           if (match) {
             isPublishedComicRef.current = false;
@@ -1623,15 +1630,28 @@ export const Create: React.FC<CreateProps> = ({
           } else {
             // Check published list
             try {
-              const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-              const found = pub.find((item: any) => item.id === triggerId);
-              if (found && found.pages) {
-                isPublishedComicRef.current = true;
-                setCurrentComicId(found.id);
-                setComicTitle(found.title);
-                setComicPagesState(found.pages);
-                setActivePageIndex(0);
-                setCreateMode("comic");
+              let pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+              let found = pub.find((item: any) => item.id === triggerId);
+              if (!found || !found.pages) {
+                const r2Res = await fetchPublishedWorksFromR2();
+                if (r2Res.success && Array.isArray(r2Res.works)) {
+                  pub = r2Res.works;
+                  found = pub.find((item: any) => item.id === triggerId);
+                }
+              }
+              if (found) {
+                let pages = found.pages;
+                if (typeof pages === 'string') {
+                  try { pages = JSON.parse(pages); } catch (_) { pages = []; }
+                }
+                if (Array.isArray(pages) && pages.length > 0) {
+                  isPublishedComicRef.current = true;
+                  setCurrentComicId(found.id);
+                  setComicTitle(found.title);
+                  setComicPagesState(pages);
+                  setActivePageIndex(0);
+                  setCreateMode("comic");
+                }
               }
             } catch (err) {
               console.error("Failed loading from published books", err);

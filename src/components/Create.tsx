@@ -4835,15 +4835,63 @@ export const Create: React.FC<CreateProps> = ({
                     className="w-5 h-5 rounded cursor-pointer border-0 p-0"
                     title={t("colorTooltip")}
                   />
+                  <div className="w-px h-4 bg-border mx-1" />
                   <input
-                    type="range"
-                    min="0.1" step="0.1"
-                    max="20"
-                    value={drawRadius}
-                    onChange={(e) => setDrawRadius(parseFloat(e.target.value))}
-                    className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    value={drawRadius === 0 ? "" : drawRadius}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val) && val > 0) {
+                        setDrawRadius(val);
+                      } else if (e.target.value === "") {
+                        setDrawRadius(0);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!drawRadius || drawRadius <= 0) {
+                        setDrawRadius(2);
+                      }
+                    }}
+                    className="w-10 h-6 text-xs text-center border border-border/60 rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono font-medium px-0.5"
                     title={t("brushSizeTooltip")}
+                    placeholder="px"
                   />
+                  <div className="flex items-center gap-0.5 ml-0.5">
+                    {[
+                      { size: 0.1, dotClass: "w-[3px] h-[3px]" },
+                      { size: 0.3, dotClass: "w-[5px] h-[5px]" },
+                      { size: 0.8, dotClass: "w-[7px] h-[7px]" },
+                      { size: 1.5, dotClass: "w-[9px] h-[9px]" },
+                      { size: 2, dotClass: "w-[12px] h-[12px]" },
+                      { size: 2.8, dotClass: "w-[15px] h-[15px]" },
+                    ].map(({ size, dotClass }) => {
+                      const isSelected = drawRadius === size;
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => setDrawRadius(size)}
+                          title={`${size}px`}
+                          className={cn(
+                            "w-6 h-6 rounded-full flex items-center justify-center transition-all",
+                            isSelected
+                              ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30"
+                              : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "rounded-full transition-transform",
+                              dotClass,
+                              isSelected ? "bg-primary scale-110" : "bg-current"
+                            )}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </>
             )}

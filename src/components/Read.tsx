@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -488,7 +488,30 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [selectedBook?.fileType]);
+  }, [selectedBook?.fileType, isFullscreen]);
+
+  // Lock page view aspect ratio: Height / Width = 4 / 3 (Width / Height = 3 / 4)
+  const PAGE_ASPECT_RATIO = 3 / 4;
+  const pageDimensions = useMemo(() => {
+    const containerW = containerSize.width || 0;
+    const containerH = containerSize.height || 0;
+    if (containerW <= 0 || containerH <= 0) {
+      return { width: 0, height: 0 };
+    }
+
+    if (containerW / containerH > PAGE_ASPECT_RATIO) {
+      // Height is limiting factor
+      const h = containerH;
+      const w = Math.round(h * PAGE_ASPECT_RATIO);
+      return { width: w, height: h };
+    } else {
+      // Width is limiting factor
+      const w = containerW;
+      const h = Math.round(w / PAGE_ASPECT_RATIO);
+      return { width: w, height: h };
+    }
+  }, [containerSize.width, containerSize.height]);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -503,17 +526,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [pageInputValue, setPageInputValue] = useState("");
 
   useEffect(() => {
-    if (selectedBook?.fileType === 'text' && textContentRef.current && containerSize.width > 0) {
+    const activeWidth = pageDimensions.width || containerSize.width;
+    if (selectedBook?.fileType === 'text' && textContentRef.current && activeWidth > 0) {
       const timer = setTimeout(() => {
         if (textContentRef.current) {
           const scrollWidth = textContentRef.current.scrollWidth;
-          const pages = Math.round(scrollWidth / containerSize.width);
+          const pages = Math.ceil(scrollWidth / activeWidth);
           setTextPages(Math.max(1, pages));
         }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [selectedBook, containerSize.width, containerSize.height]);
+  }, [selectedBook, pageDimensions.width, pageDimensions.height, fontSize, fontFamily, textAlign]);
 
   useEffect(() => {
     if (onActiveStateChange) {
@@ -1184,7 +1208,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             id={`thumb-${idx}`}
                             onClick={() => setCurrentPage(idx)}
                             className={cn(
-                              "relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center shadow-xs",
+                              "relative aspect-[3/4] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center shadow-xs",
                               currentPage === idx 
                                 ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
                                 : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
@@ -1221,7 +1245,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             id={`thumb-${idx}`}
                             onClick={() => setCurrentPage(idx)}
                             className={cn(
-                              "group relative aspect-[2/3] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center",
+                              "group relative aspect-[3/4] w-full rounded-none overflow-hidden cursor-pointer border transition-all bg-white flex items-center justify-center",
                               currentPage === idx 
                                 ? "border-primary shadow-sm ring-1 ring-primary outline outline-1 outline-primary outline-offset-2" 
                                 : "border-border/50 hover:border-foreground/60 opacity-85 hover:opacity-100 outline outline-1 outline-border/20"
@@ -1265,205 +1289,219 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
               onDoubleClick={toggleFullscreenSafe}
-              className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none"
+              className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center bg-background"
             >
-              {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) ? (
-                <div className="absolute inset-0 z-0">
-                  <ReactReader
-                    url={selectedBook.fileBuffer || (selectedBook.file as any)}
-                    location={location}
-                    locationChanged={(epubcition: string) => setLocation(epubcition)}
-                    showToc={false}
-                    styles={{
-                      ...ReactReaderStyle,
-                      container: {
-                        ...ReactReaderStyle.container,
-                        backgroundColor: 'transparent'
-                      },
-                      readerArea: { 
-                        ...ReactReaderStyle.readerArea,
-                        backgroundColor: 'transparent'
-                      },
-                      reader: {
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        bottom: 0,
-                        right: 0
-                      },
-                      titleArea: { display: 'none' },
-                      prev: { display: 'none' },
-                      next: { display: 'none' },
-                      arrow: { display: 'none' },
-                      tocAreaButton: { display: 'none' }
-                    }}
-                    epubOptions={{
-                      flow: "paginated",
-                      width: "100%",
-                      height: "100%",
-                    }}
-                    swipeable={true}
-                    getRendition={(rendition: any) => {
-                      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-                      rendition.themes.default({
-                        'html': {
-                          'background': 'transparent !important',
-                        },
-                        'body': { 
-                          'padding': '0 !important', 
-                          'margin': '0 !important',
-                          'background': 'transparent !important',
-                          'color': isDark ? '#f8fafc !important' : '#0f172a !important'
-                        },
-                        'p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote': {
-                          'color': isDark ? '#f8fafc !important' : '#0f172a !important'
-                        },
-                        'img': {
-                          'max-width': '100% !important',
-                          'height': 'auto !important'
-                        }
-                      });
-                      rendition.on('click', (e: any) => {
-                        const width = e.view ? e.view.innerWidth : window.innerWidth;
-                        if (e.clientX > width / 2) {
-                          rendition.next();
-                        } else {
-                          rendition.prev();
-                        }
-                      });
-                    }}
-                  />
-                </div>
-              ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
-                <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-0">
-                    <Document 
-                      file={selectedBook.file} 
-                      onLoadSuccess={({ numPages }) => {
-                        setPdfNumPages(numPages);
-                      }}
-                      className="flex flex-col items-center justify-center h-full w-full pointer-events-auto"
-                    >
-                      <Page 
-                        pageNumber={currentPage + 1} 
-                        renderTextLayer={true} 
-                        renderAnnotationLayer={true} 
-                        className="max-w-full max-h-full drop-shadow-2xl flex items-center justify-center"
-                        height={containerSize.height ? containerSize.height : undefined}
-                      />
-                    </Document>
-                  </div>
-                </>
-               ) : selectedBook.fileType === 'text' && selectedBook.pages && selectedBook.pages.length > 0 ? (
-                (() => {
-                  const padding = containerSize.width >= 768 ? 32 : 16;
-                  const totalPadding = padding * 2;
-                  const colWidth = Math.max(100, containerSize.width - totalPadding);
-                  const isHtml = selectedBook.title.toLowerCase().endsWith('.html') || selectedBook.title.toLowerCase().endsWith('.htm') || (selectedBook.pages[0] && /<[a-z][\s\S]*>/i.test(selectedBook.pages[0]));
-                  
-                  let displayContent = selectedBook.pages[0];
-                  if (isHtml) {
-                    const bodyMatch = displayContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-                    if (bodyMatch) displayContent = bodyMatch[1];
-                    displayContent = displayContent.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
-                    displayContent = displayContent.replace(/<link[^>]*>/gi, "");
-                  }
+              {/* Full-height click zones for previous / next page */}
+              <div 
+                className="absolute inset-y-0 left-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                onClick={handleLeftClick} 
+                onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
+                title={t("previousPage")} 
+              />
+              <div 
+                className="absolute inset-y-0 right-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                onClick={handleRightClick} 
+                onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
+                title={t("nextPage")} 
+              />
 
-                  return (
-                    <>
-                      <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
-                      <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
-                      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                         <div 
-                            className="w-full h-full pointer-events-auto bg-background text-foreground"
+              {/* Locked Page View Frame with exact 4:3 Height-to-Width Ratio */}
+              <div
+                className="relative flex items-center justify-center max-w-full max-h-full transition-all duration-200"
+                style={{
+                  width: pageDimensions.width > 0 ? `${pageDimensions.width}px` : 'auto',
+                  height: pageDimensions.height > 0 ? `${pageDimensions.height}px` : '100%',
+                  aspectRatio: '3 / 4',
+                }}
+              >
+                <div className="relative w-full h-full bg-white dark:bg-zinc-950 overflow-hidden shadow-2xl ring-1 ring-border/40 flex items-center justify-center">
+                  {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) ? (
+                    <div className="absolute inset-0 z-0 bg-background">
+                      <ReactReader
+                        url={selectedBook.fileBuffer || (selectedBook.file as any)}
+                        location={location}
+                        locationChanged={(epubcition: string) => setLocation(epubcition)}
+                        showToc={false}
+                        styles={{
+                          ...ReactReaderStyle,
+                          container: {
+                            ...ReactReaderStyle.container,
+                            backgroundColor: 'transparent'
+                          },
+                          readerArea: { 
+                            ...ReactReaderStyle.readerArea,
+                            backgroundColor: 'transparent'
+                          },
+                          reader: {
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            bottom: 0,
+                            right: 0
+                          },
+                          titleArea: { display: 'none' },
+                          prev: { display: 'none' },
+                          next: { display: 'none' },
+                          arrow: { display: 'none' },
+                          tocAreaButton: { display: 'none' }
+                        }}
+                        epubOptions={{
+                          flow: "paginated",
+                          width: "100%",
+                          height: "100%",
+                        }}
+                        swipeable={true}
+                        getRendition={(rendition: any) => {
+                          const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                          rendition.themes.default({
+                            'html': {
+                              'background': 'transparent !important',
+                            },
+                            'body': { 
+                              'padding': '16px !important', 
+                              'margin': '0 !important',
+                              'background': 'transparent !important',
+                              'color': isDark ? '#f8fafc !important' : '#0f172a !important'
+                            },
+                            'p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote': {
+                              'color': isDark ? '#f8fafc !important' : '#0f172a !important'
+                            },
+                            'img': {
+                              'max-width': '100% !important',
+                              'height': 'auto !important'
+                            }
+                          });
+                          rendition.on('click', (e: any) => {
+                            const width = e.view ? e.view.innerWidth : window.innerWidth;
+                            if (e.clientX > width / 2) {
+                              rendition.next();
+                            } else {
+                              rendition.prev();
+                            }
+                          });
+                        }}
+                      />
+                    </div>
+                  ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
+                    <div className="absolute inset-0 flex items-center justify-center p-0 bg-white">
+                      <Document 
+                        file={selectedBook.file} 
+                        onLoadSuccess={({ numPages }) => {
+                          setPdfNumPages(numPages);
+                        }}
+                        className="flex flex-col items-center justify-center h-full w-full pointer-events-auto"
+                      >
+                        <Page 
+                          pageNumber={currentPage + 1} 
+                          renderTextLayer={true} 
+                          renderAnnotationLayer={true} 
+                          className="w-full h-full flex items-center justify-center object-contain"
+                          width={pageDimensions.width > 0 ? pageDimensions.width : undefined}
+                          height={pageDimensions.height > 0 ? pageDimensions.height : undefined}
+                        />
+                      </Document>
+                    </div>
+                  ) : selectedBook.fileType === 'text' && selectedBook.pages && selectedBook.pages.length > 0 ? (
+                    (() => {
+                      const pageWidth = pageDimensions.width || containerSize.width || 600;
+                      const padding = pageWidth >= 500 ? 28 : 16;
+                      const totalPadding = padding * 2;
+                      const colWidth = Math.max(100, pageWidth - totalPadding);
+                      const isHtml = selectedBook.title.toLowerCase().endsWith('.html') || selectedBook.title.toLowerCase().endsWith('.htm') || (selectedBook.pages[0] && /<[a-z][\s\S]*>/i.test(selectedBook.pages[0]));
+                      
+                      let displayContent = selectedBook.pages[0];
+                      if (isHtml) {
+                        const bodyMatch = displayContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                        if (bodyMatch) displayContent = bodyMatch[1];
+                        displayContent = displayContent.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+                        displayContent = displayContent.replace(/<link[^>]*>/gi, "");
+                      }
+
+                      return (
+                        <div className="absolute inset-0 overflow-hidden bg-background text-foreground select-text">
+                          <div 
+                            className="w-full h-full"
                             style={{
-                               transform: `translateX(-${currentPage * containerSize.width}px)`,
-                               transition: 'transform 0.3s ease'
+                              transform: `translateX(-${currentPage * pageWidth}px)`,
+                              transition: 'transform 0.3s ease'
                             }}
-                         >
+                          >
                             <div 
-                               ref={textContentRef}
-                               className={cn(
-                                 
-                                 isHtml && "prose dark:prose-invert max-w-none",
-                                 "h-full leading-relaxed break-words [&_img]:max-w-full [&_img]:max-h-[calc(100vh-12rem)] [&_img]:object-contain [&_img]:break-inside-avoid [&_p>img]:break-inside-avoid [&_figure]:break-inside-avoid",
-                                 !isHtml && "whitespace-pre-wrap",
-                                 fontFamily,
-                                 textAlign
-                               )}
-                               style={{
-                                  fontSize: `${fontSize}px`,
-                                  padding: `${padding}px`,
-                                  columnWidth: `${colWidth}px`,
-                                  columnGap: `${totalPadding}px`,
-                               }}
+                              ref={textContentRef}
+                              className={cn(
+                                isHtml && "prose dark:prose-invert max-w-none",
+                                "h-full leading-relaxed break-words [&_img]:max-w-full [&_img]:max-h-[calc(100vh-12rem)] [&_img]:object-contain [&_img]:break-inside-avoid [&_p>img]:break-inside-avoid [&_figure]:break-inside-avoid",
+                                !isHtml && "whitespace-pre-wrap",
+                                fontFamily,
+                                textAlign
+                              )}
+                              style={{
+                                fontSize: `${fontSize}px`,
+                                padding: `${padding}px`,
+                                columnWidth: `${colWidth}px`,
+                                columnGap: `${totalPadding}px`,
+                                height: '100%'
+                              }}
                             >
-                               {isHtml ? (
-                                 <div dangerouslySetInnerHTML={{ __html: displayContent }} />
-                               ) : (
-                                 displayContent
-                               )}
+                              {isHtml ? (
+                                <div dangerouslySetInnerHTML={{ __html: displayContent }} />
+                              ) : (
+                                displayContent
+                              )}
                             </div>
-                         </div>
-                      </div>
-                    </>
-                  );
-                })()
-              ) : (
-                <>
-                  <div className="absolute inset-y-0 left-0 w-1/3 z-10 cursor-pointer" onClick={handleLeftClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("previousPage")} />
-                  <div className="absolute inset-y-0 right-0 w-1/3 z-10 cursor-pointer" onClick={handleRightClick} onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} title={t("nextPage")} />
-                  <div className="absolute inset-0 flex items-center justify-center transition-transform pointer-events-none p-0 bg-background">
-                    {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
-                      <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none p-0 sm:p-2">
-                        <div className="relative max-h-full max-w-full aspect-auto bg-white border border-zinc-900 rounded-md shadow-2xl overflow-hidden flex items-center justify-center p-1.5 sm:p-3">
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="relative w-full h-full flex items-center justify-center bg-white overflow-hidden">
+                      {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
+                        <div className="relative w-full h-full flex flex-col items-center justify-center p-2">
                           <img 
                             key={`${currentPage}-${currentPanelIndex}`} 
                             src={panelsCache[currentPage][currentPanelIndex] || undefined} 
                             alt={`Page ${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
-                            className="max-h-[80vh] max-w-full object-contain pointer-events-auto select-none bg-white transition-opacity duration-200" 
+                            className="w-full h-full object-contain pointer-events-auto select-none bg-white transition-opacity duration-200" 
                             referrerPolicy="no-referrer"
                           />
-                        </div>
-                        {panelsCache[currentPage].length > 1 && (
-                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-md text-foreground border border-border px-3 py-1 rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 pointer-events-none z-20">
-                            <SplitPanelsIcon className="w-3 h-3 text-primary" />
-                            <span>{currentPanelIndex + 1} / {panelsCache[currentPage].length}</span>
-                            <span className="text-muted-foreground">•</span>
-                            <span className="text-muted-foreground">{t("page")} {currentPage + 1} / {selectedBook.pages.length}</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : cropBorders && croppedCache[currentPage] ? (
-                       <img 
-                         src={croppedCache[currentPage] || undefined} 
-                         alt={`Page ${currentPage + 1}`} 
-                         className="max-h-full max-w-full object-contain pointer-events-auto select-none"
-                       />
-                    ) : selectedBook.fileType === "comic" || typeof selectedBook.pages[currentPage] === "object" ? (
-                       <ComicPageRenderer 
-                         page={selectedBook.pages[currentPage]} 
-                         className="h-full max-h-full max-w-full" 
-                       />
-                    ) : (
-                       <img 
-                         src={selectedBook.pages[currentPage] || undefined} 
-                         alt={`Page ${currentPage + 1}`} 
-                         className="max-h-full max-w-full object-contain pointer-events-auto select-none"
-                       />
-                    )}
-                    {(isProcessingPage && gridView && !panelsCache[currentPage]) && (
-                        <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none">
-                            <div className="bg-background/80 text-foreground px-4 py-2 rounded-full text-xs shadow border animate-pulse backdrop-blur flex items-center gap-2">
-                                <Sparkles className="w-3.5 h-3.5" /> {t("detectingLayout")}
+                          {panelsCache[currentPage].length > 1 && (
+                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-md text-foreground border border-border px-3 py-1 rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 pointer-events-none z-20">
+                              <SplitPanelsIcon className="w-3 h-3 text-primary" />
+                              <span>{currentPanelIndex + 1} / {panelsCache[currentPage].length}</span>
+                              <span className="text-muted-foreground">•</span>
+                              <span className="text-muted-foreground">{t("page")} {currentPage + 1} / {selectedBook.pages.length}</span>
                             </div>
+                          )}
                         </div>
-                    )}
-                  </div>
-                </>
-              )}
+                      ) : cropBorders && croppedCache[currentPage] ? (
+                         <img 
+                           src={croppedCache[currentPage] || undefined} 
+                           alt={`Page ${currentPage + 1}`} 
+                           className="w-full h-full object-contain pointer-events-auto select-none bg-white"
+                         />
+                      ) : selectedBook.fileType === "comic" || typeof selectedBook.pages[currentPage] === "object" ? (
+                         <ComicPageRenderer 
+                           page={selectedBook.pages[currentPage]} 
+                           className="w-full h-full" 
+                         />
+                      ) : (
+                         <img 
+                           src={selectedBook.pages[currentPage] || undefined} 
+                           alt={`Page ${currentPage + 1}`} 
+                           className="w-full h-full object-contain pointer-events-auto select-none bg-white"
+                         />
+                      )}
+                      {(isProcessingPage && gridView && !panelsCache[currentPage]) && (
+                          <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
+                              <div className="bg-background/80 text-foreground px-4 py-1.5 rounded-full text-xs shadow border animate-pulse backdrop-blur flex items-center gap-2">
+                                  <Sparkles className="w-3.5 h-3.5" /> {t("detectingLayout")}
+                              </div>
+                          </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </main>
         </div>

@@ -39,6 +39,7 @@ import {
   Play,
   Share2,
   UserPlus,
+  User,
   Lock,
 } from "lucide-react";
 import {
@@ -1178,122 +1179,132 @@ function CreateMetroTile({
   return (
     <div
       onClick={() => onEdit(book)}
-      className="flex-shrink-0 w-[180px] h-[240px] group relative flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden cursor-pointer select-none transition-all duration-300 hover:shadow-xl active:scale-95"
+      className="flex-shrink-0 w-[180px] group flex flex-col cursor-pointer select-none"
     >
-      {/* BACKGROUND & METRO LIVE TILE CONTENT */}
-      {book.type === 'comic' ? (
-        <div className="absolute inset-0 bg-white overflow-hidden flex items-center justify-center p-1">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={`comic-page-${slideIndex}`}
-              initial={currentDirection.initial}
-              animate={{ x: "0%", y: "0%", opacity: 1 }}
-              exit={currentDirection.exit}
-              transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-              className="w-full h-full flex flex-col items-center justify-center overflow-hidden bg-white"
-            >
-              {currentComicPage?.tree ? (
-                <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
-                  <ComicTreeNodeView node={currentComicPage.tree} />
-                </div>
-              ) : currentComicPage?.image ? (
-                <img
-                  src={currentComicPage.image || undefined}
-                  alt={book.title}
-                  className="w-full h-full object-contain bg-white"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-4 text-center border border-zinc-300">
-                  <Sparkles className="w-8 h-8 text-primary mb-2 animate-pulse" />
-                  <span className="text-xs font-bold text-foreground line-clamp-2">{book.title}</span>
-                </div>
-              )}
-            </motion.div>
-          </AnimatePresence>
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
-        </div>
-      ) : (
-        <div className="absolute inset-0 bg-slate-900 overflow-hidden">
-          {novelBgImage ? (
-            <>
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.img
-                  key={`novel-bg-${slideIndex}`}
-                  src={novelBgImage || undefined}
-                  alt={book.title}
-                  initial={currentDirection.initial}
-                  animate={{ x: "0%", y: "0%", opacity: 0.35 }}
-                  exit={currentDirection.exit}
-                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              </AnimatePresence>
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
-            </>
-          ) : (
-            <div className="w-full h-full bg-slate-900" />
-          )}
-        </div>
-      )}
-
-      {/* TOP HEADER BAR: METRO TYPE BADGE */}
-      <div className="relative z-10 p-2 flex items-center justify-between w-full">
-        <span
-          className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
-            book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
-          }`}
-        >
-          {book.type}
-        </span>
-      </div>
-
-      {/* MIDDLE DYNAMIC CONTENT AREA */}
-      <div className="relative z-10 px-3 py-1 flex-1 flex flex-col justify-center overflow-hidden">
-        {book.type === 'novel' ? (
-          <div className="relative w-full h-24 overflow-hidden flex items-center">
+      {/* BOOK PREVIEW CONTAINER */}
+      <div className="relative w-full h-[240px] flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden transition-all duration-300 group-hover:shadow-xl group-active:scale-95">
+        {/* BACKGROUND & METRO LIVE TILE CONTENT */}
+        {book.type === 'comic' ? (
+          <div className="absolute inset-0 bg-white overflow-hidden flex items-center justify-center p-1">
             <AnimatePresence mode="popLayout" initial={false}>
-              <motion.p
-                key={`novel-text-${slideIndex}`}
+              <motion.div
+                key={`comic-page-${slideIndex}`}
                 initial={currentDirection.initial}
                 animate={{ x: "0%", y: "0%", opacity: 1 }}
                 exit={currentDirection.exit}
                 transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
+                className="w-full h-full flex flex-col items-center justify-center overflow-hidden bg-white"
               >
-                {currentNovelSnippet}
-              </motion.p>
+                {currentComicPage?.tree ? (
+                  <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
+                    <ComicTreeNodeView node={currentComicPage.tree} />
+                  </div>
+                ) : currentComicPage?.image ? (
+                  <img
+                    src={currentComicPage.image || undefined}
+                    alt={book.title}
+                    className="w-full h-full object-contain bg-white"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-4 text-center border border-zinc-300">
+                    <Sparkles className="w-8 h-8 text-primary mb-2 animate-pulse" />
+                    <span className="text-xs font-bold text-foreground line-clamp-2">{book.title}</span>
+                  </div>
+                )}
+              </motion.div>
             </AnimatePresence>
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
           </div>
         ) : (
-          currentComicPage?.speechSnippet && (
-            <div className="relative w-full overflow-hidden">
+          <div className="absolute inset-0 bg-slate-900 overflow-hidden">
+            {novelBgImage ? (
+              <>
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.img
+                    key={`novel-bg-${slideIndex}`}
+                    src={novelBgImage || undefined}
+                    alt={book.title}
+                    initial={currentDirection.initial}
+                    animate={{ x: "0%", y: "0%", opacity: 0.35 }}
+                    exit={currentDirection.exit}
+                    transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </AnimatePresence>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
+              </>
+            ) : (
+              <div className="w-full h-full bg-slate-900" />
+            )}
+          </div>
+        )}
+
+        {/* TOP HEADER BAR: METRO TYPE BADGE */}
+        <div className="relative z-10 p-2 flex items-center justify-between w-full">
+          <span
+            className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
+              book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
+            }`}
+          >
+            {book.type}
+          </span>
+        </div>
+
+        {/* MIDDLE DYNAMIC CONTENT AREA */}
+        <div className="relative z-10 px-3 py-1 flex-1 flex flex-col justify-end pb-2 overflow-hidden">
+          {book.type === 'novel' ? (
+            <div className="relative w-full h-24 overflow-hidden flex items-center">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.p
-                  key={`comic-bubble-${slideIndex}`}
+                  key={`novel-text-${slideIndex}`}
                   initial={currentDirection.initial}
                   animate={{ x: "0%", y: "0%", opacity: 1 }}
                   exit={currentDirection.exit}
                   transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                  className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                  className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
                 >
-                  💬 "{currentComicPage.speechSnippet}"
+                  {currentNovelSnippet}
                 </motion.p>
               </AnimatePresence>
             </div>
-          )
-        )}
+          ) : (
+            currentComicPage?.speechSnippet && (
+              <div className="relative w-full overflow-hidden">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.p
+                    key={`comic-bubble-${slideIndex}`}
+                    initial={currentDirection.initial}
+                    animate={{ x: "0%", y: "0%", opacity: 1 }}
+                    exit={currentDirection.exit}
+                    transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                    className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                  >
+                    💬 "{currentComicPage.speechSnippet}"
+                  </motion.p>
+                </AnimatePresence>
+              </div>
+            )
+          )}
+        </div>
       </div>
 
-      {/* BOTTOM FOOTER: TITLE + QUICK EDIT & DELETE BUTTONS */}
-      <div className="relative z-10 px-2.5 py-2 bg-slate-950/95 border-t border-slate-800/80 backdrop-blur-sm flex flex-col gap-1.5">
-        <h4 className="text-xs font-black text-white truncate tracking-tight font-sans">
+      {/* TITLE & AUTHOR (BELOW THE BOOK PREVIEW) */}
+      <div className="pt-2 px-0.5 flex flex-col gap-1 w-full">
+        <h4 className="text-xs font-black text-white truncate tracking-tight font-sans" title={book.title}>
           {book.title || "Untitled Work"}
         </h4>
         
+        <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
+          <span className="truncate flex items-center gap-1 max-w-[140px]" title={book.author}>
+            <User className="w-3 h-3 text-slate-400 shrink-0" />
+            {book.author || "Author"}
+          </span>
+        </div>
+
         {isAuthor ? (
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mt-0.5">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1313,12 +1324,9 @@ function CreateMetroTile({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
-            <span className="truncate flex items-center gap-1 max-w-[110px]">
-              <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
-              {book.author || "Author"}
-            </span>
-            <span className="text-[9px] font-mono bg-slate-900 border border-slate-800 px-1 py-0.5 text-slate-500">
+          <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+            <span className="flex items-center gap-0.5 text-amber-400/80">
+              <Lock className="w-2.5 h-2.5 shrink-0" />
               {t("readOnly")}
             </span>
           </div>
@@ -3293,16 +3301,16 @@ export const Create: React.FC<CreateProps> = ({
       timestamp: Date.now()
     };
 
-    const toastId = toast.loading("Rapidly preparing comic book assets...");
+    const toastId = toast.loading("Publishing...");
 
     // Publish to cloud media storage with real-time progress & parallel uploads
     const r2Result = await publishWorkToR2(newItem, undefined, (progress, stage) => {
-      toast.loading(`[${progress}%] ${stage}`, { id: toastId });
+      toast.loading("Publishing...", { id: toastId });
     });
 
     if (!r2Result.success) {
       toast.dismiss(toastId);
-      toast.error(`R2 Cloud Publish Failed: ${r2Result.message || "Could not publish work to Cloudflare R2"}`);
+      toast.error(`Publish failed: ${r2Result.message || "Could not publish work"}`);
       return;
     }
 
@@ -3390,7 +3398,7 @@ export const Create: React.FC<CreateProps> = ({
     window.dispatchEvent(new Event("ebookcc_history_updated"));
 
     toast.dismiss(toastId);
-    toast.success(`Published "${title}" successfully to cloud storage & bookshelf!`);
+    toast.success("Published successfully!");
   };
 
   const handleExport = async (format: string) => {

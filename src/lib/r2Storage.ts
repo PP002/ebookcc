@@ -418,7 +418,7 @@ export async function publishWorkToR2(
   config?: R2Config,
   onProgress?: (progress: number, stage: string) => void
 ): Promise<{ success: boolean; item: any; message: string }> {
-  if (onProgress) onProgress(5, "Preparing comic book assets for rapid publish...");
+  if (onProgress) onProgress(5, "Publishing...");
 
   const workId = String(item.id || Date.now()).replace(/[^a-zA-Z0-9_-]/g, "_");
   const cleanedItem = JSON.parse(JSON.stringify(item));
@@ -531,10 +531,7 @@ export async function publishWorkToR2(
   // Execute Parallel Compression & Batch Uploads
   if (uploadTasks.length > 0) {
     if (onProgress) {
-      const msg = skippedCount > 0
-        ? `[Delta Sync] ${skippedCount} unchanged assets skipped, uploading ${uploadTasks.length} modified pages...`
-        : `Compressing & uploading ${uploadTasks.length} comic assets...`;
-      onProgress(15, msg);
+      onProgress(15, "Publishing...");
     }
     const startTime = Date.now();
     try {
@@ -549,12 +546,12 @@ export async function publishWorkToR2(
       };
     }
   } else if (skippedCount > 0) {
-    if (onProgress) onProgress(80, `[Delta Sync] All ${skippedCount} assets up-to-date! Skipping re-upload.`);
+    if (onProgress) onProgress(80, "Publishing...");
   }
 
   cleanedItem.assetHashes = { ...existingAssetHashes, ...newAssetHashes };
 
-  if (onProgress) onProgress(90, "Saving lightweight manifest to Cloudflare R2...");
+  if (onProgress) onProgress(90, "Publishing...");
 
   // 1. Sync to Supabase table (awaited to ensure consistency before bookshelf reload)
   const supabase = getActiveSupabaseClient();

@@ -11,8 +11,10 @@ import {
   ArrowRight,
   CheckCircle2,
   Lightbulb,
+  Settings,
 } from "lucide-react";
 import { useLanguage } from "../context/LanguageContext";
+import { useAppSettings } from "../context/AppSettingsContext";
 import { Button } from "./ui/button";
 import { getFAQItems, getFAQUIStrings } from "../data/faqData";
 
@@ -22,6 +24,7 @@ interface FAQProps {
 
 export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
   const { language } = useLanguage();
+  const { setShowSettingsDialog } = useAppSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<"all" | "ebooks" | "comics" | "ai" | "general">("all");
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({
@@ -247,17 +250,30 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
                       {/* Internal Navigational Action Links */}
                       {faq.links && faq.links.length > 0 && (
                         <div className="pt-2 flex flex-wrap gap-2">
-                          {faq.links.map((link, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => navigate(link.view)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-lg transition-colors border border-primary/20 cursor-pointer"
-                              title={link.description}
-                            >
-                              <span>{link.text}</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          ))}
+                          {faq.links.map((link, idx) => {
+                            const isSettings = link.action === "settings" || link.view === "settings";
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => {
+                                  if (isSettings) {
+                                    setShowSettingsDialog(true);
+                                  } else if (link.view && link.view !== "settings") {
+                                    navigate(link.view);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-lg transition-colors border border-primary/20 cursor-pointer"
+                                title={link.description}
+                              >
+                                <span>{link.text}</span>
+                                {isSettings ? (
+                                  <Settings className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

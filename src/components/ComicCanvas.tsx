@@ -21,30 +21,42 @@ const hitMapCache = new Map<string, { data: Uint8ClampedArray, width: number, he
 export function getSvgPathFromPoints(points: Point[], brushRadius: number) {
   if (points.length === 0) return '';
   
-  const isPen = points.some(p => p.pointerType === 'pen');
+  const hasRealPressure = points.some(p => p.pressure !== undefined && p.pressure !== 0 && p.pressure !== 0.5 && p.pressure !== 1);
+  const isPen = points.some(p => p.pointerType === 'pen') || hasRealPressure;
+  
+  // Scale factor to convert 0-100 percentage coordinates to a "pixel-like" space
+  // so perfect-freehand's velocity-based pressure simulation works consistently.
+  const SCALE = 10;
   
   const strokePoints = getStroke(
-    points.map(p => {
-      let pressure = p.pressure;
+    points.map((p, i) => {
+      let pressure = p.pressure !== undefined ? p.pressure : 0.5;
+      
       if (isPen) {
-        if (pressure === undefined || pressure < 0.01) {
-          pressure = 0.5;
+        // Fix initial big dot artifact: don't force to 0.5 if it's very small.
+        // Let it start naturally at 0 or a low value.
+        // If it's the very first point and pressure is exactly 0, inherit from next point if available
+        // to avoid a completely missing start if the hardware glitches.
+        if (i === 0 && points.length > 1 && pressure === 0 && points[1].pressure !== undefined) {
+           pressure = points[1].pressure;
         }
+        
         if (p.tiltX !== undefined && p.tiltY !== undefined) {
           const maxTilt = Math.max(Math.abs(p.tiltX), Math.abs(p.tiltY));
           if (maxTilt > 0) {
-            pressure = Math.min(1.0, pressure * (1 + (maxTilt / 90) * 0.35));
+            // Adjust pressure based on tilt to make brush thicker when tilted
+            pressure = Math.min(1.0, pressure * (1 + (maxTilt / 90) * 0.4));
           }
         }
       }
       return [
-        p.x,
-        p.y,
+        p.x * SCALE,
+        p.y * SCALE,
         isPen ? pressure : undefined
       ];
     }),
     {
-      size: brushRadius,
+      size: brushRadius * SCALE,
       thinning: 0.6,
       smoothing: 0.5,
       streamline: 0.5,
@@ -54,13 +66,13 @@ export function getSvgPathFromPoints(points: Point[], brushRadius: number) {
   
   if (strokePoints.length === 0) return '';
   
-  let d = `M ${strokePoints[0][0].toFixed(2)} ${strokePoints[0][1].toFixed(2)}`;
+  let d = `M ${(strokePoints[0][0] / SCALE).toFixed(3)} ${(strokePoints[0][1] / SCALE).toFixed(3)}`;
   for (let i = 0; i < strokePoints.length - 1; i++) {
     const p0 = strokePoints[i];
     const p1 = strokePoints[i + 1];
     const midX = (p0[0] + p1[0]) / 2;
     const midY = (p0[1] + p1[1]) / 2;
-    d += ` Q ${p0[0].toFixed(2)} ${p0[1].toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
+    d += ` Q ${(p0[0] / SCALE).toFixed(3)} ${(p0[1] / SCALE).toFixed(3)} ${(midX / SCALE).toFixed(3)} ${(midY / SCALE).toFixed(3)}`;
   }
   d += ' Z';
   return d;

@@ -4837,10 +4837,10 @@ export const Create: React.FC<CreateProps> = ({
                   />
                   <input
                     type="range"
-                    min="1"
+                    min="0.1" step="0.1"
                     max="20"
                     value={drawRadius}
-                    onChange={(e) => setDrawRadius(parseInt(e.target.value))}
+                    onChange={(e) => setDrawRadius(parseFloat(e.target.value))}
                     className="w-14 sm:w-16 h-1 mx-1 cursor-pointer accent-primary"
                     title={t("brushSizeTooltip")}
                   />

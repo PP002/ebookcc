@@ -1299,11 +1299,17 @@ async function startServer() {
     }
   });
 
+  const DEFAULT_PREDICT_URLS = [
+    "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
+    "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
+    "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
+  ];
+
   app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {
     console.log("[API] detectPanelsLocalYolo request received");
     try {
-      const yoloUrl    = req.headers["x-yolo-url"] as string;
-      const yoloKey    = req.headers["x-yolo-key"] as string;
+      const yoloUrl    = (req.headers["x-yolo-url"] as string) || DEFAULT_PREDICT_URLS[0];
+      const yoloKey    = (req.headers["x-yolo-key"] as string) || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
       const yoloTextOnly   = req.headers["x-yolo-text-only"] === "true";
       const yoloPanelClass = parseInt(req.headers["x-yolo-panel-class"] as string || "0", 10);
       const yoloTextClass  = parseInt(req.headers["x-yolo-text-class"]  as string || "1", 10);
@@ -1317,10 +1323,12 @@ async function startServer() {
         return res.status(400).json({ error: e.message });
       }
 
-      if (yoloUrl) {
-        console.log("[API] detectPanelsLocalYolo: Routing to External YOLO Endpoint:", yoloUrl);
+      const urlsToTry = (req.headers["x-yolo-url"] as string) ? [req.headers["x-yolo-url"] as string] : DEFAULT_PREDICT_URLS;
+
+      for (const targetUrl of urlsToTry) {
         try {
-          if (yoloUrl.includes("/predict")) {
+          console.log("[API] detectPanelsLocalYolo: Routing to YOLO Endpoint:", targetUrl);
+          if (targetUrl.includes("/predict")) {
             const metadata = sizeOf(imgBuf);
             const origW    = metadata.width  || 1000;
             const origH    = metadata.height || 1000;
@@ -1335,7 +1343,7 @@ async function startServer() {
             let externalRetries = 2;
             while (externalRetries >= 0) {
               try {
-                yoloRes = await fetch(yoloUrl, {
+                yoloRes = await fetch(targetUrl, {
                   method: "POST",
                   headers: { "Authorization": `Bearer ${yoloKey || ''}` },
                   body: form,
@@ -1347,7 +1355,7 @@ async function startServer() {
                 console.error(`[API] External YOLO fetch error: ${e.message}. Retries left: ${externalRetries}`);
               }
               externalRetries--;
-              if (externalRetries >= 0) await new Promise(r => setTimeout(r, 2000));
+              if (externalRetries >= 0) await new Promise(r => setTimeout(r, 1000));
             }
 
             if (yoloRes && yoloRes.ok) {
@@ -1379,11 +1387,10 @@ async function startServer() {
               }
             } else {
               const errBody = yoloRes ? await yoloRes.text() : "Request failed or timed out";
-              console.error(`[API] /predict failed for ${yoloUrl} after retries. Status: ${yoloRes?.status}. Body: ${errBody}`);
-              throw new Error(`External Predict failed for ${yoloUrl}: ${yoloRes?.status || 'Timeout'}`);
+              console.error(`[API] /predict failed for ${targetUrl}. Status: ${yoloRes?.status}. Body: ${errBody}`);
             }
           } else {
-            const yoloRes = await fetch(yoloUrl, {
+            const yoloRes = await fetch(targetUrl, {
               method: "POST",
               headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
               body: JSON.stringify({ base64Image: rawBase64 }),
@@ -1393,18 +1400,14 @@ async function startServer() {
               const data = await yoloRes.json();
               if (data?.panels && data?.texts) return res.json({ panels: data.panels, texts: data.texts });
               if (data?.boxes) return res.json({ panels: yoloTextOnly ? [] : data.boxes, texts: yoloTextOnly ? data.boxes : [] });
-            } else {
-              throw new Error(`External YOLO JSON API failed: ${yoloRes.status}`);
             }
           }
         } catch (err: any) {
-          console.log("[API] detectPanelsLocalYolo: External YOLO failed.", err.message);
-          // Don't just swallow the error if we had a yoloUrl. Fall through will return 400 with this error.
-          return res.status(502).json({ error: `External YOLO connectivity error: ${err.message}` });
+          console.warn(`[API] detectPanelsLocalYolo attempt failed for ${targetUrl}:`, err.message);
         }
       }
 
-      return res.status(400).json({ error: "No YOLO URL provided and internal model is disabled" });
+      return res.status(502).json({ error: "All YOLO endpoints failed to process image" });
     } catch (e: any) {
       console.error(e);
       return res.status(500).json({ error: String(e.message || e) });
@@ -1414,8 +1417,8 @@ async function startServer() {
   app.post("/api/detectPanels", async (req, res) => {
     console.log("[API] detectPanels request received");
     try {
-      const yoloUrl = req.headers["x-yolo-url"] as string;
-      const yoloKey = req.headers["x-yolo-key"] as string;
+      const yoloUrl = (req.headers["x-yolo-url"] as string) || DEFAULT_PREDICT_URLS[0];
+      const yoloKey = (req.headers["x-yolo-key"] as string) || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
 
       let imgBuf: Buffer;
       let rawBase64: string;
@@ -1426,10 +1429,12 @@ async function startServer() {
         return res.status(400).json({ error: e.message });
       }
 
-      if (yoloUrl) {
-        console.log("[API] Routing to External YOLO:", yoloUrl);
+      const urlsToTry = (req.headers["x-yolo-url"] as string) ? [req.headers["x-yolo-url"] as string] : DEFAULT_PREDICT_URLS;
+
+      for (const targetUrl of urlsToTry) {
         try {
-          if (yoloUrl.includes("/predict")) {
+          console.log("[API] Routing to YOLO Endpoint:", targetUrl);
+          if (targetUrl.includes("/predict")) {
              const metadata = sizeOf(imgBuf);
              const origW    = metadata.width  || 1000;
              const origH    = metadata.height || 1000;
@@ -1442,17 +1447,17 @@ async function startServer() {
              let yoloRes = null;
              for (let i = 0; i < 3; i++) {
                try {
-                 yoloRes = await fetch(yoloUrl, {
+                 yoloRes = await fetch(targetUrl, {
                    method: "POST",
                    headers: { "Authorization": `Bearer ${yoloKey || ''}` },
                    body: form,
                    signal: AbortSignal.timeout(60000)
                  });
                  if (yoloRes.ok) break;
-                 await new Promise(r => setTimeout(r, 2000));
+                 await new Promise(r => setTimeout(r, 1000));
                } catch (e) {
                  if (i === 2) throw e;
-                 await new Promise(r => setTimeout(r, 2000));
+                 await new Promise(r => setTimeout(r, 1000));
                }
              }
 
@@ -1470,10 +1475,8 @@ async function startServer() {
                  return res.json(panels);
                }
              }
-          }
-          
-          if (!yoloUrl.includes("/predict")) {
-            const yoloRes = await fetch(yoloUrl, {
+          } else {
+            const yoloRes = await fetch(targetUrl, {
               method: "POST",
               headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
               body: JSON.stringify({ base64Image: rawBase64 })
@@ -1484,7 +1487,7 @@ async function startServer() {
             }
           }
         } catch (err) {
-          console.log("[API] YOLO failed.", err);
+          console.warn("[API] YOLO failed for endpoint:", targetUrl, err);
         }
       }
 

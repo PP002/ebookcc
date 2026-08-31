@@ -1191,10 +1191,10 @@ const panelsCache = new Map<string, ExportPanel[]>();
   return exportPanels;
 };
 
-const PREDICT_URLS = [
-  "https://predict-69ffb8299f770dcc9b69-dproatj77a-uw.a.run.app/predict",
-  "https://predict-6a357611bf962672c3ed-dproatj77a-ma.a.run.app/predict",
-  "https://predict-6a3e50cc7bb4eb8eaaa5-dproatj77a-dt.a.run.app/predict"
+export const PREDICT_URLS = [
+  "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
+  "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
+  "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
 ];
 
 export async function runPredictAPI(base64Data: string, customYoloUrl?: string, customYoloKey?: string): Promise<LayoutResult> {
@@ -4710,16 +4710,13 @@ ${navItems}    </ol>
                   <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")}</span>
                 </div>
               </div>
-              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
+              <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
                 <Checkbox 
                   checked={ocrDuringBatch} 
                   onCheckedChange={(c) => setOcrDuringBatch(!!c)}
-                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
+                  className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
                 />
-                <div className="flex flex-col min-w-0 flex-1">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{t("extractTextOcrDesc")}</span>
-                </div>
+                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
               </div>
               <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
                 <Checkbox 
@@ -4772,18 +4769,18 @@ ${navItems}    </ol>
             </span>
           </Button>
           
-          <div className="pt-3 border-t mt-3 space-y-2 flex flex-col items-start w-full">
+          <div className="pt-3 border-t mt-3 space-y-2 flex flex-col items-center w-full">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                   <Button 
                     variant="ghost" 
-                    className="w-full justify-start gap-2 h-9 px-2.5"
+                    className="w-full justify-center gap-2 h-9 px-2.5"
                     disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
                   >
                     <Download className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">{t("export")}</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="start">
+              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
                 <DropdownMenuItem onClick={downloadText} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> TXT
                 </DropdownMenuItem>
@@ -4802,7 +4799,7 @@ ${navItems}    </ol>
               href="https://www.amazon.com/sendtokindle/" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 mt-1 underline underline-offset-4 w-full pl-2"
+              className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1.5 mt-1 underline underline-offset-4 w-full"
             >
               <span className="whitespace-nowrap">{t("sendToKindle")}</span> <ExternalLink className="w-3.5 h-3.5" />
             </a>
@@ -4810,7 +4807,7 @@ ${navItems}    </ol>
 
           <Button 
             variant="ghost" 
-            className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-3 h-9 px-2.5" 
+            className="w-full justify-center gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 mt-3 h-9 px-2.5" 
             onClick={() => {
               setPages([]);
               setCurrentPageIndex(0);

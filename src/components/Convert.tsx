@@ -1198,6 +1198,7 @@ export const PREDICT_URLS = [
 ];
 
 export async function runPredictAPI(base64Data: string, customYoloUrl?: string, customYoloKey?: string): Promise<LayoutResult> {
+  // If custom user-configured YOLO is specified, attempt inference through the backend proxy
   if (customYoloUrl) {
     try {
       const result = await detectLayoutLocalYolo(base64Data, customYoloUrl, customYoloKey, false, 1, 0);
@@ -1205,28 +1206,34 @@ export async function runPredictAPI(base64Data: string, customYoloUrl?: string, 
       throw new Error(`Custom YOLO returned empty results for ${customYoloUrl}`);
     } catch (err: any) {
       console.warn(`Custom YOLO Predict API failed for ${customYoloUrl}:`, err);
-      throw err; // DO NOT fallback to default endpoints if custom throws
-    }
-  }
-
-  const promises = PREDICT_URLS.map(async (url) => {
-    try {
-      const result = await detectLayoutLocalYolo(base64Data, url, "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b", false, 1, 0);
-      if (result && (result.panels.length > 0 || result.texts.length > 0)) {
-        return result;
-      }
-      throw new Error(`Empty result from ${url}`);
-    } catch (err: any) {
-      console.warn(`Predict API failed for ${url}:`, err);
       throw err;
     }
-  });
-
-  try {
-    return await Promise.any(promises);
-  } catch (err) {
-    throw new Error("All predict API endpoints failed or returned empty results.");
   }
+
+  // Use the backend / Worker proxy route (/api/detect-panels) which securely handles the Ultralytics API
+  try {
+    const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 1, 0);
+    if (result && (result.panels.length > 0 || result.texts.length > 0)) {
+      return result;
+    }
+  } catch (err: any) {
+    console.warn("Backend proxy YOLO detection failed, falling back to vision panel detection:", err);
+  }
+
+  // Graceful fallback: local/Gemini comic panel detector
+  try {
+    const fallbackBoxes = await detectComicPanels(base64Data);
+    if (fallbackBoxes && fallbackBoxes.length > 0) {
+      return {
+        panels: fallbackBoxes.map((b) => ({ box_2d: b })),
+        texts: []
+      };
+    }
+  } catch (fallbackErr) {
+    console.warn("Fallback panel detection failed:", fallbackErr);
+  }
+
+  return { panels: [], texts: [] };
 }
 
 export async function transcribeTextsViaPieces(

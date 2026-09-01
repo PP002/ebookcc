@@ -204,7 +204,14 @@ async function runGeminiDirect(apiKey: string, promptText: string, base64Data?: 
   }
 }
 
-export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?: string, customYoloKey?: string, customYoloTextOnly?: boolean, yoloPanelClass: number = 0, yoloTextClass: number = 1): Promise<LayoutResult | null> {
+export async function detectLayoutLocalYolo(
+  base64Image: string,
+  customYoloUrl?: string,
+  customYoloKey?: string,
+  customYoloTextOnly?: boolean,
+  yoloPanelClass: number = 0,
+  yoloTextClass: number = 1
+): Promise<LayoutResult | null> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
@@ -214,37 +221,302 @@ export async function detectLayoutLocalYolo(base64Image: string, customYoloUrl?:
     headers["x-yolo-text-class"] = yoloTextClass.toString();
     
     try {
-      const uploadRes = await uploadMediaToR2(base64Image);
-      const payload = uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image };
+      const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
+      const payload: any = {
+        base64Image,
+        yoloUrl: customYoloUrl,
+        yoloKey: customYoloKey,
+        textOnly: customYoloTextOnly,
+        panelClass: yoloPanelClass,
+        textClass: yoloTextClass
+      };
+      if (uploadRes.success && uploadRes.key) {
+        payload.fileKey = uploadRes.key;
+      }
 
-      const res = await fetchWithRetry("/api/detectPanelsLocalYolo", {
+      let res = await fetchWithRetry(`${getApiUrl()}/api/detect-panels`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload)
-      });
-      
-      const text = await res.text();
-      if (text.trim().startsWith('<')) {
-        throw new Error("Server returned HTML (likely restarting or erroring)");
+      }).catch(() => null);
+
+      if (!res || !res.ok) {
+        res = await fetchWithRetry(`${getApiUrl()}/api/detectPanelsLocalYolo`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload)
+        }).catch(() => null);
       }
       
-      if (!res.ok) {
-        let parsedMessage = text;
-        try {
-          const json = JSON.parse(text);
-          if (json.error) parsedMessage = json.error;
-        } catch (e) {}
-        throw new Error(parsedMessage);
+      if (!res) {
+        if (customYoloUrl) {
+          try {
+            const directForm = new FormData();
+            const cleanB64 = base64Image.split(",")[1] || base64Image;
+            const byteChars = atob(cleanB64);
+            const byteNumbers = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+            directForm.append("file", new Blob([new Uint8Array(byteNumbers)], { type: "image/jpeg" }), "image.jpg");
+            directForm.append("conf", "0.15");
+            directForm.append("iou", "0.45");
+            directForm.append("imgsz", "1280");
+
+            const directRes = await fetch(customYoloUrl, {
+              method: "POST",
+              headers: customYoloKey ? { "Authorization": `Bearer ${customYoloKey}` } : undefined,
+              body: directForm
+            });
+            if (directRes.ok) {
+              const data = await directRes.json();
+              if (data?.images?.[0]?.results) {
+                const panels: any[] = [];
+                const texts: any[] = [];
+                const origH = data.images[0].shape?.[0] || 1000;
+                const origW = data.images[0].shape?.[1] || 1000;
+                data.images[0].results.forEach((r: any) => {
+                  if (!r.box) return;
+                  const box_2d: [number, number, number, number] = [
+                    Math.max(0, Math.min(1000, Math.round(((r.box.y1 || 0) / origH) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.x1 || 0) / origW) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.y2 || 0) / origH) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.x2 || 0) / origW) * 1000))),
+                  ];
+                  const item = { box_2d, confidence: r.confidence, class: r.class, name: r.name };
+                  if (r.class === yoloPanelClass) panels.push(item);
+                  else texts.push(item);
+                });
+                return { panels, texts };
+              }
+            }
+          } catch (directErr) {
+            console.warn("[YOLO Direct] Direct call to custom YOLO failed:", directErr);
+          }
+        }
+        return null;
       }
 
-      return JSON.parse(text);
+      const text = await res.text();
+      if (text.trim().startsWith('<')) {
+        console.warn("[YOLO Proxy] Response was HTML, falling back gracefully");
+        return null;
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        console.warn("[YOLO Proxy] Failed parsing JSON response:", err);
+        return null;
+      }
+
+      if (parsed && (parsed.panels || parsed.texts || parsed.boxes)) {
+        const panels = Array.isArray(parsed.panels)
+          ? parsed.panels
+          : (Array.isArray(parsed.boxes) ? parsed.boxes.map((b: any) => (b.box_2d ? b : { box_2d: b })) : []);
+        const texts = Array.isArray(parsed.texts) ? parsed.texts : [];
+        return { panels, texts };
+      }
+
+      return null;
     } catch(err: any) {
-      // Suppress redundant logs as the parent runPredictAPI handles the multi-url logic
-      throw err;
+      console.warn("[YOLO Proxy] detectLayoutLocalYolo call error:", err.message || err);
+      return null;
     }
   } catch (error) {
-    throw error;
+    console.warn("[YOLO Proxy] detectLayoutLocalYolo unexpected error:", error);
+    return null;
   }
+}
+
+async function runVisionModelDirect(
+  config: LocalLlmConfig,
+  promptText: string,
+  base64Image: string
+): Promise<string> {
+  const engine = config.engine || 'local';
+  let baseUrl = config.url || (engine === 'openai' ? 'https://api.openai.com/v1' : engine === 'claude' ? 'https://api.anthropic.com/v1' : engine === 'qwen' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'http://localhost:11434/v1');
+  let model = config.model || (engine === 'openai' ? 'gpt-4o' : engine === 'claude' ? 'claude-3-5-sonnet-latest' : engine === 'qwen' ? 'qwen-vl-max-latest' : 'llama3');
+  const apiKey = config.apiKey || "";
+
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const rawBase64 = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+  const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
+
+  // Claude / Anthropic Direct API
+  if (engine === 'claude' && cleanBaseUrl.includes('anthropic.com')) {
+    const res = await fetch(`${cleanBaseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/jpeg",
+                  data: rawBase64
+                }
+              },
+              {
+                type: "text",
+                text: promptText
+              }
+            ]
+          }
+        ]
+      })
+    });
+    if (!res.ok) throw new Error(`Claude Vision API error (${res.status}): ${await res.text()}`);
+    const data = await res.json();
+    return data?.content?.[0]?.text || "";
+  }
+
+  // Puter.js
+  if (engine === 'puter') {
+    if (typeof (window as any).puter?.ai?.chat === 'function') {
+      const resp = await (window as any).puter.ai.chat(promptText, {
+        model: model || "gpt-4o",
+        image: fullBase64Url
+      });
+      return typeof resp === 'string' ? resp : resp?.message?.content || "";
+    }
+  }
+
+  // OpenAI / Qwen / Local LLM (OpenAI-compatible)
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: promptText },
+        { type: "image_url", image_url: { url: fullBase64Url } }
+      ]
+    }
+  ];
+
+  const url = `${cleanBaseUrl}/chat/completions`;
+  const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+  const isHttpUrl = url.toLowerCase().startsWith('http://');
+  const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
+
+  let response: Response;
+  if (isHttpsPage && isHttpUrl && !isLoopback) {
+    response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        method: "POST",
+        headers,
+        body: { model, messages, temperature: 0.1 }
+      })
+    });
+  } else {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model, messages, temperature: 0.1 })
+    });
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`${engine.toUpperCase()} Vision API error (${response.status}): ${errText || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content || "";
+}
+
+async function runTextModelDirect(
+  config: LocalLlmConfig,
+  promptText: string
+): Promise<string> {
+  const engine = config.engine || 'local';
+  let baseUrl = config.url || (engine === 'openai' ? 'https://api.openai.com/v1' : engine === 'claude' ? 'https://api.anthropic.com/v1' : engine === 'qwen' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'http://localhost:11434/v1');
+  let model = config.model || (engine === 'openai' ? 'gpt-4o' : engine === 'claude' ? 'claude-3-5-sonnet-latest' : engine === 'qwen' ? 'qwen-turbo' : 'llama3');
+  const apiKey = config.apiKey || "";
+
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+
+  // Claude / Anthropic Direct API
+  if (engine === 'claude' && cleanBaseUrl.includes('anthropic.com')) {
+    const res = await fetch(`${cleanBaseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: promptText }]
+      })
+    });
+    if (!res.ok) throw new Error(`Claude API error (${res.status}): ${await res.text()}`);
+    const data = await res.json();
+    return data?.content?.[0]?.text || "";
+  }
+
+  // Puter.js
+  if (engine === 'puter') {
+    if (typeof (window as any).puter?.ai?.chat === 'function') {
+      const resp = await (window as any).puter.ai.chat(promptText, { model: model || "gpt-4o" });
+      return typeof resp === 'string' ? resp : resp?.message?.content || "";
+    }
+  }
+
+  // OpenAI / Qwen / Local LLM
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const messages = [{ role: "user", content: promptText }];
+  const url = `${cleanBaseUrl}/chat/completions`;
+  const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+  const isHttpUrl = url.toLowerCase().startsWith('http://');
+  const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
+
+  let response: Response;
+  if (isHttpsPage && isHttpUrl && !isLoopback) {
+    response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        method: "POST",
+        headers,
+        body: { model, messages, temperature: 0.1 }
+      })
+    });
+  } else {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model, messages, temperature: 0.1 })
+    });
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`${engine.toUpperCase()} API error (${response.status}): ${errText || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content || "";
 }
 
 export async function detectComicPanels(
@@ -255,72 +527,25 @@ export async function detectComicPanels(
   localLlmConfig?: LocalLlmConfig
 ): Promise<[number, number, number, number][]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
-      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
-      let model = localLlmConfig.model || "llama3";
-      
-      const localApiKey = localLlmConfig.apiKey || "";
-
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (localApiKey) {
-        headers["Authorization"] = `Bearer ${localApiKey}`;
-      }
-
-      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = `${cleanBaseUrl}/chat/completions`;
-
+    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini') {
       const promptText = `Find all comic panels in this image.
 Return ONLY a JSON array of bounding boxes for each panel.
 Format: [[ymin, xmin, ymax, xmax], ...]
-Ensure coordinates are 0-1000.`;
-
-      const messages = [{
-        role: "user",
-        content: [
-          { type: "text", text: promptText },
-          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
-        ]
-      }];
+Ensure coordinates are scaled between 0 and 1000. If no panels are found, return [].`;
 
       try {
-        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-        const isHttpUrl = url.toLowerCase().startsWith('http://');
-        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
-
-        let response;
-        if (isHttpsPage && isHttpUrl && !isLoopback) {
-          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url,
-              method: "POST",
-              headers,
-              body: { model, messages, temperature: 0.1 }
-            })
-          });
-        } else {
-          response = await fetch(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ model, messages, temperature: 0.1 })
-          });
-        }
-
-        if (!response.ok) throw new Error(`Local LLM failed: ${response.statusText}`);
-        const data = await response.json();
-        const text = data.choices[0]?.message?.content;
-        return parseJsonSafely(text?.replace(/```json/g, '').replace(/```/g, '').trim(), []) || [];
+        const rawContent = await runVisionModelDirect(localLlmConfig, promptText, base64Image);
+        return parseJsonSafely(rawContent, []) || [];
       } catch (err) {
-        console.error("Local LLM panel detection failed, returning empty", err);
-        return [];
+        console.error(`[${localLlmConfig.engine}] panel detection error:`, err);
+        throw err;
       }
     }
 
-    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+    const activeEngine = localLlmConfig?.engine || 'gemini';
 
     if (customApiKey && activeEngine === 'gemini') {
-      console.log("[Frontend Direct] Running detectPanels locally to bypass server limits");
+      console.log("[Frontend Direct] Running detectPanels locally via Gemini SDK");
       const rawBase64 = base64Image.split(",")[1] || base64Image;
       const promptText = "Analyze this complex comic page layout. Identify the strict rectangular boundaries for every major art panel/frame on the page. Only return the structural bounding boxes of the panels themselves, not individual characters or faces. A panel is a framed rectangular section containing art. Return a JSON list of bounding boxes: [[ymin, xmin, ymax, xmax], ...]. The coordinates should be between 0 and 1000. If no panels are found, output an empty JSON list: [].";
       const schema = {
@@ -340,69 +565,24 @@ Ensure coordinates are 0-1000.`;
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
     if (customYoloKey) headers["x-yolo-key"] = customYoloKey;
 
-    let jsonResult;
-    let backendFailed = false;
+    const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
+    const payload = {
+      ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+      engine: 'gemini',
+      model: localLlmConfig?.model
+    };
 
-    try {
-      const uploadRes = await uploadMediaToR2(base64Image);
-      const payload = {
-        ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
-        engine: localLlmConfig?.engine || 'pollinations',
-        model: localLlmConfig?.model
-      };
-
-      const res = await fetch(`${getApiUrl()}/api/detectPanels`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      if (text.trim().startsWith('<') || !res.ok) {
-        throw new Error(text || "Backend failed");
-      }
-      jsonResult = JSON.parse(text);
-    } catch (e) {
-      backendFailed = true;
-      console.warn("Backend detectPanels failed, falling back to Pollinations Vision...");
+    const res = await fetch(`${getApiUrl()}/api/detectPanels`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (text.trim().startsWith('<') || !res.ok) {
+      throw new Error(text || "Backend panel detection failed");
     }
-
-    if (backendFailed) {
-      const promptText = `Find all comic panels in this image.
-Return ONLY a JSON array of bounding boxes for each panel.
-Format: [[ymin, xmin, ymax, xmax], ...]
-Ensure coordinates are 0-1000.`;
-
-      const messages = [{
-        role: "user",
-        content: [
-          { type: "text", text: promptText },
-          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
-        ]
-      }];
-
-      let textResult = "";
-      for (let i = 0; i < 4; i++) {
-        try {
-          const pollRes = await fetch("https://text.pollinations.ai/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, model: "openai", jsonMode: true })
-          });
-          if (pollRes.ok) { 
-            textResult = await pollRes.text(); 
-            break; 
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
-        } catch(e) {
-          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
-        }
-      }
-      if (!textResult) throw new Error("Failed to detect panels with fallback engines.");
-      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-      jsonResult = parseJsonSafely(textResult, []) || [];
-    }
-
-    return jsonResult;
+    const jsonResult = JSON.parse(text);
+    return jsonResult || [];
   } catch (error) {
     console.error("Error detecting comic panels:", error);
     return [];
@@ -419,152 +599,29 @@ export async function detectComicText(
   yoloTexts?: any[]
 ): Promise<ComicText[]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
-      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
-      let model = localLlmConfig.model || "llama3";
-      
-      const localApiKey = localLlmConfig.apiKey || "";
+    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini') {
+      let promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes (scaled 0-1000).
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (localApiKey) {
-        headers["Authorization"] = `Bearer ${localApiKey}`;
-      }
+Output ONLY a JSON array of objects: [{"text": "transcribed text", "box_2d": [ymin, xmin, ymax, xmax]}]`;
 
-      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = `${cleanBaseUrl}/chat/completions`;
+      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+        const boxesStr = yoloTexts.map((item: any, i: number) => {
+          const box = item.box_2d || item;
+          if (Array.isArray(box) && box.length === 4) {
+            return `Box #${i}: [${box.map((v: any) => Math.round(Number(v))).join(', ')}]`;
+          }
+          return null;
+        }).filter(Boolean).join('\n');
 
-      const promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes.
-
-RULES:
-1. Locate every word, phrase, caption, or bubble. For each independent paragraph or Speech bubble, detect it as one object.
-2. Coordinates MUST be formatted as a bounding box [ymin, xmin, ymax, xmax], with values scaled between 0 and 1000 representing relative coordinates on the image.
-3. Output the result in JSON format as a list of objects, each representing one detected text with: "text" (transcribed/clean text string) and "box_2d" (number list).
-4. Do not include markdown code block characters like \`\`\`json. Output ONLY a valid JSON list.
-
-Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
-
-      const rawBase64 = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
-      const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-
-      const messages = [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: promptText
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: fullBase64Url
-              }
-            }
-          ]
-        }
-      ];
-
-      let response;
-      try {
-        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-        const isHttpUrl = url.toLowerCase().startsWith('http://');
-        // Loopback URLs (localhost/127.0.0.1) should NEVER go through the server-side proxy
-        // because the browser allows direct HTTP fetch from HTTPS contexts to localhost (secure contexts),
-        // whereas the cloud server proxy can never reach the user's local PC loopback.
-        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
-
-        if (isHttpsPage && isHttpUrl && !isLoopback) {
-          console.log("[Local LLM OCR] Proxying HTTPS mixed-content request via server-side proxy.");
-          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url,
-              method: "POST",
-              headers,
-              body: {
-                model,
-                messages,
-                temperature: 0.1
-              }
-            })
-          });
-        } else {
-          response = await fetch(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              model,
-              messages,
-              temperature: 0.1
-            })
-          });
-        }
-      } catch (fetchErr: any) {
-        console.error("Local LLM OCR Fetch Network Error:", fetchErr);
-        
-        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
-        const isHttpsHost = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
-
-        let customErrMessage = `Local LLM OCR Connection Error!\n\nFailed to connect to your local LLM server at "${cleanBaseUrl}".\n\n`;
-
-        if (isPrivateIp && isHttpsHost && isCloudHost) {
-          customErrMessage += 
-            `💡 CLOUD TO LOCAL NETWORK BOUNDARY DETECTED:\n\n` +
-            `You are currently running EbookCC on a secure cloud website (${window.location.host}), but your LLM server was configured with a private home LAN IP (${cleanBaseUrl}).\n\n` +
-            `Because cloud servers cannot connect to your private local home network, please change your Base URL configuration to:\n` +
-            `👉 "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1" (for LM Studio)\n` +
-            `👉 "http://127.0.0.1:11434/v1" or "http://localhost:11434/v1" (for Ollama)\n\n` +
-            `Loopback URLs are treated as secure contexts by the web browser, allowing direct, zero-delay communication right on your local PC!`;
-        } else {
-          customErrMessage +=
-            `Please check that:\n` +
-            `1. Your local AI engine has a VISION-capable model loaded (e.g., llama3.2-vision, llama3.2-vision:11b, qwen2.5-vision, or llava).\n` +
-            `2. CORS is enabled in Ollama (OLLAMA_ORIGINS="*" ollama serve) or LM Studio settings.`;
-        }
-
-        throw new Error(customErrMessage);
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let message = `Local LLM OCR API error (${response.status}): ${errorText || response.statusText}`;
-        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
-        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
-
-        if (isPrivateIp && isCloudHost && (response.status === 405 || response.status === 403 || response.status === 500)) {
-          message += 
-            `\n\n💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED:\n` +
-            `Because EbookCC is hosted on a secure cloud environment, the server-side proxy is blocked from routing to your LAN IP (192.168.0.198).\n\n` +
-            `👉 RESOLUTION:\n` +
-            `Change your local LLM Base URL configuration to "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1". Your web browser will then connect directly to LM Studio on your computer, bypassing any cloud restrictions!`;
-        }
-        throw new Error(message);
-      }
-
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content || "";
-      let parsed = parseJsonSafely(content, null);
-      if (!parsed) {
-        // Fallback: try to see if there is still JSON tucked inside the content
-        const match = content.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (match) {
-          try {
-            parsed = JSON.parse(match[0]);
-          } catch(e) {}
+        if (boxesStr) {
+          promptText = `You are a precise OCR assistant. A local layout detector has detected exactly ${yoloTexts.length} text regions in this image:\n${boxesStr}\n\nFor each bounding box, transcribe the text inside it and return a JSON array: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]`;
         }
       }
 
-      if (parsed) {
-        if (Array.isArray(parsed)) {
-          return parsed as ComicText[];
-        } else if (parsed.texts && Array.isArray(parsed.texts)) {
-          return parsed.texts as ComicText[];
-        } else if (parsed.results && Array.isArray(parsed.results)) {
-          return parsed.results as ComicText[];
-        }
-      }
+      const rawContent = await runVisionModelDirect(localLlmConfig, promptText, base64Image);
+      const parsed = parseJsonSafely(rawContent, []);
+      if (Array.isArray(parsed)) return parsed as ComicText[];
+      if (parsed?.texts && Array.isArray(parsed.texts)) return parsed.texts as ComicText[];
       return [];
     }
 
@@ -646,11 +703,10 @@ Format: [{"text": "Hello There", "box_2d": [ymin, xmin, ymax, xmax]}, ...]`;
         }
       }
       
-      // No longer filtering by guided boxes to ensure full page scan as per user request
       return texts;
     }
 
-    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+    const activeEngine = localLlmConfig?.engine || 'gemini';
 
     if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running detectText locally to bypass server limits");
@@ -720,99 +776,25 @@ STRICT INSTRUCTIONS:
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    let jsonResult;
-    let backendFailed = false;
+    const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
+    const payload = {
+      ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+      suggestedCount,
+      engine: 'gemini',
+      model: localLlmConfig?.model,
+      yoloTexts
+    };
 
-    try {
-      const uploadRes = await uploadMediaToR2(base64Image);
-      const payload = {
-        ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
-        suggestedCount,
-        engine: localLlmConfig?.engine || 'pollinations',
-        model: localLlmConfig?.model,
-        yoloTexts
-      };
-
-      const res = await fetch(`${getApiUrl()}/api/detectText`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      if (text.trim().startsWith('<') || !res.ok) {
-        throw new Error(text || "Backend failed");
-      }
-      jsonResult = JSON.parse(text);
-    } catch (e) {
-      backendFailed = true;
-      console.warn("Backend detectText failed, falling back to Pollinations Vision...");
+    const res = await fetch(`${getApiUrl()}/api/detectText`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (text.trim().startsWith('<') || !res.ok) {
+      throw new Error(text || "Backend text detection failed");
     }
-
-    if (backendFailed) {
-      const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
-
-STRICT RULES:
-1. Extract EVERY visible piece of text in this image.
-2. Provide bounding box [ymin, xmin, ymax, xmax] scaled to 0-1000.
-Return ONLY a JSON array. Return [] if no text. Example: [{"text": "hello", "box_2d": [0,0,100,100]}]`;
-
-      let finalPrompt = promptText;
-      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
-        const boxesStr = yoloTexts.map((item: any, i: number) => {
-          const box = item.box_2d || item;
-          if (Array.isArray(box) && box.length === 4) {
-            return `Box #${i}: [${box.map(v => Math.round(Number(v))).join(', ')}]`;
-          }
-          return null;
-        }).filter(Boolean).join('\n');
-
-        if (boxesStr) {
-          finalPrompt = `You are a precise OCR and comic translation assistant.
-A local high-precision layout detector (YOLO) has already pre-detected exactly ${yoloTexts.length} text blocks/speech bubbles/caption boxes in this image.
-Your ONLY job is to transcribe the EXACT text inside each of those bounding boxes. Do NOT detect any new boxes, and do NOT alter the coordinates.
-
-Here are the pre-detected bounding boxes (scaled from 0 to 1000, formatted as [ymin, xmin, ymax, xmax]):
-${boxesStr}
-
-STRICT INSTRUCTIONS:
-1. For each bounding box listed above, examine the image in that specific region and transcribe the exact text inside it.
-2. If there are multiple lines of text in that region, join them with a space.
-3. Preserve the box coordinates EXACTLY. Return the transcribed text paired with the exact coordinate array from the list above.
-4. Output MUST be a JSON array of objects with "text" and "box_2d" (the original coordinates).`;
-        }
-      }
-
-      const messages = [{
-        role: "user",
-        content: [
-          { type: "text", text: finalPrompt },
-          { type: "image_url", image_url: { url: base64Image.startsWith("data:") ? base64Image : `data:image/jpeg;base64,${base64Image}` } }
-        ]
-      }];
-
-      let textResult = "";
-      for (let i = 0; i < 4; i++) {
-        try {
-          const pollRes = await fetch("https://text.pollinations.ai/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, model: "openai", jsonMode: true })
-          });
-          if (pollRes.ok) { 
-            textResult = await pollRes.text(); 
-            break; 
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
-        } catch(e) {
-          await new Promise(resolve => setTimeout(resolve, 1500 * (i + 1)));
-        }
-      }
-      if (!textResult) throw new Error("Failed to detect text with fallback engines.");
-      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-      jsonResult = parseJsonSafely(textResult, []) || [];
-    }
-
-    return jsonResult;
+    return JSON.parse(text);
   } catch (error) {
     console.error("Error detecting comic text:", error);
     throw error;
@@ -834,133 +816,17 @@ export async function translateTexts(
 ): Promise<string[]> {
   if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   try {
-    if (localLlmConfig && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'pollinations') {
-      let baseUrl = localLlmConfig.url || "http://localhost:11434/v1";
-      let model = localLlmConfig.model || "llama3";
-      
-      const localApiKey = localLlmConfig.apiKey || "";
-
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (localApiKey) {
-        headers["Authorization"] = `Bearer ${localApiKey}`;
-      }
-
-      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const url = `${cleanBaseUrl}/chat/completions`;
-
+    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini') {
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
-
-      let response;
-      try {
-        const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-        const isHttpUrl = url.toLowerCase().startsWith('http://');
-        // Loopback URLs (localhost/127.0.0.1) should NEVER go through the server-side proxy
-        // because the browser allows direct HTTP fetch from HTTPS contexts to localhost (secure contexts),
-        // whereas the cloud server proxy can never reach the user's local PC loopback.
-        const isLoopback = url.toLowerCase().includes('//localhost') || url.toLowerCase().includes('//127.0.0.1') || url.toLowerCase().includes('//[::1]');
-
-        if (isHttpsPage && isHttpUrl && !isLoopback) {
-          console.log("[Local LLM] HTTPS context and HTTP URL. Routing request via server proxy to prevent Mixed Content block.");
-          response = await fetch(`${getApiUrl()}/api/local-llm-proxy`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url,
-              method: "POST",
-              headers,
-              body: {
-                model,
-                messages: [
-                  {
-                    role: "system",
-                    content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
-                  },
-                  {
-                    role: "user",
-                    content: promptText
-                  }
-                ],
-                temperature: 0.2
-              }
-            })
-          });
-        } else {
-          response = await fetch(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              model,
-              messages: [
-                {
-                  role: "system",
-                  content: `You are a professional comic and manga translation engine. Your sole task is to translate JSON arrays of texts to ${targetLanguage} while preserving exactly the same array size and index order. You must output a JSON array of strings, with no additional commentary, no markdown formatting, just the raw JSON text.`
-                },
-                {
-                  role: "user",
-                  content: promptText
-                }
-              ],
-              temperature: 0.2
-            })
-          });
-        }
-      } catch (fetchErr: any) {
-        console.error("Local LLM Fetch Network Error:", fetchErr);
-        
-        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
-        const isHttpsHost = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
-
-        let customErrMessage = `Local LLM Network Error!\n\nFailed to connect to your local LLM server at "${cleanBaseUrl}".\n\n`;
-
-        if (isPrivateIp && isHttpsHost && isCloudHost) {
-          customErrMessage += 
-            `💡 CLOUD TO LOCAL NETWORK BOUNDARY DETECTED:\n\n` +
-            `You are currently running EbookCC on a secure cloud website (${window.location.host}), but trying to connect directly to a private local server (${cleanBaseUrl}).\n\n` +
-            `Because cloud servers cannot connect to your private local home network, please change your Base URL configuration to:\n` +
-            `👉 "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1" (for LM Studio)\n` +
-            `👉 "http://127.0.0.1:11434/v1" or "http://localhost:11434/v1" (for Ollama)\n\n` +
-            `Loopback URLs are treated as secure contexts by the web browser, allowing direct, zero-delay communication right on your local PC!`;
-        } else {
-          customErrMessage +=
-            `Please check that:\n` +
-            `1. Your local AI service (Ollama / LM Studio / Llama.cpp) is running.\n` +
-            `2. Your model "${model}" is fully downloaded & available.\n` +
-            `3. CORS (Cross-Origin Resource Sharing) is enabled.\n` +
-            `   - Ollama: Run 'OLLAMA_ORIGINS="*" ollama serve' in your terminal.\n` +
-            `   - LM Studio: Enable 'CORS' in Local Server Settings.\n` +
-            `4. No browser extension is blocking loopback requests.`;
-        }
-
-        throw new Error(customErrMessage);
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let message = `Local LLM API error (${response.status}): ${errorText || response.statusText}`;
-        const isPrivateIp = url.includes("localhost") || url.includes("127.0.0.1") || /192\.168\./.test(url) || /10\./.test(url) || /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
-        const isCloudHost = typeof window !== 'undefined' && !window.location?.hostname.includes("localhost") && !window.location?.hostname.includes("127.0.0.1");
-
-        if (isPrivateIp && isCloudHost && (response.status === 405 || response.status === 403 || response.status === 500)) {
-          message += 
-            `\n\n💡 CLOUD TO LOCAL BOUNDARY CONSTRAINT DETECTED:\n` +
-            `Because EbookCC is hosted on a secure cloud environment, the server-side proxy is blocked from routing to your LAN IP (192.168.0.198).\n\n` +
-            `👉 RESOLUTION:\n` +
-            `Change your local LLM Base URL configuration to "http://127.0.0.1:1234/v1" or "http://localhost:1234/v1". Your web browser will then connect directly to LM Studio on your computer, bypassing any cloud restrictions!`;
-        }
-        throw new Error(message);
-      }
-
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content || "";
-      const parsed = parseJsonSafely(content, null);
+      const rawContent = await runTextModelDirect(localLlmConfig, promptText);
+      const parsed = parseJsonSafely(rawContent, null);
       if (parsed && Array.isArray(parsed)) {
         return parsed;
       }
       return texts;
     }
 
-    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'pollinations');
+    const activeEngine = localLlmConfig?.engine || 'gemini';
 
     if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running translate locally to bypass server limits");
@@ -978,54 +844,21 @@ export async function translateTexts(
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    let jsonResult;
-    let backendFailed = false;
-
-    try {
-      const res = await fetch(`${getApiUrl()}/api/translate`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          texts,
-          targetLanguage,
-          engine: localLlmConfig?.engine || 'pollinations',
-          model: localLlmConfig?.model
-        }),
-      });
-      const text = await res.text();
-      if (text.trim().startsWith('<') || !res.ok) {
-        throw new Error(text || "Backend failed");
-      }
-      jsonResult = JSON.parse(text);
-    } catch (e) {
-      backendFailed = true;
-      console.warn("Backend translate failed, falling back to Pollinations...");
+    const res = await fetch(`${getApiUrl()}/api/translate`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        texts,
+        targetLanguage,
+        engine: 'gemini',
+        model: localLlmConfig?.model
+      }),
+    });
+    const text = await res.text();
+    if (text.trim().startsWith('<') || !res.ok) {
+      throw new Error(text || "Backend translation failed");
     }
-
-    if (backendFailed) {
-      let textResult = "";
-      const models = ["openai", "qwen-coder", "llama", "mistral"];
-      const messages = [
-        { role: "system", content: "You are a professional comic translator. Translate the array of strings and return ONLY a JSON array of strings in the exact same order." },
-        { role: "user", content: `Translate this array of strings to ${targetLanguage}: ${JSON.stringify(texts)}` }
-      ];
-      
-      for (let i = 0; i < 4; i++) {
-        try {
-          const pollRes = await fetch("https://text.pollinations.ai/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, model: models[i % models.length], jsonMode: true })
-          });
-          if (pollRes.ok) { textResult = await pollRes.text(); break; }
-        } catch(e) {}
-      }
-      if (!textResult) throw new Error("Failed to translate with fallback engines.");
-      textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-      jsonResult = parseJsonSafely(textResult, texts) || texts;
-    }
-
-    return jsonResult;
+    return JSON.parse(text);
   } catch (error) {
     console.error("Error translating text:", error);
     throw error;

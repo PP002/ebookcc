@@ -1305,15 +1305,17 @@ async function startServer() {
     "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
   ];
 
-  app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {
-    console.log("[API] detectPanelsLocalYolo request received");
+  async function handleYoloInference(req: express.Request, res: express.Response) {
     try {
-      const yoloUrl    = (req.headers["x-yolo-url"] as string) || DEFAULT_PREDICT_URLS[0];
-      const yoloKey    = (req.headers["x-yolo-key"] as string) || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
-      const yoloTextOnly   = req.headers["x-yolo-text-only"] === "true";
-      const yoloPanelClass = parseInt(req.headers["x-yolo-panel-class"] as string || "0", 10);
-      const yoloTextClass  = parseInt(req.headers["x-yolo-text-class"]  as string || "1", 10);
-      
+      const yoloUrl = (req.headers["x-yolo-url"] as string) || req.body?.yoloUrl;
+      const yoloKey = (req.headers["x-yolo-key"] as string) || req.body?.yoloKey || process.env.ULTRALYTICS_API_KEY || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
+      const yoloTextOnly = req.headers["x-yolo-text-only"] === "true" || !!req.body?.textOnly;
+      const yoloPanelClass = parseInt((req.headers["x-yolo-panel-class"] as string) || req.body?.panelClass || "0", 10);
+      const yoloTextClass = parseInt((req.headers["x-yolo-text-class"] as string) || req.body?.textClass || "1", 10);
+      const conf = req.body?.conf || "0.15";
+      const iou = req.body?.iou || "0.45";
+      const imgsz = req.body?.imgsz || "1280";
+
       let imgBuf: Buffer;
       let rawBase64: string;
       try {
@@ -1323,21 +1325,25 @@ async function startServer() {
         return res.status(400).json({ error: e.message });
       }
 
-      const urlsToTry = (req.headers["x-yolo-url"] as string) ? [req.headers["x-yolo-url"] as string] : DEFAULT_PREDICT_URLS;
+      const urlsToTry = yoloUrl ? [yoloUrl] : DEFAULT_PREDICT_URLS;
 
       for (const targetUrl of urlsToTry) {
         try {
-          console.log("[API] detectPanelsLocalYolo: Routing to YOLO Endpoint:", targetUrl);
+          console.log("[API] YOLO Proxy forwarding to endpoint:", targetUrl);
           if (targetUrl.includes("/predict")) {
-            const metadata = sizeOf(imgBuf);
-            const origW    = metadata.width  || 1000;
-            const origH    = metadata.height || 1000;
+            let origW = 1000;
+            let origH = 1000;
+            try {
+              const metadata = sizeOf(imgBuf);
+              origW = metadata.width || 1000;
+              origH = metadata.height || 1000;
+            } catch (_) {}
 
             const form = new FormData();
             form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
-            form.append("conf", "0.15");
-            form.append("iou",  "0.45");
-            form.append("imgsz","1280");
+            form.append("conf", conf);
+            form.append("iou", iou);
+            form.append("imgsz", imgsz);
 
             let yoloRes = null;
             let externalRetries = 2;
@@ -1347,10 +1353,10 @@ async function startServer() {
                   method: "POST",
                   headers: { "Authorization": `Bearer ${yoloKey || ''}` },
                   body: form,
-                  signal: AbortSignal.timeout(60000) // 1 minute timeout
+                  signal: AbortSignal.timeout(60000)
                 });
                 if (yoloRes.ok) break;
-                console.warn(`[API] External YOLO attempt failed (${yoloRes.status}). Retries left: ${externalRetries}`);
+                console.warn(`[API] External YOLO attempt status (${yoloRes.status}). Retries left: ${externalRetries}`);
               } catch (e: any) {
                 console.error(`[API] External YOLO fetch error: ${e.message}. Retries left: ${externalRetries}`);
               }
@@ -1358,36 +1364,73 @@ async function startServer() {
               if (externalRetries >= 0) await new Promise(r => setTimeout(r, 1000));
             }
 
-            if (yoloRes && yoloRes.ok) {
-              const data = await yoloRes.json();
+            if (yoloRes) {
+              const contentType = yoloRes.headers.get("content-type") || "";
+              const rawText = await yoloRes.text();
+
+              if (rawText.trim().startsWith("<") || (!contentType.includes("application/json") && !rawText.trim().startsWith("{") && !rawText.trim().startsWith("["))) {
+                console.warn(`[API] Endpoint ${targetUrl} returned non-JSON / HTML: ${rawText.slice(0, 120)}...`);
+                continue;
+              }
+
+              if (!yoloRes.ok) {
+                console.warn(`[API] Endpoint ${targetUrl} returned status ${yoloRes.status}: ${rawText.slice(0, 120)}...`);
+                continue;
+              }
+
+              const data = JSON.parse(rawText);
+              if (data.images?.[0]?.shape && Array.isArray(data.images[0].shape) && data.images[0].shape.length >= 2) {
+                origH = data.images[0].shape[0] || origH;
+                origW = data.images[0].shape[1] || origW;
+              }
+
               if (data.images?.[0]?.results) {
                 const panels: any[] = [];
-                const texts:  any[] = [];
+                const texts: any[] = [];
+                const boxes: [number, number, number, number][] = [];
+
                 data.images[0].results.forEach((r: any) => {
-                  const box_2d = [
-                    (r.box.y1 / origH) * 1000,
-                    (r.box.x1 / origW) * 1000,
-                    (r.box.y2 / origH) * 1000,
-                    (r.box.x2 / origW) * 1000,
+                  if (!r.box) return;
+                  const box_2d: [number, number, number, number] = [
+                    Math.max(0, Math.min(1000, Math.round(((r.box.y1 || 0) / origH) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.x1 || 0) / origW) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.y2 || 0) / origH) * 1000))),
+                    Math.max(0, Math.min(1000, Math.round(((r.box.x2 || 0) / origW) * 1000))),
                   ];
                   const segments = r.segments?.x ? {
                     x: r.segments.x.map((v: number) => (v / origW) * 1000),
                     y: r.segments.y.map((v: number) => (v / origH) * 1000),
                   } : undefined;
-                  const item = { box_2d, segments };
+                  const item = { box_2d, segments, confidence: r.confidence, class: r.class, name: r.name };
+
                   if (yoloTextOnly) {
                     texts.push(item);
                   } else {
-                    if (r.class === yoloPanelClass) panels.push(item);
-                    else if (r.class === yoloTextClass) texts.push(item);
-                    else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) texts.push(item);
+                    if (r.class === yoloPanelClass) {
+                      panels.push(item);
+                      boxes.push(box_2d);
+                    } else if (r.class === yoloTextClass) {
+                      texts.push(item);
+                    } else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) {
+                      texts.push(item);
+                    } else {
+                      panels.push(item);
+                      boxes.push(box_2d);
+                    }
                   }
                 });
-                return res.json({ panels, texts });
+                return res.json({ success: true, panels, texts, boxes, origWidth: origW, origHeight: origH, endpoint: targetUrl });
               }
-            } else {
-              const errBody = yoloRes ? await yoloRes.text() : "Request failed or timed out";
-              console.error(`[API] /predict failed for ${targetUrl}. Status: ${yoloRes?.status}. Body: ${errBody}`);
+
+              if (data.boxes || data.panels || data.texts) {
+                return res.json({
+                  success: true,
+                  panels: data.panels || data.boxes || [],
+                  texts: data.texts || [],
+                  boxes: data.boxes || (Array.isArray(data.panels) ? data.panels.map((p: any) => p.box_2d || p) : []),
+                  endpoint: targetUrl
+                });
+              }
             }
           } else {
             const yoloRes = await fetch(targetUrl, {
@@ -1398,8 +1441,8 @@ async function startServer() {
             });
             if (yoloRes.ok) {
               const data = await yoloRes.json();
-              if (data?.panels && data?.texts) return res.json({ panels: data.panels, texts: data.texts });
-              if (data?.boxes) return res.json({ panels: yoloTextOnly ? [] : data.boxes, texts: yoloTextOnly ? data.boxes : [] });
+              if (data?.panels && data?.texts) return res.json({ success: true, panels: data.panels, texts: data.texts, boxes: data.boxes || [] });
+              if (data?.boxes) return res.json({ success: true, panels: yoloTextOnly ? [] : data.boxes, texts: yoloTextOnly ? data.boxes : [], boxes: data.boxes });
             }
           }
         } catch (err: any) {
@@ -1407,11 +1450,27 @@ async function startServer() {
         }
       }
 
-      return res.status(502).json({ error: "All YOLO endpoints failed to process image" });
+      return res.json({
+        success: false,
+        fallback: true,
+        error: "All YOLO endpoints failed to process image",
+        panels: [],
+        texts: [],
+        boxes: []
+      });
     } catch (e: any) {
-      console.error(e);
-      return res.status(500).json({ error: String(e.message || e) });
+      console.error("[API detect-panels Error]:", e);
+      return res.status(500).json({ success: false, fallback: true, error: String(e.message || e), panels: [], texts: [], boxes: [] });
     }
+  }
+
+  app.post("/api/detect-panels", async (req, res): Promise<any> => {
+    return handleYoloInference(req, res);
+  });
+
+  app.post("/api/detectPanelsLocalYolo", async (req, res): Promise<any> => {
+    console.log("[API] detectPanelsLocalYolo request received");
+    return handleYoloInference(req, res);
   });
 
   app.post("/api/detectPanels", async (req, res) => {
@@ -1537,13 +1596,13 @@ async function startServer() {
             }
           }
         } catch (gemError: any) {
-          console.log("[API detectPanels] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API detectPanels] Gemini attempt failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
 
-      // Try Free AI (Pollinations) if Gemini was not tried, or if Gemini failed, or if Pollinations is explicitly selected
-      if (!panelsFound && (engine === 'pollinations' || engine === 'puter' || !useGeminiFirst || !ai)) {
+      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
+      if (!panelsFound && (engine === 'pollinations' || engine === 'puter')) {
         try {
           console.log("[API detectPanels] Trying Free AI (Pollinations)...");
           const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
@@ -1797,13 +1856,13 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.log("[API detectText] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API detectText] Gemini attempt failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
 
-      // Try Free AI (Pollinations) if Gemini was not tried, or if Gemini failed, or if Pollinations is explicitly selected
-      if (!textFound && (engine === 'pollinations' || engine === 'puter' || !useGeminiFirst || !ai)) {
+      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
+      if (!textFound && (engine === 'pollinations' || engine === 'puter')) {
         try {
           console.log("[API detectText] Trying Free AI (Pollinations)...");
           const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
@@ -2063,13 +2122,13 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.log("[API translate] Gemini first-attempt failed, falling back to Pollinations if available...", gemError.message);
+          console.log("[API translate] Gemini attempt failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
 
-      // Try Free AI (Pollinations) if Gemini was not tried, or if Gemini failed, or if Pollinations is explicitly selected
-      if (!translationResult && (engine === 'pollinations' || engine === 'puter' || !useGeminiFirst || !ai)) {
+      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
+      if (!translationResult && (engine === 'pollinations' || engine === 'puter')) {
         try {
           console.log("[API translate] Trying Free AI (Pollinations)...");
           const openAiMessages = [

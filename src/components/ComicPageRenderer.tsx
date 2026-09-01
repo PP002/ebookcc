@@ -307,6 +307,72 @@ export function SpeechBubbleRenderer({ bubble }: { bubble: BubbleData }) {
   );
 }
 
+export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [aspect, setAspect] = useState<number>(1);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const update = () => {
+      if (svgRef.current) {
+        const rect = svgRef.current.getBoundingClientRect();
+        if (rect.height > 0) {
+          setAspect(rect.width / rect.height);
+        }
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(svgRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const fills = drawings.filter((s: Stroke) => s && s.type === 'fill');
+  const penStrokes = drawings.filter((s: Stroke) => s && s.type !== 'fill');
+  const orderedDrawings = [...fills, ...penStrokes];
+
+  return (
+    <svg
+      ref={svgRef}
+      className="absolute inset-0 w-full h-full z-10 pointer-events-none"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      {orderedDrawings.map((s: Stroke, idx: number) => {
+        if (!s) return null;
+        const strokeKey = `${s.id || 'stroke'}-${idx}`;
+        if (s.type === 'fill' && s.imageUrl && s.bounds) {
+          const isFull = s.isFullArea || (s.bounds.w >= 100 && s.bounds.h >= 100 && s.bounds.x <= 0 && s.bounds.y <= 0) || s.bounds.w >= 300;
+          return (
+            <g key={strokeKey}>
+              {isFull && (
+                <g className="full-area-fill-extensions">
+                  <rect x="-500000" y="-500000" width="1000000" height={Math.max(0, s.bounds.y - (-500000))} fill={s.color} />
+                  <rect x="-500000" y={s.bounds.y + s.bounds.h} width="1000000" height={Math.max(0, 500000 - (s.bounds.y + s.bounds.h))} fill={s.color} />
+                  <rect x="-500000" y={s.bounds.y} width={Math.max(0, s.bounds.x - (-500000))} height={s.bounds.h} fill={s.color} />
+                  <rect x={s.bounds.x + s.bounds.w} y={s.bounds.y} width={Math.max(0, 500000 - (s.bounds.x + s.bounds.w))} height={s.bounds.h} fill={s.color} />
+                </g>
+              )}
+              <image
+                href={s.imageUrl}
+                x={s.bounds.x}
+                width={s.bounds.w}
+                y={s.bounds.y}
+                height={s.bounds.h}
+                preserveAspectRatio="none"
+              />
+            </g>
+          );
+        }
+        if (!s.points || s.points.length === 0) return null;
+        const d = getSvgPathFromPoints(s.points, s.brushRadius || 2, aspect);
+        if (!d) return null;
+        return <path key={strokeKey} d={d} fill={s.color || '#000000'} />;
+      })}
+    </svg>
+  );
+}
+
 /**
  * Recursive renderer for Comic Tree Nodes (PanelNode and SplitNode)
  * Structurally and visually identical to ComicCanvas.tsx
@@ -363,34 +429,7 @@ export function ComicTreeNodeView({ node }: { node: TreeNode | any }) {
           )}
 
           {/* Freehand vector drawings layer */}
-          {hasDrawings && (
-            <svg
-              className="absolute inset-0 w-full h-full z-10 pointer-events-none"
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-            >
-              {node.drawings.map((s: Stroke) => {
-                if (!s) return null;
-                if (s.type === 'fill' && s.imageUrl && s.bounds) {
-                  return (
-                    <image
-                      key={s.id}
-                      href={s.imageUrl}
-                      x={s.bounds.x}
-                      width={s.bounds.w}
-                      y={s.bounds.y}
-                      height={s.bounds.h}
-                      preserveAspectRatio="none"
-                    />
-                  );
-                }
-                if (!s.points || s.points.length === 0) return null;
-                const d = getSvgPathFromPoints(s.points, s.brushRadius || 2);
-                if (!d) return null;
-                return <path key={s.id} d={d} fill={s.color || '#000000'} />;
-              })}
-            </svg>
-          )}
+          {hasDrawings && <ComicPanelDrawingLayer drawings={node.drawings} />}
 
           {/* Legacy drawing overlay */}
           {node.drawing && typeof node.drawing === 'string' && (

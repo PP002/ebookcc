@@ -1885,8 +1885,9 @@ export const Create: React.FC<CreateProps> = ({
         const key = e.key.toLowerCase();
         if (key === "d") {
           setIsDrawingMode((prev) => {
-            if (!prev) setDrawTool("pen");
-            return true;
+            const next = !prev;
+            if (next) setDrawTool("pen");
+            return next;
           });
         }
         if (isDrawingMode) {
@@ -4860,12 +4861,12 @@ export const Create: React.FC<CreateProps> = ({
                   />
                   <div className="flex items-center gap-0.5 ml-0.5">
                     {[
-                      { size: 0.1, dotClass: "w-[3px] h-[3px]" },
-                      { size: 0.3, dotClass: "w-[5px] h-[5px]" },
-                      { size: 0.8, dotClass: "w-[7px] h-[7px]" },
-                      { size: 1.5, dotClass: "w-[9px] h-[9px]" },
-                      { size: 2, dotClass: "w-[12px] h-[12px]" },
-                      { size: 2.8, dotClass: "w-[15px] h-[15px]" },
+                      { size: 1, dotClass: "w-[3px] h-[3px]" },
+                      { size: 1.8, dotClass: "w-[5px] h-[5px]" },
+                      { size: 2.8, dotClass: "w-[7px] h-[7px]" },
+                      { size: 4, dotClass: "w-[9px] h-[9px]" },
+                      { size: 5.5, dotClass: "w-[12px] h-[12px]" },
+                      { size: 7, dotClass: "w-[15px] h-[15px]" },
                     ].map(({ size, dotClass }) => {
                       const isSelected = drawRadius === size;
                       return (

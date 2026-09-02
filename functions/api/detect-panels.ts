@@ -160,11 +160,15 @@ export const onRequestPost = async (context: any) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 60000);
 
+        const headers: Record<string, string> = {};
+        if (yoloKey) {
+          headers["Authorization"] = `Bearer ${yoloKey}`;
+          headers["x-api-key"] = yoloKey;
+        }
+
         const response = await fetch(targetUrl, {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${yoloKey}`,
-          },
+          headers,
           body: formData,
           signal: controller.signal,
         }).finally(() => clearTimeout(timeoutId));
@@ -210,20 +214,27 @@ export const onRequestPost = async (context: any) => {
 
             const item = { box_2d, segments, confidence: r.confidence, class: r.class, name: r.name };
 
+            const rName = (r.name || "").toLowerCase();
+            const isPanelName = rName.includes("panel") || rName.includes("frame") || rName.includes("border");
+            const isTextName = rName.includes("text") || rName.includes("bubble") || rName.includes("balloon") || rName.includes("caption") || rName.includes("dialog");
+
             if (textOnly) {
               texts.push(item);
+            } else if (isPanelName) {
+              panels.push(item);
+              boxes.push(box_2d);
+            } else if (isTextName) {
+              texts.push(item);
+            } else if (r.class === panelClass) {
+              panels.push(item);
+              boxes.push(box_2d);
+            } else if (r.class === textClass) {
+              texts.push(item);
+            } else if (r.class > 0 && panelClass === 0 && textClass === 1) {
+              texts.push(item);
             } else {
-              if (r.class === panelClass) {
-                panels.push(item);
-                boxes.push(box_2d);
-              } else if (r.class === textClass) {
-                texts.push(item);
-              } else if (r.class > 0 && panelClass === 0 && textClass === 1) {
-                texts.push(item);
-              } else {
-                panels.push(item);
-                boxes.push(box_2d);
-              }
+              panels.push(item);
+              boxes.push(box_2d);
             }
           });
 

@@ -4898,19 +4898,6 @@ export const Create: React.FC<CreateProps> = ({
             )}
           </div>
 
-          {/* Centered Comic Title - Statically pinned to horizontal center so left/right buttons do not shift its position */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none flex items-center justify-center max-w-[calc(100%-160px)]">
-            <input
-              value={comicTitle}
-              onChange={(e) => {
-                setComicTitle(e.target.value);
-                isPublishedComicRef.current = false;
-              }}
-              className="bg-transparent border-none text-foreground font-bold text-center text-sm focus:outline-none focus:ring-0 max-w-[140px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[340px] truncate pointer-events-auto"
-              placeholder={t("comicTitlePlaceholder")}
-            />
-          </div>
-
           {/* Right Actions */}
           <div className="flex items-center gap-2 pr-2 shrink-0 z-20 relative ml-auto">
             {renderExportMenu()}
@@ -4974,25 +4961,41 @@ export const Create: React.FC<CreateProps> = ({
                 onClick={() => setIsSidebarOpen(false)}
               />
               <motion.aside
-                initial={{ x: -180, opacity: 0 }}
+                initial={{ x: -200, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -180, opacity: 0 }}
+                exit={{ x: -200, opacity: 0 }}
                 transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                className="absolute top-0 left-0 bottom-0 z-40 w-[160px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden shrink-0"
+                className="absolute top-0 left-0 bottom-0 z-40 w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden shrink-0"
               >
-                <div className="p-3 border-b shrink-0 flex items-center justify-between">
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                    {t("pages")}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 rounded-none hover:bg-muted"
-                    onClick={handleAddNewPage}
-                    title={`${t("addPage")} (N)`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </Button>
+                {/* Left Sidebar Header with Comic Title and Page Controls */}
+                <div className="p-2.5 border-b shrink-0 flex flex-col gap-2 bg-muted/20">
+                  <div className="flex items-center gap-1.5 w-full bg-background border border-border/70 rounded-md px-2 py-1 shadow-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all">
+                    <BookOpen className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <input
+                      value={comicTitle}
+                      onChange={(e) => {
+                        setComicTitle(e.target.value);
+                        isPublishedComicRef.current = false;
+                      }}
+                      className="bg-transparent border-none text-foreground font-bold text-xs focus:outline-none w-full truncate"
+                      placeholder={t("comicTitlePlaceholder") || "Comic Title"}
+                      title={comicTitle || t("comicTitlePlaceholder")}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between px-0.5">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {t("pages")} ({comicPages.length})
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 rounded-md hover:bg-muted"
+                      onClick={handleAddNewPage}
+                      title={`${t("addPage")} (N)`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar py-2 space-y-2 p-2">
                   {comicPages.map((page, idx) => (

@@ -18,6 +18,8 @@ export type Point = {
 
 const hitMapCache = new Map<string, { data: Uint8ClampedArray, width: number, height: number }>();
 
+export const HOLLOW_CROSS_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 17 17'%3E%3Cpath d='M8.5 1v5M8.5 11v5M1 8.5h5M11 8.5h5' stroke='white' stroke-width='3' stroke-linecap='square'/%3E%3Cpath d='M8.5 1v5M8.5 11v5M1 8.5h5M11 8.5h5' stroke='black' stroke-width='1.2' stroke-linecap='square'/%3E%3C/svg%3E") 8 8, crosshair`;
+
 export function getSvgPathFromPoints(points: Point[], brushRadius: number, aspectRatio: number = 1) {
   if (points.length === 0) return '';
   
@@ -1817,10 +1819,6 @@ const DrawingCanvas: React.FC<{
   const [fallbackAspect, setFallbackAspect] = useState<number>(1);
   const aspectRef = useRef<number>(1);
   const svgRef = useRef<SVGSVGElement>(null);
-  const cursorGroupRef = useRef<SVGGElement>(null);
-  const cursorOuterRef = useRef<SVGEllipseElement>(null);
-  const cursorInnerRef = useRef<SVGEllipseElement>(null);
-  const cursorDotRef = useRef<SVGCircleElement>(null);
   const lastPenTimeRef = useRef<number>(0);
 
   const curAspect = (aspectRatio && aspectRatio > 0)
@@ -1949,37 +1947,6 @@ const DrawingCanvas: React.FC<{
     return (drawRadius * 100) / rect.width;
   };
 
-  const updateCursorIndicator = (pt: Point, pressure?: number) => {
-    if (!svgRef.current || !cursorGroupRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    let effRadius = drawRadius;
-    if (drawTool === 'pen' && pressure !== undefined && pressure > 0 && pressure !== 0.5) {
-      effRadius = Math.max(0.6, drawRadius * (0.35 + pressure * 0.65));
-    }
-    const rx = (effRadius * 50) / rect.width;
-    const ry = (effRadius * 50) / rect.height;
-
-    if (cursorOuterRef.current) {
-      cursorOuterRef.current.setAttribute("cx", String(pt.x));
-      cursorOuterRef.current.setAttribute("cy", String(pt.y));
-      cursorOuterRef.current.setAttribute("rx", String(rx));
-      cursorOuterRef.current.setAttribute("ry", String(ry));
-    }
-    if (cursorInnerRef.current) {
-      cursorInnerRef.current.setAttribute("cx", String(pt.x));
-      cursorInnerRef.current.setAttribute("cy", String(pt.y));
-      cursorInnerRef.current.setAttribute("rx", String(rx));
-      cursorInnerRef.current.setAttribute("ry", String(ry));
-    }
-    if (cursorDotRef.current) {
-      cursorDotRef.current.setAttribute("cx", String(pt.x));
-      cursorDotRef.current.setAttribute("cy", String(pt.y));
-    }
-    cursorGroupRef.current.setAttribute("opacity", "1");
-  };
-
   const onPointerDown = (e: React.PointerEvent) => {
     if (!isDrawingMode) return;
 
@@ -2000,7 +1967,6 @@ const DrawingCanvas: React.FC<{
 
     (e.target as Element).releasePointerCapture(e.pointerId);
     const pt = getPt(e);
-    updateCursorIndicator(pt, e.pressure);
 
     if (drawTool === 'pen') {
       setSelectedIds(new Set());
@@ -2023,43 +1989,7 @@ const DrawingCanvas: React.FC<{
     } else if (drawTool === 'fill') {
       setSelectedIds(new Set());
       if (isFilling) return;
-      
-      // Only recolor if the user clicked directly inside an existing filled area
-      const clickedFillIndex = [...drawings].reverse().findIndex(s => s.type === 'fill' && strokeIntersectsCircle(s, pt, 1));
-      if (clickedFillIndex !== -1) {
-        const trueInd = drawings.length - 1 - clickedFillIndex;
-        const clickedStroke = drawings[trueInd];
-        
-        if (clickedStroke.type === 'fill') {
-           const cache = hitMapCache.get(clickedStroke.id);
-           let newUrl = clickedStroke.imageUrl;
-           if (cache) {
-             const canvas = document.createElement('canvas');
-             canvas.width = cache.width; canvas.height = cache.height;
-             const ctx = canvas.getContext('2d')!;
-             const idata = ctx.createImageData(cache.width, cache.height);
-             const rColor = parseInt(drawColor.slice(1, 3), 16) || 0;
-             const gColor = parseInt(drawColor.slice(3, 5), 16) || 0;
-             const bColor = parseInt(drawColor.slice(5, 7), 16) || 0;
-             for (let i = 0; i < cache.data.length; i += 4) {
-                if (cache.data[i + 3] > 32) {
-                   idata.data[i] = rColor;
-                   idata.data[i + 1] = gColor;
-                   idata.data[i + 2] = bColor;
-                   idata.data[i + 3] = 255;
-                }
-             }
-             ctx.putImageData(idata, 0, 0);
-             newUrl = canvas.toDataURL('image/png');
-             hitMapCache.set(clickedStroke.id, { data: idata.data, width: cache.width, height: cache.height });
-           }
-           const updated = [...drawings];
-           updated[trueInd] = { ...updated[trueInd], color: drawColor, imageUrl: newUrl };
-           onChange(updated);
-           return;
-        }
-      }
-      
+
       setIsFilling(true);
       
       requestAnimationFrame(() => {
@@ -2067,7 +1997,7 @@ const DrawingCanvas: React.FC<{
           if (!svgRef.current) { setIsFilling(false); return; }
           const effectiveAspect = curAspect > 0 ? curAspect : (aspectRef.current || 1);
           
-          // 1. Calculate the extended world bounds to encompass all existing drawings, click point, and generous bleed/zoom margins
+          // 1. Calculate extended bounding box of drawings and click point
           let drawMinX = 0, drawMaxX = 100, drawMinY = 0, drawMaxY = 100;
           for (const s of drawings) {
             if (s.type === 'fill' && s.bounds) {
@@ -2085,40 +2015,48 @@ const DrawingCanvas: React.FC<{
             }
           }
 
-          // Generous margin (at least 200% on each side) to cover outside panel, zoom out, and expanding area
-          const margin = 200;
-          const worldMinX = Math.min(-margin, Math.floor(drawMinX - 50), Math.floor(pt.x - 50));
-          const worldMaxX = Math.max(100 + margin, Math.ceil(drawMaxX + 50), Math.ceil(pt.x + 50));
-          const worldMinY = Math.min(-margin, Math.floor(drawMinY - 50), Math.floor(pt.y - 50));
-          const worldMaxY = Math.max(100 + margin, Math.ceil(drawMaxY + 50), Math.ceil(pt.y + 50));
+          const margin = 100;
+          const worldMinX = Math.min(-margin, Math.floor(drawMinX - 30), Math.floor(pt.x - 30));
+          const worldMaxX = Math.max(100 + margin, Math.ceil(drawMaxX + 30), Math.ceil(pt.x + 30));
+          const worldMinY = Math.min(-margin, Math.floor(drawMinY - 30), Math.floor(pt.y - 30));
+          const worldMaxY = Math.max(100 + margin, Math.ceil(drawMaxY + 30), Math.ceil(pt.y + 30));
 
           const worldW = Math.max(10, worldMaxX - worldMinX);
           const worldH = Math.max(10, worldMaxY - worldMinY);
 
-          // Raster canvas dimensions for boundary testing
-          const canvasH = 1500;
-          const canvasW = Math.max(100, Math.round(1500 * (worldW / worldH) * effectiveAspect));
+          // Raster canvas dimensions for mask testing
+          const canvasH = 1600;
+          const canvasW = Math.max(100, Math.round(1600 * (worldW / worldH) * effectiveAspect));
           const canvas = document.createElement('canvas');
           canvas.width = canvasW;
           canvas.height = canvasH;
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
           if (!ctx) { setIsFilling(false); return; }
-          
+
           ctx.fillStyle = '#000000';
+          ctx.strokeStyle = '#000000';
           ctx.save();
-          // Map world coordinates [worldMinX..worldMaxX, worldMinY..worldMaxY] to canvas [0..canvasW, 0..canvasH]
           ctx.scale(canvasW / worldW, canvasH / worldH);
           ctx.translate(-worldMinX, -worldMinY);
 
-          for (const s of drawings) {
-            if (s.type === 'fill' || !s.points || s.points.length === 0) continue;
+          // 2. Render all pen stroke outlines with exact vector paths
+          const penStrokes = drawings.filter(s => s.type !== 'fill' && s.points && s.points.length > 0);
+          for (const s of penStrokes) {
             const d = getSvgPathFromPoints(s.points, s.brushRadius, effectiveAspect);
-            if (!d) continue;
-            const p2d = new Path2D(d);
-            ctx.fill(p2d);
+            if (d) {
+              const p2d = new Path2D(d);
+              ctx.fill(p2d);
+            }
           }
+
+          // 3. Panel boundary closing: If clicking inside the comic panel area [0..100, 0..100], stroke the panel frame
+          if (pt.x >= 0 && pt.x <= 100 && pt.y >= 0 && pt.y <= 100) {
+            ctx.lineWidth = 1;
+            ctx.strokeRect(0, 0, 100, 100);
+          }
+
           ctx.restore();
-          
+
           const srcImageData = ctx.getImageData(0, 0, canvasW, canvasH);
           const srcData = srcImageData.data;
 
@@ -2127,13 +2065,15 @@ const DrawingCanvas: React.FC<{
           startX = Math.max(0, Math.min(canvasW - 1, startX));
           startY = Math.max(0, Math.min(canvasH - 1, startY));
 
-          // If clicked on or near a boundary line, search radially for lowest alpha interior
+          const STROKE_ALPHA_THRESHOLD = 30;
+
+          // 4. Seed point search: If clicked on a stroke boundary (alpha > threshold), search outward for open interior
           let seedX = startX;
           let seedY = startY;
-          if (srcData[(startY * canvasW + startX) * 4 + 3] > 80) {
+          if (srcData[(startY * canvasW + startX) * 4 + 3] > STROKE_ALPHA_THRESHOLD) {
             let minAlpha = srcData[(startY * canvasW + startX) * 4 + 3];
             let foundEmpty = false;
-            for (let r = 1; r <= 40 && !foundEmpty; r++) {
+            for (let r = 1; r <= 45 && !foundEmpty; r++) {
               for (let dy = -r; dy <= r && !foundEmpty; dy++) {
                 for (let dx = -r; dx <= r; dx++) {
                   if (dx * dx + dy * dy > r * r) continue;
@@ -2145,11 +2085,52 @@ const DrawingCanvas: React.FC<{
                       minAlpha = a;
                       seedX = nx;
                       seedY = ny;
-                      if (minAlpha === 0) {
+                      if (minAlpha <= STROKE_ALPHA_THRESHOLD) {
                         foundEmpty = true;
                         break;
                       }
                     }
+                  }
+                }
+              }
+            }
+          }
+
+          // 5. Build dilated collision mask to trap flood fill inside shapes with 1-3px micro-gaps
+          const isSolidStroke = (x: number, y: number) => srcData[(y * canvasW + x) * 4 + 3] > STROKE_ALPHA_THRESHOLD;
+          const closedBarrier = new Uint8Array(canvasW * canvasH);
+          for (let y = 0; y < canvasH; y++) {
+            const rowOffset = y * canvasW;
+            for (let x = 0; x < canvasW; x++) {
+              if (srcData[(rowOffset + x) * 4 + 3] > STROKE_ALPHA_THRESHOLD) {
+                for (let dy = -2; dy <= 2; dy++) {
+                  const ny = y + dy;
+                  if (ny < 0 || ny >= canvasH) continue;
+                  for (let dx = -2; dx <= 2; dx++) {
+                    if (dx * dx + dy * dy > 4) continue;
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= canvasW) continue;
+                    closedBarrier[ny * canvasW + nx] = 1;
+                  }
+                }
+              }
+            }
+          }
+
+          let phase1SeedX = seedX;
+          let phase1SeedY = seedY;
+          if (closedBarrier[seedY * canvasW + seedX] && !isSolidStroke(seedX, seedY)) {
+            let found = false;
+            for (let r = 1; r <= 20 && !found; r++) {
+              for (let dy = -r; dy <= r && !found; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                  const nx = seedX + dx;
+                  const ny = seedY + dy;
+                  if (nx >= 0 && nx < canvasW && ny >= 0 && ny < canvasH && !closedBarrier[ny * canvasW + nx]) {
+                    phase1SeedX = nx;
+                    phase1SeedY = ny;
+                    found = true;
+                    break;
                   }
                 }
               }
@@ -2161,91 +2142,144 @@ const DrawingCanvas: React.FC<{
           let head = 0;
           let tail = 0;
 
-          if (srcData[(seedY * canvasW + seedX) * 4 + 3] <= 80) {
+          if (!closedBarrier[phase1SeedY * canvasW + phase1SeedX]) {
+            const startIdx = phase1SeedY * canvasW + phase1SeedX;
+            queue[tail++] = startIdx;
+            visited[startIdx] = 1;
+          } else if (!isSolidStroke(seedX, seedY)) {
             const startIdx = seedY * canvasW + seedX;
             queue[tail++] = startIdx;
             visited[startIdx] = 1;
           }
 
-          let minX = seedX, maxX = seedX, minY = seedY, maxY = seedY;
-          let filledPixels = 0;
-
+          // Phase 1: 4-connected BFS on closedBarrier to guarantee confinement inside shape
           while (head < tail) {
             const idx = queue[head++];
             const curX = idx % canvasW;
             const curY = Math.floor(idx / canvasW);
-            filledPixels++;
 
-            if (curX < minX) minX = curX;
-            if (curX > maxX) maxX = curX;
-            if (curY < minY) minY = curY;
-            if (curY > maxY) maxY = curY;
-
-            // 4-connected flood fill
             const left = curX > 0 ? idx - 1 : -1;
             const right = curX < canvasW - 1 ? idx + 1 : -1;
             const up = curY > 0 ? idx - canvasW : -1;
             const down = curY < canvasH - 1 ? idx + canvasW : -1;
 
-            if (left !== -1 && !visited[left] && srcData[left * 4 + 3] <= 80) {
+            if (left !== -1 && !visited[left] && !closedBarrier[left]) {
               visited[left] = 1; queue[tail++] = left;
             }
-            if (right !== -1 && !visited[right] && srcData[right * 4 + 3] <= 80) {
+            if (right !== -1 && !visited[right] && !closedBarrier[right]) {
               visited[right] = 1; queue[tail++] = right;
             }
-            if (up !== -1 && !visited[up] && srcData[up * 4 + 3] <= 80) {
+            if (up !== -1 && !visited[up] && !closedBarrier[up]) {
               visited[up] = 1; queue[tail++] = up;
             }
-            if (down !== -1 && !visited[down] && srcData[down * 4 + 3] <= 80) {
+            if (down !== -1 && !visited[down] && !closedBarrier[down]) {
               visited[down] = 1; queue[tail++] = down;
             }
           }
 
-          // If no closed shape was detected (fill reached outer bounds or 0 pixels found from seed):
-          // "fill entire area" means fill the area outside the panel too, include expanding or zoom area
-          const touchesEdges = minX <= 2 || maxX >= canvasW - 3 || minY <= 2 || maxY >= canvasH - 3;
-          const isFullArea = filledPixels === 0 || touchesEdges;
+          // Check if Phase 1 fill touched outer canvas boundaries (unconstrained background)
+          let p1MinX = canvasW, p1MaxX = 0, p1MinY = canvasH, p1MaxY = 0;
+          for (let i = 0; i < tail; i++) {
+            const idx = queue[i];
+            const cx = idx % canvasW;
+            const cy = Math.floor(idx / canvasW);
+            if (cx < p1MinX) p1MinX = cx;
+            if (cx > p1MaxX) p1MaxX = cx;
+            if (cy < p1MinY) p1MinY = cy;
+            if (cy > p1MaxY) p1MaxY = cy;
+          }
+          const touchesEdges = p1MinX <= 2 || p1MaxX >= canvasW - 3 || p1MinY <= 2 || p1MaxY >= canvasH - 3;
+          const isFullArea = tail === 0 || touchesEdges;
+
+          // Phase 2: Corner & Vertex Reclaiming on True Mask
+          // Expand the visited region into all adjacent open pixels (srcData <= threshold).
+          // Because the fill is already locked inside the shape, this fills all the way into sharp acute vertices and narrow corners!
+          if (!isFullArea && tail > 0) {
+            head = 0;
+            while (head < tail) {
+              const idx = queue[head++];
+              const curX = idx % canvasW;
+              const curY = Math.floor(idx / canvasW);
+
+              const left = curX > 0 ? idx - 1 : -1;
+              const right = curX < canvasW - 1 ? idx + 1 : -1;
+              const up = curY > 0 ? idx - canvasW : -1;
+              const down = curY < canvasH - 1 ? idx + canvasW : -1;
+
+              if (left !== -1 && !visited[left] && srcData[left * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
+                visited[left] = 1; queue[tail++] = left;
+              }
+              if (right !== -1 && !visited[right] && srcData[right * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
+                visited[right] = 1; queue[tail++] = right;
+              }
+              if (up !== -1 && !visited[up] && srcData[up * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
+                visited[up] = 1; queue[tail++] = up;
+              }
+              if (down !== -1 && !visited[down] && srcData[down * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
+                visited[down] = 1; queue[tail++] = down;
+              }
+            }
+          }
+
+          // Phase 3: Build Filled Mask and Apply Under-Stroke Anti-Halo Bleed
+          const filledMask = new Uint8Array(canvasW * canvasH);
+          let boundMinX = canvasW, boundMaxX = 0, boundMinY = canvasH, boundMaxY = 0;
 
           if (isFullArea) {
             for (let idx = 0; idx < canvasW * canvasH; idx++) {
-              if (srcData[idx * 4 + 3] <= 80) {
-                visited[idx] = 1;
-                filledPixels++;
+              if (srcData[idx * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
+                filledMask[idx] = 1;
               }
             }
-            minX = 0;
-            minY = 0;
-            maxX = canvasW - 1;
-            maxY = canvasH - 1;
-          }
+            boundMinX = 0;
+            boundMinY = 0;
+            boundMaxX = canvasW - 1;
+            boundMaxY = canvasH - 1;
+          } else if (tail > 0) {
+            // Mark all visited open pixels
+            for (let i = 0; i < tail; i++) {
+              const idx = queue[i];
+              filledMask[idx] = 1;
+              const cx = idx % canvasW;
+              const cy = Math.floor(idx / canvasW);
+              if (cx < boundMinX) boundMinX = cx;
+              if (cx > boundMaxX) boundMaxX = cx;
+              if (cy < boundMinY) boundMinY = cy;
+              if (cy > boundMaxY) boundMaxY = cy;
+            }
 
-          if (filledPixels > 0) {
-            // Morphological dilation (5px) to expand fill under the stroke boundary, avoiding white halos
-            const dilateRadius = 5;
-            const dilatedVisited = new Uint8Array(canvasW * canvasH);
-            for (let y = minY; y <= maxY; y++) {
-              for (let x = minX; x <= maxX; x++) {
-                if (visited[y * canvasW + x]) {
-                  for (let dy = -dilateRadius; dy <= dilateRadius; dy++) {
-                    const ny = y + dy;
-                    if (ny < 0 || ny >= canvasH) continue;
-                    for (let dx = -dilateRadius; dx <= dilateRadius; dx++) {
-                      const nx = x + dx;
-                      if (nx < 0 || nx >= canvasW) continue;
-                      if (dx * dx + dy * dy <= dilateRadius * dilateRadius) {
-                        dilatedVisited[ny * canvasW + nx] = 1;
-                      }
-                    }
+            // Strictly expand 2-3px into stroke pixels (srcData > STROKE_ALPHA_THRESHOLD)
+            // This eliminates white halos while preventing any bleed into exterior empty space
+            const bleedRadius = 3;
+            const initialTail = tail;
+            for (let i = 0; i < initialTail; i++) {
+              const idx = queue[i];
+              const x = idx % canvasW;
+              const y = Math.floor(idx / canvasW);
+
+              for (let dy = -bleedRadius; dy <= bleedRadius; dy++) {
+                const ny = y + dy;
+                if (ny < 0 || ny >= canvasH) continue;
+                for (let dx = -bleedRadius; dx <= bleedRadius; dx++) {
+                  if (dx === 0 && dy === 0) continue;
+                  if (dx * dx + dy * dy > bleedRadius * bleedRadius) continue;
+                  const nx = x + dx;
+                  if (nx < 0 || nx >= canvasW) continue;
+                  const nIdx = ny * canvasW + nx;
+                  // Bleed ONLY into stroke pixels
+                  if (srcData[nIdx * 4 + 3] > STROKE_ALPHA_THRESHOLD && !filledMask[nIdx]) {
+                    filledMask[nIdx] = 1;
+                    if (nx < boundMinX) boundMinX = nx;
+                    if (nx > boundMaxX) boundMaxX = nx;
+                    if (ny < boundMinY) boundMinY = ny;
+                    if (ny > boundMaxY) boundMaxY = ny;
                   }
                 }
               }
             }
+          }
 
-            const boundMinX = isFullArea ? 0 : Math.max(0, minX - dilateRadius - 2);
-            const boundMinY = isFullArea ? 0 : Math.max(0, minY - dilateRadius - 2);
-            const boundMaxX = isFullArea ? canvasW - 1 : Math.min(canvasW - 1, maxX + dilateRadius + 2);
-            const boundMaxY = isFullArea ? canvasH - 1 : Math.min(canvasH - 1, maxY + dilateRadius + 2);
-
+          if ((isFullArea || tail > 0) && boundMinX <= boundMaxX && boundMinY <= boundMaxY) {
             const bw = boundMaxX - boundMinX + 1;
             const bh = boundMaxY - boundMinY + 1;
 
@@ -2266,7 +2300,7 @@ const DrawingCanvas: React.FC<{
                 const srcY = boundMinY + y;
                 for (let x = 0; x < bw; x++) {
                   const srcX = boundMinX + x;
-                  if (dilatedVisited[srcY * canvasW + srcX]) {
+                  if (filledMask[srcY * canvasW + srcX]) {
                     const dIdx = (y * bw + x) * 4;
                     fillData[dIdx] = rColor;
                     fillData[dIdx + 1] = gColor;
@@ -2280,6 +2314,18 @@ const DrawingCanvas: React.FC<{
               const newId = Math.random().toString(36).substring(2);
               hitMapCache.set(newId, { data: fillData, width: bw, height: bh });
 
+              const newFillBounds = isFullArea ? {
+                x: worldMinX,
+                y: worldMinY,
+                w: worldW,
+                h: worldH,
+              } : {
+                x: worldMinX + (boundMinX / canvasW) * worldW,
+                y: worldMinY + (boundMinY / canvasH) * worldH,
+                w: (bw / canvasW) * worldW,
+                h: (bh / canvasH) * worldH,
+              };
+
               const newFillStroke: Stroke = {
                 id: newId,
                 type: 'fill',
@@ -2288,22 +2334,36 @@ const DrawingCanvas: React.FC<{
                 brushRadius: 0,
                 imageUrl: boundsCanvas.toDataURL('image/png'),
                 isFullArea: isFullArea,
-                bounds: isFullArea ? {
-                  x: worldMinX,
-                  y: worldMinY,
-                  w: worldW,
-                  h: worldH,
-                } : {
-                  x: worldMinX + (boundMinX / canvasW) * worldW,
-                  y: worldMinY + (boundMinY / canvasH) * worldH,
-                  w: (bw / canvasW) * worldW,
-                  h: (bh / canvasH) * worldH,
-                }
+                bounds: newFillBounds
               };
 
+              // Check if replacing an existing fill with matching bounds/location
               const existingFills = drawings.filter(s => s.type === 'fill');
               const existingPenStrokes = drawings.filter(s => s.type !== 'fill');
-              onChange([...existingFills, newFillStroke, ...existingPenStrokes]);
+
+              // If full area, replace previous full area fill
+              let updatedFills: Stroke[];
+              if (isFullArea) {
+                updatedFills = [...existingFills.filter(s => !s.isFullArea), newFillStroke];
+              } else {
+                // If there is an existing shape fill with almost identical bounding box, replace it
+                const matchIdx = existingFills.findIndex(s => 
+                  !s.isFullArea && 
+                  s.bounds && 
+                  Math.abs(s.bounds.x - newFillBounds.x) < 3.5 &&
+                  Math.abs(s.bounds.y - newFillBounds.y) < 3.5 &&
+                  Math.abs(s.bounds.w - newFillBounds.w) < 4.5 &&
+                  Math.abs(s.bounds.h - newFillBounds.h) < 4.5
+                );
+                if (matchIdx !== -1) {
+                  updatedFills = [...existingFills];
+                  updatedFills[matchIdx] = newFillStroke;
+                } else {
+                  updatedFills = [...existingFills, newFillStroke];
+                }
+              }
+
+              onChange([...updatedFills, ...existingPenStrokes]);
             }
           }
         } catch (err) {
@@ -2331,7 +2391,6 @@ const DrawingCanvas: React.FC<{
     }
 
     const pt = getPt(e);
-    updateCursorIndicator(pt, e.pressure);
 
     if (drawTool === 'pen' && currentStroke) {
       const lastPt = currentStroke.points[currentStroke.points.length - 1];
@@ -2518,26 +2577,17 @@ const DrawingCanvas: React.FC<{
 
   const onPointerEnter = (e: React.PointerEvent) => {
     if (!isDrawingMode) return;
-    const pt = getPt(e);
-    updateCursorIndicator(pt, e.pressure);
   };
 
   const onPointerLeave = (e: React.PointerEvent) => {
     onPointerUp(e);
-    if (cursorGroupRef.current) {
-      cursorGroupRef.current.setAttribute("opacity", "0");
-    }
   };
-
-  let cursorClass = 'cursor-none';
-  if (drawTool === 'fill') cursorClass = 'cursor-crosshair';
-  else if (drawTool === 'select') cursorClass = 'cursor-default';
 
   return (
     <svg 
       ref={svgRef}
-      className={`absolute inset-0 w-full h-full ${isExpanded ? 'overflow-visible' : 'overflow-hidden'} ${isDrawingMode ? `z-50 ${cursorClass} touch-none pointer-events-auto` : 'z-10 pointer-events-none touch-none'}`}
-      style={{ overflow: isExpanded ? 'visible' : 'hidden' }}
+      className={`absolute inset-0 w-full h-full ${isExpanded ? 'overflow-visible' : 'overflow-hidden'} ${isDrawingMode ? 'z-50 touch-none pointer-events-auto' : 'z-10 pointer-events-none touch-none'}`}
+      style={{ overflow: isExpanded ? 'visible' : 'hidden', cursor: isDrawingMode ? HOLLOW_CROSS_CURSOR : undefined }}
       onPointerEnter={onPointerEnter}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -2548,43 +2598,6 @@ const DrawingCanvas: React.FC<{
     >
       {drawings.map((s, idx) => renderStroke(s, selectedIds.has(s.id), idx))}
       {currentStroke && renderStroke(currentStroke, false, -1)}
-      {isDrawingMode && (drawTool === "pen" || drawTool === "erase") && (
-        <g 
-          ref={cursorGroupRef} 
-          opacity="0" 
-          className="pointer-events-none transition-none"
-          style={{ pointerEvents: 'none' }}
-        >
-          {/* High-contrast outer stroke */}
-          <ellipse
-            ref={cursorOuterRef}
-            cx="-100" cy="-100" rx="0" ry="0"
-            fill="none"
-            stroke="rgba(0, 0, 0, 0.85)"
-            strokeWidth="2.2"
-            vectorEffect="non-scaling-stroke"
-          />
-          {/* Inner brush outline */}
-          <ellipse
-            ref={cursorInnerRef}
-            cx="-100" cy="-100" rx="0" ry="0"
-            fill={drawTool === 'erase' ? 'rgba(239, 68, 68, 0.2)' : 'none'}
-            stroke={drawTool === 'erase' ? '#ef4444' : '#ffffff'}
-            strokeWidth="1.2"
-            vectorEffect="non-scaling-stroke"
-          />
-          {/* High-precision center dot feedback */}
-          <circle
-            ref={cursorDotRef}
-            cx="-100" cy="-100" r="1.5"
-            fill={drawTool === 'erase' ? '#ef4444' : (drawColor === '#ffffff' ? '#000000' : drawColor)}
-            stroke="#ffffff"
-            strokeWidth="0.75"
-            vectorEffect="non-scaling-stroke"
-          />
-        </g>
-      )}
-      
       {lassoPath && lassoPath.length > 0 && (
         <path
           d={lassoPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}

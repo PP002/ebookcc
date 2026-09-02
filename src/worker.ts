@@ -201,11 +201,15 @@ async function executeUltralyticsYolo(
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
 
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers["Authorization"] = `Bearer ${apiKey}`;
+        headers["x-api-key"] = apiKey;
+      }
+
       const response = await fetch(targetUrl, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-        },
+        headers,
         body: formData,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId));
@@ -259,20 +263,27 @@ async function executeUltralyticsYolo(
 
           const item = { box_2d, segments, confidence: r.confidence, class: r.class, name: r.name };
 
+          const rName = (r.name || "").toLowerCase();
+          const isPanelName = rName.includes("panel") || rName.includes("frame") || rName.includes("border");
+          const isTextName = rName.includes("text") || rName.includes("bubble") || rName.includes("balloon") || rName.includes("caption") || rName.includes("dialog");
+
           if (textOnly) {
             texts.push(item);
+          } else if (isPanelName) {
+            panels.push(item);
+            boxes.push(box_2d);
+          } else if (isTextName) {
+            texts.push(item);
+          } else if (r.class === panelClass) {
+            panels.push(item);
+            boxes.push(box_2d);
+          } else if (r.class === textClass) {
+            texts.push(item);
+          } else if (r.class > 0 && panelClass === 0 && textClass === 1) {
+            texts.push(item);
           } else {
-            if (r.class === panelClass) {
-              panels.push(item);
-              boxes.push(box_2d);
-            } else if (r.class === textClass) {
-              texts.push(item);
-            } else if (r.class > 0 && panelClass === 0 && textClass === 1) {
-              texts.push(item);
-            } else {
-              panels.push(item);
-              boxes.push(box_2d);
-            }
+            panels.push(item);
+            boxes.push(box_2d);
           }
         });
 
@@ -988,12 +999,11 @@ export default {
     }
 
     // ─────────────────────────────────────────────
-    // Route: POST /api/detect-panels, /api/detectPanelsLocalYolo, /api/detectPanels
+    // Route: POST /api/detect-panels, /api/detectPanelsLocalYolo (YOLO Proxy)
     // ─────────────────────────────────────────────
     if (
       (url.pathname === "/api/detect-panels" ||
-        url.pathname === "/api/detectPanelsLocalYolo" ||
-        url.pathname === "/api/detectPanels") &&
+        url.pathname === "/api/detectPanelsLocalYolo") &&
       request.method === "POST"
     ) {
       try {

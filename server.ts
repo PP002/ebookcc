@@ -1339,29 +1339,36 @@ async function startServer() {
               origH = metadata.height || 1000;
             } catch (_) {}
 
-            const form = new FormData();
-            form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
-            form.append("conf", conf);
-            form.append("iou", iou);
-            form.append("imgsz", imgsz);
-
             let yoloRes = null;
-            let externalRetries = 2;
+            let externalRetries = yoloUrl ? 1 : 0;
             while (externalRetries >= 0) {
               try {
+                // Must create a new FormData instance per attempt
+                const form = new FormData();
+                form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
+                form.append("conf", conf);
+                form.append("iou", iou);
+                form.append("imgsz", imgsz);
+
+                const headers: Record<string, string> = {};
+                if (yoloKey) {
+                  headers["Authorization"] = `Bearer ${yoloKey}`;
+                  headers["x-api-key"] = yoloKey;
+                }
+
                 yoloRes = await fetch(targetUrl, {
                   method: "POST",
-                  headers: { "Authorization": `Bearer ${yoloKey || ''}` },
+                  headers,
                   body: form,
-                  signal: AbortSignal.timeout(60000)
+                  signal: AbortSignal.timeout(8000)
                 });
                 if (yoloRes.ok) break;
-                console.warn(`[API] External YOLO attempt status (${yoloRes.status}). Retries left: ${externalRetries}`);
+                console.warn(`[API] External YOLO attempt status (${yoloRes.status}) for ${targetUrl}. Retries left: ${externalRetries}`);
               } catch (e: any) {
-                console.error(`[API] External YOLO fetch error: ${e.message}. Retries left: ${externalRetries}`);
+                console.error(`[API] External YOLO fetch error for ${targetUrl}: ${e.message}. Retries left: ${externalRetries}`);
               }
               externalRetries--;
-              if (externalRetries >= 0) await new Promise(r => setTimeout(r, 1000));
+              if (externalRetries >= 0) await new Promise(r => setTimeout(r, 500));
             }
 
             if (yoloRes) {
@@ -1403,20 +1410,27 @@ async function startServer() {
                   } : undefined;
                   const item = { box_2d, segments, confidence: r.confidence, class: r.class, name: r.name };
 
+                  const rName = (r.name || "").toLowerCase();
+                  const isPanelName = rName.includes("panel") || rName.includes("frame") || rName.includes("border");
+                  const isTextName = rName.includes("text") || rName.includes("bubble") || rName.includes("balloon") || rName.includes("caption") || rName.includes("dialog");
+
                   if (yoloTextOnly) {
                     texts.push(item);
+                  } else if (isPanelName) {
+                    panels.push(item);
+                    boxes.push(box_2d);
+                  } else if (isTextName) {
+                    texts.push(item);
+                  } else if (r.class === yoloPanelClass) {
+                    panels.push(item);
+                    boxes.push(box_2d);
+                  } else if (r.class === yoloTextClass) {
+                    texts.push(item);
+                  } else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) {
+                    texts.push(item);
                   } else {
-                    if (r.class === yoloPanelClass) {
-                      panels.push(item);
-                      boxes.push(box_2d);
-                    } else if (r.class === yoloTextClass) {
-                      texts.push(item);
-                    } else if (r.class > 0 && yoloPanelClass === 0 && yoloTextClass === 1) {
-                      texts.push(item);
-                    } else {
-                      panels.push(item);
-                      boxes.push(box_2d);
-                    }
+                    panels.push(item);
+                    boxes.push(box_2d);
                   }
                 });
                 return res.json({ success: true, panels, texts, boxes, origWidth: origW, origHeight: origH, endpoint: targetUrl });
@@ -1433,11 +1447,16 @@ async function startServer() {
               }
             }
           } else {
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (yoloKey) {
+              headers["Authorization"] = `Bearer ${yoloKey}`;
+              headers["x-api-key"] = yoloKey;
+            }
             const yoloRes = await fetch(targetUrl, {
               method: "POST",
-              headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
+              headers,
               body: JSON.stringify({ base64Image: rawBase64 }),
-              signal: AbortSignal.timeout(60000)
+              signal: AbortSignal.timeout(30000)
             });
             if (yoloRes.ok) {
               const data = await yoloRes.json();
@@ -1476,7 +1495,7 @@ async function startServer() {
   app.post("/api/detectPanels", async (req, res) => {
     console.log("[API] detectPanels request received");
     try {
-      const yoloUrl = (req.headers["x-yolo-url"] as string) || DEFAULT_PREDICT_URLS[0];
+      const customYoloUrl = req.headers["x-yolo-url"] as string;
       const yoloKey = (req.headers["x-yolo-key"] as string) || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
 
       let imgBuf: Buffer;
@@ -1488,65 +1507,70 @@ async function startServer() {
         return res.status(400).json({ error: e.message });
       }
 
-      const urlsToTry = (req.headers["x-yolo-url"] as string) ? [req.headers["x-yolo-url"] as string] : DEFAULT_PREDICT_URLS;
-
-      for (const targetUrl of urlsToTry) {
+      // If a custom YOLO URL was specifically requested, try it first
+      if (customYoloUrl) {
         try {
-          console.log("[API] Routing to YOLO Endpoint:", targetUrl);
-          if (targetUrl.includes("/predict")) {
-             const metadata = sizeOf(imgBuf);
-             const origW    = metadata.width  || 1000;
-             const origH    = metadata.height || 1000;
-             const form = new FormData();
-             form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
-             form.append("conf", "0.15");
-             form.append("iou",  "0.45");
-             form.append("imgsz","1280");
-             
-             let yoloRes = null;
-             for (let i = 0; i < 3; i++) {
-               try {
-                 yoloRes = await fetch(targetUrl, {
-                   method: "POST",
-                   headers: { "Authorization": `Bearer ${yoloKey || ''}` },
-                   body: form,
-                   signal: AbortSignal.timeout(60000)
-                 });
-                 if (yoloRes.ok) break;
-                 await new Promise(r => setTimeout(r, 1000));
-               } catch (e) {
-                 if (i === 2) throw e;
-                 await new Promise(r => setTimeout(r, 1000));
-               }
-             }
+          console.log("[API detectPanels] Routing to custom YOLO Endpoint:", customYoloUrl);
+          if (customYoloUrl.includes("/predict")) {
+            const metadata = sizeOf(imgBuf);
+            const origW    = metadata.width  || 1000;
+            const origH    = metadata.height || 1000;
+            
+            const form = new FormData();
+            form.append("file", new Blob([imgBuf as unknown as BlobPart], { type: 'image/jpeg' }), "image.jpg");
+            form.append("conf", "0.15");
+            form.append("iou",  "0.45");
+            form.append("imgsz","1280");
 
-             if (yoloRes && yoloRes.ok) {
-               const data = await yoloRes.json();
-               if (data.images?.[0]?.results) {
-                 const panels = data.images[0].results
-                   .filter((r: any) => r.class === 0)
-                   .map((r: any) => [
-                     (r.box.y1 / origH) * 1000, 
-                     (r.box.x1 / origW) * 1000,
-                     (r.box.y2 / origH) * 1000,
-                     (r.box.x2 / origW) * 1000,
-                   ]);
-                 return res.json(panels);
-               }
-             }
-          } else {
-            const yoloRes = await fetch(targetUrl, {
+            const headers: Record<string, string> = {};
+            if (yoloKey) {
+              headers["Authorization"] = `Bearer ${yoloKey}`;
+              headers["x-api-key"] = yoloKey;
+            }
+
+            const yoloRes = await fetch(customYoloUrl, {
               method: "POST",
-              headers: { "Authorization": `Bearer ${yoloKey || ''}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ base64Image: rawBase64 })
+              headers,
+              body: form,
+              signal: AbortSignal.timeout(8000)
+            });
+
+            if (yoloRes.ok) {
+              const data = await yoloRes.json();
+              if (data.images?.[0]?.results) {
+                const panels = data.images[0].results
+                  .filter((r: any) => {
+                    const rName = (r.name || "").toLowerCase();
+                    return rName.includes("panel") || rName.includes("frame") || r.class === 0;
+                  })
+                  .map((r: any) => [
+                    (r.box.y1 / origH) * 1000, 
+                    (r.box.x1 / origW) * 1000,
+                    (r.box.y2 / origH) * 1000,
+                    (r.box.x2 / origW) * 1000,
+                  ]);
+                return res.json(panels);
+              }
+            }
+          } else {
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (yoloKey) {
+              headers["Authorization"] = `Bearer ${yoloKey}`;
+              headers["x-api-key"] = yoloKey;
+            }
+            const yoloRes = await fetch(customYoloUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ base64Image: rawBase64 }),
+              signal: AbortSignal.timeout(8000)
             });
             if (yoloRes.ok) {
               const data = await yoloRes.json();
               if (data?.boxes && Array.isArray(data.boxes)) return res.json(data.boxes);
             }
           }
-        } catch (err) {
-          console.warn("[API] YOLO failed for endpoint:", targetUrl, err);
+        } catch (err: any) {
+          console.warn("[API detectPanels] Custom YOLO attempt failed:", err.message);
         }
       }
 
@@ -1672,9 +1696,10 @@ async function startServer() {
         }
       }
 
-      // If everything failed
+      // If everything failed or no panels detected, gracefully return empty array
       if (!panelsFound) {
-        throw errorOccurred || new Error("All AI panel detection systems failed.");
+        console.warn("[API detectPanels] No panels detected or AI failed, returning empty array.");
+        return res.json([]);
       }
 
       return res.json(panelsFound);

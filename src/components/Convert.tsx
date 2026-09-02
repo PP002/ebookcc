@@ -944,22 +944,18 @@ const panelsCache = new Map<string, ExportPanel[]>();
     
     if (!aiPanels || aiPanels.length === 0) {
       try {
-        let layoutResult = null;
         console.log("Running Cloud Predict API first...");
-        try {
-          layoutResult = await runPredictAPI(aiBase64);
-        } catch (apiErr) {
-          console.warn("Predict API failed:", apiErr);
-          throw apiErr;
-        }
+        const layoutResult = await runPredictAPI(aiBase64).catch((apiErr) => {
+          console.warn("Predict API warning:", apiErr);
+          return null;
+        });
         
         if (layoutResult) {
-          aiPanels = layoutResult.panels;
-          yoloTexts = layoutResult.texts;
+          aiPanels = layoutResult.panels || [];
+          yoloTexts = layoutResult.texts || [];
         }
       } catch (err: any) {
-        console.error("YOLO Predict API failed", err);
-        throw new Error("Could not detect panels using YOLO. " + err.message);
+        console.warn("YOLO Predict API failed:", err);
       }
     }
 
@@ -1201,7 +1197,7 @@ export async function runPredictAPI(base64Data: string, customYoloUrl?: string, 
   // If custom user-configured YOLO is specified, attempt inference through the backend proxy
   if (customYoloUrl) {
     try {
-      const result = await detectLayoutLocalYolo(base64Data, customYoloUrl, customYoloKey, false, 1, 0);
+      const result = await detectLayoutLocalYolo(base64Data, customYoloUrl, customYoloKey, false, 0, 1);
       if (result && (result.panels.length > 0 || result.texts.length > 0)) return result;
       throw new Error(`Custom YOLO returned empty results for ${customYoloUrl}`);
     } catch (err: any) {
@@ -1212,7 +1208,7 @@ export async function runPredictAPI(base64Data: string, customYoloUrl?: string, 
 
   // Use the backend / Worker proxy route (/api/detect-panels) which securely handles the Ultralytics API
   try {
-    const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 1, 0);
+    const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 0, 1);
     if (result && (result.panels.length > 0 || result.texts.length > 0)) {
       return result;
     }

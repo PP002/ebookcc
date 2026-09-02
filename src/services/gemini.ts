@@ -221,7 +221,6 @@ export async function detectLayoutLocalYolo(
     headers["x-yolo-text-class"] = yoloTextClass.toString();
     
     try {
-      const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
       const payload: any = {
         base64Image,
         yoloUrl: customYoloUrl,
@@ -230,9 +229,6 @@ export async function detectLayoutLocalYolo(
         panelClass: yoloPanelClass,
         textClass: yoloTextClass
       };
-      if (uploadRes.success && uploadRes.key) {
-        payload.fileKey = uploadRes.key;
-      }
 
       let res = await fetchWithRetry(`${getApiUrl()}/api/detect-panels`, {
         method: "POST",
@@ -309,9 +305,14 @@ export async function detectLayoutLocalYolo(
         return null;
       }
 
+      if (Array.isArray(parsed)) {
+        const panels = parsed.map((b: any) => (b.box_2d ? b : { box_2d: b }));
+        return { panels, texts: [] };
+      }
+
       if (parsed && (parsed.panels || parsed.texts || parsed.boxes)) {
         const panels = Array.isArray(parsed.panels)
-          ? parsed.panels
+          ? parsed.panels.map((p: any) => (p.box_2d ? p : { box_2d: p }))
           : (Array.isArray(parsed.boxes) ? parsed.boxes.map((b: any) => (b.box_2d ? b : { box_2d: b })) : []);
         const texts = Array.isArray(parsed.texts) ? parsed.texts : [];
         return { panels, texts };
@@ -565,14 +566,13 @@ Ensure coordinates are scaled between 0 and 1000. If no panels are found, return
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
     if (customYoloKey) headers["x-yolo-key"] = customYoloKey;
 
-    const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
     const payload = {
-      ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+      base64Image,
       engine: 'gemini',
       model: localLlmConfig?.model
     };
 
-    const res = await fetch(`${getApiUrl()}/api/detectPanels`, {
+    const res = await fetchWithRetry(`/api/detectPanels`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -582,9 +582,12 @@ Ensure coordinates are scaled between 0 and 1000. If no panels are found, return
       throw new Error(text || "Backend panel detection failed");
     }
     const jsonResult = JSON.parse(text);
-    return jsonResult || [];
-  } catch (error) {
-    console.error("Error detecting comic panels:", error);
+    if (Array.isArray(jsonResult)) return jsonResult;
+    if (jsonResult && Array.isArray(jsonResult.boxes)) return jsonResult.boxes;
+    if (jsonResult && Array.isArray(jsonResult.panels)) return jsonResult.panels.map((p: any) => p.box_2d || p);
+    return [];
+  } catch (error: any) {
+    console.warn("Comic panel detection failed, returning empty list:", error?.message || error);
     return [];
   }
 }
@@ -776,16 +779,15 @@ STRICT INSTRUCTIONS:
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const uploadRes = await uploadMediaToR2(base64Image).catch(() => ({ success: false, key: undefined }));
     const payload = {
-      ...(uploadRes.success && uploadRes.key ? { fileKey: uploadRes.key } : { base64Image }),
+      base64Image,
       suggestedCount,
       engine: 'gemini',
       model: localLlmConfig?.model,
       yoloTexts
     };
 
-    const res = await fetch(`${getApiUrl()}/api/detectText`, {
+    const res = await fetchWithRetry(`/api/detectText`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -794,7 +796,8 @@ STRICT INSTRUCTIONS:
     if (text.trim().startsWith('<') || !res.ok) {
       throw new Error(text || "Backend text detection failed");
     }
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     console.error("Error detecting comic text:", error);
     throw error;
@@ -844,7 +847,7 @@ export async function translateTexts(
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const res = await fetch(`${getApiUrl()}/api/translate`, {
+    const res = await fetchWithRetry(`/api/translate`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -858,9 +861,10 @@ export async function translateTexts(
     if (text.trim().startsWith('<') || !res.ok) {
       throw new Error(text || "Backend translation failed");
     }
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : texts;
   } catch (error) {
     console.error("Error translating text:", error);
-    throw error;
+    return texts;
   }
 }

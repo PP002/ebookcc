@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -1085,11 +1085,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 )}
                 <Button
                   variant="outline"
-                  size="sm"
-                  className={cn(
-                    "h-8 px-2 text-xs font-semibold gap-1.5 transition-colors",
-                    readingDirection === 'rtl' ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" : "hover:bg-accent"
-                  )}
+                  size="icon"
+                  className="h-8 w-8 transition-colors hover:bg-accent"
                   onClick={() => {
                     const nextDir = readingDirection === 'rtl' ? 'ltr' : 'rtl';
                     setReadingDirection(nextDir);
@@ -1098,8 +1095,11 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   }}
                   title={`Reading direction: ${readingDirection.toUpperCase()} (${readingDirection === 'rtl' ? 'Right-to-Left / Manga' : 'Left-to-Right / Western'}). ${directionInfo ? `Source: ${directionInfo}. ` : ''}Click to switch.`}
                 >
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                  <span className="uppercase tracking-wider font-bold">{readingDirection}</span>
+                  {readingDirection === 'rtl' ? (
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  ) : (
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  )}
                 </Button>
                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
                    <Maximize className="w-3.5 h-3.5" />

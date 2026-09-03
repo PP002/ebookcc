@@ -1891,9 +1891,21 @@ Return a JSON object:
         }
       }
 
-      // Waterfall strategy OCR rule: LTR: Korean webtoon, jp, Chinese; RTL: others
-      const isLtrLanguage = detectedLanguage === "korean" || detectedLanguage === "japanese" || detectedLanguage === "chinese";
-      const direction: "ltr" | "rtl" = isLtrLanguage ? "ltr" : "rtl";
+      // Waterfall strategy OCR rule: Japanese and Chinese resolve to RTL, others to LTR
+      const hasExtractedText = extractedTexts.some(t => t.trim().length > 0);
+      if (!hasExtractedText && detectedLanguage === "other") {
+        return res.json({
+          direction: "ltr",
+          language: "unknown",
+          confidence: 0,
+          sampleText: "",
+          noTextDetected: true,
+          detail: "OCR analysis: No text detected, default LTR"
+        });
+      }
+
+      const isRtlLanguage = detectedLanguage === "japanese" || detectedLanguage === "chinese";
+      const direction: "ltr" | "rtl" = isRtlLanguage ? "rtl" : "ltr";
       const combinedSample = extractedTexts.join(" ").slice(0, 100);
 
       return res.json({

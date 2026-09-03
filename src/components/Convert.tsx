@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock, ArrowLeftRight } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock, ArrowLeftRight, ArrowLeft, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -4785,12 +4785,9 @@ ${navItems}    </ol>
                 <span className="text-xs text-muted-foreground font-medium">Reading Direction:</span>
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="icon"
                   type="button"
-                  className={cn(
-                    "h-6 px-2 text-[11px] font-bold tracking-wider",
-                    readingDirection === 'rtl' ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400" : ""
-                  )}
+                  className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation();
                     const next = readingDirection === 'rtl' ? 'ltr' : 'rtl';
@@ -4799,8 +4796,11 @@ ${navItems}    </ol>
                   }}
                   title={`Direction: ${readingDirection.toUpperCase()}${readingDirectionDetail ? ` (${readingDirectionDetail})` : ''}. Click to toggle.`}
                 >
-                  <ArrowLeftRight className="w-3 h-3 mr-1" />
-                  {readingDirection.toUpperCase()}
+                  {readingDirection === 'rtl' ? (
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  ) : (
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  )}
                 </Button>
               </div>
             </div>

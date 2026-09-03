@@ -3,7 +3,7 @@ import { getApiUrl } from "@/lib/api";
 
 export type ReadingDirection = 'rtl' | 'ltr';
 
-export type DetectionStrategy = 'metadata' | 'filename' | 'ocr' | 'default';
+export type DetectionStrategy = 'metadata' | 'ocr' | 'filename' | 'default';
 
 export interface ReadingDirectionResult {
   direction: ReadingDirection;
@@ -240,55 +240,14 @@ export function parseEpubContentOpf(opfContent: string): { direction: ReadingDir
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * PRIORITY 2: FILENAME HEURISTICS (Regex)
+ * PRIORITY 2: OCR (Free AI OCR on sample pages)
  * ─────────────────────────────────────────────────────────────────────────────
- * If metadata is missing, check file name or folder path.
- * Korean webtoon / manhwa keywords -> LTR
- * Manga, raw, JP, 漢化, 日漫 -> RTL
+ * Waterfall strategy OCR rule:
+ * Japanese, and Chinese resolve to RTL, others to LTR
  */
-export const KOREAN_WEBTOON_FILENAME_REGEX = /(?:^|[\s_.\-[\]()（）【】/\\+])(?:webtoon|webtoons|manhwa|manwha|korean|naver|daum|kakao|lezhin|toomics|tapas|條漫|条漫|韓漫|韩漫)(?:$|[\s_.\-[\]()（）【】/\\+])|[\uAC00-\uD7AF\u1100-\u11FF]|[\u4e00-\u9fa5]*(?:韓漫|韩漫|条漫|條漫)[\u4e00-\u9fa5]*/i;
-
-export const MANGA_FILENAME_REGEX = /(?:^|[\s_.\-[\]()（）【】/\\+])(?:manga|raw|jp|japan|japanese|cbr|漢化|汉化|日漫|漫画)(?:$|[\s_.\-[\]()（）【】/\\+])|[\u4e00-\u9fa5]*(?:漢化|汉化|日漫|漫画)[\u4e00-\u9fa5]*/i;
-
-export function checkFilenameHeuristics(filenameOrPath: string): { direction: ReadingDirection; detail: string; matchedKeyword: string } | null {
-  if (!filenameOrPath || typeof filenameOrPath !== 'string') return null;
-
-  // 1. Check Korean Webtoon keywords or Hangul first -> LTR
-  const webtoonMatch = filenameOrPath.match(KOREAN_WEBTOON_FILENAME_REGEX);
-  if (webtoonMatch) {
-    const matched = webtoonMatch[0].trim();
-    return {
-      direction: 'ltr',
-      detail: `Filename heuristic matched Korean webtoon keyword "${matched}" (LTR)`,
-      matchedKeyword: matched
-    };
-  }
-
-  // 2. Check Manga keywords -> RTL
-  const match = filenameOrPath.match(MANGA_FILENAME_REGEX);
-  if (match) {
-    const matched = match[0].trim();
-    return {
-      direction: 'rtl',
-      detail: `Filename heuristic matched keyword "${matched}" (RTL)`,
-      matchedKeyword: matched
-    };
-  }
-
-  return null;
-}
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * PRIORITY 3: OCR FALLBACK (Free AI OCR on two pages)
- * ─────────────────────────────────────────────────────────────────────────────
- * User rule:
- * LTR: Korean webtoon, jp, Chinese;
- * RTL: others
- */
-export function analyzeLanguageFromText(text: string): { language: 'korean' | 'japanese' | 'chinese' | 'other'; detail: string } {
+export function analyzeLanguageFromText(text: string): { language: 'korean' | 'japanese' | 'chinese' | 'other'; detail: string; hasText: boolean } {
   if (!text || text.trim().length === 0) {
-    return { language: 'other', detail: 'No text extracted' };
+    return { language: 'other', detail: 'No text extracted', hasText: false };
   }
 
   // Korean check: Hangul syllables (U+AC00-U+D7AF), Hangul Jamo (U+1100-U+11FF), Compatibility Jamo (U+3130-U+318F)
@@ -296,7 +255,8 @@ export function analyzeLanguageFromText(text: string): { language: 'korean' | 'j
   if (hangulMatches && hangulMatches.length >= 2) {
     return {
       language: 'korean',
-      detail: `Korean Hangul text detected (${hangulMatches.length} characters)`
+      detail: `Korean Hangul text detected (${hangulMatches.length} characters)`,
+      hasText: true
     };
   }
 
@@ -305,7 +265,8 @@ export function analyzeLanguageFromText(text: string): { language: 'korean' | 'j
   if (kanaMatches && kanaMatches.length >= 2) {
     return {
       language: 'japanese',
-      detail: `Japanese text detected (${kanaMatches.length} kana characters)`
+      detail: `Japanese text detected (${kanaMatches.length} kana characters)`,
+      hasText: true
     };
   }
 
@@ -317,12 +278,14 @@ export function analyzeLanguageFromText(text: string): { language: 'korean' | 'j
     if (!kanaMatches || kanaMatches.length < 2) {
       return {
         language: 'chinese',
-        detail: `Chinese text detected (${cjkMatches.length} CJK ideographs)`
+        detail: `Chinese text detected (${cjkMatches.length} CJK ideographs)`,
+        hasText: true
       };
     } else {
       return {
         language: 'japanese',
-        detail: `Japanese text detected (Kanji + Kana)`
+        detail: `Japanese text detected (Kanji + Kana)`,
+        hasText: true
       };
     }
   }
@@ -330,35 +293,32 @@ export function analyzeLanguageFromText(text: string): { language: 'korean' | 'j
   if (latinMatches && latinMatches.length >= 4) {
     return {
       language: 'other',
-      detail: `Latin / Western text detected (${latinMatches.length} characters)`
+      detail: `Latin / Western text detected (${latinMatches.length} characters)`,
+      hasText: true
     };
   }
 
   return {
     language: 'other',
-    detail: `Other / unidentified language`
+    detail: `Other / unidentified language`,
+    hasText: text.trim().length > 0
   };
 }
 
 /**
- * Perform free AI OCR on two pages to analyze language and determine reading direction.
- * LTR: jp, Chinese;
- * RTL: others
+ * Perform free AI OCR on two sample pages to analyze language and determine reading direction.
+ * Japanese, and Chinese resolve to RTL, others to LTR
+ * Returns null if no text is detected or pages are empty, allowing the waterfall to proceed to Filename.
  */
 export async function runOcrFallback(
   pages: string[],
   customApiKey?: string
-): Promise<{ direction: ReadingDirection; detail: string; language: string; sampleText: string }> {
+): Promise<{ direction: ReadingDirection; detail: string; language: string; sampleText: string } | null> {
   if (!pages || pages.length === 0) {
-    return {
-      direction: 'rtl',
-      detail: 'OCR fallback: No pages provided, defaulting to RTL',
-      language: 'other',
-      sampleText: ''
-    };
+    return null;
   }
 
-  // Pick two sample pages (regardless of cover: prefer interior pages like [1, 2] if >= 3 pages, else [0, 1])
+  // Pick two sample pages (prefer interior pages like [1, 2] if >= 3 pages, else [0, 1] or [0])
   let sampleIndices: number[] = [];
   if (pages.length >= 3) {
     sampleIndices = [1, 2];
@@ -369,6 +329,7 @@ export async function runOcrFallback(
   }
 
   const samplePages = sampleIndices.map(i => pages[i]).filter(Boolean);
+  if (samplePages.length === 0) return null;
 
   try {
     // 1. Call the backend /api/detect-reading-direction endpoint
@@ -383,7 +344,7 @@ export async function runOcrFallback(
 
     if (response.ok) {
       const data = await response.json();
-      if (data && data.direction) {
+      if (data && data.direction && !data.noTextDetected && data.sampleText) {
         return {
           direction: data.direction,
           detail: data.detail || `OCR analysis: detected ${data.language} -> ${data.direction.toUpperCase()}`,
@@ -401,7 +362,6 @@ export async function runOcrFallback(
     let combinedText = '';
     for (const pageSrc of samplePages) {
       if (pageSrc.startsWith('blob:') || pageSrc.startsWith('http')) {
-        // Skip converting blob in emergency fallback
         continue;
       }
       try {
@@ -421,33 +381,137 @@ export async function runOcrFallback(
 
     if (combinedText.trim()) {
       const langAnalysis = analyzeLanguageFromText(combinedText);
-      const isLtr = langAnalysis.language === 'korean' || langAnalysis.language === 'japanese' || langAnalysis.language === 'chinese';
-      const direction: ReadingDirection = isLtr ? 'ltr' : 'rtl';
-      return {
-        direction,
-        detail: `OCR Fallback: ${langAnalysis.detail} -> ${direction.toUpperCase()}`,
-        language: langAnalysis.language,
-        sampleText: combinedText.slice(0, 80)
-      };
+      if (langAnalysis.hasText) {
+        const isRtl = langAnalysis.language === 'japanese' || langAnalysis.language === 'chinese';
+        const direction: ReadingDirection = isRtl ? 'rtl' : 'ltr';
+        return {
+          direction,
+          detail: `OCR Analysis: ${langAnalysis.detail} -> ${direction.toUpperCase()}`,
+          language: langAnalysis.language,
+          sampleText: combinedText.slice(0, 80)
+        };
+      }
     }
   } catch (_) {}
 
-  // Final fallback if OCR produces no text
+  // If OCR produced no definitive text, return null so Priority 3: Filename can evaluate
+  return null;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PRIORITY 3: FILENAME (by the language of filename)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * If metadata and OCR are missing/inconclusive, check the file or folder name
+ * by language:
+ * - Korean (Hangul / Webtoon / Manhwa keywords) -> LTR
+ * - Japanese (Hiragana / Katakana / Manga / Raw keywords) -> RTL
+ * - Chinese (Hanzi / Manhua keywords) -> LTR (or RTL if scanlation 漢化/汉化)
+ * - Arabic / Hebrew script -> RTL
+ * - Western / Latin script -> LTR
+ */
+export const KOREAN_WEBTOON_FILENAME_REGEX = /(?:^|[\s_.\-[\]()（）【】/\\+])(?:webtoon|webtoons|manhwa|manwha|korean|naver|daum|kakao|lezhin|toomics|tapas|條漫|条漫|韓漫|韩漫|한국|웹툰|만화)(?:$|[\s_.\-[\]()（）【】/\\+])|[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]|[\u4e00-\u9fa5]*(?:韓漫|韩漫|条漫|條漫)[\u4e00-\u9fa5]*/i;
+
+export const MANGA_FILENAME_REGEX = /(?:^|[\s_.\-[\]()（）【】/\\+])(?:manga|raw|jp|japan|japanese|cbr|漢化|汉化|日漫|漫画|コミック|単行本|連載)(?:$|[\s_.\-[\]()（）【】/\\+])|[\u4e00-\u9fa5]*(?:漢化|汉化|日漫|漫画)[\u4e00-\u9fa5]*/i;
+
+export function checkFilenameLanguage(filenameOrPath: string): {
+  direction: ReadingDirection;
+  detail: string;
+  matchedKeyword?: string;
+  language: string;
+} | null {
+  if (!filenameOrPath || typeof filenameOrPath !== 'string') return null;
+
+  const baseName = filenameOrPath.split(/[/\\]/).pop() || filenameOrPath;
+
+  // 1. Korean (Hangul characters or Webtoon/Manhwa keywords) -> LTR
+  const hasHangul = /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(baseName);
+  const webtoonMatch = baseName.match(KOREAN_WEBTOON_FILENAME_REGEX);
+  if (hasHangul || webtoonMatch) {
+    const matched = webtoonMatch ? webtoonMatch[0].trim() : 'Hangul';
+    return {
+      direction: 'ltr',
+      detail: `Filename language: Korean (Hangul / Webtoon keyword "${matched}") -> LTR`,
+      matchedKeyword: matched,
+      language: 'korean'
+    };
+  }
+
+  // 2. Japanese (Kana characters, Manga / Raw / JP keywords) -> RTL
+  const hasKana = /[\u3040-\u309F\u30A0-\u30FF]/.test(baseName);
+  const mangaMatch = baseName.match(MANGA_FILENAME_REGEX);
+  if (hasKana || mangaMatch) {
+    const matched = mangaMatch ? mangaMatch[0].trim() : 'Kana';
+    return {
+      direction: 'rtl',
+      detail: `Filename language: Japanese / Manga (keyword "${matched}") -> RTL`,
+      matchedKeyword: matched,
+      language: 'japanese'
+    };
+  }
+
+  // 3. Arabic or Hebrew script -> RTL
+  const rtlScriptMatch = baseName.match(/[\u0600-\u06FF\u0750-\u077F\u0590-\u05FF]/);
+  if (rtlScriptMatch) {
+    return {
+      direction: 'rtl',
+      detail: `Filename language: Arabic/Hebrew script -> RTL`,
+      matchedKeyword: rtlScriptMatch[0],
+      language: 'arabic_hebrew'
+    };
+  }
+
+  // 4. Chinese (Hanzi / Manhua keywords) -> LTR (or RTL if scanlation 漢化/汉化)
+  const hasHanzi = /[\u4E00-\u9FAF]/.test(baseName);
+  if (hasHanzi) {
+    if (/(?:漢化|汉化)/i.test(baseName)) {
+      return {
+        direction: 'rtl',
+        detail: `Filename language: Chinese scanlation of manga ("漢化/汉化") -> RTL`,
+        matchedKeyword: '漢化',
+        language: 'chinese'
+      };
+    }
+    return {
+      direction: 'ltr',
+      detail: `Filename language: Chinese (Hanzi / Manhua) -> LTR`,
+      matchedKeyword: 'Chinese',
+      language: 'chinese'
+    };
+  }
+
+  // 5. Western / Latin script (English, Spanish, French, etc.) -> LTR
+  const latinLetters = baseName.match(/[a-zA-Z]/g);
+  if (latinLetters && latinLetters.length >= 3) {
+    return {
+      direction: 'ltr',
+      detail: `Filename language: Western / Latin text -> LTR`,
+      language: 'western'
+    };
+  }
+
+  return null;
+}
+
+// Backwards compatibility alias
+export function checkFilenameHeuristics(filenameOrPath: string): { direction: ReadingDirection; detail: string; matchedKeyword: string } | null {
+  const res = checkFilenameLanguage(filenameOrPath);
+  if (!res) return null;
   return {
-    direction: 'rtl',
-    detail: 'OCR fallback: No definitive text detected, default RTL',
-    language: 'other',
-    sampleText: ''
+    direction: res.direction,
+    detail: res.detail,
+    matchedKeyword: res.matchedKeyword || ''
   };
 }
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * THE COMPLETE WATERFALL FALLBACK STRATEGY
+ * THE COMPLETE WATERFALL STRATEGY
  * ─────────────────────────────────────────────────────────────────────────────
  * Priority 1: Metadata Parsing (ComicInfo.xml <Manga> & EPUB content.opf)
- * Priority 2: Filename Heuristics (Regex for manga, raw, JP, 漢化, 日漫)
- * Priority 3: OCR Fallback (Free AI OCR two pages; LTR: jp, Chinese; RTL: others)
+ * Priority 2: OCR (AI OCR on sample pages; LTR: Korean webtoon, jp, Chinese; RTL: others)
+ * Priority 3: Filename (by the language of filename: Korean/Chinese/Western -> LTR, JP/Manga/Arabic -> RTL)
+ * Fallback: Default LTR
  */
 export async function detectReadingDirectionWaterfall(options: {
   file?: File | Blob;
@@ -462,7 +526,7 @@ export async function detectReadingDirectionWaterfall(options: {
   const targetName = filename || (file instanceof File ? file.name : '');
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Step 1: Metadata Parsing (Highest Priority)
+  // Priority 1: Metadata Parsing (Highest Priority)
   // ───────────────────────────────────────────────────────────────────────────
 
   // 1a. If direct xmlContent provided
@@ -526,14 +590,6 @@ export async function detectReadingDirectionWaterfall(options: {
             };
           }
         }
-
-        // Check for subfolder names inside zip matching manga regex
-        for (const entryName of Object.keys(loadedZip.files)) {
-          const fileMatch = checkFilenameHeuristics(entryName);
-          if (fileMatch) {
-            // Note: keep as secondary candidate if root filename doesn't match
-          }
-        }
       }
     } catch (zipErr) {
       console.warn('[ReadingDirection] Failed to inspect archive for metadata:', zipErr);
@@ -541,47 +597,70 @@ export async function detectReadingDirectionWaterfall(options: {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Step 2: Filename Heuristics (Regex)
-  // Keywords: manga, raw, JP, 漢化, or 日漫. If matched, default to RTL.
-  // ───────────────────────────────────────────────────────────────────────────
-  if (targetName) {
-    const filenameRes = checkFilenameHeuristics(targetName);
-    if (filenameRes) {
-      return {
-        direction: filenameRes.direction,
-        strategy: 'filename',
-        detail: filenameRes.detail,
-        matchedKeyword: filenameRes.matchedKeyword
-      };
-    }
-  }
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Step 3: OCR Fallback (Free AI OCR on two pages)
-  // LTR: jp, Chinese;
-  // RTL: others
+  // Priority 2: OCR (Analyze sample pages via AI OCR)
   // ───────────────────────────────────────────────────────────────────────────
   if (!skipOcr && pages && pages.length > 0) {
     try {
       const ocrRes = await runOcrFallback(pages, customApiKey);
-      return {
-        direction: ocrRes.direction,
-        strategy: 'ocr',
-        detail: ocrRes.detail,
-        language: ocrRes.language,
-        sampleText: ocrRes.sampleText
-      };
+      if (ocrRes) {
+        return {
+          direction: ocrRes.direction,
+          strategy: 'ocr',
+          detail: ocrRes.detail,
+          language: ocrRes.language,
+          sampleText: ocrRes.sampleText
+        };
+      }
     } catch (ocrErr) {
       console.warn('[ReadingDirection] OCR fallback execution error:', ocrErr);
     }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Default Fallback
+  // Priority 3: Filename (by the language of filename)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (targetName) {
+    const filenameRes = checkFilenameLanguage(targetName);
+    if (filenameRes) {
+      return {
+        direction: filenameRes.direction,
+        strategy: 'filename',
+        detail: filenameRes.detail,
+        matchedKeyword: filenameRes.matchedKeyword,
+        language: filenameRes.language
+      };
+    }
+  }
+
+  // Also check entries if file was a zip/cbz with folder paths
+  if (file && (file instanceof File || file instanceof Blob)) {
+    try {
+      const lowerName = targetName.toLowerCase();
+      if (lowerName.endsWith('.cbz') || lowerName.endsWith('.zip')) {
+        const zip = new JSZip();
+        const loadedZip = await zip.loadAsync(file);
+        for (const entryName of Object.keys(loadedZip.files)) {
+          const fileMatch = checkFilenameLanguage(entryName);
+          if (fileMatch) {
+            return {
+              direction: fileMatch.direction,
+              strategy: 'filename',
+              detail: `${fileMatch.detail} (from archive entry "${entryName}")`,
+              matchedKeyword: fileMatch.matchedKeyword,
+              language: fileMatch.language
+            };
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Fallback: Default LTR
   // ───────────────────────────────────────────────────────────────────────────
   return {
     direction: 'ltr',
     strategy: 'default',
-    detail: 'No metadata, filename heuristic, or OCR match found; default LTR'
+    detail: 'No metadata, OCR text, or filename language match found; default LTR'
   };
 }

@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock, ArrowLeftRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ import {
   deleteConversionLog,
   ConversionLog
 } from '@/lib/historyCache';
+import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -617,9 +618,10 @@ interface ExportPanel {
 
 const panelsCache = new Map<string, ExportPanel[]>();
 
-  const getPanelsForPage = async (page: PageData, base64Data: string, splitEnabled: boolean = true, customApiKey?: string): Promise<ExportPanel[]> => {
+  const getPanelsForPage = async (page: PageData, base64Data: string, splitEnabled: boolean = true, customApiKey?: string, readingDir?: ReadingDirection): Promise<ExportPanel[]> => {
+  const activeDir = readingDir || 'ltr';
   const imgHash = base64Data ? `${base64Data.substring(0, 50)}_${base64Data.length}` : '';
-  const cacheKey = `${page.id}_split_${splitEnabled}_im_${imgHash}_${JSON.stringify(page.detectedTexts || [])}_${JSON.stringify(page.manualTexts || [])}_${JSON.stringify(page.manualImages || [])}`;
+  const cacheKey = `${page.id}_split_${splitEnabled}_dir_${activeDir}_im_${imgHash}_${JSON.stringify(page.detectedTexts || [])}_${JSON.stringify(page.manualTexts || [])}_${JSON.stringify(page.manualImages || [])}`;
   if (panelsCache.has(cacheKey)) {
     return panelsCache.get(cacheKey)!;
   }
@@ -1003,15 +1005,24 @@ const panelsCache = new Map<string, ExportPanel[]>();
   }
 
   const determineMangaMode = () => {
+     if (activeDir === 'rtl') return true;
+     if (activeDir === 'ltr') return false;
      const textsToCheck = yoloTexts && yoloTexts.length > 0 ? yoloTexts : page.detectedTexts;
      if (!textsToCheck || textsToCheck.length === 0) return false;
      let verticalCount = 0;
+     let cjkCount = 0;
+     let hangulCount = 0;
      for (const t of textsToCheck) {
          const box = Array.isArray(t) ? t : (t.box_2d || [0,0,0,0]);
          const height = box[2] - box[0];
          const width = box[3] - box[1];
          if (height > width * 1.5) verticalCount++;
+         const txt = (t as any).text || '';
+         if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\uFaff\uFF66-\uFF9F]/.test(txt)) cjkCount++;
+         if (/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(txt)) hangulCount++;
      }
+     // Korean webtoon is LTR
+     if (hangulCount > 0 && cjkCount === 0) return false;
      return (verticalCount / textsToCheck.length) >= 0.3;
   };
   const isMangaMode = determineMangaMode();
@@ -1081,7 +1092,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
       left: r.xMin,
       right: r.xMax,
       maskBase64: (r as any).maskBase64,
-      texts: sortTextsReadingOrder(panelTexts, isMangaMode).map(t => ({...t, text: toSentenceCase(t.text)}))
+      texts: sortTextsReadingOrder(panelTexts, isMangaMode, activeDir).map(t => ({...t, text: toSentenceCase(t.text)}))
     };
   });
 
@@ -1341,22 +1352,36 @@ export async function transcribeTextsViaPieces(
   });
 }
 
-const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean) => {
+const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean, explicitDirection?: 'rtl' | 'ltr') => {
   if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   if (texts.length === 1) return texts;
 
-  // Auto-detect Manga mode if >= 15% of text boxes are vertical OR if CJK characters are present
-  let verticalCount = 0;
-  let cjkCount = 0;
-  for (const t of texts) {
-    const height = t.box_2d[2] - t.box_2d[0];
-    const width = t.box_2d[3] - t.box_2d[1];
-    if (height > width * 1.5) verticalCount++;
-    if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\uFaff\uFF66-\uFF9F]/.test(t.text)) cjkCount++;
+  let isMangaModeLayout = false;
+  if (explicitDirection === 'rtl') {
+    isMangaModeLayout = true;
+  } else if (explicitDirection === 'ltr') {
+    isMangaModeLayout = false;
+  } else if (forceMangaMode !== undefined) {
+    isMangaModeLayout = forceMangaMode;
+  } else {
+    // Auto-detect Manga mode if >= 15% of text boxes are vertical OR if CJK characters are present
+    // Korean webtoon (Hangul) is LTR
+    let verticalCount = 0;
+    let cjkCount = 0;
+    let hangulCount = 0;
+    for (const t of texts) {
+      const height = t.box_2d[2] - t.box_2d[0];
+      const width = t.box_2d[3] - t.box_2d[1];
+      if (height > width * 1.5) verticalCount++;
+      if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\uFaff\uFF66-\uFF9F]/.test(t.text)) cjkCount++;
+      if (/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(t.text)) hangulCount++;
+    }
+    if (hangulCount > 0 && cjkCount === 0) {
+      isMangaModeLayout = false;
+    } else {
+      isMangaModeLayout = (texts.length > 0 && ((verticalCount / texts.length) >= 0.15 || (cjkCount / texts.length) >= 0.2));
+    }
   }
-  const isMangaModeLayout = forceMangaMode !== undefined 
-    ? forceMangaMode 
-    : (texts.length > 0 && ((verticalCount / texts.length) >= 0.15 || (cjkCount / texts.length) >= 0.2));
 
   if (isMangaModeLayout) {
     // Manga text grouping: Primarily Top-to-Bottom tiers, then Right-to-Left within tiers.
@@ -2566,7 +2591,7 @@ export default function Convert({
         md += `> [!NOTE]\n`;
         md += `> Transcribed & Translated Dialogue:\n\n`;
         
-        const sortedTexts = sortTextsReadingOrder(allTexts);
+        const sortedTexts = sortTextsReadingOrder(allTexts, undefined, readingDirection);
         sortedTexts.forEach((textObj, idx) => {
           md += `${idx + 1}. **${textObj.text.replace(/\n/g, ' ')}**\n`;
         });
@@ -2694,6 +2719,13 @@ export default function Convert({
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
+  const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
+  const [readingDirectionDetail, setReadingDirectionDetail] = useState<string>('');
+
+  // Clear panel caches whenever readingDirection changes so preview and exports update immediately
+  useEffect(() => {
+    panelsCache.clear();
+  }, [readingDirection]);
 
   const [isTestingLocalLlm, setIsTestingLocalLlm] = useState(false);
   const [showLocalLlmGuide, setShowLocalLlmGuide] = useState(false);
@@ -2884,7 +2916,7 @@ export default function Convert({
     let active = true;
     if (viewMode === 'preview' && activePage && !activePage.isTextOnly && splitDuringBatch) {
       setIsPanelsLoading(true);
-      getPanelsForPage(activePage, activePage.originalImage, true, customApiKey)
+      getPanelsForPage(activePage, activePage.originalImage, true, customApiKey, readingDirection)
         .then(res => {
           if (active) {
             setActivePagePanels(res);
@@ -2905,7 +2937,7 @@ export default function Convert({
     return () => {
       active = false;
     };
-  }, [currentPageIndex, viewMode, activePage, splitDuringBatch, customApiKey]);
+  }, [currentPageIndex, viewMode, activePage, splitDuringBatch, customApiKey, readingDirection]);
 
   useEffect(() => {
     setPageInputValue((currentPageIndex + 1).toString());
@@ -3047,6 +3079,23 @@ export default function Convert({
         setCurrentPageIndex(0);
         setViewMode('edit');
       }
+
+      // Automatically detect reading direction for uploaded comic
+      detectReadingDirectionWaterfall({
+        file,
+        filename: file?.name,
+        pages: newPages.map(p => p.originalImage)
+      }).then(dirRes => {
+        setReadingDirection(dirRes.direction);
+        setReadingDirectionDetail(dirRes.detail);
+        if (dirRes.strategy !== 'default') {
+          toast.info(`Reading direction detected: ${dirRes.direction.toUpperCase()} (${dirRes.detail})`, {
+            id: 'convert-reading-dir'
+          });
+        }
+      }).catch(err => {
+        console.warn('[Convert] Reading direction detection error:', err);
+      });
       
       setUploadProgress(100);
       await new Promise(r => setTimeout(r, 500));
@@ -3398,11 +3447,12 @@ export default function Convert({
         toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
         
         // Sort panels by reading order before processing
+        const isRtl = readingDirection === 'rtl';
         const sortedPanels = [...localPanels].sort((a, b) => {
           const boxA = a.box_2d || a;
           const boxB = b.box_2d || b;
           const yDiff = boxA[0] - boxB[0];
-          if (Math.abs(yDiff) < 50) return boxA[1] - boxB[1];
+          if (Math.abs(yDiff) < 50) return isRtl ? boxB[1] - boxA[1] : boxA[1] - boxB[1];
           return yDiff;
         });
 
@@ -3563,7 +3613,7 @@ export default function Convert({
         if (runOcr) {
           if (llmEngine === 'pollinations' || llmEngine === 'puter') {
             if (pollinationsOcrTexts.length > 0) {
-              result = sortTextsReadingOrder(pollinationsOcrTexts);
+              result = sortTextsReadingOrder(pollinationsOcrTexts, undefined, readingDirection);
             } else {
               toast.info("No YOLO texts detected; trying Free AI context-OCR fallback...");
               const rawResult = await detectComicText(
@@ -3580,7 +3630,7 @@ export default function Convert({
                 },
                 []
               );
-              result = sortTextsReadingOrder(rawResult);
+              result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
             }
           } else {
             toast.info("Analyzing layout and extracting text...");
@@ -3600,7 +3650,7 @@ export default function Convert({
               localTexts
             );
             // Canonical sort for the book page
-            result = sortTextsReadingOrder(rawResult);
+            result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
           }
         } else {
           result = page.detectedTexts || []; // Keep existing if no OCR requested
@@ -3903,7 +3953,7 @@ export default function Convert({
     setHasEditedTextOrImage(true);
     setPages(prev => prev.map((p, idx) => {
       if (idx === currentPageIndex) {
-        const sortedTexts = sortTextsReadingOrder(p.detectedTexts);
+        const sortedTexts = sortTextsReadingOrder(p.detectedTexts, undefined, readingDirection);
         const targetObj = sortedTexts[index];
         const originalIndex = p.detectedTexts.indexOf(targetObj);
         
@@ -4064,7 +4114,7 @@ export default function Convert({
         </div>
       </div>`;
       } else if (hasText && page.isTextOnly) {
-        const sortedTexts = sortTextsReadingOrder(allTexts);
+        const sortedTexts = sortTextsReadingOrder(allTexts, undefined, readingDirection);
         const textContent = sortedTexts.map(t => {
           return t.text.split('\n').map(p => `<p class="panel-text-line">${p}</p>`).join('');
         }).join('');
@@ -4075,14 +4125,14 @@ export default function Convert({
         </div>
       </div>`;
       } else {
-        const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
+        const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey, readingDirection);
         if (panels.length === 0) {
           panelsHtml = `
         <div class="panel-card">
           <div class="panel-image-container">
             <img src="${base64Data}" class="panel-img" alt="Panel" />
           </div>
-          ${allTexts.length > 0 ? `<div class="panel-text-container">${sortTextsReadingOrder(allTexts).map(t => `<p class="panel-text-line">${t.text}</p>`).join('')}</div>` : ''}
+          ${allTexts.length > 0 ? `<div class="panel-text-container">${sortTextsReadingOrder(allTexts, undefined, readingDirection).map(t => `<p class="panel-text-line">${t.text}</p>`).join('')}</div>` : ''}
         </div>`;
         } else {
           for (let p of panels) {
@@ -4095,7 +4145,7 @@ export default function Convert({
             }
 
             const textContent = p.texts.length > 0 
-              ? sortTextsReadingOrder(p.texts).map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')
+              ? sortTextsReadingOrder(p.texts, undefined, readingDirection).map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')
               : '';
             
             panelsHtml += `
@@ -4114,7 +4164,7 @@ ${panelsHtml}
     }
 
     const htmlContent = `<!DOCTYPE html>
-<html>
+<html dir="${readingDirection}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -4218,7 +4268,7 @@ ${pagesHtml}</body>
         if (page.isTextOnly && (!page.manualImages || page.manualImages.length === 0)) {
             // Text-only
             const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
-            const sortedTexts = sortTextsReadingOrder(allTexts);
+            const sortedTexts = sortTextsReadingOrder(allTexts, undefined, readingDirection);
             const textStr = sortedTexts.map(t => t.text.trim()).join('\n\n');
             if (textStr) {
                addText(textStr);
@@ -4226,7 +4276,7 @@ ${pagesHtml}</body>
             }
         } else {
             // Panels logic same as HTML export
-            const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
+            const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey, readingDirection);
             
             if (panels.length === 0) {
                // Fallback: full image + text
@@ -4241,7 +4291,7 @@ ${pagesHtml}</body>
 
                const allTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
                if (allTexts.length > 0) {
-                 const sortedTexts = sortTextsReadingOrder(allTexts);
+                 const sortedTexts = sortTextsReadingOrder(allTexts, undefined, readingDirection);
                  const textStr = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
                  if (textStr) {
                     addText(textStr);
@@ -4268,7 +4318,7 @@ ${pagesHtml}</body>
                   }
                   
                   if (p.texts.length > 0) {
-                     const sortedTexts = sortTextsReadingOrder(p.texts);
+                     const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
                      const textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
                      if (textContent) {
                         addText(textContent);
@@ -4342,7 +4392,7 @@ ${pagesHtml}</body>
       <content src="${pageId}.xhtml"/>
     </navPoint>\n`;
 
-        const sortedTexts = sortTextsReadingOrder(allPageTexts);
+        const sortedTexts = sortTextsReadingOrder(allPageTexts, undefined, readingDirection);
         const textContent = sortedTexts.map(t => {
           const paragraphs = t.text.split('\n').map(p => `<p>${p}</p>`).join('');
           return paragraphs;
@@ -4364,7 +4414,7 @@ ${textContent}
 </html>`);
         seqIndex++;
       } else {
-         const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey);
+         const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey, readingDirection);
          
          if (panels.length === 0 || (!splitDuringBatch && panels.length === 1)) {
              const pageId = `page${seqIndex}`;
@@ -4388,7 +4438,7 @@ ${textContent}
              let textContentHtml = '';
              let hasText = allPageTexts.length > 0;
              if (hasText) {
-                 const sortedTexts = sortTextsReadingOrder(allPageTexts);
+                 const sortedTexts = sortTextsReadingOrder(allPageTexts, undefined, readingDirection);
                  textContentHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
              }
              
@@ -4429,7 +4479,7 @@ ${textContent}
 
                 let panelTextHtml = '';
                 if (p.texts && p.texts.length > 0) {
-                   const sortedTexts = sortTextsReadingOrder(p.texts);
+                   const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
                    panelTextHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
                 }
 
@@ -4475,7 +4525,7 @@ ${panelsHtml}
                 let panelTextHtml = '';
                 let hasText = p.texts && p.texts.length > 0;
                 if (hasText) {
-                   const sortedTexts = sortTextsReadingOrder(p.texts);
+                   const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
                    panelTextHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
                 }
 
@@ -4550,7 +4600,7 @@ ${ncxItems}  </navMap>
     <meta property="rendition:spread">none</meta>
     <meta name="fixed-layout" content="true"/>
     <meta name="book-type" content="comic"/>
-    <meta name="primary-writing-mode" content="horizontal-lr"/>
+    <meta name="primary-writing-mode" content="${readingDirection === 'rtl' ? 'horizontal-rl' : 'horizontal-lr'}"/>
     <meta name="zero-gutter" content="true"/>
     <meta name="zero-margin" content="true"/>
     `}
@@ -4559,7 +4609,7 @@ ${ncxItems}  </navMap>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 ${manifestItems}  </manifest>
-  <spine toc="ncx">
+  <spine toc="ncx" page-progression-direction="${readingDirection}">
 ${spineItems}  </spine>
 </package>`;
     zip.file("OEBPS/content.opf", opfContent);
@@ -4605,7 +4655,7 @@ ${navItems}    </ol>
        // Include text for all selected/exported pages
        if (allTexts.length > 0) {
          textContent += `--- Page ${i + 1} ---\n`;
-         const sortedTexts = sortTextsReadingOrder(allTexts);
+         const sortedTexts = sortTextsReadingOrder(allTexts, undefined, readingDirection);
          for (let textObj of sortedTexts) {
            textContent += `${textObj.text}\n`;
          }
@@ -4651,7 +4701,7 @@ ${navItems}    </ol>
             </span>
           </div>
           <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px] w-full">
-            {sortTextsReadingOrder(activePage.detectedTexts).map((t, i) => (
+            {sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((t, i) => (
               <div 
                 key={i}
                 className={cn(
@@ -4729,6 +4779,29 @@ ${navItems}    </ol>
                   className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
                 />
                 <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/40 w-full">
+                <span className="text-xs text-muted-foreground font-medium">Reading Direction:</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  className={cn(
+                    "h-6 px-2 text-[11px] font-bold tracking-wider",
+                    readingDirection === 'rtl' ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400" : ""
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const next = readingDirection === 'rtl' ? 'ltr' : 'rtl';
+                    setReadingDirection(next);
+                    toast.success(`Reading direction set to ${next.toUpperCase()} (${next === 'rtl' ? 'Manga / RTL' : 'Western / LTR'})`);
+                  }}
+                  title={`Direction: ${readingDirection.toUpperCase()}${readingDirectionDetail ? ` (${readingDirectionDetail})` : ''}. Click to toggle.`}
+                >
+                  <ArrowLeftRight className="w-3 h-3 mr-1" />
+                  {readingDirection.toUpperCase()}
+                </Button>
               </div>
             </div>
 
@@ -5536,7 +5609,7 @@ ${navItems}    </ol>
                               )}
                               {viewMode === 'preview' && activePage.isTextOnly ? (
                                 <div className="w-full h-auto p-8 sm:p-16 text-black flex flex-col gap-6" style={{ minHeight: '600px', backgroundColor: activePage.bgColor || 'white' }}>
-                                  {sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
+                                  {sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((item, idx) => {
                                     const fontSizeCqi = activePage.width > 0 ? (Math.max(16, activePage.width * 0.015) / activePage.width) * 100 : 2;
                                     return (
                                     <div 
@@ -5569,7 +5642,7 @@ ${navItems}    </ol>
                                           )}
                                           {panel.texts && panel.texts.length > 0 && (
                                             <div className="w-full text-left p-4 bg-slate-50 border-l-4 border-primary rounded">
-                                              {sortTextsReadingOrder(panel.texts).map((t, tIdx) => (
+                                              {sortTextsReadingOrder(panel.texts, undefined, readingDirection).map((t, tIdx) => (
                                                 <p key={tIdx} className="text-base font-serif text-slate-800 leading-relaxed mb-3 last:mb-0">
                                                   {t.text}
                                                 </p>
@@ -5597,7 +5670,7 @@ ${navItems}    </ol>
                                     </>
                                   )}
                                 <AnimatePresence>
-                                  {viewMode === 'edit' && sortTextsReadingOrder(activePage.detectedTexts).map((item, idx) => {
+                                  {viewMode === 'edit' && sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((item, idx) => {
                                     const boxToUse = item.box_2d || [0,0,0,0];
                                     const [ymin, xmin, ymax, xmax] = boxToUse;
                                     const h = ymax - ymin;

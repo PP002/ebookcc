@@ -1763,6 +1763,152 @@ async function startServer() {
     }
   });
 
+  app.post("/api/detect-reading-direction", async (req, res): Promise<any> => {
+    try {
+      const { images } = req.body;
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: "No images provided" });
+      }
+
+      const samples = images.slice(0, 2);
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = getAIClient(customKey);
+
+      let extractedTexts: string[] = [];
+      let detectedLanguage = "other";
+      let confidence = 0.8;
+
+      const promptText = `You are a comic/manga OCR and reading direction analyzer.
+Analyze the comic page(s).
+1. Transcribe any visible dialogue, speech bubbles, narrative captions, or text in the image.
+2. Identify the language: "korean", "japanese", "chinese", or "other" (e.g. English, French, etc.).
+Return a JSON object:
+{
+  "language": "korean" | "japanese" | "chinese" | "other",
+  "confidence": 0.9,
+  "transcribedText": "sample text from bubbles"
+}`;
+
+      const classifyText = (text: string): { lang: 'korean' | 'japanese' | 'chinese' | 'other'; detail: string } => {
+        const hangul = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g) || [];
+        const kana = text.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || [];
+        const cjk = text.match(/[\u4E00-\u9FAF]/g) || [];
+        const latin = text.match(/[a-zA-Z]/g) || [];
+        if (hangul.length >= 2) return { lang: 'korean', detail: `Korean Hangul detected (${hangul.length})` };
+        if (kana.length >= 2) return { lang: 'japanese', detail: `Japanese Kana detected (${kana.length})` };
+        if (cjk.length >= 3) {
+          if (kana.length < 2) return { lang: 'chinese', detail: `Chinese CJK ideographs detected (${cjk.length})` };
+          return { lang: 'japanese', detail: `Japanese Kanji+Kana detected` };
+        }
+        if (latin.length >= 4) return { lang: 'other', detail: `Latin/Western text detected (${latin.length})` };
+        return { lang: 'other', detail: 'Other language' };
+      };
+
+      if (ai) {
+        try {
+          const contentsParts: any[] = [{ text: promptText }];
+          for (const img of samples) {
+            const rawB64 = img.includes(",") ? img.split(",")[1] : img;
+            contentsParts.push({
+              inlineData: { mimeType: "image/jpeg", data: rawB64 }
+            });
+          }
+
+          const geminiRes = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: [{ role: "user", parts: contentsParts }],
+            config: {
+              responseMimeType: "application/json",
+              maxOutputTokens: 2048,
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  language: { type: Type.STRING },
+                  confidence: { type: Type.NUMBER },
+                  transcribedText: { type: Type.STRING }
+                },
+                required: ["language", "transcribedText"]
+              }
+            }
+          });
+
+          const parsed = parseJsonSafely(geminiRes.text, null);
+          if (parsed && parsed.language) {
+            const parsedLang = String(parsed.language).toLowerCase();
+            const textSample = parsed.transcribedText || "";
+            extractedTexts.push(textSample);
+
+            const scriptCheck = classifyText(textSample);
+            if (scriptCheck.lang === 'korean' || parsedLang.includes('korean') || parsedLang === 'ko' || parsedLang === 'kr') {
+              detectedLanguage = 'korean';
+            } else if (scriptCheck.lang === 'japanese' || parsedLang.includes('japan') || parsedLang === 'ja' || parsedLang === 'jp') {
+              detectedLanguage = 'japanese';
+            } else if (scriptCheck.lang === 'chinese' || parsedLang.includes('chinese') || parsedLang === 'zh' || parsedLang === 'cn') {
+              detectedLanguage = 'chinese';
+            } else {
+              detectedLanguage = 'other';
+            }
+            confidence = parsed.confidence || 0.9;
+          }
+        } catch (geminiErr: any) {
+          console.warn("[API detect-reading-direction] Gemini attempt failed:", geminiErr.message);
+        }
+      }
+
+      if (detectedLanguage === "other" && extractedTexts.length === 0) {
+        try {
+          const sampleImg = samples[0];
+          const fullBase64Url = sampleImg.startsWith("data:") ? sampleImg : `data:image/jpeg;base64,${sampleImg}`;
+          const openAiMessages = [
+            { role: "system", content: "You are a comic OCR language detector. Transcribe dialogue and detect language." },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: promptText },
+                { type: "image_url", image_url: { url: fullBase64Url } }
+              ]
+            }
+          ];
+          const pollText = await callPollinations(openAiMessages, "openai", true);
+          const parsed = parseJsonSafely(pollText, null);
+          if (parsed && (parsed.language || parsed.transcribedText)) {
+            const textSample = parsed.transcribedText || "";
+            extractedTexts.push(textSample);
+            const scriptCheck = classifyText(textSample);
+            const parsedLang = (parsed.language || "").toLowerCase();
+            if (scriptCheck.lang === 'korean' || parsedLang.includes('korean') || parsedLang === 'ko' || parsedLang === 'kr') {
+              detectedLanguage = 'korean';
+            } else if (scriptCheck.lang === 'japanese' || parsedLang.includes('japan') || parsedLang === 'ja' || parsedLang === 'jp') {
+              detectedLanguage = 'japanese';
+            } else if (scriptCheck.lang === 'chinese' || parsedLang.includes('chinese') || parsedLang === 'zh' || parsedLang === 'cn') {
+              detectedLanguage = 'chinese';
+            } else {
+              detectedLanguage = 'other';
+            }
+          }
+        } catch (pollErr: any) {
+          console.warn("[API detect-reading-direction] Pollinations attempt failed:", pollErr.message);
+        }
+      }
+
+      // Waterfall strategy OCR rule: LTR: Korean webtoon, jp, Chinese; RTL: others
+      const isLtrLanguage = detectedLanguage === "korean" || detectedLanguage === "japanese" || detectedLanguage === "chinese";
+      const direction: "ltr" | "rtl" = isLtrLanguage ? "ltr" : "rtl";
+      const combinedSample = extractedTexts.join(" ").slice(0, 100);
+
+      return res.json({
+        direction,
+        language: detectedLanguage,
+        confidence,
+        sampleText: combinedSample,
+        detail: `OCR Language Analysis: ${detectedLanguage.toUpperCase()} -> ${direction.toUpperCase()}`
+      });
+    } catch (e: any) {
+      console.error("[API detect-reading-direction] error:", e);
+      return res.status(500).json({ error: e.message || "Failed to detect reading direction via OCR" });
+    }
+  });
+
   app.post("/api/detectText", async (req, res) => {
     console.log("[API] detectText request received");
     try {

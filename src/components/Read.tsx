@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -21,6 +21,7 @@ import { ComicPageRenderer, ComicTreeNodeView } from '@/components/ComicPageRend
 import { ReaderNotesSidebar } from '@/components/ReaderNotesSidebar';
 import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
 import { fetchPublishedWorksFromR2 } from '@/lib/r2Storage';
+import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -60,6 +61,8 @@ interface BookItem {
   file?: File;
   fileBuffer?: ArrayBuffer;
   isBookshelf?: boolean;
+  readingDirection?: 'rtl' | 'ltr';
+  readingDirectionInfo?: string;
 }
 
 function checkIfBookshelf(book: BookItem | null): boolean {
@@ -311,12 +314,54 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [cropBorders, setCropBorders] = useState(false);
   const [gridView, setGridView] = useState(false);
   
+  const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
+  const [directionInfo, setDirectionInfo] = useState<string>('');
+  
   const [panelsCache, setPanelsCache] = useState<Record<number, string[]>>({});
   const [croppedCache, setCroppedCache] = useState<Record<number, string>>({});
   const [isProcessingPage, setIsProcessingPage] = useState(false);
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
 
-  // For bookshelf comics (or comics created in the app), immediately extract asset panel images for all pages
+  // Automatic Reading Direction Detection (Waterfall Fallback)
+  useEffect(() => {
+    if (!selectedBook) return;
+    if (selectedBook.readingDirection) {
+      setReadingDirection(selectedBook.readingDirection);
+      setDirectionInfo(selectedBook.readingDirectionInfo || '');
+      return;
+    }
+
+    let isActive = true;
+    const rawPages = Array.isArray(selectedBook.pages)
+      ? selectedBook.pages.filter(p => typeof p === 'string')
+      : [];
+
+    detectReadingDirectionWaterfall({
+      file: selectedBook.file,
+      filename: selectedBook.title,
+      pages: rawPages
+    }).then(res => {
+      if (!isActive) return;
+      setReadingDirection(res.direction);
+      setDirectionInfo(res.detail);
+      setSelectedBook(prev => prev ? { ...prev, readingDirection: res.direction, readingDirectionInfo: res.detail } : null);
+      if (res.strategy !== 'default') {
+        toast.info(`Reading direction: ${res.direction.toUpperCase()} (${res.detail})`, {
+          id: 'reading-direction-detected-toast'
+        });
+      }
+    }).catch(err => {
+      console.warn('[Read] Reading direction detection error:', err);
+    });
+
+    return () => { isActive = false; };
+  }, [selectedBook?.id, selectedBook?.title]);
+
+  // Clear panels cache when readingDirection changes so panels are re-sorted according to the new direction
+  useEffect(() => {
+    setPanelsCache({});
+  }, [readingDirection]);
+
   useEffect(() => {
     if (!selectedBook) return;
     if (isBookshelfComic(selectedBook)) {
@@ -395,7 +440,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   const boxA = a.box_2d || a;
                   const boxB = b.box_2d || b;
                   const yDiff = boxA[0] - boxB[0];
-                  if (Math.abs(yDiff) < 50) return boxA[1] - boxB[1];
+                  if (Math.abs(yDiff) < 50) return readingDirection === 'rtl' ? boxB[1] - boxA[1] : boxA[1] - boxB[1];
                   return yDiff;
               });
               
@@ -469,7 +514,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
     processQueue();
     return () => { isActive = false; };
-  }, [selectedBook, currentPage, cropBorders, gridView]);
+  }, [selectedBook, currentPage, cropBorders, gridView, readingDirection]);
 
   // Notify user when they navigate to a page that hasn't finished layout detection yet
   useEffect(() => {
@@ -643,11 +688,19 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         }, 300);
 
         if (deltaX < 0) {
-          // Swiped left -> Next page
-          nextPage();
+          // Swiped left -> In LTR next page, in RTL previous page
+          if (readingDirection === 'rtl') {
+            prevPage();
+          } else {
+            nextPage();
+          }
         } else {
-          // Swiped right -> Previous page
-          prevPage();
+          // Swiped right -> In LTR previous page, in RTL next page
+          if (readingDirection === 'rtl') {
+            nextPage();
+          } else {
+            prevPage();
+          }
         }
         touchStartRef.current = null;
         lastTapRef.current = null;
@@ -682,18 +735,26 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isSwipingRef.current) return;
-      prevPage();
+      if (readingDirection === 'rtl') {
+        nextPage();
+      } else {
+        prevPage();
+      }
     },
-    [prevPage]
+    [prevPage, nextPage, readingDirection]
   );
 
   const handleRightClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isSwipingRef.current) return;
-      nextPage();
+      if (readingDirection === 'rtl') {
+        prevPage();
+      } else {
+        nextPage();
+      }
     },
-    [nextPage]
+    [nextPage, prevPage, readingDirection]
   );
 
   useEffect(() => {
@@ -701,12 +762,17 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       // Don't page if user is typing in an input or if note float window is active
       if (isNotesSidebarOpen) return;
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      if (e.key === 'ArrowRight') nextPage();
-      else if (e.key === 'ArrowLeft') prevPage();
+      if (readingDirection === 'rtl') {
+        if (e.key === 'ArrowRight') prevPage();
+        else if (e.key === 'ArrowLeft') nextPage();
+      } else {
+        if (e.key === 'ArrowRight') nextPage();
+        else if (e.key === 'ArrowLeft') prevPage();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextPage, prevPage, isNotesSidebarOpen]);
+  }, [nextPage, prevPage, isNotesSidebarOpen, readingDirection]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -768,6 +834,27 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         pages = [`https://placehold.co/800x1200/png?text=Preview+of+${file.name}`];
       }
 
+      let detectedDir: ReadingDirection = 'ltr';
+      let detectedDetail = '';
+      try {
+        const dirResult = await detectReadingDirectionWaterfall({
+          file,
+          filename: file.name,
+          pages: pages.filter(p => typeof p === 'string')
+        });
+        detectedDir = dirResult.direction;
+        detectedDetail = dirResult.detail;
+        setReadingDirection(detectedDir);
+        setDirectionInfo(detectedDetail);
+        if (dirResult.strategy !== 'default') {
+          toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
+            id: 'reading-direction-upload-toast'
+          });
+        }
+      } catch (dirErr) {
+        console.warn('[Read] Direction detection on drop failed:', dirErr);
+      }
+
       setSelectedBook({
         id: 'uploaded-' + Date.now(),
         title: file.name,
@@ -778,7 +865,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         pages,
         fileType,
         file,
-        fileBuffer
+        fileBuffer,
+        readingDirection: detectedDir,
+        readingDirectionInfo: detectedDetail
       });
       setCurrentPage(0);
     }
@@ -994,6 +1083,24 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                      </Button>
                    </>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-8 px-2 text-xs font-semibold gap-1.5 transition-colors",
+                    readingDirection === 'rtl' ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20" : "hover:bg-accent"
+                  )}
+                  onClick={() => {
+                    const nextDir = readingDirection === 'rtl' ? 'ltr' : 'rtl';
+                    setReadingDirection(nextDir);
+                    setSelectedBook(prev => prev ? { ...prev, readingDirection: nextDir } : null);
+                    toast.success(`Reading direction set to ${nextDir.toUpperCase()} (${nextDir === 'rtl' ? 'Right-to-Left / Manga' : 'Left-to-Right / Western'})`);
+                  }}
+                  title={`Reading direction: ${readingDirection.toUpperCase()} (${readingDirection === 'rtl' ? 'Right-to-Left / Manga' : 'Left-to-Right / Western'}). ${directionInfo ? `Source: ${directionInfo}. ` : ''}Click to switch.`}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span className="uppercase tracking-wider font-bold">{readingDirection}</span>
+                </Button>
                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
                    <Maximize className="w-3.5 h-3.5" />
                 </Button>
@@ -1296,13 +1403,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 className="absolute inset-y-0 left-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
                 onClick={handleLeftClick} 
                 onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
-                title={t("previousPage")} 
+                title={readingDirection === 'rtl' ? t("nextPage") : t("previousPage")} 
               />
               <div 
                 className="absolute inset-y-0 right-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
                 onClick={handleRightClick} 
                 onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
-                title={t("nextPage")} 
+                title={readingDirection === 'rtl' ? t("previousPage") : t("nextPage")} 
               />
 
               {/* Locked Page View Frame with exact 4:3 Height-to-Width Ratio */}

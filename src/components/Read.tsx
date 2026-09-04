@@ -22,6 +22,7 @@ import { ReaderNotesSidebar } from '@/components/ReaderNotesSidebar';
 import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
 import { fetchPublishedWorksFromR2 } from '@/lib/r2Storage';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
+import { GoogleDriveDialog, GoogleDriveIcon } from '@/components/GoogleDriveDialog';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -156,6 +157,39 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [recentBooks, setRecentBooks] = useState<RecentBookMetadata[]>([]);
   const [isNotesSidebarOpen, setIsNotesSidebarOpen] = useState<boolean>(false);
   const [notesCount, setNotesCount] = useState<number>(0);
+
+  // Google Drive states
+  const [googleDriveOpen, setGoogleDriveOpen] = useState(false);
+  const [googleDriveMode, setGoogleDriveMode] = useState<'import' | 'export'>('import');
+
+  // Export payload for currently opened book
+  const exportPayload = useMemo(() => {
+    if (!selectedBook) return undefined;
+    let blob: Blob | undefined;
+    let mimeType = 'application/octet-stream';
+    let name = selectedBook.title || 'Book';
+
+    if (selectedBook.file) {
+      blob = selectedBook.file;
+      mimeType = selectedBook.file.type || 'application/octet-stream';
+    } else if (selectedBook.fileBuffer) {
+      if (selectedBook.fileType === 'epub') {
+        blob = new Blob([selectedBook.fileBuffer], { type: 'application/epub+zip' });
+        mimeType = 'application/epub+zip';
+        if (!name.endsWith('.epub')) name += '.epub';
+      } else if (selectedBook.fileType === 'pdf') {
+        blob = new Blob([selectedBook.fileBuffer], { type: 'application/pdf' });
+        mimeType = 'application/pdf';
+        if (!name.endsWith('.pdf')) name += '.pdf';
+      }
+    } else if (selectedBook.fileType === 'text') {
+      const textContent = Array.isArray(selectedBook.pages) ? selectedBook.pages.join('\n\n') : String(selectedBook.pages || '');
+      blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+      mimeType = 'text/plain';
+      if (!name.endsWith('.txt')) name += '.txt';
+    }
+    return { name, blob, mimeType };
+  }, [selectedBook]);
 
   const refreshNotesCount = useCallback(async () => {
     if (!selectedBook) {
@@ -774,104 +808,119 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [nextPage, prevPage, isNotesSidebarOpen, readingDirection]);
 
+  const loadFile = useCallback(async (file: File) => {
+    let pages: string[] = [];
+    let fileType: 'images' | 'epub' | 'pdf' | 'text' = 'images';
+    let fileBuffer: ArrayBuffer | undefined = undefined;
+
+    const fileName = file.name.toLowerCase();
+    // Generate basic object URL if Image
+    if (file.type.startsWith('image/')) {
+      pages = [URL.createObjectURL(file)];
+    } else if (fileName.endsWith('.cbz') || fileName.endsWith('.zip')) {
+      try {
+        const zip = new JSZip();
+        const loadedZip = await zip.loadAsync(file);
+        const imageFiles = Object.keys(loadedZip.files).filter(name => name.match(/\.(jpe?g|png|webp|gif)$/i)).sort();
+        if (imageFiles.length > 0) {
+          pages = await Promise.all(imageFiles.map(async name => {
+            const blob = await loadedZip.files[name].async("blob");
+            return URL.createObjectURL(blob);
+          }));
+        } else {
+          pages = [`https://placehold.co/800x1200/png?text=No+Images+in+Archive`];
+        }
+      } catch (e) {
+          pages = [`https://placehold.co/800x1200/png?text=Failed+to+read+Archive`];
+      }
+    } else if (fileName.endsWith('.pdf')) {
+      fileType = 'pdf';
+      pages = [`https://placehold.co/800x1200/png?text=Loading+PDF...`];
+    } else if (fileName.endsWith('.epub')) {
+      fileType = 'epub';
+      try {
+        fileBuffer = await file.arrayBuffer();
+      } catch (e) {
+        console.error(e);
+      }
+      pages = [`https://placehold.co/800x1200/png?text=Loading+EPUB...`];
+    } else if (fileName.endsWith('.txt') || fileName.endsWith('.html') || fileName.endsWith('.htm') || fileName.endsWith('.docx')) {
+      fileType = 'text';
+      if (fileName.endsWith('.docx')) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const mammoth = await import('mammoth');
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          pages = [result.value];
+        } catch (e) {
+          pages = ["Failed to read DOCX file"];
+        }
+      } else {
+        try {
+          pages = [await file.text()];
+        } catch (e) {
+          pages = ["Failed to read text file"];
+        }
+      }
+    } else {
+      pages = [`https://placehold.co/800x1200/png?text=Preview+of+${file.name}`];
+    }
+
+    let detectedDir: ReadingDirection = 'ltr';
+    let detectedDetail = '';
+    try {
+      const dirResult = await detectReadingDirectionWaterfall({
+        file,
+        filename: file.name,
+        pages: pages.filter(p => typeof p === 'string')
+      });
+      detectedDir = dirResult.direction;
+      detectedDetail = dirResult.detail;
+      setReadingDirection(detectedDir);
+      setDirectionInfo(detectedDetail);
+      if (dirResult.strategy !== 'default') {
+        toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
+          id: 'reading-direction-upload-toast'
+        });
+      }
+    } catch (dirErr) {
+      console.warn('[Read] Direction detection on drop failed:', dirErr);
+    }
+
+    setSelectedBook({
+      id: 'uploaded-' + Date.now(),
+      title: file.name,
+      author: 'Local File',
+      cover: pages[0], 
+      chapters: 1,
+      rating: 0,
+      pages,
+      fileType,
+      file,
+      fileBuffer,
+      readingDirection: detectedDir,
+      readingDirectionInfo: detectedDetail
+    });
+    setCurrentPage(0);
+  }, []);
+
+  // Listen to open files from Google Drive globally
+  useEffect(() => {
+    const handleDriveFileOpen = (e: any) => {
+      if (e.detail?.file) {
+        loadFile(e.detail.file);
+      }
+    };
+    window.addEventListener('ebookcc-open-drive-file', handleDriveFileOpen);
+    return () => window.removeEventListener('ebookcc-open-drive-file', handleDriveFileOpen);
+  }, [loadFile]);
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
-      let pages: string[] = [];
-      let fileType: 'images' | 'epub' | 'pdf' | 'text' = 'images';
-      let fileBuffer: ArrayBuffer | undefined = undefined;
-
-      const fileName = file.name.toLowerCase();
-      // Generate basic object URL if Image
-      if (file.type.startsWith('image/')) {
-        pages = [URL.createObjectURL(file)];
-      } else if (fileName.endsWith('.cbz') || fileName.endsWith('.zip')) {
-        try {
-          const zip = new JSZip();
-          const loadedZip = await zip.loadAsync(file);
-          const imageFiles = Object.keys(loadedZip.files).filter(name => name.match(/\.(jpe?g|png|webp|gif)$/i)).sort();
-          if (imageFiles.length > 0) {
-            pages = await Promise.all(imageFiles.map(async name => {
-              const blob = await loadedZip.files[name].async("blob");
-              return URL.createObjectURL(blob);
-            }));
-          } else {
-            pages = [`https://placehold.co/800x1200/png?text=No+Images+in+Archive`];
-          }
-        } catch (e) {
-            pages = [`https://placehold.co/800x1200/png?text=Failed+to+read+Archive`];
-        }
-      } else if (fileName.endsWith('.pdf')) {
-        fileType = 'pdf';
-        pages = [`https://placehold.co/800x1200/png?text=Loading+PDF...`];
-      } else if (fileName.endsWith('.epub')) {
-        fileType = 'epub';
-        try {
-          fileBuffer = await file.arrayBuffer();
-        } catch (e) {
-          console.error(e);
-        }
-        pages = [`https://placehold.co/800x1200/png?text=Loading+EPUB...`];
-      } else if (fileName.endsWith('.txt') || fileName.endsWith('.html') || fileName.endsWith('.htm') || fileName.endsWith('.docx')) {
-        fileType = 'text';
-        if (fileName.endsWith('.docx')) {
-          try {
-            const arrayBuffer = await file.arrayBuffer();
-            const mammoth = await import('mammoth');
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            pages = [result.value];
-          } catch (e) {
-            pages = ["Failed to read DOCX file"];
-          }
-        } else {
-          try {
-            pages = [await file.text()];
-          } catch (e) {
-            pages = ["Failed to read text file"];
-          }
-        }
-      } else {
-        pages = [`https://placehold.co/800x1200/png?text=Preview+of+${file.name}`];
-      }
-
-      let detectedDir: ReadingDirection = 'ltr';
-      let detectedDetail = '';
-      try {
-        const dirResult = await detectReadingDirectionWaterfall({
-          file,
-          filename: file.name,
-          pages: pages.filter(p => typeof p === 'string')
-        });
-        detectedDir = dirResult.direction;
-        detectedDetail = dirResult.detail;
-        setReadingDirection(detectedDir);
-        setDirectionInfo(detectedDetail);
-        if (dirResult.strategy !== 'default') {
-          toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
-            id: 'reading-direction-upload-toast'
-          });
-        }
-      } catch (dirErr) {
-        console.warn('[Read] Direction detection on drop failed:', dirErr);
-      }
-
-      setSelectedBook({
-        id: 'uploaded-' + Date.now(),
-        title: file.name,
-        author: 'Local File',
-        cover: pages[0], 
-        chapters: 1,
-        rating: 0,
-        pages,
-        fileType,
-        file,
-        fileBuffer,
-        readingDirection: detectedDir,
-        readingDirectionInfo: detectedDetail
-      });
-      setCurrentPage(0);
+      await loadFile(file);
     }
-  }, []);
+  }, [loadFile]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -922,6 +971,21 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               <p className="text-[10px] text-muted-foreground/70">
                 {t("browseLocalFiles")}
               </p>
+              <div className="pt-2" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setGoogleDriveMode('import');
+                    setGoogleDriveOpen(true);
+                  }}
+                  className="h-8 px-3 text-xs font-semibold gap-2 border-border/80 bg-background/80 hover:bg-muted"
+                >
+                  <GoogleDriveIcon className="w-3.5 h-3.5" />
+                  Import from Google Drive
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1129,6 +1193,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       {notesCount > 99 ? '99+' : notesCount}
                     </span>
                   )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 text-foreground"
+                  onClick={() => {
+                    setGoogleDriveMode('export');
+                    setGoogleDriveOpen(true);
+                  }}
+                  title="Google Drive"
+                >
+                  <GoogleDriveIcon className="w-3.5 h-3.5" />
                 </Button>
               </div>
             </div>
@@ -1613,6 +1689,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           </main>
         </div>
       )}
+
+      {/* Google Drive Dialog */}
+      <GoogleDriveDialog
+        open={googleDriveOpen}
+        onOpenChange={setGoogleDriveOpen}
+        initialMode={googleDriveMode}
+        exportFile={exportPayload}
+        onFileImported={loadFile}
+      />
     </div>
   );
 };

@@ -26,6 +26,7 @@ import {
   ConversionLog
 } from '@/lib/historyCache';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
+import { GoogleDriveDialog, GoogleDriveIcon } from './GoogleDriveDialog';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -2446,6 +2447,11 @@ export default function Convert({
   const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
   const [hasEditedTextOrImage, setHasEditedTextOrImage] = useState(false);
 
+  // Google Drive states
+  const [googleDriveOpen, setGoogleDriveOpen] = useState(false);
+  const [googleDriveMode, setGoogleDriveMode] = useState<'import' | 'export'>('import');
+  const [exportDrivePayload, setExportDrivePayload] = useState<{ name: string; blob: Blob; mimeType?: string } | undefined>(undefined);
+
   const hasTextOrImageEdits = () => {
     if (hasEditedTextOrImage) return true;
     for (const page of pages) {
@@ -4091,7 +4097,7 @@ export default function Convert({
     return pages;
   };
 
-  const downloadHtml = async () => {
+  const downloadHtml = async (forDrive = false): Promise<Blob | void> => {
     const exportPages = getExportablePages();
     if (exportPages.length === 0) return;
     toast.info("Generating HTML...");
@@ -4185,6 +4191,9 @@ ${pagesHtml}</body>
 </html>`;
 
     const blob = new Blob([htmlContent], { type: 'text/html' });
+    if (forDrive) {
+      return blob;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -4208,7 +4217,7 @@ ${pagesHtml}</body>
     }, 500);
   };
 
-  const downloadPdf = async () => {
+  const downloadPdf = async (forDrive = false): Promise<Blob | void> => {
     const exportPages = getExportablePages();
     if (exportPages.length === 0) return;
     toast.info("Generating PDF (Panel by Panel)...");
@@ -4330,6 +4339,10 @@ ${pagesHtml}</body>
         }
       }
 
+      if (forDrive) {
+        return pdf.output('blob');
+      }
+
       pdf.save('comic_export.pdf');
       if (hasTextOrImageEdits()) {
         addConversionHistory({
@@ -4350,7 +4363,7 @@ ${pagesHtml}</body>
     }
   };
 
-  const downloadEpub = async () => {
+  const downloadEpub = async (forDrive = false): Promise<Blob | void> => {
     const exportPages = getExportablePages();
     if (exportPages.length === 0) return;
     toast.info("Generating EPUB (Panel by Panel)...");
@@ -4626,6 +4639,10 @@ ${navItems}    </ol>
 </html>`);
 
     const content = await zip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
+    if (forDrive) {
+      return content;
+    }
+
     const url = URL.createObjectURL(content);
     const a = document.createElement('a');
     a.href = url;
@@ -4646,7 +4663,49 @@ ${navItems}    </ol>
     setShowCoffeeModal(true);
   };
 
-  const downloadText = () => {
+  const handleExportToGoogleDrive = async (format: 'txt' | 'html' | 'epub' | 'pdf') => {
+    try {
+      const rawName = pages[0]?.filename ? pages[0].filename.replace(/\.[^/.]+$/, '') : 'comic_export';
+      if (format === 'txt') {
+        toast.info("Preparing TXT for Google Drive...");
+        const blob = downloadText(true);
+        if (blob) {
+          setExportDrivePayload({ name: rawName + '.txt', blob, mimeType: 'text/plain' });
+          setGoogleDriveMode('export');
+          setGoogleDriveOpen(true);
+        }
+      } else if (format === 'html') {
+        toast.info("Preparing HTML for Google Drive...");
+        const blob = await downloadHtml(true);
+        if (blob) {
+          setExportDrivePayload({ name: rawName + '.html', blob, mimeType: 'text/html' });
+          setGoogleDriveMode('export');
+          setGoogleDriveOpen(true);
+        }
+      } else if (format === 'epub') {
+        toast.info("Preparing EPUB for Google Drive...");
+        const blob = await downloadEpub(true);
+        if (blob) {
+          setExportDrivePayload({ name: rawName + '.epub', blob, mimeType: 'application/epub+zip' });
+          setGoogleDriveMode('export');
+          setGoogleDriveOpen(true);
+        }
+      } else if (format === 'pdf') {
+        toast.info("Preparing PDF for Google Drive...");
+        const blob = await downloadPdf(true);
+        if (blob) {
+          setExportDrivePayload({ name: rawName + '.pdf', blob, mimeType: 'application/pdf' });
+          setGoogleDriveMode('export');
+          setGoogleDriveOpen(true);
+        }
+      }
+    } catch (error: any) {
+      console.error("Export to Google Drive failed:", error);
+      toast.error("Failed to prepare file for Google Drive: " + (error?.message || error));
+    }
+  };
+
+  const downloadText = (forDrive = false): Blob | void => {
     const exportPages = getExportablePages();
     let textContent = "";
     for (let i = 0; i < exportPages.length; i++) {
@@ -4669,6 +4728,9 @@ ${navItems}    </ol>
     }
 
     const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+    if (forDrive) {
+      return blob;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -4856,17 +4918,43 @@ ${navItems}    </ol>
                     <Download className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">{t("export")}</span>
                   </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
-                <DropdownMenuItem onClick={downloadText} className="cursor-pointer hover:bg-muted">
+              <DropdownMenuContent className="w-52 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
+                <DropdownMenuItem onClick={() => downloadText(false)} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> TXT
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadHtml} className="cursor-pointer hover:bg-muted">
+                <DropdownMenuItem onClick={() => downloadHtml(false)} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> HTML
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadPdf} className="cursor-pointer hover:bg-muted">
+                <DropdownMenuItem onClick={() => downloadPdf(false)} className="cursor-pointer hover:bg-muted">
                   <Download className="w-4 h-4 mr-2" /> PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadEpub} className="cursor-pointer hover:bg-muted">
+                <DropdownMenuItem onClick={() => downloadEpub(false)} className="cursor-pointer hover:bg-muted">
+                  <Book className="w-4 h-4 mr-2" /> EPUB
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-center gap-2 h-9 px-2.5"
+                  disabled={pages.length === 0 || (!pages.some(p => p.status === 'done' || p.isIgnored) && (ocrDuringBatch || splitDuringBatch || translateDuringBatch))} 
+                >
+                  <GoogleDriveIcon className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">Google Drive</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-52 bg-background border border-border rounded-none shadow-none text-foreground" align="center">
+                <DropdownMenuItem onClick={() => handleExportToGoogleDrive('txt')} className="cursor-pointer hover:bg-muted">
+                  <Download className="w-4 h-4 mr-2" /> TXT
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportToGoogleDrive('html')} className="cursor-pointer hover:bg-muted">
+                  <Download className="w-4 h-4 mr-2" /> HTML
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportToGoogleDrive('pdf')} className="cursor-pointer hover:bg-muted">
+                  <Download className="w-4 h-4 mr-2" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportToGoogleDrive('epub')} className="cursor-pointer hover:bg-muted">
                   <Book className="w-4 h-4 mr-2" /> EPUB
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -4921,6 +5009,21 @@ ${navItems}    </ol>
                 <p className="text-[10px] text-muted-foreground/80 mt-1">
                   {t("browseLocalFiles")}
                 </p>
+                <div className="pt-2" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setGoogleDriveMode('import');
+                      setGoogleDriveOpen(true);
+                    }}
+                    className="h-8 px-3 text-xs font-semibold gap-2 border-border/80 bg-background/80 hover:bg-muted"
+                  >
+                    <GoogleDriveIcon className="w-3.5 h-3.5" />
+                    Import from Google Drive
+                  </Button>
+                </div>
               </div>
 
               <div className="text-center font-semibold text-[11px] text-muted-foreground bg-muted p-2.5">
@@ -6219,6 +6322,15 @@ ${navItems}    </ol>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Google Drive Dialog */}
+      <GoogleDriveDialog
+        open={googleDriveOpen}
+        onOpenChange={setGoogleDriveOpen}
+        initialMode={googleDriveMode}
+        exportFile={exportDrivePayload}
+        onFileImported={(file) => onDrop([file])}
+      />
     </>
   );
 }

@@ -94,6 +94,7 @@ import { AIFullComicDialog } from "./AIFullComicDialog";
 import { AIFullStoryDialog } from "./AIFullStoryDialog";
 import { useAppSettings } from "@/context/AppSettingsContext";
 import { getApiUrl } from '@/lib/api';
+import { GoogleDriveDialog, GoogleDriveIcon } from "./GoogleDriveDialog";
 
 
 interface CreateProps {
@@ -1034,12 +1035,14 @@ function CreateMetroTile({
   user,
   onEdit,
   onDelete,
+  onExportDrive,
 }: {
   book: any;
   index: number;
   user: any;
   onEdit: (item: any) => void;
   onDelete: (e: React.MouseEvent, item: any) => void;
+  onExportDrive?: (e: React.MouseEvent, item: any) => void;
 }) {
   const { t } = useLanguage();
   const [slideIndex, setSlideIndex] = useState(0);
@@ -1315,6 +1318,15 @@ function CreateMetroTile({
               <PenTool className="w-3 h-3" />
               {t("edit")}
             </button>
+            {onExportDrive && (
+              <button
+                onClick={(e) => onExportDrive(e, book)}
+                className="p-1 bg-slate-900 border border-slate-800 hover:border-primary/50 text-slate-400 hover:text-primary hover:bg-primary/10 text-[10px] transition-colors flex items-center justify-center"
+                title="Save to Google Drive"
+              >
+                <GoogleDriveIcon className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               onClick={(e) => onDelete(e, book)}
               className="p-1 bg-slate-900 border border-slate-800 hover:border-red-500/50 text-slate-400 hover:text-red-400 hover:bg-red-950/40 text-[10px] transition-colors flex items-center justify-center"
@@ -3402,6 +3414,492 @@ export const Create: React.FC<CreateProps> = ({
     toast.success("Published successfully!");
   };
 
+  // Google Drive integration states
+  const [googleDriveOpen, setGoogleDriveOpen] = useState(false);
+  const [googleDriveMode, setGoogleDriveMode] = useState<'import' | 'export'>('import');
+  const [googleDriveExportFile, setGoogleDriveExportFile] = useState<{
+    name: string;
+    blob?: Blob | File;
+    mimeType?: string;
+  } | null>(null);
+
+  // Helper to open Google Drive import dialog
+  const handleOpenDriveImport = () => {
+    setGoogleDriveMode('import');
+    setGoogleDriveExportFile(null);
+    setGoogleDriveOpen(true);
+  };
+
+  // Helper to save current Comic Project to Google Drive (.comic.json)
+  const handleSaveComicProjectToDrive = () => {
+    try {
+      const activeId = currentComicId || ("comic-" + Date.now());
+      if (!currentComicId) setCurrentComicId(activeId);
+      const safeTitle = (comicTitle || "Untitled Comic").replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Comic";
+      const projectData = {
+        type: "comic_project",
+        version: 1,
+        id: activeId,
+        title: comicTitle || "Untitled Comic",
+        pages: comicPages,
+        activePageIndex,
+        timestamp: Date.now(),
+      };
+      const jsonStr = JSON.stringify(projectData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      setGoogleDriveExportFile({
+        name: `${safeTitle}.comic.json`,
+        blob,
+        mimeType: "application/json",
+      });
+      setGoogleDriveMode("export");
+      setGoogleDriveOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to prepare comic project: " + err.message);
+    }
+  };
+
+  // Helper to save current Story Project to Google Drive (.story.json)
+  const handleSaveStoryProjectToDrive = () => {
+    try {
+      const activeId = currentStoryId || ("story-" + Date.now());
+      if (!currentStoryId) setCurrentStoryId(activeId);
+      const safeTitle = (storyTitle || "Untitled Story").replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Story";
+      const html = editorRef.current?.innerHTML || loadedHtmlContent || "";
+      const projectData = {
+        type: "story_project",
+        version: 1,
+        id: activeId,
+        title: storyTitle || "Untitled Story",
+        htmlContent: html,
+        timestamp: Date.now(),
+      };
+      const jsonStr = JSON.stringify(projectData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      setGoogleDriveExportFile({
+        name: `${safeTitle}.story.json`,
+        blob,
+        mimeType: "application/json",
+      });
+      setGoogleDriveMode("export");
+      setGoogleDriveOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to prepare story project: " + err.message);
+    }
+  };
+
+  // Helper to save an unfinished comic draft to Google Drive
+  const handleQuickExportComicDraftToDrive = (comic: UnfinishedComic) => {
+    try {
+      const safeTitle = (comic.title || "Untitled Comic").replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Comic";
+      const projectData = {
+        type: "comic_project",
+        version: 1,
+        id: comic.id,
+        title: comic.title || "Untitled Comic",
+        pages: comic.pages,
+        activePageIndex: comic.activePageIndex || 0,
+        timestamp: comic.timestamp || Date.now(),
+      };
+      const jsonStr = JSON.stringify(projectData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      setGoogleDriveExportFile({
+        name: `${safeTitle}.comic.json`,
+        blob,
+        mimeType: "application/json",
+      });
+      setGoogleDriveMode("export");
+      setGoogleDriveOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to prepare comic draft: " + err.message);
+    }
+  };
+
+  // Helper to save an unfinished story draft to Google Drive
+  const handleQuickExportStoryDraftToDrive = (story: UnfinishedStory) => {
+    try {
+      const safeTitle = (story.title || "Untitled Story").replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Story";
+      const projectData = {
+        type: "story_project",
+        version: 1,
+        id: story.id,
+        title: story.title || "Untitled Story",
+        htmlContent: story.htmlContent,
+        timestamp: story.timestamp || Date.now(),
+      };
+      const jsonStr = JSON.stringify(projectData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      setGoogleDriveExportFile({
+        name: `${safeTitle}.story.json`,
+        blob,
+        mimeType: "application/json",
+      });
+      setGoogleDriveMode("export");
+      setGoogleDriveOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to prepare story draft: " + err.message);
+    }
+  };
+
+  // Helper to save a published work to Google Drive
+  const handleQuickExportPublishedToDrive = (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    try {
+      const safeTitle = (item.title || "Untitled Work").replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled Work";
+      if (item.type === "comic" || (item.pages && Array.isArray(item.pages))) {
+        let pages = item.pages;
+        if (typeof pages === "string") {
+          try { pages = JSON.parse(pages); } catch (_) { pages = []; }
+        }
+        const projectData = {
+          type: "comic_project",
+          version: 1,
+          id: item.id,
+          title: item.title || "Untitled Comic",
+          pages: pages || [],
+          activePageIndex: 0,
+          timestamp: item.timestamp || Date.now(),
+        };
+        const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
+        setGoogleDriveExportFile({
+          name: `${safeTitle}.comic.json`,
+          blob,
+          mimeType: "application/json",
+        });
+      } else {
+        const projectData = {
+          type: "story_project",
+          version: 1,
+          id: item.id,
+          title: item.title || "Untitled Story",
+          htmlContent: item.content || "",
+          timestamp: item.timestamp || Date.now(),
+        };
+        const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
+        setGoogleDriveExportFile({
+          name: `${safeTitle}.story.json`,
+          blob,
+          mimeType: "application/json",
+        });
+      }
+      setGoogleDriveMode("export");
+      setGoogleDriveOpen(true);
+    } catch (err: any) {
+      toast.error("Failed to prepare published work: " + err.message);
+    }
+  };
+
+  // Handler for files imported from Google Drive
+  const handleFileImportedFromDrive = async (file: File) => {
+    const lowerName = file.name.toLowerCase();
+    try {
+      // 1. JSON project files (.comic.json, .story.json, or .json)
+      if (lowerName.endsWith(".json")) {
+        const text = await file.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid JSON file");
+        }
+
+        // Comic project
+        if (data.type === "comic_project" || (Array.isArray(data.pages) && data.pages.length > 0)) {
+          const loadedId = data.id || "comic-" + Date.now();
+          const loadedTitle = data.title || file.name.replace(/\.(comic\.json|json)$/i, "");
+          const loadedPages: ComicPage[] = Array.isArray(data.pages) && data.pages.length > 0
+            ? data.pages
+            : [
+                {
+                  id: Date.now().toString(),
+                  tree: createGridTree(3, 2),
+                  bubbles: [],
+                },
+              ];
+          const pageIdx = typeof data.activePageIndex === "number"
+            ? Math.max(0, Math.min(data.activePageIndex, loadedPages.length - 1))
+            : 0;
+
+          isPublishedComicRef.current = false;
+          setCurrentComicId(loadedId);
+          setComicTitle(loadedTitle);
+          setComicPagesState(loadedPages);
+          setActivePageIndex(pageIdx);
+          setCreateMode("comic");
+
+          saveUnfinishedComic({
+            id: loadedId,
+            title: loadedTitle,
+            pages: loadedPages,
+            activePageIndex: pageIdx,
+          });
+          getUnfinishedComics().then(setUnfinishedComics);
+
+          toast.success(`Loaded comic "${loadedTitle}" from Google Drive!`);
+          return;
+        }
+
+        // Story project
+        if (data.type === "story_project" || typeof data.htmlContent === "string") {
+          const loadedId = data.id || "story-" + Date.now();
+          const loadedTitle = data.title || file.name.replace(/\.(story\.json|json)$/i, "");
+          const loadedHtml = data.htmlContent || "<p></p>";
+
+          isPublishedStoryRef.current = false;
+          setCurrentStoryId(loadedId);
+          setStoryTitle(loadedTitle);
+          setLoadedHtmlContent(loadedHtml);
+          if (editorRef.current) {
+            editorRef.current.innerHTML = loadedHtml;
+          }
+          setCreateMode("document");
+
+          saveUnfinishedStory({
+            id: loadedId,
+            title: loadedTitle,
+            htmlContent: loadedHtml,
+          });
+          getUnfinishedStories().then(setUnfinishedStories);
+
+          toast.success(`Loaded story "${loadedTitle}" from Google Drive!`);
+          return;
+        }
+      }
+
+      // 2. Comic archive (.cbz, .zip, .cbr)
+      if (lowerName.endsWith(".cbz") || lowerName.endsWith(".zip") || lowerName.endsWith(".cbr")) {
+        toast.info(`Extracting comic pages from ${file.name}...`);
+        const zip = await JSZip.loadAsync(file);
+        const imageEntries = Object.values(zip.files).filter(
+          (entry) =>
+            !entry.dir &&
+            /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(entry.name) &&
+            !entry.name.includes("__MACOSX")
+        );
+
+        if (imageEntries.length > 0) {
+          imageEntries.sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+          );
+
+          const pages: ComicPage[] = [];
+          for (let i = 0; i < imageEntries.length; i++) {
+            const entry = imageEntries[i];
+            const blob = await entry.async("blob");
+            const dataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+
+            pages.push({
+              id: `${Date.now()}-${i}`,
+              tree: {
+                id: `panel-${Date.now()}-${i}`,
+                type: "panel",
+                imageUrl: dataUrl,
+                drawings: [],
+              },
+              bubbles: [],
+            });
+          }
+
+          const loadedId = "comic-" + Date.now();
+          const loadedTitle = file.name.replace(/\.(cbz|zip|cbr)$/i, "");
+          isPublishedComicRef.current = false;
+          setCurrentComicId(loadedId);
+          setComicTitle(loadedTitle);
+          setComicPagesState(pages);
+          setActivePageIndex(0);
+          setCreateMode("comic");
+
+          saveUnfinishedComic({
+            id: loadedId,
+            title: loadedTitle,
+            pages,
+            activePageIndex: 0,
+          });
+          getUnfinishedComics().then(setUnfinishedComics);
+
+          toast.success(`Extracted ${pages.length} comic pages from "${file.name}" to continue editing!`);
+          return;
+        }
+      }
+
+      // 3. HTML documents (.html, .htm)
+      if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
+        const html = await file.text();
+        const loadedId = "story-" + Date.now();
+        const loadedTitle = file.name.replace(/\.html?$/i, "");
+        isPublishedStoryRef.current = false;
+        setCurrentStoryId(loadedId);
+        setStoryTitle(loadedTitle);
+        setLoadedHtmlContent(html);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = html;
+        }
+        setCreateMode("document");
+
+        saveUnfinishedStory({
+          id: loadedId,
+          title: loadedTitle,
+          htmlContent: html,
+        });
+        getUnfinishedStories().then(setUnfinishedStories);
+
+        toast.success(`Loaded "${file.name}" into Story Editor!`);
+        return;
+      }
+
+      // 4. Plain text / Markdown (.txt, .md)
+      if (lowerName.endsWith(".txt") || lowerName.endsWith(".md")) {
+        const text = await file.text();
+        const paragraphs = text
+          .split(/\r?\n\r?\n/)
+          .map((p) => `<p>${p.trim().replace(/\r?\n/g, "<br>")}</p>`)
+          .join("");
+        const loadedId = "story-" + Date.now();
+        const loadedTitle = file.name.replace(/\.(txt|md)$/i, "");
+        isPublishedStoryRef.current = false;
+        setCurrentStoryId(loadedId);
+        setStoryTitle(loadedTitle);
+        setLoadedHtmlContent(paragraphs);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = paragraphs;
+        }
+        setCreateMode("document");
+
+        saveUnfinishedStory({
+          id: loadedId,
+          title: loadedTitle,
+          htmlContent: paragraphs,
+        });
+        getUnfinishedStories().then(setUnfinishedStories);
+
+        toast.success(`Loaded text from "${file.name}" into Story Editor!`);
+        return;
+      }
+
+      // 5. EPUB files (.epub)
+      if (lowerName.endsWith(".epub")) {
+        toast.info(`Parsing EPUB "${file.name}"...`);
+        const zip = await JSZip.loadAsync(file);
+        const htmlFiles = Object.values(zip.files).filter(
+          (entry) =>
+            !entry.dir &&
+            /\.(x?html?|xml)$/i.test(entry.name) &&
+            !entry.name.includes("toc") &&
+            !entry.name.includes("nav")
+        );
+        if (htmlFiles.length > 0) {
+          htmlFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+          let combinedHtml = "";
+          for (const hEntry of htmlFiles) {
+            const rawHtml = await hEntry.async("text");
+            const bodyMatch = rawHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+            combinedHtml += bodyMatch ? bodyMatch[1] : rawHtml;
+            combinedHtml += "<hr />";
+          }
+          const loadedId = "story-" + Date.now();
+          const loadedTitle = file.name.replace(/\.epub$/i, "");
+          isPublishedStoryRef.current = false;
+          setCurrentStoryId(loadedId);
+          setStoryTitle(loadedTitle);
+          setLoadedHtmlContent(combinedHtml);
+          if (editorRef.current) {
+            editorRef.current.innerHTML = combinedHtml;
+          }
+          setCreateMode("document");
+
+          saveUnfinishedStory({
+            id: loadedId,
+            title: loadedTitle,
+            htmlContent: combinedHtml,
+          });
+          getUnfinishedStories().then(setUnfinishedStories);
+
+          toast.success(`Loaded EPUB content from "${file.name}" into Story Editor!`);
+          return;
+        }
+      }
+
+      // 6. Single images (.png, .jpg, .jpeg, .webp, .gif)
+      if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(lowerName)) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          if (createMode === "comic") {
+            const { tree, updated } = fillFirstEmptyPanel(comicTree, dataUrl);
+            if (updated) {
+              updateActivePageTree(tree);
+              toast.success(`Added image to comic panel from "${file.name}"`);
+            } else {
+              const newPage: ComicPage = {
+                id: Date.now().toString(),
+                tree: {
+                  id: `panel-${Date.now()}`,
+                  type: "panel",
+                  imageUrl: dataUrl,
+                  drawings: [],
+                },
+                bubbles: [],
+              };
+              setComicPagesState((prev) => [...prev, newPage]);
+              setActivePageIndex(comicPages.length);
+              toast.success(`Added new comic page with "${file.name}"`);
+            }
+          } else {
+            const newPage: ComicPage = {
+              id: Date.now().toString(),
+              tree: {
+                id: `panel-${Date.now()}`,
+                type: "panel",
+                imageUrl: dataUrl,
+                drawings: [],
+              },
+              bubbles: [],
+            };
+            isPublishedComicRef.current = false;
+            setCurrentComicId("comic-" + Date.now());
+            setComicTitle(file.name.replace(/\.[^/.]+$/, ""));
+            setComicPagesState([newPage]);
+            setActivePageIndex(0);
+            setCreateMode("comic");
+            toast.success(`Opened comic page with "${file.name}"`);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // 7. General text fallback
+      const rawText = await file.text();
+      const fallbackTitle = file.name.replace(/\.[^/.]+$/, "");
+      isPublishedStoryRef.current = false;
+      setCurrentStoryId("story-" + Date.now());
+      setStoryTitle(fallbackTitle);
+      setLoadedHtmlContent(rawText);
+      if (editorRef.current) {
+        editorRef.current.innerHTML = rawText;
+      }
+      setCreateMode("document");
+      toast.success(`Loaded "${file.name}" into Story Editor!`);
+    } catch (err: any) {
+      console.error("Failed to load work from Google Drive:", err);
+      toast.error(`Could not load file: ${err?.message || "Unknown error"}`);
+    }
+  };
+
+  const renderGoogleDriveDialog = () => (
+    <GoogleDriveDialog
+      open={googleDriveOpen}
+      onOpenChange={setGoogleDriveOpen}
+      initialMode={googleDriveMode}
+      exportFile={googleDriveExportFile || undefined}
+      onFileImported={handleFileImportedFromDrive}
+    />
+  );
+
   const handleExport = async (format: string) => {
     toast.info(`Exporting as ${format.toUpperCase()}...`);
 
@@ -3890,6 +4388,14 @@ export const Create: React.FC<CreateProps> = ({
         <div className="w-full h-px bg-border my-1" />
         {createMode === "document" ? (
           <>
+            <DropdownMenuItem
+              onClick={() => handleSaveStoryProjectToDrive()}
+              className="cursor-pointer gap-2 font-semibold text-primary focus:text-primary"
+            >
+              <GoogleDriveIcon className="w-3.5 h-3.5 shrink-0" />
+              <span>Save</span>
+            </DropdownMenuItem>
+            <div className="w-full h-px bg-border my-1" />
             <DropdownMenuItem onClick={() => handleExport("pdf")}>
               PDF
             </DropdownMenuItem>
@@ -3905,6 +4411,14 @@ export const Create: React.FC<CreateProps> = ({
           </>
         ) : (
           <>
+            <DropdownMenuItem
+              onClick={() => handleSaveComicProjectToDrive()}
+              className="cursor-pointer gap-2 font-semibold text-primary focus:text-primary"
+            >
+              <GoogleDriveIcon className="w-3.5 h-3.5 shrink-0" />
+              <span>Save</span>
+            </DropdownMenuItem>
+            <div className="w-full h-px bg-border my-1" />
             <DropdownMenuItem onClick={() => handleExport("pdf")}>
               PDF
             </DropdownMenuItem>
@@ -3947,6 +4461,18 @@ export const Create: React.FC<CreateProps> = ({
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
             {t("createCardDesc")}
           </p>
+          <div className="flex items-center justify-center gap-3 pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleOpenDriveImport}
+              className="h-9 px-4 text-xs font-semibold gap-2 border-border/80 bg-background hover:bg-muted shadow-xs transition-colors"
+            >
+              <GoogleDriveIcon className="w-4 h-4" />
+              <span>Open Work from Google Drive</span>
+            </Button>
+          </div>
         </div>
         
         <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl mx-auto">
@@ -4055,6 +4581,7 @@ export const Create: React.FC<CreateProps> = ({
                   user={user}
                   onEdit={handleQuickEditPublished}
                   onDelete={handleDeletePublished}
+                  onExportDrive={handleQuickExportPublishedToDrive}
                 />
               ))}
             </div>
@@ -4151,19 +4678,33 @@ export const Create: React.FC<CreateProps> = ({
                       <span className="text-[10px] text-muted-foreground font-mono">
                         {t("pagesCountLabel").replace("{count}", String(comic.pages.length))}
                       </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await deleteUnfinishedComic(comic.id);
-                          getUnfinishedComics().then(setUnfinishedComics);
-                          toast.success("Comic project deleted");
-                        }}
-                        className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickExportComicDraftToDrive(comic);
+                          }}
+                          className="w-6 h-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          title="Save to Google Drive"
+                        >
+                          <GoogleDriveIcon className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await deleteUnfinishedComic(comic.id);
+                            getUnfinishedComics().then(setUnfinishedComics);
+                            toast.success("Comic project deleted");
+                          }}
+                          className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -4210,19 +4751,33 @@ export const Create: React.FC<CreateProps> = ({
                       <Clock className="w-2.5 h-2.5 shrink-0" />
                       <span className="truncate">{formatTime(story.timestamp)}</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        await deleteUnfinishedStory(story.id);
-                        getUnfinishedStories().then(setUnfinishedStories);
-                        toast.success("Story project deleted");
-                      }}
-                      className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleQuickExportStoryDraftToDrive(story);
+                        }}
+                        className="w-6 h-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        title="Save to Google Drive"
+                      >
+                        <GoogleDriveIcon className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await deleteUnfinishedStory(story.id);
+                          getUnfinishedStories().then(setUnfinishedStories);
+                          toast.success("Story project deleted");
+                        }}
+                        className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -4230,6 +4785,7 @@ export const Create: React.FC<CreateProps> = ({
           </div>
         )}
       </div>
+      {renderGoogleDriveDialog()}
     </div>
     );
   }
@@ -4724,6 +5280,7 @@ export const Create: React.FC<CreateProps> = ({
             }}
           />
         </main>
+        {renderGoogleDriveDialog()}
       </div>
     );
   }
@@ -5456,6 +6013,7 @@ export const Create: React.FC<CreateProps> = ({
             </div>
           </DialogContent>
         </Dialog>
+        {renderGoogleDriveDialog()}
       </main>
     </div>
   );

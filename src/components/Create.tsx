@@ -3,6 +3,7 @@ import {
   BookOpen,
   PenTool,
   Eraser,
+  Scissors,
   LassoSelect,
   MousePointer2,
   PaintBucket,
@@ -88,6 +89,8 @@ import {
   TreeNode,
   Stroke,
 } from "./ComicCanvas";
+import { LayerManagerUI } from "./comic/LayerManagerUI";
+import { ComicLayer, ComicLayerGroup } from "./comic/drawingTypes";
 import JSZip from "jszip";
 import { AIGeneratorDialog } from "./AIGeneratorDialog";
 import { AIFullComicDialog } from "./AIFullComicDialog";
@@ -1381,6 +1384,113 @@ export const Create: React.FC<CreateProps> = ({
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
   const dragToolbarStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
 
+  const [isBrushSizePickerOpen, setIsBrushSizePickerOpen] = useState(false);
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
+  const [eraserType, setEraserType] = useState<"stroke" | "pixel">("pixel");
+  const [isEraserMenuOpen, setIsEraserMenuOpen] = useState(false);
+  const brushSizePickerRef = useRef<HTMLDivElement>(null);
+  const layerPanelRef = useRef<HTMLDivElement>(null);
+  const eraserMenuRef = useRef<HTMLDivElement>(null);
+
+  // Layers state
+  const [comicLayers, setComicLayers] = useState<ComicLayer[]>([
+    {
+      id: "layer-bg",
+      name: "Background",
+      visible: true,
+      opacity: 1,
+      isBackground: true,
+      color: "#ffffff",
+    },
+    {
+      id: "layer-1",
+      name: "Layer 1",
+      visible: true,
+      opacity: 1,
+    },
+  ]);
+  const [activeLayerId, setActiveLayerId] = useState<string>("layer-1");
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(["layer-1"]);
+  const [layerGroups, setLayerGroups] = useState<ComicLayerGroup[]>([]);
+  const lastSelectedLayerIdRef = useRef<string>("layer-1");
+  const [comicBackgroundColor, setComicBackgroundColor] = useState<string>("#ffffff");
+
+  const resetDrawToolSettingsToDefault = useCallback(() => {
+    setIsDrawingMode(false);
+    setDrawTool("pen");
+    setDrawColor("#000000");
+    setDrawRadius(2);
+    setTouchOff(false);
+    setComicBackgroundColor("#ffffff");
+    setComicLayers([
+      {
+        id: "layer-bg",
+        name: "Background",
+        visible: true,
+        opacity: 1,
+        isBackground: true,
+        color: "#ffffff",
+      },
+      {
+        id: "layer-1",
+        name: "Layer 1",
+        visible: true,
+        opacity: 1,
+      },
+    ]);
+    setActiveLayerId("layer-1");
+    setSelectedLayerIds(["layer-1"]);
+    setLayerGroups([]);
+    lastSelectedLayerIdRef.current = "layer-1";
+    setEraserType("pixel");
+    setIsEraserMenuOpen(false);
+    setIsBrushSizePickerOpen(false);
+    setIsLayerPanelOpen(false);
+    setIsComicPanelExpanded(false);
+  }, []);
+
+  // Auto fold brush size picker, layers panel, and eraser menu when tapping outside
+  useEffect(() => {
+    if (!isBrushSizePickerOpen && !isLayerPanelOpen && !isEraserMenuOpen) return;
+
+    const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        isEraserMenuOpen &&
+        eraserMenuRef.current &&
+        !eraserMenuRef.current.contains(target)
+      ) {
+        setIsEraserMenuOpen(false);
+      }
+      if (
+        isBrushSizePickerOpen &&
+        brushSizePickerRef.current &&
+        !brushSizePickerRef.current.contains(target)
+      ) {
+        setIsBrushSizePickerOpen(false);
+      }
+      if (
+        isLayerPanelOpen &&
+        layerPanelRef.current &&
+        !layerPanelRef.current.contains(target)
+      ) {
+        setIsLayerPanelOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDownOutside, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDownOutside, true);
+    };
+  }, [isBrushSizePickerOpen, isLayerPanelOpen, isEraserMenuOpen]);
+
+  // Close eraser menu when exiting drawing mode or switching away from erase
+  useEffect(() => {
+    if (!isDrawingMode || drawTool !== "erase") {
+      setIsEraserMenuOpen(false);
+    }
+  }, [isDrawingMode, drawTool]);
+
   const [tocItems, setTocItems] = useState<
     { id: string; text: string; level: number }[]
   >([]);
@@ -1797,6 +1907,243 @@ export const Create: React.FC<CreateProps> = ({
     });
   }, []);
 
+  const mapTreeDrawings = useCallback(
+    (node: TreeNode, fn: (strokes: Stroke[]) => Stroke[]): TreeNode => {
+      if (node.type === "panel") {
+        return {
+          ...node,
+          drawings: node.drawings ? fn(node.drawings) : [],
+        };
+      }
+      return {
+        ...node,
+        c1: mapTreeDrawings(node.c1, fn),
+        c2: mapTreeDrawings(node.c2, fn),
+      };
+    },
+    [],
+  );
+
+  const handleSelectLayer = useCallback(
+    (id: string, e?: React.MouseEvent) => {
+      if (e?.shiftKey && lastSelectedLayerIdRef.current) {
+        const ids = comicLayers.map((l) => l.id);
+        const fromIdx = ids.indexOf(lastSelectedLayerIdRef.current);
+        const toIdx = ids.indexOf(id);
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const start = Math.min(fromIdx, toIdx);
+          const end = Math.max(fromIdx, toIdx);
+          const range = ids.slice(start, end + 1);
+          setSelectedLayerIds(range);
+          setActiveLayerId(id);
+          return;
+        }
+      }
+
+      if (e?.ctrlKey || e?.metaKey) {
+        setSelectedLayerIds((prev) => {
+          const exists = prev.includes(id);
+          if (exists) {
+            const next = prev.filter((item) => item !== id);
+            return next.length > 0 ? next : [id];
+          } else {
+            return [...prev, id];
+          }
+        });
+        setActiveLayerId(id);
+        lastSelectedLayerIdRef.current = id;
+        return;
+      }
+
+      setSelectedLayerIds([id]);
+      setActiveLayerId(id);
+      lastSelectedLayerIdRef.current = id;
+    },
+    [comicLayers],
+  );
+
+  const handleAddLayer = useCallback(() => {
+    const newId = "layer-" + Date.now();
+    const count = comicLayers.filter((l) => !l.isBackground).length + 1;
+    const newLayer: ComicLayer = {
+      id: newId,
+      name: `Layer ${count}`,
+      visible: true,
+      opacity: 1,
+    };
+
+    setComicLayers((prev) => {
+      const activeIdx = prev.findIndex((l) => l.id === activeLayerId);
+      if (activeIdx !== -1) {
+        const next = [...prev];
+        next.splice(activeIdx + 1, 0, newLayer);
+        return next;
+      }
+      return [...prev, newLayer];
+    });
+
+    setActiveLayerId(newId);
+    setSelectedLayerIds([newId]);
+    lastSelectedLayerIdRef.current = newId;
+    toast.success(`Layer "${newLayer.name}" created (Ctrl+J)`);
+  }, [activeLayerId, comicLayers]);
+
+  const handleCombineLayers = useCallback(() => {
+    const regularSelected = comicLayers.filter(
+      (l) => selectedLayerIds.includes(l.id) && !l.isBackground,
+    );
+
+    if (regularSelected.length < 1) {
+      toast.info("Select layers to combine (Ctrl+E)");
+      return;
+    }
+
+    let targetLayer: ComicLayer;
+    let layersToMerge: ComicLayer[];
+
+    if (regularSelected.length === 1) {
+      const currentIdx = comicLayers.findIndex((l) => l.id === regularSelected[0].id);
+      if (currentIdx <= 1) {
+        toast.info("Cannot merge down bottom-most layer");
+        return;
+      }
+      targetLayer = comicLayers[currentIdx - 1];
+      layersToMerge = [regularSelected[0], targetLayer];
+    } else {
+      const sorted = [...regularSelected].sort(
+        (a, b) => comicLayers.indexOf(a) - comicLayers.indexOf(b),
+      );
+      targetLayer = sorted[0];
+      layersToMerge = sorted;
+    }
+
+    const mergedIds = new Set(layersToMerge.map((l) => l.id));
+    const targetId = targetLayer.id;
+
+    // Update drawing strokes across current active page tree
+    setComicPages((pages) =>
+      pages.map((p, i) =>
+        i === activePageIndex
+          ? {
+              ...p,
+              tree: mapTreeDrawings(p.tree, (strokes) =>
+                strokes.map((s) =>
+                  mergedIds.has(s.layerId || "layer-1") ? { ...s, layerId: targetId } : s,
+                ),
+              ),
+            }
+          : p,
+      ),
+    );
+
+    // Remove merged layers
+    setComicLayers((prev) =>
+      prev.filter((l) => l.id === targetId || !mergedIds.has(l.id)),
+    );
+
+    setActiveLayerId(targetId);
+    setSelectedLayerIds([targetId]);
+    lastSelectedLayerIdRef.current = targetId;
+    toast.success(`Combined into "${targetLayer.name}" (Ctrl+E)`);
+  }, [comicLayers, selectedLayerIds, activePageIndex, mapTreeDrawings]);
+
+  const handleGroupLayers = useCallback(() => {
+    const regularSelected = comicLayers.filter(
+      (l) => selectedLayerIds.includes(l.id) && !l.isBackground,
+    );
+    if (regularSelected.length === 0) {
+      toast.info("Select layers to group (Ctrl+G)");
+      return;
+    }
+
+    const groupId = "group-" + Date.now();
+    const groupName = `Group ${layerGroups.length + 1}`;
+    const newGroup: ComicLayerGroup = {
+      id: groupId,
+      name: groupName,
+      visible: true,
+      collapsed: false,
+    };
+
+    setLayerGroups((prev) => [...prev, newGroup]);
+    setComicLayers((prev) =>
+      prev.map((l) =>
+        selectedLayerIds.includes(l.id) && !l.isBackground
+          ? { ...l, groupId }
+          : l,
+      ),
+    );
+    toast.success(`Group "${groupName}" created (Ctrl+G)`);
+  }, [comicLayers, selectedLayerIds, layerGroups.length]);
+
+  const handleDeleteLayer = useCallback(
+    (id: string) => {
+      const layer = comicLayers.find((l) => l.id === id);
+      if (!layer || layer.isBackground) {
+        toast.error("Cannot delete the background layer");
+        return;
+      }
+      const regularLayers = comicLayers.filter((l) => !l.isBackground);
+      if (regularLayers.length <= 1) {
+        toast.info("Canvas must have at least one layer");
+        return;
+      }
+
+      setComicPages((pages) =>
+        pages.map((p, i) =>
+          i === activePageIndex
+            ? {
+                ...p,
+                tree: mapTreeDrawings(p.tree, (strokes) =>
+                  strokes.filter((s) => (s.layerId || "layer-1") !== id),
+                ),
+              }
+            : p,
+        ),
+      );
+
+      const nextLayers = comicLayers.filter((l) => l.id !== id);
+      setComicLayers(nextLayers);
+
+      const nextActive = nextLayers.find((l) => !l.isBackground) || nextLayers[0];
+      setActiveLayerId(nextActive.id);
+      setSelectedLayerIds([nextActive.id]);
+      lastSelectedLayerIdRef.current = nextActive.id;
+      toast.success(`Deleted layer "${layer.name}"`);
+    },
+    [comicLayers, activePageIndex, mapTreeDrawings],
+  );
+
+  const handleToggleLayerVisibility = useCallback((id: string) => {
+    setComicLayers((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, visible: l.visible === false } : l)),
+    );
+  }, []);
+
+  const handleToggleGroupVisibility = useCallback((groupId: string) => {
+    setLayerGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, visible: g.visible === false } : g)),
+    );
+  }, []);
+
+  const handleToggleGroupCollapse = useCallback((groupId: string) => {
+    setLayerGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)),
+    );
+  }, []);
+
+  const handleUpdateLayer = useCallback(
+    (id: string, updates: Partial<ComicLayer>) => {
+      if (updates.color) {
+        setComicBackgroundColor(updates.color);
+      }
+      setComicLayers((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+      );
+    },
+    [],
+  );
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -1851,6 +2198,24 @@ export const Create: React.FC<CreateProps> = ({
               handleDeleteCurrentPage();
               return;
             }
+
+            // Layer shortcuts: Ctrl+J new layer, Ctrl+E combine layers, Ctrl+G group layers
+            const k = e.key.toLowerCase();
+            if (k === "j") {
+              e.preventDefault();
+              handleAddLayer();
+              return;
+            }
+            if (k === "e") {
+              e.preventDefault();
+              handleCombineLayers();
+              return;
+            }
+            if (k === "g") {
+              e.preventDefault();
+              handleGroupLayers();
+              return;
+            }
           }
         }
       }
@@ -1896,14 +2261,14 @@ export const Create: React.FC<CreateProps> = ({
         }
 
         const key = e.key.toLowerCase();
-        if (key === "d") {
+        if (key === "d" && !e.ctrlKey && !e.metaKey) {
           setIsDrawingMode((prev) => {
             const next = !prev;
             if (next) setDrawTool("pen");
             return next;
           });
         }
-        if (isDrawingMode) {
+        if (isDrawingMode && !e.ctrlKey && !e.metaKey) {
           if (key === "e") setDrawTool("erase");
           if (key === "l") setDrawTool("select");
           if (key === "p") setDrawTool("pen");
@@ -1924,6 +2289,9 @@ export const Create: React.FC<CreateProps> = ({
     handleDeleteCurrentPage,
     flipToPrevComicPage,
     flipToNextComicPage,
+    handleAddLayer,
+    handleCombineLayers,
+    handleGroupLayers,
   ]);
 
   // Finger swipe gesture for flipping comic pages on touch devices
@@ -2084,6 +2452,7 @@ export const Create: React.FC<CreateProps> = ({
     };
 
     const handleOpenComicCreator = () => {
+      resetDrawToolSettingsToDefault();
       setCreateMode("comic");
     };
 
@@ -4525,6 +4894,7 @@ export const Create: React.FC<CreateProps> = ({
           <Card
             className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card group rounded-none"
             onClick={() => {
+              resetDrawToolSettingsToDefault();
               setCurrentComicId(null);
               setComicTitle("Untitled Comic");
               setComicPagesState([
@@ -5336,10 +5706,10 @@ export const Create: React.FC<CreateProps> = ({
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
-        <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative">
+      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0 overflow-visible">
+        <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
           {/* Left Actions */}
-          <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar py-1 shrink-0 z-20 relative">
+          <div className="flex items-center gap-0.5 overflow-visible py-1 shrink-0 z-20 relative">
             <Button
               variant="ghost"
               size="icon"
@@ -5394,15 +5764,122 @@ export const Create: React.FC<CreateProps> = ({
                   >
                     <PenTool className="w-3.5 h-3.5" />
                   </Button>
-                  <Button
-                    variant={drawTool === "erase" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="w-7 h-7 rounded-full"
-                    onClick={() => setDrawTool("erase")}
-                    title={t("eraseTooltip")}
-                  >
-                    <Eraser className="w-3.5 h-3.5" />
-                  </Button>
+                  {/* Foldable Eraser Tool with Stroke and Pixel Options */}
+                  <div ref={eraserMenuRef} className="relative flex items-center">
+                    <Button
+                      variant={drawTool === "erase" ? "secondary" : "ghost"}
+                      size="icon"
+                      className={cn(
+                        "w-7 h-7 rounded-full relative transition-all",
+                        drawTool === "erase" && "bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/50",
+                        isEraserMenuOpen && "ring-2 ring-primary/40"
+                      )}
+                      onClick={() => {
+                        setDrawTool("erase");
+                        setIsEraserMenuOpen((prev) => !prev);
+                      }}
+                      title={
+                        eraserType === "pixel"
+                          ? `Eraser: Pixel Mode (${drawRadius}px) - Tap to change`
+                          : "Eraser: Stroke Mode (Whole Line) - Tap to change"
+                      }
+                    >
+                      <Eraser className="w-3.5 h-3.5" />
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background shadow-xs",
+                          eraserType === "pixel" ? "bg-blue-500" : "bg-purple-500"
+                        )}
+                        title={eraserType === "pixel" ? "Pixel Eraser" : "Stroke Eraser"}
+                      />
+                    </Button>
+
+                    {/* Foldable eraser mode dropdown menu */}
+                    {isEraserMenuOpen && (
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[190px] animate-in fade-in slide-in-from-top-2 duration-150 z-[110]">
+                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
+                          <span>Eraser Mode</span>
+                          <span className="text-[9px] font-normal lowercase opacity-70">tap to choose</span>
+                        </div>
+
+                        {/* Option 1: Pixel Eraser (by brush size) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEraserType("pixel");
+                            setDrawTool("erase");
+                            setIsEraserMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                            eraserType === "pixel"
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted text-foreground"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                              eraserType === "pixel"
+                                ? "bg-primary/15 border-primary/30 text-primary"
+                                : "bg-muted/50 border-border/50 text-muted-foreground"
+                            )}
+                          >
+                            <Eraser className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-xs leading-none">Pixel</span>
+                              {eraserType === "pixel" && (
+                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              By brush size ({drawRadius}px)
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Option 2: Stroke Eraser */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEraserType("stroke");
+                            setDrawTool("erase");
+                            setIsEraserMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                            eraserType === "stroke"
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted text-foreground"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                              eraserType === "stroke"
+                                ? "bg-primary/15 border-primary/30 text-primary"
+                                : "bg-muted/50 border-border/50 text-muted-foreground"
+                            )}
+                          >
+                            <Scissors className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-xs leading-none">Stroke</span>
+                              {eraserType === "stroke" && (
+                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              Erase whole line / object
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <Button
                     variant={drawTool === "fill" ? "secondary" : "ghost"}
                     size="icon"
@@ -5443,61 +5920,154 @@ export const Create: React.FC<CreateProps> = ({
                     title={t("colorTooltip")}
                   />
                   <div className="w-px h-4 bg-border mx-1" />
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="any"
-                    value={drawRadius === 0 ? "" : drawRadius}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      if (!isNaN(val) && val > 0) {
-                        setDrawRadius(val);
-                      } else if (e.target.value === "") {
-                        setDrawRadius(0);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (!drawRadius || drawRadius <= 0) {
-                        setDrawRadius(2);
-                      }
-                    }}
-                    className="w-10 h-6 text-xs text-center border border-border/60 rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono font-medium px-0.5"
-                    title={t("brushSizeTooltip")}
-                    placeholder="px"
-                  />
-                  <div className="flex items-center gap-0.5 ml-0.5">
-                    {[
-                      { size: 1, dotClass: "w-[3px] h-[3px]" },
-                      { size: 1.8, dotClass: "w-[5px] h-[5px]" },
-                      { size: 2.8, dotClass: "w-[7px] h-[7px]" },
-                      { size: 4, dotClass: "w-[9px] h-[9px]" },
-                      { size: 5.5, dotClass: "w-[12px] h-[12px]" },
-                      { size: 7, dotClass: "w-[15px] h-[15px]" },
-                    ].map(({ size, dotClass }) => {
-                      const isSelected = drawRadius === size;
-                      return (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => setDrawRadius(size)}
-                          title={`${size}px`}
-                          className={cn(
-                            "w-6 h-6 rounded-full flex items-center justify-center transition-all",
-                            isSelected
-                              ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30"
-                              : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "rounded-full transition-transform",
-                              dotClass,
-                              isSelected ? "bg-primary scale-110" : "bg-current"
-                            )}
-                          />
-                        </button>
-                      );
-                    })}
+                  {/* Foldable Brush Size Input with Downward Arrow Beside and Dropdown Below */}
+                  <div ref={brushSizePickerRef} className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="any"
+                      value={drawRadius === 0 ? "" : drawRadius}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val > 0) {
+                          setDrawRadius(val);
+                        } else if (e.target.value === "") {
+                          setDrawRadius(0);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!drawRadius || drawRadius <= 0) {
+                          setDrawRadius(2);
+                        }
+                      }}
+                      className="w-10 h-6 text-xs text-center border border-border/60 rounded-l bg-background focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono font-medium px-0.5"
+                      title={t("brushSizeTooltip")}
+                      placeholder="px"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsBrushSizePickerOpen((prev) => !prev)}
+                      className={cn(
+                        "h-6 px-1 border border-l-0 border-border/60 rounded-r bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer",
+                        isBrushSizePickerOpen && "bg-muted text-foreground"
+                      )}
+                      title="Toggle brush size presets"
+                    >
+                      <ChevronDown
+                        className={cn(
+                          "w-3 h-3 transition-transform duration-200",
+                          isBrushSizePickerOpen && "rotate-180"
+                        )}
+                      />
+                    </button>
+
+                    {/* Foldable brush size picker below the manually input box */}
+                    {isBrushSizePickerOpen && (
+                      <div className="absolute top-full left-0 mt-2 p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] animate-in fade-in slide-in-from-top-2 duration-150 z-[100]">
+                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-1">
+                          Size Presets
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { size: 1, dotClass: "w-[3px] h-[3px]" },
+                            { size: 1.8, dotClass: "w-[5px] h-[5px]" },
+                            { size: 2.8, dotClass: "w-[7px] h-[7px]" },
+                            { size: 4, dotClass: "w-[9px] h-[9px]" },
+                            { size: 5.5, dotClass: "w-[12px] h-[12px]" },
+                            { size: 7, dotClass: "w-[14px] h-[14px]" },
+                            { size: 10, dotClass: "w-[16px] h-[16px]" },
+                            { size: 15, dotClass: "w-[18px] h-[18px]" },
+                            { size: 20, dotClass: "w-[20px] h-[20px]" },
+                          ].map(({ size, dotClass }) => {
+                            const isSelected = drawRadius === size;
+                            return (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => {
+                                  setDrawRadius(size);
+                                  setIsBrushSizePickerOpen(false);
+                                }}
+                                title={`${size}px`}
+                                className={cn(
+                                  "h-9 rounded-lg flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
+                                  isSelected
+                                    ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30 font-bold"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "rounded-full transition-transform shrink-0",
+                                    dotClass,
+                                    isSelected ? "bg-primary scale-110" : "bg-current"
+                                  )}
+                                />
+                                <span className="text-[9px] font-mono leading-none">{size}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-px h-4 bg-border mx-1" />
+
+                  {/* Foldable Layer Button on Drawing Toolbar */}
+                  <div ref={layerPanelRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsLayerPanelOpen((prev) => !prev)}
+                      className={cn(
+                        "h-7 px-2.5 rounded-full flex items-center gap-1.5 text-xs font-semibold transition-all border shadow-xs cursor-pointer",
+                        isLayerPanelOpen
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "bg-background border-border/70 hover:bg-muted text-foreground"
+                      )}
+                      title="Layers (Ctrl+J: New, Ctrl+E: Combine, Ctrl+G: Group)"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span
+                        className={cn(
+                          "text-[10px] px-1 py-0.2 rounded-full font-mono",
+                          isLayerPanelOpen
+                            ? "bg-primary-foreground/20 text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {comicLayers.filter((l) => !l.isBackground).length}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "w-3 h-3 transition-transform duration-200",
+                          isLayerPanelOpen && "rotate-180"
+                        )}
+                      />
+                    </button>
+
+                    {/* Foldable Layers Panel Dropdown */}
+                    {isLayerPanelOpen && (
+                      <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-2 z-[100]">
+                        <LayerManagerUI
+                          layers={comicLayers}
+                          activeLayerId={activeLayerId}
+                          selectedLayerIds={selectedLayerIds}
+                          layerGroups={layerGroups}
+                          isOpen={isLayerPanelOpen}
+                          onClose={() => setIsLayerPanelOpen(false)}
+                          onSelectLayer={handleSelectLayer}
+                          onAddLayer={handleAddLayer}
+                          onCombineLayers={handleCombineLayers}
+                          onGroupLayers={handleGroupLayers}
+                          onDeleteLayer={handleDeleteLayer}
+                          onToggleVisibility={handleToggleLayerVisibility}
+                          onToggleGroupVisibility={handleToggleGroupVisibility}
+                          onToggleGroupCollapse={handleToggleGroupCollapse}
+                          onUpdateLayer={handleUpdateLayer}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               </>
@@ -5685,8 +6255,10 @@ export const Create: React.FC<CreateProps> = ({
               )}
               <div
                 ref={comicRef}
+                data-comic-container="true"
+                style={{ backgroundColor: comicBackgroundColor }}
                 className={cn(
-                  "w-full h-full bg-background overflow-hidden",
+                  "w-full h-full overflow-hidden",
                   isComicPanelExpanded
                     ? "relative flex items-center justify-center"
                     : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
@@ -5698,123 +6270,64 @@ export const Create: React.FC<CreateProps> = ({
                   onChange={updateActivePageTree}
                   isDrawingMode={isDrawingMode}
                   drawTool={drawTool}
+                  eraserType={eraserType}
                   drawColor={drawColor}
                   drawRadius={drawRadius}
                   touchOff={touchOff}
                   setTouchOff={setTouchOff}
                   onExpandedChange={setIsComicPanelExpanded}
+                  layers={comicLayers}
+                  activeLayerId={activeLayerId}
+                  selectedLayerIds={selectedLayerIds}
+                  layerGroups={layerGroups}
+                  backgroundColor={comicBackgroundColor}
+                  bubbles={bubbles}
                 />
 
-                {/* Bubble overlays layer - hidden in full canvas mode */}
-                {!isComicPanelExpanded && bubbles.map((b) => (
+                {/* Bubble overlays layer - ALWAYS on the top, regardless of whether draw is active or not */}
+                {!isComicPanelExpanded && (
                   <div
-                    key={b.id}
-                    data-bubble-id={b.id}
-                    style={{ left: `${b.x}%`, top: `${b.y}%` }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      removeBubble(b.id);
-                    }}
-                    onPointerDown={(e) => {
-                      // Ignore drag operations initiated inside the contenteditable text
-                      if (
-                        (e.target as HTMLElement).closest(
-                          '[contenteditable="true"]',
-                        )
-                      ) {
-                        setActiveBubbleId(b.id);
-                        setNewBubbleText(b.text);
-                        setBubbleStyle(b.style);
-                        return;
-                      }
-                      e.stopPropagation();
-                      setActiveBubbleId(b.id);
-                      setNewBubbleText(b.text);
-                      setBubbleStyle(b.style);
-                      const target = e.currentTarget as HTMLElement;
-                      const parent = target.parentElement!;
-
-                      let initialX = e.clientX;
-                      let initialY = e.clientY;
-                      let startLeft = b.x;
-                      let startTop = b.y;
-
-                      const onPointerMove = (ev: PointerEvent) => {
-                        const rect = parent.getBoundingClientRect();
-                        const dX = ((ev.clientX - initialX) / rect.width) * 100;
-                        const dY =
-                          ((ev.clientY - initialY) / rect.height) * 100;
-                        updateActivePageBubbles(
-                          bubbles.map((bubble) =>
-                            bubble.id === b.id
-                              ? {
-                                  ...bubble,
-                                  x: Math.max(0, Math.min(100, startLeft + dX)),
-                                  y: Math.max(0, Math.min(100, startTop + dY)),
-                                }
-                              : bubble,
-                          ),
-                        );
-                      };
-
-                      const onPointerUp = (ev: PointerEvent) => {
-                        target.releasePointerCapture(ev.pointerId);
-                        target.removeEventListener(
-                          "pointermove",
-                          onPointerMove,
-                        );
-                        target.removeEventListener("pointerup", onPointerUp);
-                      };
-
-                      target.setPointerCapture(e.pointerId);
-                      target.addEventListener("pointermove", onPointerMove);
-                      target.addEventListener("pointerup", onPointerUp);
-                    }}
-                    className={`bubble-overlay absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none touch-none ${
-                      activeBubbleId === b.id
-                        ? b.style === "freehand"
-                          ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-30"
-                          : "ring-2 ring-primary ring-offset-2 z-30"
-                        : "z-20"
-                    }`}
+                    className="absolute inset-0 pointer-events-none z-[70] overflow-visible"
+                    data-bubbles-layer="true"
                   >
-                    <InteractiveBubble
-                      bubble={b}
-                      isActive={activeBubbleId === b.id}
-                      onUpdateTail={(tailX, tailY) => updateBubbleTail(b.id, tailX, tailY)}
-                      onUpdateText={(text) => {
-                        setNewBubbleText(text);
-                        updateBubbleText(b.id, text);
-                      }}
-                      removeBubble={() => removeBubble(b.id)}
-                      onActivate={() => {
-                        setActiveBubbleId(b.id);
-                        setNewBubbleText(b.text);
-                        setBubbleStyle(b.style);
-                      }}
-                    />
-
-                    {/* Little Red Drag Handle with Red Cross Arrow Icon when active */}
-                    {activeBubbleId === b.id && (
+                    {bubbles.map((b) => (
                       <div
+                        key={b.id}
+                        data-bubble-id={b.id}
+                        style={{ left: `${b.x}%`, top: `${b.y}%` }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          removeBubble(b.id);
+                        }}
                         onPointerDown={(e) => {
+                          // Ignore drag operations initiated inside the contenteditable text
+                          if (
+                            (e.target as HTMLElement).closest(
+                              '[contenteditable="true"]',
+                            )
+                          ) {
+                            setActiveBubbleId(b.id);
+                            setNewBubbleText(b.text);
+                            setBubbleStyle(b.style);
+                            return;
+                          }
                           e.stopPropagation();
                           setActiveBubbleId(b.id);
                           setNewBubbleText(b.text);
                           setBubbleStyle(b.style);
                           const target = e.currentTarget as HTMLElement;
-                          const overlay = target.parentElement!;
-                          const parentOfOverlay = overlay.parentElement!; // comicRef container
-                          
+                          const parent = target.parentElement!;
+
                           let initialX = e.clientX;
                           let initialY = e.clientY;
                           let startLeft = b.x;
                           let startTop = b.y;
 
                           const onPointerMove = (ev: PointerEvent) => {
-                            const rect = parentOfOverlay.getBoundingClientRect();
+                            const rect = (parent.closest('[data-comic-container="true"]') || parent).getBoundingClientRect();
                             const dX = ((ev.clientX - initialX) / rect.width) * 100;
-                            const dY = ((ev.clientY - initialY) / rect.height) * 100;
+                            const dY =
+                              ((ev.clientY - initialY) / rect.height) * 100;
                             updateActivePageBubbles(
                               bubbles.map((bubble) =>
                                 bubble.id === b.id
@@ -5830,7 +6343,10 @@ export const Create: React.FC<CreateProps> = ({
 
                           const onPointerUp = (ev: PointerEvent) => {
                             target.releasePointerCapture(ev.pointerId);
-                            target.removeEventListener("pointermove", onPointerMove);
+                            target.removeEventListener(
+                              "pointermove",
+                              onPointerMove,
+                            );
                             target.removeEventListener("pointerup", onPointerUp);
                           };
 
@@ -5838,14 +6354,84 @@ export const Create: React.FC<CreateProps> = ({
                           target.addEventListener("pointermove", onPointerMove);
                           target.addEventListener("pointerup", onPointerUp);
                         }}
-                        className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 border border-white rounded-full flex items-center justify-center cursor-move shadow-md z-50 text-white select-none touch-none hover:bg-red-600 transition-colors"
-                        title={t("dragToMoveBubble")}
+                        className={`bubble-overlay pointer-events-auto absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none touch-none ${
+                          activeBubbleId === b.id
+                            ? b.style === "freehand"
+                              ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-[80]"
+                              : "ring-2 ring-primary ring-offset-2 z-[80]"
+                            : "z-[70]"
+                        }`}
                       >
-                        <Move className="w-3 h-3 text-white stroke-[3px]" />
+                        <InteractiveBubble
+                          bubble={b}
+                          isActive={activeBubbleId === b.id}
+                          onUpdateTail={(tailX, tailY) => updateBubbleTail(b.id, tailX, tailY)}
+                          onUpdateText={(text) => {
+                            setNewBubbleText(text);
+                            updateBubbleText(b.id, text);
+                          }}
+                          removeBubble={() => removeBubble(b.id)}
+                          onActivate={() => {
+                            setActiveBubbleId(b.id);
+                            setNewBubbleText(b.text);
+                            setBubbleStyle(b.style);
+                          }}
+                        />
+
+                        {/* Little Red Drag Handle with Red Cross Arrow Icon when active */}
+                        {activeBubbleId === b.id && (
+                          <div
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setActiveBubbleId(b.id);
+                              setNewBubbleText(b.text);
+                              setBubbleStyle(b.style);
+                              const target = e.currentTarget as HTMLElement;
+                              const overlay = target.parentElement!;
+                              const parentOfOverlay = overlay.parentElement!; // bubbles layer container
+                              
+                              let initialX = e.clientX;
+                              let initialY = e.clientY;
+                              let startLeft = b.x;
+                              let startTop = b.y;
+
+                              const onPointerMove = (ev: PointerEvent) => {
+                                const rect = (parentOfOverlay.closest('[data-comic-container="true"]') || parentOfOverlay).getBoundingClientRect();
+                                const dX = ((ev.clientX - initialX) / rect.width) * 100;
+                                const dY = ((ev.clientY - initialY) / rect.height) * 100;
+                                updateActivePageBubbles(
+                                  bubbles.map((bubble) =>
+                                    bubble.id === b.id
+                                      ? {
+                                          ...bubble,
+                                          x: Math.max(0, Math.min(100, startLeft + dX)),
+                                          y: Math.max(0, Math.min(100, startTop + dY)),
+                                        }
+                                      : bubble,
+                                  ),
+                                );
+                              };
+
+                              const onPointerUp = (ev: PointerEvent) => {
+                                target.releasePointerCapture(ev.pointerId);
+                                target.removeEventListener("pointermove", onPointerMove);
+                                target.removeEventListener("pointerup", onPointerUp);
+                              };
+
+                              target.setPointerCapture(e.pointerId);
+                              target.addEventListener("pointermove", onPointerMove);
+                              target.addEventListener("pointerup", onPointerUp);
+                            }}
+                            className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 border border-white rounded-full flex items-center justify-center cursor-move shadow-md z-[85] text-white select-none touch-none hover:bg-red-600 transition-colors pointer-events-auto"
+                            title={t("dragToMoveBubble")}
+                          >
+                            <Move className="w-3 h-3 text-white stroke-[3px]" />
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>

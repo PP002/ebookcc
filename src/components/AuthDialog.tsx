@@ -48,6 +48,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const [resetOtpCode, setResetOtpCode] = useState("");
   const [isVerifyingResetOtp, setIsVerifyingResetOtp] = useState(false);
   const [isResetCodeVerified, setIsResetCodeVerified] = useState(false);
+  const [nonce, setNonce] = useState(() => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
 
   useEffect(() => {
     if (!open) {
@@ -67,6 +68,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
       setResetOtpCode("");
       setResetOtpEmail("");
       setIsResetCodeVerified(false);
+      setNonce(Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
     }
   }, [open]);
 
@@ -330,7 +332,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     try {
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'google',
-        token: credentialResponse.credential
+        token: credentialResponse.credential,
+        nonce
       });
       if (error) {
         toast.error(error.message || "Failed to sign in with Google.");
@@ -713,7 +716,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 theme="outline"
                 size="large"
                 shape="pill"
-                width="100%"
+                nonce={nonce}
                 text="continue_with"
               />
             </div>

@@ -206,7 +206,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     slideReorganizeComics: "Reorganize Comics",
     slideCreateComic: "Create Comic",
     slideAddTextInsertImages: "Add text, Insert images",
-    tapToInsertImage: "Tap to insert image",
+    tapToInsertImage: "Click to insert image",
     doubleTapToRemove: "Double tap to remove",
     bubbleCreatorDialogue: "Bubble Creator Dialogue",
     aiWriter: "AI Writer",

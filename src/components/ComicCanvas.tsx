@@ -6,6 +6,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ImageToolbar } from './ImageToolbar';
 import { getStroke } from 'perfect-freehand';
 import { useLanguage } from '@/context/LanguageContext';
+import { RasterDrawingCanvas } from './comic/RasterDrawingCanvas';
+import { ComicLayer, ComicLayerGroup } from './comic/drawingTypes';
+import { BubbleData, SpeechBubbleRenderer } from './ComicPageRenderer';
 
 export type Point = { 
   x: number; 
@@ -111,7 +114,8 @@ export function getSvgPathFromPoints(points: Point[], brushRadius: number, aspec
 
 export type Stroke = { 
   id: string, 
-  type?: 'stroke' | 'fill',
+  type?: 'stroke' | 'fill' | 'erase',
+  layerId?: string,
   points: Point[], 
   color: string, 
   brushRadius: number, 
@@ -130,6 +134,9 @@ export type PanelNode = {
   isHighContrast?: boolean;
   hasOutline?: boolean;
   color?: string;
+  layers?: ComicLayer[];
+  layerGroups?: ComicLayerGroup[];
+  activeLayerId?: string;
 };
 export type SplitNode = {
   id: string;
@@ -301,6 +308,84 @@ export function getLeafBoxes(node: TreeNode, x = 0, y = 0, w = 100, h = 100): Pa
       ...getLeafBoxes(node.c2, x, y + h1, w, h2),
     ];
   }
+}
+
+/**
+ * Transforms drawing stroke coordinates when a panel is moved or resized.
+ * Guarantees that strokes remain in their exact physical page positions:
+ * they DO NOT contract or expand, and are ONLY covered or displayed by the panel frame.
+ */
+export function transformDrawingsForBounds(
+  drawings: Stroke[] | undefined,
+  oldBox: { x: number; y: number; w: number; h: number },
+  newBox: { x: number; y: number; w: number; h: number }
+): Stroke[] {
+  if (!drawings || drawings.length === 0) return [];
+  if (oldBox.w <= 0 || oldBox.h <= 0 || newBox.w <= 0 || newBox.h <= 0) return drawings;
+
+  if (
+    Math.abs(oldBox.x - newBox.x) < 0.0001 &&
+    Math.abs(oldBox.y - newBox.y) < 0.0001 &&
+    Math.abs(oldBox.w - newBox.w) < 0.0001 &&
+    Math.abs(oldBox.h - newBox.h) < 0.0001
+  ) {
+    return drawings;
+  }
+
+  const safeNewW = Math.max(0.0001, newBox.w);
+  const safeNewH = Math.max(0.0001, newBox.h);
+  const scaleW = oldBox.w / safeNewW;
+  const scaleH = oldBox.h / safeNewH;
+
+  return drawings.map((s) => {
+    // Stroke brush radius is specified as a percentage of panel width.
+    // To preserve the exact physical stroke diameter on the page:
+    // newRadius * newW === oldRadius * oldW => newRadius = oldRadius * scaleW
+    const newRadius = (s.brushRadius !== undefined ? s.brushRadius : 2) * scaleW;
+
+    if (s.type === 'fill' && s.bounds) {
+      const pageX = oldBox.x + (s.bounds.x / 100) * oldBox.w;
+      const pageY = oldBox.y + (s.bounds.y / 100) * oldBox.h;
+      const pageW = (s.bounds.w / 100) * oldBox.w;
+      const pageH = (s.bounds.h / 100) * oldBox.h;
+
+      return {
+        ...s,
+        brushRadius: newRadius,
+        bounds: {
+          x: ((pageX - newBox.x) / safeNewW) * 100,
+          y: ((pageY - newBox.y) / safeNewH) * 100,
+          w: (pageW / safeNewW) * 100,
+          h: (pageH / safeNewH) * 100,
+        },
+        points: s.points && s.points.length > 0 ? s.points.map((p) => {
+          const ptPageX = oldBox.x + (p.x / 100) * oldBox.w;
+          const ptPageY = oldBox.y + (p.y / 100) * oldBox.h;
+          return {
+            ...p,
+            x: ((ptPageX - newBox.x) / safeNewW) * 100,
+            y: ((ptPageY - newBox.y) / safeNewH) * 100,
+          };
+        }) : s.points,
+      };
+    }
+
+    const newPoints = (s.points || []).map((p) => {
+      const ptPageX = oldBox.x + (p.x / 100) * oldBox.w;
+      const ptPageY = oldBox.y + (p.y / 100) * oldBox.h;
+      return {
+        ...p,
+        x: ((ptPageX - newBox.x) / safeNewW) * 100,
+        y: ((ptPageY - newBox.y) / safeNewH) * 100,
+      };
+    });
+
+    return {
+      ...s,
+      brushRadius: newRadius,
+      points: newPoints,
+    };
+  });
 }
 
 export interface BorderingSegment {
@@ -822,9 +907,50 @@ function getClusteredCutValues(values: number[], min: number, max: number, eps: 
   return clustered;
 }
 
+
+export function updateTreeFromBoxes(
+  node: TreeNode,
+  updatedBoxesMap: Map<string, PanelBox>
+): { node: TreeNode, w: number, h: number } {
+  if (node.type === 'panel') {
+    const box = updatedBoxesMap.get(node.id);
+    if (!box) return { node, w: 0, h: 0 };
+    return { node: box.node, w: box.w, h: box.h };
+  }
+
+  const isRow = node.dir === 'row';
+  const res1 = updateTreeFromBoxes(node.c1, updatedBoxesMap);
+  const res2 = updateTreeFromBoxes(node.c2, updatedBoxesMap);
+
+  let newPercent = node.percent;
+  let newW = 0;
+  let newH = 0;
+  if (isRow) {
+    newW = res1.w + res2.w;
+    newH = Math.max(res1.h, res2.h);
+    if (newW > 0) newPercent = (res1.w / newW) * 100;
+  } else {
+    newH = res1.h + res2.h;
+    newW = Math.max(res1.w, res2.w);
+    if (newH > 0) newPercent = (res1.h / newH) * 100;
+  }
+
+  return {
+    node: {
+      ...node,
+      percent: newPercent,
+      c1: res1.node,
+      c2: res2.node,
+    },
+    w: newW,
+    h: newH,
+  };
+}
+
 export function boxesToTree(
   boxes: PanelBox[],
-  bounds = { x: 0, y: 0, w: 100, h: 100 }
+  bounds = { x: 0, y: 0, w: 100, h: 100 },
+  path = 'root'
 ): TreeNode {
   if (boxes.length === 0) {
     return { type: 'panel', id: genId() };
@@ -906,22 +1032,22 @@ export function boxesToTree(
     const percent = Math.max(1, Math.min(99, ((bestCut.x - bounds.x) / bounds.w) * 100));
     return {
       type: 'split',
-      id: genId(),
+      id: `split_${path}`,
       dir: 'row',
       percent,
-      c1: boxesToTree(bestCut.left, { x: bounds.x, y: bounds.y, w: bestCut.x - bounds.x, h: bounds.h }),
-      c2: boxesToTree(bestCut.right, { x: bestCut.x, y: bounds.y, w: bounds.x + bounds.w - bestCut.x, h: bounds.h }),
+      c1: boxesToTree(bestCut.left, { x: bounds.x, y: bounds.y, w: bestCut.x - bounds.x, h: bounds.h }, `${path}_0`),
+      c2: boxesToTree(bestCut.right, { x: bestCut.x, y: bounds.y, w: bounds.x + bounds.w - bestCut.x, h: bounds.h }, `${path}_1`),
     };
   } else if (validYCuts.length > 0) {
     const bestCut = validYCuts[0];
     const percent = Math.max(1, Math.min(99, ((bestCut.y - bounds.y) / bounds.h) * 100));
     return {
       type: 'split',
-      id: genId(),
+      id: `split_${path}`,
       dir: 'col',
       percent,
-      c1: boxesToTree(bestCut.top, { x: bounds.x, y: bounds.y, w: bounds.w, h: bestCut.y - bounds.y }),
-      c2: boxesToTree(bestCut.bottom, { x: bounds.x, y: bestCut.y, w: bounds.w, h: bounds.y + bounds.h - bestCut.y }),
+      c1: boxesToTree(bestCut.top, { x: bounds.x, y: bounds.y, w: bounds.w, h: bestCut.y - bounds.y }, `${path}_0`),
+      c2: boxesToTree(bestCut.bottom, { x: bounds.x, y: bestCut.y, w: bounds.w, h: bounds.y + bounds.h - bestCut.y }, `${path}_1`),
     };
   }
 
@@ -932,11 +1058,11 @@ export function boxesToTree(
   if (left.length > 0 && right.length > 0) {
     return {
       type: 'split',
-      id: genId(),
+      id: `split_${path}`,
       dir: 'row',
       percent: 50,
-      c1: boxesToTree(left, { ...bounds, w: bounds.w / 2 }),
-      c2: boxesToTree(right, { ...bounds, x: bounds.x + bounds.w / 2, w: bounds.w / 2 }),
+      c1: boxesToTree(left, { ...bounds, w: bounds.w / 2 }, `${path}_0`),
+      c2: boxesToTree(right, { ...bounds, x: bounds.x + bounds.w / 2, w: bounds.w / 2 }, `${path}_1`),
     };
   }
 
@@ -959,6 +1085,59 @@ export function replacePanelById(
     c1: replacePanelById(node.c1, targetId, replacement),
     c2: replacePanelById(node.c2, targetId, replacement),
   };
+}
+
+export function replaceNodeById(
+  node: TreeNode,
+  targetId: string,
+  replacement: (target: TreeNode) => TreeNode
+): TreeNode {
+  if (node.id === targetId) {
+    return replacement(node);
+  }
+  if (node.type === 'split') {
+    return {
+      ...node,
+      c1: replaceNodeById(node.c1, targetId, replacement),
+      c2: replaceNodeById(node.c2, targetId, replacement),
+    };
+  }
+  return node;
+}
+
+
+export function splitPanelWithDrawings(
+  tree: TreeNode,
+  targetPanelId: string,
+  dir: Direction
+): TreeNode {
+  const currentBoxes = getLeafBoxes(tree);
+  const targetBox = currentBoxes.find((b) => b.id === targetPanelId);
+
+  return replacePanelById(tree, targetPanelId, (target) => {
+    let updatedTarget = target;
+    if (target.drawings && target.drawings.length > 0 && targetBox) {
+      const newBox = {
+        x: targetBox.x,
+        y: targetBox.y,
+        w: dir === 'row' ? targetBox.w / 2 : targetBox.w,
+        h: dir === 'col' ? targetBox.h / 2 : targetBox.h,
+      };
+      const transformed = transformDrawingsForBounds(target.drawings, targetBox, newBox);
+      updatedTarget = { ...target, drawings: transformed };
+    }
+    return {
+      type: 'split',
+      id: genId(),
+      dir,
+      percent: 50,
+      c1: updatedTarget,
+      c2: {
+        type: 'panel',
+        id: genId(),
+      },
+    };
+  });
 }
 
 export function getSegmentsAlongDir(node: TreeNode, dir: Direction): TreeNode[] {
@@ -1008,33 +1187,50 @@ interface ComicCanvasProps {
   onChange: (tree: TreeNode) => void;
   isDrawingMode?: boolean;
   drawTool?: 'pen'|'erase'|'select'|'fill';
+  eraserType?: 'stroke'|'pixel';
   drawColor?: string;
   drawRadius?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   onExpandedChange?: (isExpanded: boolean) => void;
+  layers?: ComicLayer[];
+  activeLayerId?: string;
+  selectedLayerIds?: string[];
+  layerGroups?: ComicLayerGroup[];
+  backgroundColor?: string;
+  bubbles?: BubbleData[];
 }
+
+export const COMIC_PAGE_ASPECT = 3 / 4; // Height/Width = 4:3 page ratio (Width/Height = 3/4 = 0.75)
 
 export const ComicCanvas: React.FC<ComicCanvasProps> = ({ 
   tree, 
   onChange, 
   isDrawingMode = false, 
   drawTool = 'pen', 
+  eraserType = 'pixel',
   drawColor = '#000000', 
   drawRadius = 2,
   touchOff = false,
   setTouchOff,
-  onExpandedChange
+  onExpandedChange,
+  layers,
+  activeLayerId,
+  selectedLayerIds,
+  layerGroups,
+  backgroundColor,
+  bubbles,
 }) => {
   const { t } = useLanguage();
   const [expandedPanelPath, setExpandedPanelPath] = useState<number[] | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [containerAspect, setContainerAspect] = useState<number>(3 / 4);
+  const [containerAspect, setContainerAspect] = useState<number>(COMIC_PAGE_ASPECT);
 
   useLayoutEffect(() => {
     if (!canvasContainerRef.current) return;
     const updateContainerAspect = () => {
-      if (canvasContainerRef.current) {
+      // Only measure container aspect when NOT in expanded panel mode to keep the 4:3 page aspect stable
+      if (canvasContainerRef.current && expandedPanelPath === null) {
         const rect = canvasContainerRef.current.getBoundingClientRect();
         if (rect.height > 0 && rect.width > 0) {
           setContainerAspect(rect.width / rect.height);
@@ -1045,7 +1241,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
     const ro = new ResizeObserver(updateContainerAspect);
     ro.observe(canvasContainerRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [expandedPanelPath]);
 
   // Auto-reset expanded panel if root tree changes (e.g., page switch or complete layout rebuild)
   useEffect(() => {
@@ -1072,45 +1268,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   }, [leafBoxes]);
 
   const handleSplitPanel = (targetPanelId: string, dir: Direction) => {
-    const newRoot = replacePanelById(tree, targetPanelId, (target) => {
-      let updatedTarget = target;
-      if (target.drawings && target.drawings.length > 0) {
-        const scaleX = dir === 'row' ? 2 : 1;
-        const scaleY = dir === 'col' ? 2 : 1;
-        const transformed: Stroke[] = target.drawings.map(s => {
-          if (s.type === 'fill' && s.bounds) {
-            return {
-              ...s,
-              bounds: {
-                x: s.bounds.x * scaleX,
-                y: s.bounds.y * scaleY,
-                w: s.bounds.w * scaleX,
-                h: s.bounds.h * scaleY,
-              }
-            };
-          }
-          return {
-            ...s,
-            brushRadius: s.brushRadius * (dir === 'col' ? 2 : 1),
-            points: (s.points || []).map(p => ({
-              ...p,
-              x: p.x * scaleX,
-              y: p.y * scaleY,
-            }))
-          };
-        });
-        updatedTarget = { ...target, drawings: transformed };
-      }
-      return {
-        type: 'split',
-        id: genId(),
-        dir,
-        percent: 50,
-        c1: updatedTarget,
-        c2: { type: 'panel', id: genId() },
-      };
-    });
-    onChange(newRoot);
+    onChange(splitPanelWithDrawings(tree, targetPanelId, dir));
   };
 
   const addAtEdge = (edge: 'top' | 'bottom' | 'left' | 'right') => {
@@ -1169,7 +1327,31 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
         c2: newCol
       };
     }
-    onChange(newTree);
+
+    // Transform drawings of all existing panels to match their new positions in newTree
+    const oldBoxes = getLeafBoxes(tree);
+    const oldBoxesMap = new Map(oldBoxes.map(b => [b.id, b]));
+    const newBoxes = getLeafBoxes(newTree);
+
+    let transformedTree: TreeNode = newTree;
+    for (const nb of newBoxes) {
+      const ob = oldBoxesMap.get(nb.id);
+      if (ob && nb.node.type === 'panel' && nb.node.drawings && nb.node.drawings.length > 0) {
+        if (
+          Math.abs(nb.x - ob.x) > 0.0001 ||
+          Math.abs(nb.y - ob.y) > 0.0001 ||
+          Math.abs(nb.w - ob.w) > 0.0001 ||
+          Math.abs(nb.h - ob.h) > 0.0001
+        ) {
+          const transformed = transformDrawingsForBounds(nb.node.drawings, ob, nb);
+          transformedTree = replacePanelById(transformedTree, nb.id, (node) => ({
+            ...node,
+            drawings: transformed,
+          }));
+        }
+      }
+    }
+    onChange(transformedTree);
   };
 
   return (
@@ -1179,6 +1361,9 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
         "w-full h-full relative select-none group/canvas",
         expandedNode && expandedPanelPath !== null ? "bg-background" : "bg-white"
       )}
+      style={{
+        backgroundColor: expandedNode && expandedPanelPath !== null ? undefined : (backgroundColor || '#ffffff'),
+      }}
     >
       {expandedNode && expandedPanelPath !== null ? (
         <ExpandedPanelWorkspace
@@ -1188,6 +1373,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           rootTree={tree}
           isDrawingMode={isDrawingMode}
           drawTool={drawTool}
+          eraserType={eraserType}
           drawColor={drawColor}
           drawRadius={drawRadius}
           touchOff={touchOff}
@@ -1196,10 +1382,17 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           originalRatio={(() => {
             const box = leafBoxes.find(b => b.node.id === expandedNode.id);
             if (box && box.w > 0 && box.h > 0) {
-              return (box.w * 3) / (box.h * 4);
+              return (box.w / box.h) * COMIC_PAGE_ASPECT;
             }
-            return 0.75;
+            return COMIC_PAGE_ASPECT;
           })()}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          selectedLayerIds={selectedLayerIds}
+          layerGroups={layerGroups}
+          backgroundColor={backgroundColor}
+          bubbles={bubbles}
+          leafBoxes={leafBoxes}
         />
       ) : (
         <>
@@ -1210,6 +1403,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             rootTree={tree} 
             isDrawingMode={isDrawingMode} 
             drawTool={drawTool} 
+            eraserType={eraserType}
             drawColor={drawColor} 
             drawRadius={drawRadius} 
             touchOff={touchOff} 
@@ -1217,6 +1411,11 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             onExpandPanel={(p) => setExpandedPanelPath(p)}
             containerAspect={containerAspect}
             leafBoxes={leafBoxes}
+            layers={layers}
+            activeLayerId={activeLayerId}
+            selectedLayerIds={selectedLayerIds}
+            layerGroups={layerGroups}
+            backgroundColor={backgroundColor}
           />
 
           <SharedEdgesOverlay
@@ -1303,6 +1502,16 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   );
 };
 
+
+const Resizer: React.FC<{
+  node: TreeNode;
+  onChange: (t: TreeNode) => void;
+  rootTree: TreeNode;
+  isDrawingMode: boolean;
+}> = () => {
+  return null;
+};
+
 const SplitView: React.FC<{ 
   node: TreeNode; 
   path: number[]; 
@@ -1310,6 +1519,7 @@ const SplitView: React.FC<{
   rootTree: TreeNode; 
   isDrawingMode: boolean; 
   drawTool: 'pen'|'erase'|'select'|'fill'; 
+  eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
   touchOff?: boolean;
@@ -1317,6 +1527,11 @@ const SplitView: React.FC<{
   onExpandPanel?: (path: number[]) => void;
   containerAspect?: number;
   leafBoxes?: PanelBox[];
+  layers?: ComicLayer[];
+  activeLayerId?: string;
+  selectedLayerIds?: string[];
+  layerGroups?: ComicLayerGroup[];
+  backgroundColor?: string;
 }> = ({ 
   node, 
   path, 
@@ -1324,19 +1539,25 @@ const SplitView: React.FC<{
   rootTree, 
   isDrawingMode, 
   drawTool, 
+  eraserType = 'pixel',
   drawColor, 
   drawRadius, 
   touchOff, 
   setTouchOff, 
   onExpandPanel,
   containerAspect = 3 / 4,
-  leafBoxes
+  leafBoxes,
+  layers,
+  activeLayerId,
+  selectedLayerIds,
+  layerGroups,
+  backgroundColor,
 }) => {
   const boxes = leafBoxes || useMemo(() => getLeafBoxes(rootTree), [rootTree]);
 
   if (node.type === 'panel') {
     const box = boxes.find(b => b.node.id === node.id);
-    const panelAspect = (box && box.h > 0) ? (box.w / box.h) * containerAspect : 1;
+    const panelAspect = (box && box.h > 0) ? (box.w / box.h) * COMIC_PAGE_ASPECT : COMIC_PAGE_ASPECT;
     return (
       <PanelView 
         node={node} 
@@ -1345,12 +1566,19 @@ const SplitView: React.FC<{
         rootTree={rootTree} 
         isDrawingMode={isDrawingMode} 
         drawTool={drawTool} 
+        eraserType={eraserType}
         drawColor={drawColor} 
         drawRadius={drawRadius} 
         touchOff={touchOff} 
         setTouchOff={setTouchOff} 
         onExpandPanel={onExpandPanel}
         aspectRatio={panelAspect}
+        panelBox={box}
+        layers={layers}
+        activeLayerId={activeLayerId}
+        selectedLayerIds={selectedLayerIds}
+        layerGroups={layerGroups}
+        backgroundColor={backgroundColor}
       />
     );
   }
@@ -1360,10 +1588,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} />
       </div>
+      
+      <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
+
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} />
       </div>
     </div>
   );
@@ -1377,6 +1608,7 @@ const SharedEdgesOverlay: React.FC<{
 }> = ({ tree, onChange, containerRef, isDrawingMode }) => {
   const [showAiForId, setShowAiForId] = useState<string | null>(null);
   const [activeDraggingKey, setActiveDraggingKey] = useState<string | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<{ x: number; y: number } | null>(null);
   const longPressTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const leafBoxes = useMemo(() => getLeafBoxes(tree), [tree]);
@@ -1397,6 +1629,7 @@ const SharedEdgesOverlay: React.FC<{
 
     setShowAiForId(null);
     setActiveDraggingKey(edge.id);
+    setSnapIndicator(null);
     let isDragging = false;
 
     if (e.pointerType !== 'mouse') {
@@ -1436,14 +1669,113 @@ const SharedEdgesOverlay: React.FC<{
       }
 
       let clampedPos = Math.max(edge.minPos, Math.min(edge.maxPos, currentPos));
-      const snapThreshold = 1.5;
-      if (Math.abs(clampedPos - edge.minPos) <= snapThreshold) {
-        clampedPos = edge.minPos;
-      } else if (Math.abs(clampedPos - edge.maxPos) <= snapThreshold) {
-        clampedPos = edge.maxPos;
+
+      // 8px magnetic auto-snap threshold converted to container percentage
+      const SNAP_PX = 8;
+      const snapThreshold = isRow
+        ? (SNAP_PX / Math.max(1, rect.width)) * 100
+        : (SNAP_PX / Math.max(1, rect.height)) * 100;
+
+      interface SnapCandidate {
+        pos: number;
+        dist: number;
+        isCross: boolean;
+        crossPoint: { x: number; y: number };
+      }
+      const snapCandidates: SnapCandidate[] = [];
+
+      // 1. Magnetic snap to perpendicular seams (forming a 4-way "+" cross)
+      for (const b of initialBoxes) {
+        if (isRow) {
+          const touchesTop = Math.abs((b.y + b.h) - edge.startPercent) < 2.5;
+          const touchesBottom = Math.abs(b.y - edge.endPercent) < 2.5;
+          if (touchesTop || touchesBottom) {
+            const junctionY = touchesTop ? edge.startPercent : edge.endPercent;
+            if (b.x > 1 && b.x < 99) {
+              const dist = Math.abs(currentPos - b.x);
+              if (dist <= snapThreshold) {
+                snapCandidates.push({ pos: b.x, dist, isCross: true, crossPoint: { x: b.x, y: junctionY } });
+              }
+            }
+            if (b.x + b.w > 1 && b.x + b.w < 99) {
+              const dist = Math.abs(currentPos - (b.x + b.w));
+              if (dist <= snapThreshold) {
+                snapCandidates.push({ pos: b.x + b.w, dist, isCross: true, crossPoint: { x: b.x + b.w, y: junctionY } });
+              }
+            }
+          }
+        } else {
+          const touchesLeft = Math.abs((b.x + b.w) - edge.startPercent) < 2.5;
+          const touchesRight = Math.abs(b.x - edge.endPercent) < 2.5;
+          if (touchesLeft || touchesRight) {
+            const junctionX = touchesLeft ? edge.startPercent : edge.endPercent;
+            if (b.y > 1 && b.y < 99) {
+              const dist = Math.abs(currentPos - b.y);
+              if (dist <= snapThreshold) {
+                snapCandidates.push({ pos: b.y, dist, isCross: true, crossPoint: { x: junctionX, y: b.y } });
+              }
+            }
+            if (b.y + b.h > 1 && b.y + b.h < 99) {
+              const dist = Math.abs(currentPos - (b.y + b.h));
+              if (dist <= snapThreshold) {
+                snapCandidates.push({ pos: b.y + b.h, dist, isCross: true, crossPoint: { x: junctionX, y: b.y + b.h } });
+              }
+            }
+          }
+        }
       }
 
-      // Resize the adjacent panels touching this specific edge divider
+      // 2. Magnetic snap to other gutters in the same direction
+      for (const other of sharedEdges) {
+        if (other.id === edge.id || other.dir !== edge.dir) continue;
+        const dist = Math.abs(currentPos - other.posPercent);
+        if (dist <= snapThreshold) {
+          const touchesSeam = Math.abs(other.endPercent - edge.startPercent) < 2.5 || Math.abs(other.startPercent - edge.endPercent) < 2.5;
+          const seamCoord = Math.abs(other.endPercent - edge.startPercent) < 2.5 ? edge.startPercent : edge.endPercent;
+          snapCandidates.push({
+            pos: other.posPercent,
+            dist,
+            isCross: touchesSeam,
+            crossPoint: isRow ? { x: other.posPercent, y: seamCoord } : { x: seamCoord, y: other.posPercent },
+          });
+        }
+      }
+
+      // 3. Magnetic snap to min / max gutter boundary limits
+      if (Math.abs(clampedPos - edge.minPos) <= snapThreshold) {
+        snapCandidates.push({
+          pos: edge.minPos,
+          dist: Math.abs(clampedPos - edge.minPos),
+          isCross: false,
+          crossPoint: isRow ? { x: edge.minPos, y: edge.startPercent } : { x: edge.startPercent, y: edge.minPos },
+        });
+      }
+      if (Math.abs(clampedPos - edge.maxPos) <= snapThreshold) {
+        snapCandidates.push({
+          pos: edge.maxPos,
+          dist: Math.abs(clampedPos - edge.maxPos),
+          isCross: false,
+          crossPoint: isRow ? { x: edge.maxPos, y: edge.endPercent } : { x: edge.endPercent, y: edge.maxPos },
+        });
+      }
+
+      // Prioritize '+' cross junction formation first, then smallest distance
+      snapCandidates.sort((a, b) => {
+        if (a.isCross && !b.isCross) return -1;
+        if (!a.isCross && b.isCross) return 1;
+        return a.dist - b.dist;
+      });
+
+      let activeIndicator: { x: number; y: number } | null = null;
+      if (snapCandidates.length > 0) {
+        clampedPos = snapCandidates[0].pos;
+        if (snapCandidates[0].isCross) {
+          activeIndicator = snapCandidates[0].crossPoint;
+        }
+      }
+      setSnapIndicator(activeIndicator);
+
+      // Resize immediate neighbor panels touching this edge segment
       const updatedBoxes = initialBoxes.map(b => {
         let newX = b.x;
         let newY = b.y;
@@ -1470,51 +1802,24 @@ const SharedEdgesOverlay: React.FC<{
           }
         }
 
-        const origB = initialBoxes.find(x => x.id === b.id)!;
+        const origB = initialBoxes.find(x => x.id === b.id) || b;
         let updatedNode = b.node;
-
         if (
           b.node.type === 'panel' &&
-          b.node.drawings &&
-          b.node.drawings.length > 0 &&
-          origB.w > 0 &&
-          origB.h > 0 &&
-          newW > 0 &&
-          newH > 0 &&
-          (newX !== origB.x || newY !== origB.y || newW !== origB.w || newH !== origB.h)
+          origB.node.type === 'panel' &&
+          origB.node.drawings &&
+          origB.node.drawings.length > 0 &&
+          (Math.abs(newX - origB.x) > 0.0001 ||
+           Math.abs(newY - origB.y) > 0.0001 ||
+           Math.abs(newW - origB.w) > 0.0001 ||
+           Math.abs(newH - origB.h) > 0.0001)
         ) {
-          const scaleX = origB.w / newW;
-          const scaleY = origB.h / newH;
-          const offsetX = ((origB.x - newX) / newW) * 100;
-          const offsetY = ((origB.y - newY) / newH) * 100;
-
-          const transformedDrawings: Stroke[] = b.node.drawings.map(s => {
-            if (s.type === 'fill' && s.bounds) {
-              return {
-                ...s,
-                bounds: {
-                  x: offsetX + s.bounds.x * scaleX,
-                  y: offsetY + s.bounds.y * scaleY,
-                  w: s.bounds.w * scaleX,
-                  h: s.bounds.h * scaleY,
-                }
-              };
-            }
-            return {
-              ...s,
-              brushRadius: s.brushRadius * (origB.h / newH),
-              points: (s.points || []).map(p => ({
-                ...p,
-                x: offsetX + p.x * scaleX,
-                y: offsetY + p.y * scaleY,
-              }))
-            };
-          });
-
-          updatedNode = {
-            ...b.node,
-            drawings: transformedDrawings
-          };
+          const transformedDrawings = transformDrawingsForBounds(
+            origB.node.drawings,
+            { x: origB.x, y: origB.y, w: origB.w, h: origB.h },
+            { x: newX, y: newY, w: newW, h: newH }
+          );
+          updatedNode = { ...b.node, drawings: transformedDrawings };
         }
 
         return { ...b, x: newX, y: newY, w: newW, h: newH, node: updatedNode };
@@ -1523,9 +1828,30 @@ const SharedEdgesOverlay: React.FC<{
       // Filter out small panels that collapsed (hit another gutter or boundary)
       const collapseThreshold = 1.5;
       const nonCollapsed = updatedBoxes.filter(b => b.w > collapseThreshold && b.h > collapseThreshold);
-      const boxesToBuild = nonCollapsed.length > 0 ? nonCollapsed : updatedBoxes;
-
-      const newTree = boxesToTree(boxesToBuild);
+      
+      let newTree;
+      // If no panels collapsed, check if current tree topology matches the updated layout
+      if (nonCollapsed.length === updatedBoxes.length) {
+        const boxesMap = new Map(updatedBoxes.map(b => [b.id, b]));
+        const candidateTree = updateTreeFromBoxes(tree, boxesMap).node;
+        const candidateBoxes = getLeafBoxes(candidateTree);
+        let matches = true;
+        for (const ub of updatedBoxes) {
+          const cb = candidateBoxes.find(x => x.id === ub.id);
+          if (!cb || Math.abs(cb.x - ub.x) > 0.3 || Math.abs(cb.y - ub.y) > 0.3 || Math.abs(cb.w - ub.w) > 0.3 || Math.abs(cb.h - ub.h) > 0.3) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          newTree = candidateTree;
+        } else {
+          newTree = boxesToTree(updatedBoxes);
+        }
+      } else {
+        const boxesToBuild = nonCollapsed.length > 0 ? nonCollapsed : updatedBoxes;
+        newTree = boxesToTree(boxesToBuild);
+      }
       onChange(newTree);
     };
 
@@ -1551,6 +1877,7 @@ const SharedEdgesOverlay: React.FC<{
         applyMove(latestEvent);
       }
       setActiveDraggingKey(null);
+      setSnapIndicator(null);
       document.body.style.cursor = prevCursor;
       document.body.style.userSelect = prevUserSelect;
 
@@ -1565,45 +1892,7 @@ const SharedEdgesOverlay: React.FC<{
   };
 
   const handleSplitPanel = (targetPanelId: string, dir: Direction) => {
-    const newRoot = replacePanelById(tree, targetPanelId, (target) => {
-      let updatedTarget = target;
-      if (target.drawings && target.drawings.length > 0) {
-        const scaleX = dir === 'row' ? 2 : 1;
-        const scaleY = dir === 'col' ? 2 : 1;
-        const transformed: Stroke[] = target.drawings.map(s => {
-          if (s.type === 'fill' && s.bounds) {
-            return {
-              ...s,
-              bounds: {
-                x: s.bounds.x * scaleX,
-                y: s.bounds.y * scaleY,
-                w: s.bounds.w * scaleX,
-                h: s.bounds.h * scaleY,
-              }
-            };
-          }
-          return {
-            ...s,
-            brushRadius: s.brushRadius * (dir === 'col' ? 2 : 1),
-            points: (s.points || []).map(p => ({
-              ...p,
-              x: p.x * scaleX,
-              y: p.y * scaleY,
-            }))
-          };
-        });
-        updatedTarget = { ...target, drawings: transformed };
-      }
-      return {
-        type: 'split',
-        id: genId(),
-        dir,
-        percent: 50,
-        c1: updatedTarget,
-        c2: { type: 'panel', id: genId() },
-      };
-    });
-    onChange(newRoot);
+    onChange(splitPanelWithDrawings(tree, targetPanelId, dir));
   };
 
   return (
@@ -1699,6 +1988,24 @@ const SharedEdgesOverlay: React.FC<{
           </div>
         );
       })}
+
+      {/* 4-Way (+) Cross Magnetic Snap Indicator */}
+      {snapIndicator && (
+        <div
+          className="absolute pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center animate-in fade-in zoom-in-75 duration-100"
+          style={{
+            left: `${snapIndicator.x}%`,
+            top: `${snapIndicator.y}%`,
+          }}
+        >
+          <div className="relative flex items-center justify-center">
+            <div className="absolute w-8 h-8 rounded-full bg-blue-500/25 animate-ping" />
+            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-blue-400/50">
+              <span className="text-[14px] font-extrabold leading-none select-none">+</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1787,876 +2094,6 @@ const strokeIntersectsCircle = (stroke: Stroke, p: Point, r: number) => {
   return false;
 };
 
-const DrawingCanvas: React.FC<{ 
-  drawings: Stroke[];
-  onChange: (d: Stroke[]) => void;
-  isDrawingMode: boolean;
-  drawTool: 'pen'|'erase'|'select'|'fill';
-  drawColor: string;
-  drawRadius: number;
-  touchOff?: boolean;
-  setTouchOff?: (val: boolean) => void;
-  aspectRatio?: number;
-  isExpanded?: boolean;
-}> = ({ 
-  drawings, 
-  onChange, 
-  isDrawingMode, 
-  drawTool, 
-  drawColor, 
-  drawRadius,
-  touchOff = false,
-  setTouchOff,
-  aspectRatio,
-  isExpanded = false,
-}) => {
-  const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
-  const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [dragStart, setDragStart] = useState<Point | null>(null);
-  const [dragType, setDragType] = useState<'move' | 'erase_drag' | 'scale' | null>(null);
-  const [isFilling, setIsFilling] = useState(false);
-  const [fallbackAspect, setFallbackAspect] = useState<number>(1);
-  const aspectRef = useRef<number>(1);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const lastPenTimeRef = useRef<number>(0);
-
-  const curAspect = (aspectRatio && aspectRatio > 0)
-    ? aspectRatio
-    : (fallbackAspect > 0 ? fallbackAspect : (aspectRef.current || 1));
-
-  useLayoutEffect(() => {
-    if (!svgRef.current) return;
-    const updateAspect = () => {
-      if (svgRef.current) {
-        const rect = svgRef.current.getBoundingClientRect();
-        if (rect.height > 0 && rect.width > 0) {
-          const newAspect = rect.width / rect.height;
-          aspectRef.current = newAspect;
-          if (!aspectRatio) {
-            setFallbackAspect(newAspect);
-          }
-        }
-      }
-    };
-    updateAspect();
-    const ro = new ResizeObserver(updateAspect);
-    ro.observe(svgRef.current);
-    return () => ro.disconnect();
-  }, [aspectRatio]);
-
-  // Cancel single-finger drawing stroke when multi-touch (e.g. 2-finger pinch/expand) begins
-  useEffect(() => {
-    const handleMultiTouch = (e: TouchEvent) => {
-      if (e.touches.length >= 2) {
-        setCurrentStroke(null);
-        setDragType(null);
-      }
-    };
-    window.addEventListener('touchstart', handleMultiTouch, { passive: true });
-    return () => {
-      window.removeEventListener('touchstart', handleMultiTouch);
-    };
-  }, []);
-
-  useEffect(() => {
-    drawings.forEach(s => {
-      if (s.type === 'fill' && s.imageUrl && !hitMapCache.has(s.id)) {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width; canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            hitMapCache.set(s.id, { data: ctx.getImageData(0, 0, img.width, img.height).data, width: img.width, height: img.height });
-          }
-        };
-        img.src = s.imageUrl;
-      }
-    });
-  }, [drawings]);
-
-  const selectedStrokes = drawings.filter(s => selectedIds.has(s.id));
-  
-  // Find raw bounding box of selected strokes (without padding) for math transformation
-  let selectedMinX = Infinity, selectedMaxX = -Infinity, selectedMinY = Infinity, selectedMaxY = -Infinity;
-  selectedStrokes.forEach(s => {
-    if (s.type === 'fill' && s.bounds) {
-      selectedMinX = Math.min(selectedMinX, s.bounds.x);
-      selectedMaxX = Math.max(selectedMaxX, s.bounds.x + s.bounds.w);
-      selectedMinY = Math.min(selectedMinY, s.bounds.y);
-      selectedMaxY = Math.max(selectedMaxY, s.bounds.y + s.bounds.h);
-    } else {
-      s.points.forEach(p => {
-        selectedMinX = Math.min(selectedMinX, p.x);
-        selectedMaxX = Math.max(selectedMaxX, p.x);
-        selectedMinY = Math.min(selectedMinY, p.y);
-        selectedMaxY = Math.max(selectedMaxY, p.y);
-      });
-    }
-  });
-  const hasSelection = selectedMinX <= selectedMaxX;
-  const selectCenter = hasSelection ? {
-    x: (selectedMinX + selectedMaxX) / 2,
-    y: (selectedMinY + selectedMaxY) / 2
-  } : { x: 50, y: 50 };
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size > 0 && isDrawingMode) {
-        onChange(drawings.filter(s => !selectedIds.has(s.id)));
-        setSelectedIds(new Set());
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [drawings, selectedIds, isDrawingMode, onChange]);
-
-  // Replace selection colors of selected strokes with the newly picked drawColor
-  useEffect(() => {
-    if (selectedIds.size > 0 && isDrawingMode) {
-      const needsUpdate = drawings.some(s => selectedIds.has(s.id) && s.color !== drawColor);
-      if (needsUpdate) {
-        const updated = drawings.map(s => {
-          if (selectedIds.has(s.id)) {
-            return { ...s, color: drawColor };
-          }
-          return s;
-        });
-        onChange(updated);
-      }
-    }
-  }, [drawColor, selectedIds, drawings, isDrawingMode, onChange]);
-
-  const getPt = (e: React.PointerEvent) => {
-    const rect = svgRef.current!.getBoundingClientRect();
-    return {
-      x: ((e.clientX - rect.left) / rect.width) * 100,
-      y: ((e.clientY - rect.top) / rect.height) * 100,
-      pressure: e.pressure !== undefined && e.pressure > 0 ? e.pressure : (e.pointerType === 'pen' ? 0.2 : 0.5),
-      tiltX: e.tiltX ?? 0,
-      tiltY: e.tiltY ?? 0,
-      pointerType: e.pointerType,
-    };
-  };
-
-  const getActualRadius = () => {
-    if (!svgRef.current) return drawRadius;
-    const rect = svgRef.current.getBoundingClientRect();
-    return (drawRadius * 100) / rect.width;
-  };
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!isDrawingMode) return;
-
-    if (e.pointerType === 'pen') {
-      lastPenTimeRef.current = Date.now();
-      if (!touchOff && setTouchOff) {
-        setTouchOff(true);
-      }
-    }
-
-    if (e.pointerType === 'touch') {
-      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-    }
-
-    (e.target as Element).releasePointerCapture(e.pointerId);
-    const pt = getPt(e);
-
-    if (drawTool === 'pen') {
-      setSelectedIds(new Set());
-      // Handle starting pressure properly to eliminate initial big dot:
-      // Stylus drivers frequently report e.pressure as 0.5 or 0 on first contact before pressure is known.
-      // We set a gentle starting pressure that immediately blends into actual pressure on move.
-      const initialPressure = e.pointerType === 'pen'
-        ? (e.pressure && e.pressure > 0 && e.pressure !== 0.5 ? e.pressure : 0.15)
-        : 0.5;
-      const initialPt = { ...pt, pressure: initialPressure };
-      setCurrentStroke({ id: Math.random().toString(36).substring(2), points: [initialPt], color: drawColor, brushRadius: getActualRadius() });
-    } else if (drawTool === 'erase') {
-      setSelectedIds(new Set());
-      const remaining = drawings.filter(s => !strokeIntersectsCircle(s, pt, getActualRadius() / 2));
-      if (remaining.length !== drawings.length) onChange(remaining);
-      setDragType('erase_drag');
-    } else if (drawTool === 'select') {
-      setLassoPath([pt]);
-      setSelectedIds(new Set());
-    } else if (drawTool === 'fill') {
-      setSelectedIds(new Set());
-      if (isFilling) return;
-
-      setIsFilling(true);
-      
-      requestAnimationFrame(() => {
-        try {
-          if (!svgRef.current) { setIsFilling(false); return; }
-          const effectiveAspect = curAspect > 0 ? curAspect : (aspectRef.current || 1);
-          
-          // 1. Calculate extended bounding box of drawings and click point
-          let drawMinX = 0, drawMaxX = 100, drawMinY = 0, drawMaxY = 100;
-          for (const s of drawings) {
-            if (s.type === 'fill' && s.bounds) {
-              drawMinX = Math.min(drawMinX, s.bounds.x);
-              drawMaxX = Math.max(drawMaxX, s.bounds.x + s.bounds.w);
-              drawMinY = Math.min(drawMinY, s.bounds.y);
-              drawMaxY = Math.max(drawMaxY, s.bounds.y + s.bounds.h);
-            } else if (s.points) {
-              for (const p of s.points) {
-                drawMinX = Math.min(drawMinX, p.x);
-                drawMaxX = Math.max(drawMaxX, p.x);
-                drawMinY = Math.min(drawMinY, p.y);
-                drawMaxY = Math.max(drawMaxY, p.y);
-              }
-            }
-          }
-
-          const margin = 100;
-          const worldMinX = Math.min(-margin, Math.floor(drawMinX - 30), Math.floor(pt.x - 30));
-          const worldMaxX = Math.max(100 + margin, Math.ceil(drawMaxX + 30), Math.ceil(pt.x + 30));
-          const worldMinY = Math.min(-margin, Math.floor(drawMinY - 30), Math.floor(pt.y - 30));
-          const worldMaxY = Math.max(100 + margin, Math.ceil(drawMaxY + 30), Math.ceil(pt.y + 30));
-
-          const worldW = Math.max(10, worldMaxX - worldMinX);
-          const worldH = Math.max(10, worldMaxY - worldMinY);
-
-          // Raster canvas dimensions for mask testing
-          const canvasH = 1600;
-          const canvasW = Math.max(100, Math.round(1600 * (worldW / worldH) * effectiveAspect));
-          const canvas = document.createElement('canvas');
-          canvas.width = canvasW;
-          canvas.height = canvasH;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) { setIsFilling(false); return; }
-
-          ctx.fillStyle = '#000000';
-          ctx.strokeStyle = '#000000';
-          ctx.save();
-          ctx.scale(canvasW / worldW, canvasH / worldH);
-          ctx.translate(-worldMinX, -worldMinY);
-
-          // 2. Render all pen stroke outlines with exact vector paths
-          const penStrokes = drawings.filter(s => s.type !== 'fill' && s.points && s.points.length > 0);
-          for (const s of penStrokes) {
-            const d = getSvgPathFromPoints(s.points, s.brushRadius, effectiveAspect);
-            if (d) {
-              const p2d = new Path2D(d);
-              ctx.fill(p2d);
-            }
-          }
-
-          // 3. Panel boundary closing: If clicking inside the comic panel area [0..100, 0..100], stroke the panel frame
-          if (pt.x >= 0 && pt.x <= 100 && pt.y >= 0 && pt.y <= 100) {
-            ctx.lineWidth = 1;
-            ctx.strokeRect(0, 0, 100, 100);
-          }
-
-          ctx.restore();
-
-          const srcImageData = ctx.getImageData(0, 0, canvasW, canvasH);
-          const srcData = srcImageData.data;
-
-          let startX = Math.round(((pt.x - worldMinX) / worldW) * canvasW);
-          let startY = Math.round(((pt.y - worldMinY) / worldH) * canvasH);
-          startX = Math.max(0, Math.min(canvasW - 1, startX));
-          startY = Math.max(0, Math.min(canvasH - 1, startY));
-
-          const STROKE_ALPHA_THRESHOLD = 30;
-
-          // 4. Seed point search: If clicked on a stroke boundary (alpha > threshold), search outward for open interior
-          let seedX = startX;
-          let seedY = startY;
-          if (srcData[(startY * canvasW + startX) * 4 + 3] > STROKE_ALPHA_THRESHOLD) {
-            let minAlpha = srcData[(startY * canvasW + startX) * 4 + 3];
-            let foundEmpty = false;
-            for (let r = 1; r <= 45 && !foundEmpty; r++) {
-              for (let dy = -r; dy <= r && !foundEmpty; dy++) {
-                for (let dx = -r; dx <= r; dx++) {
-                  if (dx * dx + dy * dy > r * r) continue;
-                  const nx = startX + dx;
-                  const ny = startY + dy;
-                  if (nx >= 0 && nx < canvasW && ny >= 0 && ny < canvasH) {
-                    const a = srcData[(ny * canvasW + nx) * 4 + 3];
-                    if (a < minAlpha) {
-                      minAlpha = a;
-                      seedX = nx;
-                      seedY = ny;
-                      if (minAlpha <= STROKE_ALPHA_THRESHOLD) {
-                        foundEmpty = true;
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // 5. Build dilated collision mask to trap flood fill inside shapes with 1-3px micro-gaps
-          const isSolidStroke = (x: number, y: number) => srcData[(y * canvasW + x) * 4 + 3] > STROKE_ALPHA_THRESHOLD;
-          const closedBarrier = new Uint8Array(canvasW * canvasH);
-          for (let y = 0; y < canvasH; y++) {
-            const rowOffset = y * canvasW;
-            for (let x = 0; x < canvasW; x++) {
-              if (srcData[(rowOffset + x) * 4 + 3] > STROKE_ALPHA_THRESHOLD) {
-                for (let dy = -2; dy <= 2; dy++) {
-                  const ny = y + dy;
-                  if (ny < 0 || ny >= canvasH) continue;
-                  for (let dx = -2; dx <= 2; dx++) {
-                    if (dx * dx + dy * dy > 4) continue;
-                    const nx = x + dx;
-                    if (nx < 0 || nx >= canvasW) continue;
-                    closedBarrier[ny * canvasW + nx] = 1;
-                  }
-                }
-              }
-            }
-          }
-
-          let phase1SeedX = seedX;
-          let phase1SeedY = seedY;
-          if (closedBarrier[seedY * canvasW + seedX] && !isSolidStroke(seedX, seedY)) {
-            let found = false;
-            for (let r = 1; r <= 20 && !found; r++) {
-              for (let dy = -r; dy <= r && !found; dy++) {
-                for (let dx = -r; dx <= r; dx++) {
-                  const nx = seedX + dx;
-                  const ny = seedY + dy;
-                  if (nx >= 0 && nx < canvasW && ny >= 0 && ny < canvasH && !closedBarrier[ny * canvasW + nx]) {
-                    phase1SeedX = nx;
-                    phase1SeedY = ny;
-                    found = true;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-
-          const visited = new Uint8Array(canvasW * canvasH);
-          const queue = new Int32Array(canvasW * canvasH);
-          let head = 0;
-          let tail = 0;
-
-          if (!closedBarrier[phase1SeedY * canvasW + phase1SeedX]) {
-            const startIdx = phase1SeedY * canvasW + phase1SeedX;
-            queue[tail++] = startIdx;
-            visited[startIdx] = 1;
-          } else if (!isSolidStroke(seedX, seedY)) {
-            const startIdx = seedY * canvasW + seedX;
-            queue[tail++] = startIdx;
-            visited[startIdx] = 1;
-          }
-
-          // Phase 1: 4-connected BFS on closedBarrier to guarantee confinement inside shape
-          while (head < tail) {
-            const idx = queue[head++];
-            const curX = idx % canvasW;
-            const curY = Math.floor(idx / canvasW);
-
-            const left = curX > 0 ? idx - 1 : -1;
-            const right = curX < canvasW - 1 ? idx + 1 : -1;
-            const up = curY > 0 ? idx - canvasW : -1;
-            const down = curY < canvasH - 1 ? idx + canvasW : -1;
-
-            if (left !== -1 && !visited[left] && !closedBarrier[left]) {
-              visited[left] = 1; queue[tail++] = left;
-            }
-            if (right !== -1 && !visited[right] && !closedBarrier[right]) {
-              visited[right] = 1; queue[tail++] = right;
-            }
-            if (up !== -1 && !visited[up] && !closedBarrier[up]) {
-              visited[up] = 1; queue[tail++] = up;
-            }
-            if (down !== -1 && !visited[down] && !closedBarrier[down]) {
-              visited[down] = 1; queue[tail++] = down;
-            }
-          }
-
-          // Check if Phase 1 fill touched outer canvas boundaries (unconstrained background)
-          let p1MinX = canvasW, p1MaxX = 0, p1MinY = canvasH, p1MaxY = 0;
-          for (let i = 0; i < tail; i++) {
-            const idx = queue[i];
-            const cx = idx % canvasW;
-            const cy = Math.floor(idx / canvasW);
-            if (cx < p1MinX) p1MinX = cx;
-            if (cx > p1MaxX) p1MaxX = cx;
-            if (cy < p1MinY) p1MinY = cy;
-            if (cy > p1MaxY) p1MaxY = cy;
-          }
-          const touchesEdges = p1MinX <= 2 || p1MaxX >= canvasW - 3 || p1MinY <= 2 || p1MaxY >= canvasH - 3;
-          const isFullArea = tail === 0 || touchesEdges;
-
-          // Phase 2: Corner & Vertex Reclaiming on True Mask
-          // Expand the visited region into all adjacent open pixels (srcData <= threshold).
-          // Because the fill is already locked inside the shape, this fills all the way into sharp acute vertices and narrow corners!
-          if (!isFullArea && tail > 0) {
-            head = 0;
-            while (head < tail) {
-              const idx = queue[head++];
-              const curX = idx % canvasW;
-              const curY = Math.floor(idx / canvasW);
-
-              const left = curX > 0 ? idx - 1 : -1;
-              const right = curX < canvasW - 1 ? idx + 1 : -1;
-              const up = curY > 0 ? idx - canvasW : -1;
-              const down = curY < canvasH - 1 ? idx + canvasW : -1;
-
-              if (left !== -1 && !visited[left] && srcData[left * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
-                visited[left] = 1; queue[tail++] = left;
-              }
-              if (right !== -1 && !visited[right] && srcData[right * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
-                visited[right] = 1; queue[tail++] = right;
-              }
-              if (up !== -1 && !visited[up] && srcData[up * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
-                visited[up] = 1; queue[tail++] = up;
-              }
-              if (down !== -1 && !visited[down] && srcData[down * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
-                visited[down] = 1; queue[tail++] = down;
-              }
-            }
-          }
-
-          // Phase 3: Build Filled Mask and Apply Under-Stroke Anti-Halo Bleed
-          const filledMask = new Uint8Array(canvasW * canvasH);
-          let boundMinX = canvasW, boundMaxX = 0, boundMinY = canvasH, boundMaxY = 0;
-
-          if (isFullArea) {
-            for (let idx = 0; idx < canvasW * canvasH; idx++) {
-              if (srcData[idx * 4 + 3] <= STROKE_ALPHA_THRESHOLD) {
-                filledMask[idx] = 1;
-              }
-            }
-            boundMinX = 0;
-            boundMinY = 0;
-            boundMaxX = canvasW - 1;
-            boundMaxY = canvasH - 1;
-          } else if (tail > 0) {
-            // Mark all visited open pixels
-            for (let i = 0; i < tail; i++) {
-              const idx = queue[i];
-              filledMask[idx] = 1;
-              const cx = idx % canvasW;
-              const cy = Math.floor(idx / canvasW);
-              if (cx < boundMinX) boundMinX = cx;
-              if (cx > boundMaxX) boundMaxX = cx;
-              if (cy < boundMinY) boundMinY = cy;
-              if (cy > boundMaxY) boundMaxY = cy;
-            }
-
-            // Strictly expand 2-3px into stroke pixels (srcData > STROKE_ALPHA_THRESHOLD)
-            // This eliminates white halos while preventing any bleed into exterior empty space
-            const bleedRadius = 3;
-            const initialTail = tail;
-            for (let i = 0; i < initialTail; i++) {
-              const idx = queue[i];
-              const x = idx % canvasW;
-              const y = Math.floor(idx / canvasW);
-
-              for (let dy = -bleedRadius; dy <= bleedRadius; dy++) {
-                const ny = y + dy;
-                if (ny < 0 || ny >= canvasH) continue;
-                for (let dx = -bleedRadius; dx <= bleedRadius; dx++) {
-                  if (dx === 0 && dy === 0) continue;
-                  if (dx * dx + dy * dy > bleedRadius * bleedRadius) continue;
-                  const nx = x + dx;
-                  if (nx < 0 || nx >= canvasW) continue;
-                  const nIdx = ny * canvasW + nx;
-                  // Bleed ONLY into stroke pixels
-                  if (srcData[nIdx * 4 + 3] > STROKE_ALPHA_THRESHOLD && !filledMask[nIdx]) {
-                    filledMask[nIdx] = 1;
-                    if (nx < boundMinX) boundMinX = nx;
-                    if (nx > boundMaxX) boundMaxX = nx;
-                    if (ny < boundMinY) boundMinY = ny;
-                    if (ny > boundMaxY) boundMaxY = ny;
-                  }
-                }
-              }
-            }
-          }
-
-          if ((isFullArea || tail > 0) && boundMinX <= boundMaxX && boundMinY <= boundMaxY) {
-            const bw = boundMaxX - boundMinX + 1;
-            const bh = boundMaxY - boundMinY + 1;
-
-            const boundsCanvas = document.createElement('canvas');
-            boundsCanvas.width = bw;
-            boundsCanvas.height = bh;
-            const bCtx = boundsCanvas.getContext('2d');
-
-            if (bCtx) {
-              const rColor = parseInt(drawColor.slice(1, 3), 16) || 0;
-              const gColor = parseInt(drawColor.slice(3, 5), 16) || 0;
-              const bColor = parseInt(drawColor.slice(5, 7), 16) || 0;
-
-              const fillImageData = bCtx.createImageData(bw, bh);
-              const fillData = fillImageData.data;
-
-              for (let y = 0; y < bh; y++) {
-                const srcY = boundMinY + y;
-                for (let x = 0; x < bw; x++) {
-                  const srcX = boundMinX + x;
-                  if (filledMask[srcY * canvasW + srcX]) {
-                    const dIdx = (y * bw + x) * 4;
-                    fillData[dIdx] = rColor;
-                    fillData[dIdx + 1] = gColor;
-                    fillData[dIdx + 2] = bColor;
-                    fillData[dIdx + 3] = 255;
-                  }
-                }
-              }
-
-              bCtx.putImageData(fillImageData, 0, 0);
-              const newId = Math.random().toString(36).substring(2);
-              hitMapCache.set(newId, { data: fillData, width: bw, height: bh });
-
-              const newFillBounds = isFullArea ? {
-                x: worldMinX,
-                y: worldMinY,
-                w: worldW,
-                h: worldH,
-              } : {
-                x: worldMinX + (boundMinX / canvasW) * worldW,
-                y: worldMinY + (boundMinY / canvasH) * worldH,
-                w: (bw / canvasW) * worldW,
-                h: (bh / canvasH) * worldH,
-              };
-
-              const newFillStroke: Stroke = {
-                id: newId,
-                type: 'fill',
-                points: [],
-                color: drawColor,
-                brushRadius: 0,
-                imageUrl: boundsCanvas.toDataURL('image/png'),
-                isFullArea: isFullArea,
-                bounds: newFillBounds
-              };
-
-              // Check if replacing an existing fill with matching bounds/location
-              const existingFills = drawings.filter(s => s.type === 'fill');
-              const existingPenStrokes = drawings.filter(s => s.type !== 'fill');
-
-              // If full area, replace previous full area fill
-              let updatedFills: Stroke[];
-              if (isFullArea) {
-                updatedFills = [...existingFills.filter(s => !s.isFullArea), newFillStroke];
-              } else {
-                // If there is an existing shape fill with almost identical bounding box, replace it
-                const matchIdx = existingFills.findIndex(s => 
-                  !s.isFullArea && 
-                  s.bounds && 
-                  Math.abs(s.bounds.x - newFillBounds.x) < 3.5 &&
-                  Math.abs(s.bounds.y - newFillBounds.y) < 3.5 &&
-                  Math.abs(s.bounds.w - newFillBounds.w) < 4.5 &&
-                  Math.abs(s.bounds.h - newFillBounds.h) < 4.5
-                );
-                if (matchIdx !== -1) {
-                  updatedFills = [...existingFills];
-                  updatedFills[matchIdx] = newFillStroke;
-                } else {
-                  updatedFills = [...existingFills, newFillStroke];
-                }
-              }
-
-              onChange([...updatedFills, ...existingPenStrokes]);
-            }
-          }
-        } catch (err) {
-          console.error("Fill tool error:", err);
-        } finally {
-          setIsFilling(false);
-        }
-      });
-    }
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!isDrawingMode) return;
-
-    if (e.pointerType === 'pen') {
-      lastPenTimeRef.current = Date.now();
-    }
-
-    if (e.pointerType === 'touch') {
-      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-    }
-
-    const pt = getPt(e);
-
-    if (drawTool === 'pen' && currentStroke) {
-      const lastPt = currentStroke.points[currentStroke.points.length - 1];
-      // Capture at a higher resolution (0.08 threshold) for high-precision stylus support
-      if (Math.abs(pt.x - lastPt.x) > 0.08 || Math.abs(pt.y - lastPt.y) > 0.08) {
-        if (currentStroke.points.length === 1 && pt.pointerType === 'pen') {
-          // If first point was a placeholder pressure, smooth with actual point 1 pressure
-          const p0 = currentStroke.points[0];
-          const realP = pt.pressure || 0.2;
-          const adjustedP0 = { ...p0, pressure: Math.min(p0.pressure ?? realP, realP) };
-          setCurrentStroke({
-            ...currentStroke,
-            points: [adjustedP0, pt]
-          });
-        } else {
-          setCurrentStroke(prev => prev ? { ...prev, points: [...prev.points, pt] } : null);
-        }
-      }
-    } else if (drawTool === 'erase' && dragType === 'erase_drag') {
-      const remaining = drawings.filter(s => !strokeIntersectsCircle(s, pt, getActualRadius() / 2));
-      if (remaining.length !== drawings.length) onChange(remaining);
-    } else if (drawTool === 'select' && lassoPath) {
-      const lastPt = lassoPath[lassoPath.length - 1];
-      if (Math.abs(pt.x - lastPt.x) > 0.5 || Math.abs(pt.y - lastPt.y) > 0.5) {
-        setLassoPath(prev => prev ? [...prev, pt] : null);
-      }
-    } else if (drawTool === 'select' && dragType === 'move' && dragStart) {
-      const dx = pt.x - dragStart.x;
-      const dy = pt.y - dragStart.y;
-      setDragStart(pt);
-      const newDrawings = drawings.map(s => {
-        if (!selectedIds.has(s.id)) return s;
-        if (s.type === 'fill' && s.bounds) {
-          return { ...s, bounds: { ...s.bounds, x: s.bounds.x + dx, y: s.bounds.y + dy } };
-        }
-        return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
-      });
-      onChange(newDrawings);
-    } else if (drawTool === 'select' && dragType === 'scale' && dragStart && hasSelection) {
-      const cx = selectCenter.x;
-      const cy = selectCenter.y;
-      
-      const d_prev = Math.hypot(dragStart.x - cx, dragStart.y - cy);
-      const d_curr = Math.hypot(pt.x - cx, pt.y - cy);
-      
-      if (d_prev > 0.1) {
-        const s_step = d_curr / d_prev;
-        setDragStart(pt);
-        const newDrawings = drawings.map(s => {
-          if (!selectedIds.has(s.id)) return s;
-          if (s.type === 'fill' && s.bounds) {
-            return {
-              ...s,
-              bounds: {
-                x: cx + (s.bounds.x - cx) * s_step,
-                y: cy + (s.bounds.y - cy) * s_step,
-                w: s.bounds.w * s_step,
-                h: s.bounds.h * s_step
-              }
-            };
-          }
-          return {
-            ...s,
-            points: s.points.map(p => ({
-              x: cx + (p.x - cx) * s_step,
-              y: cy + (p.y - cy) * s_step
-            }))
-          };
-        });
-        onChange(newDrawings);
-      }
-    }
-  };
-
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType === 'pen') {
-      lastPenTimeRef.current = Date.now();
-    }
-    
-    if (e.pointerType === 'touch') {
-      if (touchOff || (Date.now() - lastPenTimeRef.current < 2000)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-    }
-
-    if (currentStroke && currentStroke.points.length > 0) {
-      onChange([...drawings, currentStroke]);
-    }
-    if (lassoPath) {
-      const selected = drawings.filter(s => strokeInLasso(s, lassoPath));
-      setSelectedIds(new Set(selected.map(s => s.id)));
-    }
-    setCurrentStroke(null);
-    setLassoPath(null);
-    setDragType(null);
-    setDragStart(null);
-  };
-
-  const renderStroke = (s: Stroke, isSelected: boolean, strokeIdx?: number) => {
-    const strokeKey = `${s.id || 'stroke'}-${strokeIdx ?? 0}${isSelected ? '-sel' : ''}`;
-    if (s.type === 'fill' && s.imageUrl && s.bounds) {
-      const isFull = s.isFullArea || (s.bounds.w >= 100 && s.bounds.h >= 100 && s.bounds.x <= 0 && s.bounds.y <= 0) || s.bounds.w >= 300;
-      return (
-        <g key={strokeKey}>
-          {isFull && (
-            <g className="full-area-fill-extensions" style={{ pointerEvents: 'none' }}>
-              <rect x="-500000" y="-500000" width="1000000" height={Math.max(0, s.bounds.y - (-500000))} fill={s.color} opacity={drawTool === 'erase' && isDrawingMode ? 0.7 : 1} />
-              <rect x="-500000" y={s.bounds.y + s.bounds.h} width="1000000" height={Math.max(0, 500000 - (s.bounds.y + s.bounds.h))} fill={s.color} opacity={drawTool === 'erase' && isDrawingMode ? 0.7 : 1} />
-              <rect x="-500000" y={s.bounds.y} width={Math.max(0, s.bounds.x - (-500000))} height={s.bounds.h} fill={s.color} opacity={drawTool === 'erase' && isDrawingMode ? 0.7 : 1} />
-              <rect x={s.bounds.x + s.bounds.w} y={s.bounds.y} width={Math.max(0, 500000 - (s.bounds.x + s.bounds.w))} height={s.bounds.h} fill={s.color} opacity={drawTool === 'erase' && isDrawingMode ? 0.7 : 1} />
-            </g>
-          )}
-          <image 
-            href={s.imageUrl} 
-            x={s.bounds.x} width={s.bounds.w} 
-            y={s.bounds.y} height={s.bounds.h} 
-            preserveAspectRatio="none" 
-            opacity={drawTool === 'erase' && isDrawingMode ? 0.7 : 1}
-            style={{ pointerEvents: 'none' }}
-          />
-          {isSelected && (
-            <rect 
-               x={s.bounds.x} width={s.bounds.w} y={s.bounds.y} height={s.bounds.h} 
-               fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="3 3"
-               vectorEffect="non-scaling-stroke"
-               style={{ pointerEvents: 'none' }}
-            />
-          )}
-        </g>
-      );
-    }
-    if (!s.points || s.points.length === 0) return null;
-    
-    const d = getSvgPathFromPoints(s.points, s.brushRadius, curAspect);
-    if (!d) return null;
-
-    // When erasing, show strokes slightly faded so users know what tool they're using
-    const opacity = (drawTool === 'erase' && isDrawingMode) ? 0.7 : 1;
-    return (
-      <g key={strokeKey}>
-        {isSelected && (
-          <path 
-            d={d} 
-            fill={s.color} 
-            stroke="#3b82f6" 
-            strokeWidth={2} 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
-            opacity={0.4} 
-          />
-        )}
-        <path 
-          d={d} 
-          fill={s.color} 
-          opacity={opacity} 
-        />
-      </g>
-    );
-  };
-
-  let selBounds: {x:number, y:number, w:number, h:number} | null = null;
-  if (selectedStrokes.length > 0) {
-    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
-    selectedStrokes.forEach(s => {
-      if (s.type === 'fill' && s.bounds) {
-        minX = Math.min(minX, s.bounds.x);
-        minY = Math.min(minY, s.bounds.y);
-        maxX = Math.max(maxX, s.bounds.x + s.bounds.w);
-        maxY = Math.max(maxY, s.bounds.y + s.bounds.h);
-      } else {
-        s.points.forEach(p => {
-          minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
-          maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
-        });
-      }
-    });
-    if(minX <= maxX) {
-      const padding = 2;
-      selBounds = {x: minX - padding, y: minY - padding, w: maxX - minX + padding*2, h: maxY - minY + padding*2};
-    }
-  }
-
-  const onPointerEnter = (e: React.PointerEvent) => {
-    if (!isDrawingMode) return;
-  };
-
-  const onPointerLeave = (e: React.PointerEvent) => {
-    onPointerUp(e);
-  };
-
-  return (
-    <svg 
-      ref={svgRef}
-      className={`absolute inset-0 w-full h-full ${isExpanded ? 'overflow-visible' : 'overflow-hidden'} ${isDrawingMode ? 'z-50 touch-none pointer-events-auto' : 'z-10 pointer-events-none touch-none'}`}
-      style={{ overflow: isExpanded ? 'visible' : 'hidden', cursor: isDrawingMode ? HOLLOW_CROSS_CURSOR : undefined }}
-      onPointerEnter={onPointerEnter}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onPointerLeave}
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-    >
-      {drawings.map((s, idx) => renderStroke(s, selectedIds.has(s.id), idx))}
-      {currentStroke && renderStroke(currentStroke, false, -1)}
-      {lassoPath && lassoPath.length > 0 && (
-        <path
-          d={lassoPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}
-          fill="rgba(59, 130, 246, 0.1)"
-          stroke="#3b82f6"
-          strokeWidth="1"
-          strokeDasharray="4 4"
-          vectorEffect="non-scaling-stroke"
-        />
-      )}
-
-      {selBounds && drawTool === 'select' && (
-        <>
-          <rect
-            x={selBounds.x} y={selBounds.y} width={selBounds.w} height={selBounds.h}
-            fill="transparent"
-            stroke="#3b82f6"
-            strokeWidth="1.5"
-            strokeDasharray="3 3"
-            vectorEffect="non-scaling-stroke"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              setDragType('move');
-              setDragStart(getPt(e));
-            }}
-            className="cursor-move hover:bg-blue-500/10 transition-colors"
-          />
-          {/* Scale handle at bottom-right corner of selection bounding box */}
-          <g transform={`translate(${selBounds.x + selBounds.w}, ${selBounds.y + selBounds.h})`}>
-            <circle
-              cx="0"
-              cy="0"
-              r="6"
-              fill="transparent"
-              className="cursor-se-resize"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                (e.target as Element).releasePointerCapture(e.pointerId);
-                setDragType('scale');
-                setDragStart(getPt(e));
-              }}
-            />
-            <circle
-              cx="0"
-              cy="0"
-              r="2.5"
-              fill="#3b82f6"
-              stroke="#ffffff"
-              strokeWidth="0.5"
-              vectorEffect="non-scaling-stroke"
-              className="pointer-events-none"
-            />
-          </g>
-        </>
-      )}
-    </svg>
-  );
-};
-
 const PanelView: React.FC<{ 
   node: PanelNode; 
   path: number[]; 
@@ -2664,6 +2101,7 @@ const PanelView: React.FC<{
   rootTree: TreeNode; 
   isDrawingMode: boolean; 
   drawTool: 'pen'|'erase'|'select'|'fill'; 
+  eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
   touchOff?: boolean;
@@ -2673,6 +2111,12 @@ const PanelView: React.FC<{
   onExpandPanel?: (path: number[]) => void;
   onToggleExpand?: () => void;
   aspectRatio?: number;
+  panelBox?: PanelBox;
+  layers?: ComicLayer[];
+  activeLayerId?: string;
+  selectedLayerIds?: string[];
+  layerGroups?: ComicLayerGroup[];
+  backgroundColor?: string;
 }> = ({ 
   node, 
   path, 
@@ -2680,6 +2124,7 @@ const PanelView: React.FC<{
   rootTree, 
   isDrawingMode, 
   drawTool, 
+  eraserType = 'pixel',
   drawColor, 
   drawRadius, 
   touchOff, 
@@ -2688,7 +2133,13 @@ const PanelView: React.FC<{
   hideExpandButton = false,
   onExpandPanel,
   onToggleExpand,
-  aspectRatio
+  aspectRatio,
+  panelBox,
+  layers,
+  activeLayerId,
+  selectedLayerIds,
+  layerGroups,
+  backgroundColor,
 }) => {
   const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2846,19 +2297,21 @@ const PanelView: React.FC<{
     <div 
       ref={panelContainerRef}
       className={cn(
-        "w-full h-full bg-white relative flex items-center justify-center",
-        isExpanded ? "p-0 overflow-visible" : "p-[2px] overflow-hidden"
+        "w-full h-full relative flex items-center justify-center overflow-hidden",
+        isExpanded ? "p-0" : "p-[3px]"
       )}
+      style={{ backgroundColor: isExpanded ? (node.color || backgroundColor || '#ffffff') : 'transparent' }}
       onPointerDown={handlePointerDown}
     >
       <div 
         ref={panelInnerRef}
         className={cn(
-          "w-full h-full bg-white relative cursor-pointer group",
+          "w-full h-full relative cursor-pointer group overflow-hidden",
           isExpanded 
-            ? "border-0 overflow-visible" 
-            : "border border-zinc-900 hover:border-primary/60 dark:hover:border-primary/80 overflow-hidden"
+            ? "border-0" 
+            : "border border-zinc-900 hover:border-primary/60 dark:hover:border-primary/80"
         )}
+        style={{ backgroundColor: node.color || backgroundColor || '#ffffff' }}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
       >
@@ -2960,17 +2413,23 @@ const PanelView: React.FC<{
                 />
             </div>
         )}
-        <DrawingCanvas 
+        <RasterDrawingCanvas 
           drawings={node.drawings || []} 
           onChange={handleDrawingsChange} 
           isDrawingMode={isDrawingMode} 
           drawTool={drawTool} 
+          eraserType={eraserType}
           drawColor={drawColor} 
           drawRadius={drawRadius} 
           touchOff={touchOff} 
           setTouchOff={setTouchOff} 
           aspectRatio={aspectRatio}
+          panelBox={panelBox}
           isExpanded={isExpanded}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          layerGroups={layerGroups}
+          backgroundColor={backgroundColor}
         />
         <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
       </div>
@@ -2985,12 +2444,20 @@ const ExpandedPanelWorkspace: React.FC<{
   rootTree: TreeNode;
   isDrawingMode: boolean;
   drawTool: 'pen'|'erase'|'select'|'fill';
+  eraserType?: 'stroke'|'pixel';
   drawColor: string;
   drawRadius: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   onExitExpanded: () => void;
   originalRatio: number;
+  layers?: ComicLayer[];
+  activeLayerId?: string;
+  selectedLayerIds?: string[];
+  layerGroups?: ComicLayerGroup[];
+  backgroundColor?: string;
+  bubbles?: BubbleData[];
+  leafBoxes?: PanelBox[];
 }> = ({
   node,
   path,
@@ -2998,12 +2465,20 @@ const ExpandedPanelWorkspace: React.FC<{
   rootTree,
   isDrawingMode,
   drawTool,
+  eraserType = 'pixel',
   drawColor,
   drawRadius,
   touchOff,
   setTouchOff,
   onExitExpanded,
   originalRatio,
+  layers,
+  activeLayerId,
+  selectedLayerIds,
+  layerGroups,
+  backgroundColor,
+  bubbles,
+  leafBoxes,
 }) => {
   const { t } = useLanguage();
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -3315,6 +2790,11 @@ const ExpandedPanelWorkspace: React.FC<{
     }
   };
 
+  const panelBox = useMemo(() => {
+    const boxes = getLeafBoxes(rootTree);
+    return boxes.find(b => b.node.id === node.id);
+  }, [rootTree, node.id]);
+
   return (
     <div
       ref={workspaceRef}
@@ -3338,13 +2818,13 @@ const ExpandedPanelWorkspace: React.FC<{
         data-workspace-bg="true"
       />
 
-      {/* Main Panel Viewport Area - touches top edge with no blank space above */}
+      {/* Main Panel Viewport Area */}
       <div
         ref={panelAreaRef}
-        className="flex-1 w-full min-h-0 relative flex items-start justify-center p-0 overflow-hidden"
+        className="flex-1 w-full min-h-0 relative flex items-center justify-center p-4 overflow-hidden"
         data-workspace-bg="true"
       >
-        {/* Panel Box with zoom & pan transforms and visible overflow */}
+        {/* Panel Box with zoom & pan transforms and consistent panel mask clipping */}
         <div
           ref={panelBoxRef}
           style={{
@@ -3353,7 +2833,7 @@ const ExpandedPanelWorkspace: React.FC<{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomScale})`,
             transformOrigin: 'center center',
           }}
-          className="relative bg-white overflow-visible border border-zinc-900 shadow-md shrink-0"
+          className="relative bg-white overflow-hidden border border-zinc-900 shadow-2xl shrink-0"
         >
           <PanelView
             node={node}
@@ -3362,6 +2842,7 @@ const ExpandedPanelWorkspace: React.FC<{
             rootTree={rootTree}
             isDrawingMode={isDrawingMode}
             drawTool={drawTool}
+            eraserType={eraserType}
             drawColor={drawColor}
             drawRadius={drawRadius}
             touchOff={touchOff}
@@ -3369,8 +2850,16 @@ const ExpandedPanelWorkspace: React.FC<{
             isExpanded={true}
             hideExpandButton={true}
             onToggleExpand={onExitExpanded}
-            aspectRatio={baseW / baseH}
+            aspectRatio={originalRatio}
+            panelBox={panelBox}
+            layers={layers}
+            activeLayerId={activeLayerId}
+            selectedLayerIds={selectedLayerIds}
+            layerGroups={layerGroups}
+            backgroundColor={backgroundColor}
           />
+
+          {/* Speech Bubbles on this expanded panel - intentionally hidden per user request */}
         </div>
       </div>
 

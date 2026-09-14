@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useId } from 'react';
 import { cn } from '@/lib/utils';
 import { getSvgPathFromPoints, TreeNode, PanelNode, SplitNode, Stroke } from './ComicCanvas';
 
@@ -327,9 +327,14 @@ export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
     return () => observer.disconnect();
   }, []);
 
+  const rawMaskId = useId();
+  const maskId = `erase-mask-${rawMaskId.replace(/:/g, '')}`;
+
   const fills = drawings.filter((s: Stroke) => s && s.type === 'fill');
-  const penStrokes = drawings.filter((s: Stroke) => s && s.type !== 'fill');
+  const penStrokes = drawings.filter((s: Stroke) => s && s.type !== 'fill' && s.type !== 'erase');
+  const eraseStrokes = drawings.filter((s: Stroke) => s && s.type === 'erase');
   const orderedDrawings = [...fills, ...penStrokes];
+  const hasErasers = eraseStrokes.length > 0;
 
   return (
     <svg
@@ -338,37 +343,52 @@ export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
       viewBox="0 0 100 100"
       preserveAspectRatio="none"
     >
-      {orderedDrawings.map((s: Stroke, idx: number) => {
-        if (!s) return null;
-        const strokeKey = `${s.id || 'stroke'}-${idx}`;
-        if (s.type === 'fill' && s.imageUrl && s.bounds) {
-          const isFull = s.isFullArea || (s.bounds.w >= 100 && s.bounds.h >= 100 && s.bounds.x <= 0 && s.bounds.y <= 0) || s.bounds.w >= 300;
-          return (
-            <g key={strokeKey}>
-              {isFull && (
-                <g className="full-area-fill-extensions">
-                  <rect x="-500000" y="-500000" width="1000000" height={Math.max(0, s.bounds.y - (-500000))} fill={s.color} />
-                  <rect x="-500000" y={s.bounds.y + s.bounds.h} width="1000000" height={Math.max(0, 500000 - (s.bounds.y + s.bounds.h))} fill={s.color} />
-                  <rect x="-500000" y={s.bounds.y} width={Math.max(0, s.bounds.x - (-500000))} height={s.bounds.h} fill={s.color} />
-                  <rect x={s.bounds.x + s.bounds.w} y={s.bounds.y} width={Math.max(0, 500000 - (s.bounds.x + s.bounds.w))} height={s.bounds.h} fill={s.color} />
-                </g>
-              )}
-              <image
-                href={s.imageUrl}
-                x={s.bounds.x}
-                width={s.bounds.w}
-                y={s.bounds.y}
-                height={s.bounds.h}
-                preserveAspectRatio="none"
-              />
-            </g>
-          );
-        }
-        if (!s.points || s.points.length === 0) return null;
-        const d = getSvgPathFromPoints(s.points, s.brushRadius || 2, aspect);
-        if (!d) return null;
-        return <path key={strokeKey} d={d} fill={s.color || '#000000'} />;
-      })}
+      {hasErasers && (
+        <defs>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300">
+            <rect x="-100" y="-100" width="300" height="300" fill="white" />
+            {eraseStrokes.map((s: Stroke, idx: number) => {
+              if (!s.points || s.points.length === 0) return null;
+              const d = getSvgPathFromPoints(s.points, s.brushRadius || 2, aspect);
+              if (!d) return null;
+              return <path key={`mask-erase-${s.id || idx}`} d={d} fill="black" />;
+            })}
+          </mask>
+        </defs>
+      )}
+      <g mask={hasErasers ? `url(#${maskId})` : undefined}>
+        {orderedDrawings.map((s: Stroke, idx: number) => {
+          if (!s) return null;
+          const strokeKey = `${s.id || 'stroke'}-${idx}`;
+          if (s.type === 'fill' && s.imageUrl && s.bounds) {
+            const isFull = s.isFullArea || (s.bounds.w >= 100 && s.bounds.h >= 100 && s.bounds.x <= 0 && s.bounds.y <= 0) || s.bounds.w >= 300;
+            return (
+              <g key={strokeKey}>
+                {isFull && (
+                  <g className="full-area-fill-extensions">
+                    <rect x="-500000" y="-500000" width="1000000" height={Math.max(0, s.bounds.y - (-500000))} fill={s.color} />
+                    <rect x="-500000" y={s.bounds.y + s.bounds.h} width="1000000" height={Math.max(0, 500000 - (s.bounds.y + s.bounds.h))} fill={s.color} />
+                    <rect x="-500000" y={s.bounds.y} width={Math.max(0, s.bounds.x - (-500000))} height={s.bounds.h} fill={s.color} />
+                    <rect x={s.bounds.x + s.bounds.w} y={s.bounds.y} width={Math.max(0, 500000 - (s.bounds.x + s.bounds.w))} height={s.bounds.h} fill={s.color} />
+                  </g>
+                )}
+                <image
+                  href={s.imageUrl}
+                  x={s.bounds.x}
+                  width={s.bounds.w}
+                  y={s.bounds.y}
+                  height={s.bounds.h}
+                  preserveAspectRatio="none"
+                />
+              </g>
+            );
+          }
+          if (!s.points || s.points.length === 0) return null;
+          const d = getSvgPathFromPoints(s.points, s.brushRadius || 2, aspect);
+          if (!d) return null;
+          return <path key={strokeKey} d={d} fill={s.color || '#000000'} />;
+        })}
+      </g>
     </svg>
   );
 }
@@ -531,25 +551,27 @@ export const ComicPageRenderer: React.FC<{
           </div>
         )}
 
-        {/* Speech Bubbles Overlay Layer */}
-        {Array.isArray(page.bubbles) && page.bubbles.map((bubble, bIdx) => {
-          if (!bubble || !bubble.text) return null;
-          const posX = typeof bubble.x === 'number' ? bubble.x : 20;
-          const posY = typeof bubble.y === 'number' ? bubble.y : 20;
+        {/* Speech Bubbles Overlay Layer - Always on top */}
+        <div className="absolute inset-0 z-[70] pointer-events-none">
+          {Array.isArray(page.bubbles) && page.bubbles.map((bubble, bIdx) => {
+            if (!bubble || !bubble.text) return null;
+            const posX = typeof bubble.x === 'number' ? bubble.x : 20;
+            const posY = typeof bubble.y === 'number' ? bubble.y : 20;
 
-          return (
-            <div
-              key={bubble.id || bIdx}
-              className="absolute z-20 pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
-              style={{
-                left: `${posX}%`,
-                top: `${posY}%`,
-              }}
-            >
-              <SpeechBubbleRenderer bubble={bubble} />
-            </div>
-          );
-        })}
+            return (
+              <div
+                key={bubble.id || bIdx}
+                className="absolute z-[70] pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  left: `${posX}%`,
+                  top: `${posY}%`,
+                }}
+              >
+                <SpeechBubbleRenderer bubble={bubble} />
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

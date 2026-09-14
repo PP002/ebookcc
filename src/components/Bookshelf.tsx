@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { useAppSettings } from '@/context/AppSettingsContext';
+import { useAppSettings, getSupabase } from '@/context/AppSettingsContext';
 import { fetchPublishedWorksFromR2, deletePublishedWorkFromR2 } from '@/lib/r2Storage';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -357,7 +357,7 @@ export function Bookshelf({
   onOpenInWorkspace?: (type: 'comic' | 'novel', id: string) => void;
   onOpenInReader?: (type: 'comic' | 'novel', id: string) => void;
 }) {
-  const { user } = useAppSettings();
+  const { user, supabaseUrl, supabaseAnonKey } = useAppSettings();
   const [books, setBooks] = useState<PublishedItem[]>([]);
   const [selectedBook, setSelectedBook] = useState<PublishedItem | null>(null);
   const [activeComicPage, setActiveComicPage] = useState(0);
@@ -498,12 +498,25 @@ export function Bookshelf({
     window.addEventListener('ebookcc_published', handleSync);
     window.addEventListener('focus', handleSync);
 
+    const supabase = getSupabase(supabaseUrl, supabaseAnonKey);
+    let channel: any;
+    if (supabase) {
+      channel = supabase.channel('public:published_works')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'published_works' }, () => {
+          loadBooks();
+        })
+        .subscribe();
+    }
+
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('ebookcc_published', handleSync);
       window.removeEventListener('focus', handleSync);
+      if (channel) {
+        supabase?.removeChannel(channel);
+      }
     };
-  }, []);
+  }, [supabaseUrl, supabaseAnonKey]);
 
   const scrollShelf = (direction: 'left' | 'right') => {
     if (shelfRef.current) {

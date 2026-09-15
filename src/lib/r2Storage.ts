@@ -708,14 +708,23 @@ export async function fetchPublishedWorksFromR2(
     }
   };
 
-  // 1. Fetch from server R2 API first
+  let networkSuccess = false;
+
+  // 1. Network-First: Fetch from server R2 API with strict cache-busting
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const timer = setTimeout(() => controller.abort(), 15000);
 
-    const res = await fetch(`${getApiUrl()}/api/published-works`, {
+    const cacheBuster = `_t=${Date.now()}`;
+    const apiUrl = `${getApiUrl()}/api/published-works?${cacheBuster}`;
+
+    const res = await fetch(apiUrl, {
       method: "GET",
+      cache: "no-store",
       headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
         ...getR2Headers(config)
       },
       signal: controller.signal
@@ -726,6 +735,7 @@ export async function fetchPublishedWorksFromR2(
       const data = await res.json();
       if (data && Array.isArray(data.works)) {
         data.works.forEach(mergeItem);
+        networkSuccess = true;
       }
     }
   } catch (err) {
@@ -741,15 +751,26 @@ export async function fetchPublishedWorksFromR2(
         .select('*')
         .order('timestamp', { ascending: false });
 
-      if (!error && Array.isArray(data) && data.length > 0) {
+      if (!error && Array.isArray(data)) {
         data.forEach(mergeItem);
+        networkSuccess = true;
       }
     } catch (sbErr: any) {
       console.warn("Supabase published_works table query notice:", sbErr.message);
     }
   }
 
-  // 4. Merge with local storage cache (if local item is newer, preserve it!)
+  // 3. Network-First Strategy:
+  // When network fetch succeeds, authoritative data is used and local cache is updated for offline fallback.
+  if (networkSuccess) {
+    const networkWorks = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    try {
+      localStorage.setItem("ebookcc_published_items", JSON.stringify(networkWorks));
+    } catch (_) {}
+    return { success: true, works: networkWorks };
+  }
+
+  // 4. Fallback Strategy: If network is offline or completely failed, fallback to local storage cache
   try {
     const raw = localStorage.getItem("ebookcc_published_items") || "[]";
     const localItems = JSON.parse(raw);
@@ -758,8 +779,72 @@ export async function fetchPublishedWorksFromR2(
     }
   } catch (_) {}
 
-  const sortedWorks = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  return { success: true, works: sortedWorks };
+  const fallbackWorks = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  return { success: fallbackWorks.length > 0, works: fallbackWorks };
+}
+
+/**
+ * Fetch a single published work using Network-First strategy with local cache fallback
+ */
+export async function fetchSinglePublishedWork(
+  id: string,
+  config?: R2Config
+): Promise<any | null> {
+  const cleanId = String(id || "").trim();
+  if (!cleanId) return null;
+
+  // 1. Network First: Server R2 API
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const cacheBuster = `_t=${Date.now()}`;
+    const res = await fetch(`${getApiUrl()}/api/published-works/${encodeURIComponent(cleanId)}?${cacheBuster}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        ...getR2Headers(config)
+      },
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.work) {
+        return data.work;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Network: Supabase table
+  const supabase = getActiveSupabaseClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('published_works')
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+
+      if (!error && data) {
+        return data;
+      }
+    } catch (_) {}
+  }
+
+  // 3. Fallback: Local storage cache
+  try {
+    const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+    const localItems = JSON.parse(raw);
+    if (Array.isArray(localItems)) {
+      const found = localItems.find((w: any) => w && (String(w.id) === cleanId || String(w.id).replace(/[^a-zA-Z0-9_-]/g, "_") === cleanId));
+      if (found) return found;
+    }
+  } catch (_) {}
+
+  return null;
 }
 
 export async function deletePublishedWorkFromR2(

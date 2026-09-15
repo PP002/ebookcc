@@ -1333,6 +1333,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
   return (
     <div
       ref={containerRef}
+      data-panel-drawing="true"
+      data-drawing-container="true"
       className={`absolute inset-0 w-full h-full overflow-hidden ${
         isDrawingMode ? 'z-30 touch-none pointer-events-auto' : 'z-10 pointer-events-none touch-none'
       }`}
@@ -1344,9 +1346,31 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onPointerLeave={() => setHoverPt(null)}
+      onTouchStart={(e) => {
+        if (isDrawingMode) {
+          e.stopPropagation();
+        }
+      }}
+      onTouchMove={(e) => {
+        if (isDrawingMode) {
+          e.stopPropagation();
+        }
+      }}
+      onTouchEnd={(e) => {
+        if (isDrawingMode) {
+          e.stopPropagation();
+        }
+      }}
+      onTouchCancel={(e) => {
+        if (isDrawingMode) {
+          e.stopPropagation();
+        }
+      }}
     >
       <canvas
         ref={mainCanvasRef}
+        data-panel-drawing="true"
+        data-drawing-container="true"
         className="w-full h-full block pointer-events-none"
         style={{ width: '100%', height: '100%' }}
       />

@@ -356,10 +356,17 @@ function getR2Credentials(env: Env, request?: Request) {
   return { accessKeyId, secretAccessKey, bucket, accountId, endpoint };
 }
 
-function jsonResponse(data: any, status = 200) {
+function jsonResponse(data: any, status = 200, customHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
+      ...customHeaders,
+    },
   });
 }
 
@@ -809,6 +816,46 @@ export default {
       } catch (err: any) {
         return jsonResponse(
           { error: err.message || "Failed retrieving published works" },
+          500
+        );
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: GET /api/published-works/:id
+    // ─────────────────────────────────────────────
+    if (
+      url.pathname.startsWith("/api/published-works/") &&
+      request.method === "GET"
+    ) {
+      try {
+        const rawId = url.pathname.replace(/^\/api\/published-works\//, "");
+        const workId = decodeURIComponent(rawId).replace(
+          /[^a-zA-Z0-9_-]/g,
+          "_"
+        );
+        const jsonKey = `published_works/${workId}.json`;
+        const r2 = getR2Bucket(env);
+
+        if (r2) {
+          const itemObj = await r2.get(jsonKey);
+          if (itemObj) {
+            const text = await itemObj.text();
+            const parsed = JSON.parse(text);
+            if (parsed && parsed.id) {
+              return jsonResponse({
+                success: true,
+                work: parsed,
+                source: "r2",
+              });
+            }
+          }
+        }
+
+        return jsonResponse({ error: "Published work not found" }, 404);
+      } catch (err: any) {
+        return jsonResponse(
+          { error: err.message || "Failed retrieving published work" },
           500
         );
       }

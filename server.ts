@@ -105,6 +105,14 @@ async function startServer() {
     next();
   });
 
+  // Strict cache-busting response headers for published works APIs
+  app.use('/api/published-works', (req, res, next) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    next();
+  });
+
   // Health checks
   app.get('/health', (req, res) => res.status(200).send('OK'));
   app.get('/api/health', (req, res) => res.status(200).send('OK'));
@@ -794,6 +802,9 @@ async function startServer() {
 
   // Route 4: Publish work to R2 media storage (ebookcc-media)
   app.post("/api/published-works", async (req, res): Promise<any> => {
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
     try {
       const { item } = req.body;
       if (!item || !item.id) {
@@ -965,8 +976,11 @@ async function startServer() {
     }
   });
 
-  // Route 5: Get all published works from R2 media storage
+  // Route 5: Get all published works from R2 media storage (Network-First, strictly uncached)
   app.get("/api/published-works", async (req, res): Promise<any> => {
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
     try {
       const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
 
@@ -1034,7 +1048,7 @@ async function startServer() {
           const worksList = Array.from(r2WorksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           return res.json({ success: true, works: worksList, source: "r2" });
         } catch (r2ListErr: any) {
-          console.warn(`\[R2\] List published works from bucket "${bucket}" failed, falling back to local cache:`, r2ListErr.message);
+          console.warn(`[R2] List published works from bucket "${bucket}" failed, falling back to local cache:`, r2ListErr.message);
         }
       }
 
@@ -1066,8 +1080,57 @@ async function startServer() {
     }
   });
 
+  // Route 5b: Get single published work by id from R2 media storage or local cache (Network-First)
+  app.get("/api/published-works/:id", async (req, res): Promise<any> => {
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    try {
+      const workId = decodeURIComponent(req.params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      const jsonKey = `published_works/${workId}.json`;
+
+      if (isConfigured && s3) {
+        try {
+          const getObjRes = await s3.send(new GetObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey
+          }));
+          if (getObjRes.Body) {
+            const str = await getObjRes.Body.transformToString("utf-8");
+            const item = JSON.parse(str);
+            if (item && item.id) {
+              return res.json({ success: true, work: item, source: "r2" });
+            }
+          }
+        } catch (r2Err: any) {
+          console.warn(`[R2] Could not fetch single published work ${workId} from R2:`, r2Err.message);
+        }
+      }
+
+      // Local server fallback
+      const localJsonPath = path.join(LOCAL_MEDIA_DIR, jsonKey);
+      if (fs.existsSync(localJsonPath)) {
+        try {
+          const raw = fs.readFileSync(localJsonPath, "utf-8");
+          const item = JSON.parse(raw);
+          if (item && item.id) {
+            return res.json({ success: true, work: item, source: "local" });
+          }
+        } catch (_) {}
+      }
+
+      return res.status(404).json({ error: "Published work not found" });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Failed retrieving published work" });
+    }
+  });
+
   // Route 6: Delete published work and all associated media from R2 storage & local cache
   app.delete("/api/published-works/:id", async (req, res): Promise<any> => {
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
     try {
       const workId = decodeURIComponent(req.params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
       const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);

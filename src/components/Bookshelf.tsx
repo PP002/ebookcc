@@ -465,28 +465,43 @@ export function Bookshelf({
     }
   }, [fontSize]);
 
-  // Load books from localStorage & Cloudflare R2 media storage
+  // Load books using Network-First fallback strategy
   const loadBooks = async () => {
+    // Render cached books initially for instant UI presentation
     try {
-      const userPublishedJson = localStorage.getItem("ebookcc_published_items") || "[]";
-      const userPublished = JSON.parse(userPublishedJson);
-      if (Array.isArray(userPublished)) {
-        setBooks(userPublished);
+      const userPublishedJson = localStorage.getItem("ebookcc_published_items");
+      if (userPublishedJson) {
+        const userPublished = JSON.parse(userPublishedJson);
+        if (Array.isArray(userPublished) && userPublished.length > 0) {
+          setBooks(userPublished);
+        }
       }
-    } catch (e) {
-      setBooks([]);
-    }
+    } catch (_) {}
 
+    // Network-First: Fetch authoritative, latest published works from R2 media storage / Server API
     try {
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
-        // Sync directly with authoritative R2 media storage.
         const r2Works = res.works;
         const sorted = [...r2Works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
         setBooks(sorted);
+        return;
       }
-    } catch (_) {}
+    } catch (netErr) {
+      console.warn("[Bookshelf] Network fetch error, maintaining cached fallback:", netErr);
+    }
+
+    // Fallback if network completely failed and no books loaded yet
+    try {
+      const fallbackJson = localStorage.getItem("ebookcc_published_items") || "[]";
+      const fallback = JSON.parse(fallbackJson);
+      if (Array.isArray(fallback)) {
+        setBooks(fallback);
+      }
+    } catch (_) {
+      setBooks([]);
+    }
   };
 
   useEffect(() => {

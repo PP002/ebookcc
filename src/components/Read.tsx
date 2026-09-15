@@ -20,7 +20,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { ComicPageRenderer, ComicTreeNodeView } from '@/components/ComicPageRenderer';
 import { ReaderNotesSidebar } from '@/components/ReaderNotesSidebar';
 import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
-import { fetchPublishedWorksFromR2 } from '@/lib/r2Storage';
+import { fetchPublishedWorksFromR2, fetchSinglePublishedWork } from '@/lib/r2Storage';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from '@/components/GoogleDriveDialog';
 // @ts-ignore
@@ -283,9 +283,11 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         sessionStorage.removeItem("ebookcc_open_read_type");
 
         try {
+          // Network-First: query server R2 / cloud first for the latest version of the book
           let book: any = null;
-          const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-          book = pub.find((item: any) => item.id === triggerId);
+          try {
+            book = await fetchSinglePublishedWork(triggerId);
+          } catch (_) {}
 
           if (!book) {
             try {
@@ -293,6 +295,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               if (r2WorksRes?.works && Array.isArray(r2WorksRes.works)) {
                 book = r2WorksRes.works.find((item: any) => item.id === triggerId);
               }
+            } catch (_) {}
+          }
+
+          // Fallback to local storage cache if network is offline or unreached
+          if (!book) {
+            try {
+              const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+              book = pub.find((item: any) => item.id === triggerId);
             } catch (_) {}
           }
 

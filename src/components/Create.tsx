@@ -62,7 +62,7 @@ import {
   UnfinishedComic,
   UnfinishedStory
 } from "@/lib/historyCache";
-import { publishWorkToR2, fetchPublishedWorksFromR2, deletePublishedWorkFromR2 } from "@/lib/r2Storage";
+import { publishWorkToR2, fetchPublishedWorksFromR2, fetchSinglePublishedWork, deletePublishedWorkFromR2 } from "@/lib/r2Storage";
 import { useLanguage } from "@/context/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -1590,27 +1590,52 @@ export const Create: React.FC<CreateProps> = ({
   const [publishedWorks, setPublishedWorks] = useState<any[]>([]);
 
   const loadPublishedWorks = async () => {
+    // Render existing cached items initially for immediate UI display
     try {
-      const raw = localStorage.getItem("ebookcc_published_items") || "[]";
-      const items = JSON.parse(raw);
-      if (Array.isArray(items)) {
-        setPublishedWorks(items);
-      } else {
-        setPublishedWorks([]);
+      const raw = localStorage.getItem("ebookcc_published_items");
+      if (raw) {
+        const items = JSON.parse(raw);
+        if (Array.isArray(items) && items.length > 0) {
+          setPublishedWorks(items);
+        }
       }
-    } catch (err) {
-      setPublishedWorks([]);
-    }
+    } catch (_) {}
 
+    // Network-First: Fetch authoritative fresh published works from R2/server
     try {
       const res = await fetchPublishedWorksFromR2();
       if (res.success && Array.isArray(res.works)) {
         const sorted = [...res.works].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         localStorage.setItem("ebookcc_published_items", JSON.stringify(sorted));
         setPublishedWorks(sorted);
+        return;
       }
     } catch (_) {}
+
+    // Fallback: Read local storage if network is unreachable
+    try {
+      const raw = localStorage.getItem("ebookcc_published_items") || "[]";
+      const items = JSON.parse(raw);
+      setPublishedWorks(Array.isArray(items) ? items : []);
+    } catch (err) {
+      setPublishedWorks([]);
+    }
   };
+
+  // Keep published works synchronized across tabs, windows, and on refocus
+  useEffect(() => {
+    const handleSync = () => {
+      loadPublishedWorks();
+    };
+    window.addEventListener("ebookcc_published", handleSync);
+    window.addEventListener("focus", handleSync);
+    window.addEventListener("storage", handleSync);
+    return () => {
+      window.removeEventListener("ebookcc_published", handleSync);
+      window.removeEventListener("focus", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
+  }, []);
 
   const handleQuickEditPublished = (item: any) => {
     if (!checkIsAuthor(item, user)) {
@@ -1725,16 +1750,18 @@ export const Create: React.FC<CreateProps> = ({
             setLoadedHtmlContent(match.htmlContent);
             setCreateMode("document");
           } else {
-            // Check published list
+            // Network-First: fetch latest published story from R2/server, fallback to local cache
             try {
-              let pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-              let found = pub.find((item: any) => item.id === triggerId);
+              let found = await fetchSinglePublishedWork(triggerId);
               if (!found) {
                 const r2Res = await fetchPublishedWorksFromR2();
                 if (r2Res.success && Array.isArray(r2Res.works)) {
-                  pub = r2Res.works;
-                  found = pub.find((item: any) => item.id === triggerId);
+                  found = r2Res.works.find((item: any) => item.id === triggerId);
                 }
+              }
+              if (!found) {
+                const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+                found = pub.find((item: any) => item.id === triggerId);
               }
               if (found) {
                 isPublishedStoryRef.current = true;
@@ -1759,16 +1786,18 @@ export const Create: React.FC<CreateProps> = ({
             setActivePageIndex(match.activePageIndex || 0);
             setCreateMode("comic");
           } else {
-            // Check published list
+            // Network-First: fetch latest published comic from R2/server, fallback to local cache
             try {
-              let pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-              let found = pub.find((item: any) => item.id === triggerId);
+              let found = await fetchSinglePublishedWork(triggerId);
               if (!found || !found.pages) {
                 const r2Res = await fetchPublishedWorksFromR2();
                 if (r2Res.success && Array.isArray(r2Res.works)) {
-                  pub = r2Res.works;
-                  found = pub.find((item: any) => item.id === triggerId);
+                  found = r2Res.works.find((item: any) => item.id === triggerId);
                 }
+              }
+              if (!found || !found.pages) {
+                const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
+                found = pub.find((item: any) => item.id === triggerId);
               }
               if (found) {
                 let pages = found.pages;
@@ -2297,10 +2326,18 @@ export const Create: React.FC<CreateProps> = ({
   // Finger swipe gesture for flipping comic pages on touch devices
   useEffect(() => {
     if (createMode !== "comic") return;
+    // When any drawing tool is active, prevent drawing strokes from being misinterpreted as swipe page-turns.
+    if (isDrawingMode) return;
     const el = comicWorkspaceRef.current;
     if (!el) return;
 
     const handleTouchStart = (e: TouchEvent) => {
+      // Strictly prevent drawing strokes from being misinterpreted as swipe page-turns when drawing mode is on
+      if (isDrawingMode) {
+        touchStartPosRef.current = null;
+        return;
+      }
+
       if (e.touches.length !== 1) {
         touchStartPosRef.current = null;
         return;
@@ -2309,23 +2346,11 @@ export const Create: React.FC<CreateProps> = ({
       const target = e.target as HTMLElement;
       if (
         target?.closest?.(
-          'button, input, textarea, select, [data-bubble-id], [contenteditable="true"], .bubble-overlay, [data-export-ignore="true"]'
+          'button, input, textarea, select, [data-bubble-id], [contenteditable="true"], .bubble-overlay, [data-export-ignore="true"], canvas, [data-panel-drawing], .panel-drawing-layer, [data-drawing-container], [data-panel-id], svg[data-panel-drawing]'
         )
       ) {
         touchStartPosRef.current = null;
         return;
-      }
-
-      // If drawing mode is on with finger drawing allowed (touchOff = false),
-      // let drawings on panels proceed unless touched on workspace background/border
-      if (isDrawingMode && !touchOff) {
-        if (
-          target?.closest?.("svg[data-panel-drawing]") ||
-          target?.closest?.(".panel-drawing-layer")
-        ) {
-          touchStartPosRef.current = null;
-          return;
-        }
       }
 
       const touch = e.touches[0];
@@ -2337,13 +2362,13 @@ export const Create: React.FC<CreateProps> = ({
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length > 1) {
+      if (isDrawingMode || e.touches.length > 1) {
         touchStartPosRef.current = null;
       }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
-      if (!touchStartPosRef.current) return;
+      if (isDrawingMode || !touchStartPosRef.current) return;
 
       const touch = e.changedTouches[0];
       if (!touch) {

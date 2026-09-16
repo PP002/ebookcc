@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   BookOpen,
   PenTool,
@@ -42,6 +42,7 @@ import {
   UserPlus,
   User,
   Lock,
+  Shapes,
 } from "lucide-react";
 import {
   Dialog,
@@ -99,6 +100,12 @@ import { useAppSettings } from "@/context/AppSettingsContext";
 import { getApiUrl } from '@/lib/api';
 import { loadPuterScript } from "@/lib/puterLoader";
 import { GoogleDriveDialog, GoogleDriveIcon } from "./GoogleDriveDialog";
+import {
+  processFreehandBubblePoints,
+  generateBubbleSvgPath,
+  detectCornersAndProtrusions,
+} from "./comic/bubbleContour";
+import { ShapeAwareTextLayout } from "./comic/ShapeAwareTextLayout";
 
 
 interface CreateProps {
@@ -114,9 +121,12 @@ interface Bubble {
   y: number;
   style: "classic" | "action" | "freehand";
   points?: { x: number; y: number }[];
+  hasTail?: boolean;
   tailX?: number;
   tailY?: number;
 }
+
+export type PenMode = "normal" | "smartShape" | "freehandBubble";
 
 interface ComicPage {
   id: string;
@@ -634,6 +644,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
 }) => {
   const { t } = useLanguage();
   const [dimensions, setDimensions] = useState({ w: 120, h: 60 });
+  const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Measure dimensions when text changes or on mount
@@ -666,8 +677,8 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const W = Math.max(20, dimensions.w);
-  const H = Math.max(20, dimensions.h);
+  const W = Math.max(bubble.style === "freehand" ? 130 : 120, dimensions.w);
+  const H = Math.max(bubble.style === "freehand" ? 65 : 55, dimensions.h);
 
   // Initialize tail if not set
   const tailX = bubble.tailX !== undefined ? bubble.tailX : (bubble.style === "freehand" ? 15 : W * 0.15);
@@ -816,66 +827,65 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
       normPoints = generatePerfectSpeechBubblePoints();
     }
 
-    // Apply multi-pass Chaikin smoothing for silky smooth vector curves
-    const smoothedNorm = chaikinSmooth(normPoints, 3);
-
-    // Scale contour points to match current container W and H
-    const bodyPts = smoothedNorm.map((p) => ({
+    // Scale contour points to match current container dimensions W and H
+    const bodyPts = normPoints.map((p) => ({
       x: (p.x / 100) * W,
       y: (p.y / 100) * H,
     }));
 
     const N = bodyPts.length;
 
-    // Convert tail coordinates from percentage to pixels
+    // Convert tail coordinates from percentage to container pixels
     const tailPxX = (tailX / 100) * W;
     const tailPxY = (tailY / 100) * H;
 
-    // Angle to tail
-    const dx = tailPxX - cx;
-    const dy = tailPxY - cy;
-    const tailAngle = Math.atan2(dy, dx);
+    // Detect corners and convex arrow/protrusion tips
+    const { cornerIndices, tipIndex } = detectCornersAndProtrusions(bodyPts);
 
-    let closestIdx = 0;
-    let minDiff = Infinity;
-    for (let i = 0; i < N; i++) {
-      const ptAngle = Math.atan2(bodyPts[i].y - cy, bodyPts[i].x - cx);
-      let diff = Math.abs(ptAngle - tailAngle);
-      if (diff > Math.PI) diff = 2 * Math.PI - diff;
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIdx = i;
+    const hasTail = bubble.hasTail ?? (tipIndex !== null);
+
+    // If an arrow tip or protrusion was drawn, preserve it and allow tail handle dragging to move it
+    if (hasTail && tipIndex !== null && tipIndex >= 0 && tipIndex < N) {
+      const ptsCopy = bodyPts.map((p) => ({ ...p }));
+      ptsCopy[tipIndex] = { x: tailPxX, y: tailPxY };
+      dPath = generateBubbleSvgPath(ptsCopy, cornerIndices);
+    } else if (hasTail && bubble.tailX !== undefined && bubble.tailY !== undefined) {
+      // Freehand template bubble that explicitly has a tail (e.g. from default template)
+      const dx = tailPxX - cx;
+      const dy = tailPxY - cy;
+      const tailAngle = Math.atan2(dy, dx);
+
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < N; i++) {
+        const ptAngle = Math.atan2(bodyPts[i].y - cy, bodyPts[i].x - cx);
+        let diff = Math.abs(ptAngle - tailAngle);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
       }
-    }
 
-    const baseRange = Math.max(1, Math.min(4, Math.floor(N * 0.04)));
-    const idxStart = (closestIdx - baseRange + N) % N;
-    const idxEnd = (closestIdx + baseRange) % N;
+      const baseRange = Math.max(1, Math.min(4, Math.floor(N * 0.04)));
+      const idxStart = (closestIdx - baseRange + N) % N;
+      const idxEnd = (closestIdx + baseRange) % N;
 
-    const pathPts: { x: number; y: number }[] = [];
-    let curr = idxEnd;
-    while (curr !== idxStart) {
-      pathPts.push(bodyPts[curr]);
-      curr = (curr + 1) % N;
-    }
-    pathPts.push(bodyPts[idxStart]);
-    pathPts.push({ x: tailPxX, y: tailPxY });
-
-    if (pathPts.length > 0) {
-      let d = `M ${pathPts[0].x.toFixed(1)} ${pathPts[0].y.toFixed(1)}`;
-      for (let i = 0; i < pathPts.length - 1; i++) {
-        const p1 = pathPts[i];
-        const p2 = pathPts[i + 1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        d += ` Q ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+      const pathPts: { x: number; y: number }[] = [];
+      let curr = idxEnd;
+      while (curr !== idxStart) {
+        pathPts.push(bodyPts[curr]);
+        curr = (curr + 1) % N;
       }
-      const last = pathPts[pathPts.length - 1];
-      const first = pathPts[0];
-      const midX = (last.x + first.x) / 2;
-      const midY = (last.y + first.y) / 2;
-      d += ` Q ${last.x.toFixed(1)} ${last.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)} Z`;
-      dPath = d;
+      pathPts.push(bodyPts[idxStart]);
+
+      const tailCornerIdx = pathPts.length;
+      pathPts.push({ x: tailPxX, y: tailPxY });
+
+      dPath = generateBubbleSvgPath(pathPts, [tailCornerIdx]);
+    } else {
+      // If NO sharp projection is detected: Treat the shape as a simple oval/smooth bubble—do NOT force or auto-inject a tail arrow.
+      dPath = generateBubbleSvgPath(bodyPts, cornerIndices);
     }
   }
 
@@ -913,6 +923,46 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
     document.addEventListener("pointerup", onPointerUp);
   };
 
+  const bubblePolygon = useMemo(() => {
+    if (bubble.style === "freehand") {
+      let normPoints = bubble.points;
+      if (!normPoints || normPoints.length < 3) {
+        normPoints = generatePerfectSpeechBubblePoints();
+      }
+      return normPoints.map((p) => ({
+        x: (p.x / 100) * W,
+        y: (p.y / 100) * H,
+      }));
+    } else if (bubble.style === "action") {
+      // Action burst shape has sharp outward spikes and inward valleys.
+      // Text MUST be strictly confined to the safe inner valley region to prevent extending beyond boundaries!
+      const pts: { x: number; y: number }[] = [];
+      const steps = 36;
+      const cx = W / 2;
+      const cy = H / 2;
+      // Inward valley safe boundary (0.70 of outer radius)
+      const rx = (W / 2) * 0.70;
+      const ry = (H / 2) * 0.70;
+      for (let i = 0; i < steps; i++) {
+        const th = (i / steps) * 2 * Math.PI;
+        pts.push({
+          x: cx + rx * Math.cos(th),
+          y: cy + ry * Math.sin(th),
+        });
+      }
+      return pts;
+    } else {
+      // Classic bubble is a rectangular comic dialogue box
+      const pad = 6;
+      return [
+        { x: pad, y: pad },
+        { x: W - pad, y: pad },
+        { x: W - pad, y: H - pad },
+        { x: pad, y: H - pad },
+      ];
+    }
+  }, [bubble.style, bubble.points, W, H]);
+
   return (
     <div className="relative">
       {/* Background SVG for all styles */}
@@ -930,7 +980,22 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         />
       </svg>
 
-      {/* Text Container */}
+      {/* Shape-Aware Dynamic Text Layout */}
+      {!isEditing && (
+        <ShapeAwareTextLayout
+          text={bubble.text}
+          polygon={bubblePolygon}
+          width={W}
+          height={H}
+          fontSize={bubble.style === "action" ? 13 : 12}
+          fontWeight={bubble.style === "action" ? "800" : "600"}
+          fontStyle={bubble.style === "freehand" ? "italic" : "normal"}
+          margin={bubble.style === "action" ? 8 : (bubble.style === "freehand" ? 8 : 5)}
+          color="#000000"
+        />
+      )}
+
+      {/* Text Container for editing and size measurement */}
       <div
         ref={containerRef}
         contentEditable
@@ -944,6 +1009,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
           removeBubble();
         }}
         onFocus={() => {
+          setIsEditing(true);
           onActivate?.();
         }}
         onPointerDown={(e) => {
@@ -970,6 +1036,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
             clearTimeout((window as any)._bubbleLongPress);
         }}
         onBlur={(e) => {
+          setIsEditing(false);
           const txt = e.currentTarget.innerText || "";
           onUpdateText(txt);
         }}
@@ -980,19 +1047,21 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         onKeyDown={(e) => {
           e.stopPropagation();
         }}
-        className={`text-xs break-words text-center min-w-[70px] max-w-[180px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
+        className={`text-xs break-words text-center min-w-[120px] max-w-[240px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
+          !isEditing ? "opacity-0" : "opacity-100"
+        } ${
           bubble.style === "action"
             ? "font-extrabold uppercase text-black py-4 px-6"
             : bubble.style === "freehand"
-            ? "text-black py-5 px-7 italic font-sans leading-tight"
-            : "text-black py-2.5 px-4"
+            ? "text-black py-4 px-6 italic font-sans leading-tight"
+            : "text-black py-2 px-3"
         }`}
         title={t("doubleClickDeleteBubble")}
       >
         {bubble.text}
       </div>
 
-      {/* Tail Drag Handle (Only when selected/active) */}
+      {/* Tail Drag Handle (Only when selected/active and not freehand) */}
       {isActive && bubble.style !== "freehand" && (
         <div
           onPointerDown={handleTailPointerDown}
@@ -1388,9 +1457,12 @@ export const Create: React.FC<CreateProps> = ({
   const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
   const [eraserType, setEraserType] = useState<"stroke" | "pixel">("pixel");
   const [isEraserMenuOpen, setIsEraserMenuOpen] = useState(false);
+  const [penMode, setPenMode] = useState<PenMode>("normal");
+  const [isPenMenuOpen, setIsPenMenuOpen] = useState(false);
   const brushSizePickerRef = useRef<HTMLDivElement>(null);
   const layerPanelRef = useRef<HTMLDivElement>(null);
   const eraserMenuRef = useRef<HTMLDivElement>(null);
+  const penMenuRef = useRef<HTMLDivElement>(null);
 
   // Layers state
   const [comicLayers, setComicLayers] = useState<ComicLayer[]>([
@@ -1449,12 +1521,19 @@ export const Create: React.FC<CreateProps> = ({
     setIsComicPanelExpanded(false);
   }, []);
 
-  // Auto fold brush size picker, layers panel, and eraser menu when tapping outside
+  // Auto fold brush size picker, layers panel, eraser menu, and pen menu when tapping outside
   useEffect(() => {
-    if (!isBrushSizePickerOpen && !isLayerPanelOpen && !isEraserMenuOpen) return;
+    if (!isBrushSizePickerOpen && !isLayerPanelOpen && !isEraserMenuOpen && !isPenMenuOpen) return;
 
     const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
       const target = e.target as Node;
+      if (
+        isPenMenuOpen &&
+        penMenuRef.current &&
+        !penMenuRef.current.contains(target)
+      ) {
+        setIsPenMenuOpen(false);
+      }
       if (
         isEraserMenuOpen &&
         eraserMenuRef.current &&
@@ -1482,12 +1561,15 @@ export const Create: React.FC<CreateProps> = ({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDownOutside, true);
     };
-  }, [isBrushSizePickerOpen, isLayerPanelOpen, isEraserMenuOpen]);
+  }, [isBrushSizePickerOpen, isLayerPanelOpen, isEraserMenuOpen, isPenMenuOpen]);
 
-  // Close eraser menu when exiting drawing mode or switching away from erase
+  // Close menus when exiting drawing mode or switching away
   useEffect(() => {
     if (!isDrawingMode || drawTool !== "erase") {
       setIsEraserMenuOpen(false);
+    }
+    if (!isDrawingMode || drawTool !== "pen") {
+      setIsPenMenuOpen(false);
     }
   }, [isDrawingMode, drawTool]);
 
@@ -3183,7 +3265,7 @@ export const Create: React.FC<CreateProps> = ({
     const strokeW = maxX - minX;
     const strokeH = maxY - minY;
 
-    if (strokeW < 1 && strokeH < 1) {
+    if (strokeW < 5 || strokeH < 4) {
       toast.warning(t("drawnShapeTooSmallNotice"));
       cleanup();
       return;
@@ -3223,45 +3305,17 @@ export const Create: React.FC<CreateProps> = ({
     let normalizedPoints: { x: number; y: number }[] = [];
     let initialTailX = 20;
     let initialTailY = 85;
+    let hasTail = false;
 
     if (pts && pts.length >= 3) {
-      const rawNorm = pts.map((p) => ({
-        x: Math.max(5, Math.min(95, ((p.x - minX) / (strokeW || 1)) * 90 + 5)),
-        y: Math.max(5, Math.min(95, ((p.y - minY) / (strokeH || 1)) * 90 + 5)),
-      }));
-
-      normalizedPoints = chaikinSmooth(rawNorm, 3);
-
-      let maxDist = 0;
-      let furthestIdx = -1;
-      for (let i = 0; i < normalizedPoints.length; i++) {
-        const p = normalizedPoints[i];
-        const dist = Math.hypot(p.x - 50, p.y - 50);
-        if (dist > maxDist) {
-          maxDist = dist;
-          if (dist > 35) {
-            furthestIdx = i;
-            initialTailX = p.x;
-            initialTailY = p.y;
-          }
-        }
-      }
-
-      if (furthestIdx !== -1) {
-        const N = normalizedPoints.length;
-        const removeRange = Math.max(3, Math.floor(N * 0.08));
-        const newPts: { x: number; y: number }[] = [];
-        const start = (furthestIdx + removeRange) % N;
-        const end = (furthestIdx - removeRange + N) % N;
-        let curr = start;
-        while (curr !== end) {
-          newPts.push(normalizedPoints[curr]);
-          curr = (curr + 1) % N;
-        }
-        normalizedPoints = newPts;
-      }
+      const processed = processFreehandBubblePoints(pts);
+      normalizedPoints = processed.normalizedPoints;
+      initialTailX = processed.initialTailX;
+      initialTailY = processed.initialTailY;
+      hasTail = processed.hasArrow;
     } else {
       normalizedPoints = generatePerfectSpeechBubblePoints();
+      hasTail = true;
     }
 
     // If the user entered text value manually, directly move it into the custom speech bubble, bypassing OCR!
@@ -3273,8 +3327,9 @@ export const Create: React.FC<CreateProps> = ({
         y: pageY,
         style: "freehand",
         points: normalizedPoints,
-        tailX: initialTailX,
-        tailY: initialTailY,
+        hasTail,
+        tailX: hasTail ? initialTailX : undefined,
+        tailY: hasTail ? initialTailY : undefined,
       };
 
       const currentBubbles = [...bubbles, newBubble];
@@ -3295,8 +3350,9 @@ export const Create: React.FC<CreateProps> = ({
       y: pageY,
       style: "freehand",
       points: normalizedPoints,
-      tailX: initialTailX,
-      tailY: initialTailY,
+      hasTail,
+      tailX: hasTail ? initialTailX : undefined,
+      tailY: hasTail ? initialTailY : undefined,
     };
 
     const currentBubbles = [...bubbles, newBubble];
@@ -3397,6 +3453,59 @@ export const Create: React.FC<CreateProps> = ({
       setIsTranscribing(false);
     }
   };
+
+  const handleConvertStrokeToBubble = useCallback(
+    (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => {
+      if (!stroke.points || stroke.points.length < 3) return;
+      const pts = stroke.points;
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const strokeW = maxX - minX;
+      const strokeH = maxY - minY;
+
+      if (strokeW < 5 || strokeH < 4) return;
+
+      const panelRelativeCenterX = minX + strokeW / 2;
+      const panelRelativeCenterY = minY + strokeH / 2;
+
+      let pageX = panelRelativeCenterX;
+      let pageY = panelRelativeCenterY;
+
+      if (panelBox && panelBox.w > 0 && panelBox.h > 0) {
+        pageX = panelBox.x + (panelRelativeCenterX / 100) * panelBox.w;
+        pageY = panelBox.y + (panelRelativeCenterY / 100) * panelBox.h;
+      }
+
+      const processed = processFreehandBubblePoints(pts);
+      const normalizedPoints = processed.normalizedPoints;
+      const initialTailX = processed.initialTailX;
+      const initialTailY = processed.initialTailY;
+      const hasTail = processed.hasArrow;
+
+      const bubbleId = Math.random().toString(36).substring(2, 9);
+      const newBubble: Bubble = {
+        id: bubbleId,
+        text: newBubbleText && newBubbleText.trim() !== "" ? newBubbleText : "Speech...",
+        x: Math.max(5, Math.min(95, pageX)),
+        y: Math.max(5, Math.min(95, pageY)),
+        style: "freehand",
+        points: normalizedPoints,
+        hasTail,
+        tailX: hasTail ? initialTailX : undefined,
+        tailY: hasTail ? initialTailY : undefined,
+      };
+
+      updateActivePageBubbles([...bubbles, newBubble]);
+      setActiveBubbleId(bubbleId);
+      setBubbleStyle("freehand");
+      toast.success(t("handDrawnBubbleCreatedSuccess") || "Converted freehand drawing to speech bubble!");
+    },
+    [bubbles, updateActivePageBubbles, newBubbleText, t]
+  );
 
   const generateText = async () => {
     if (!aiPrompt.trim()) return;
@@ -5780,15 +5889,178 @@ export const Create: React.FC<CreateProps> = ({
               <>
                 <div className="w-px h-5 bg-border mx-1 shrink-0" />
                 <div className="flex items-center justify-center bg-muted/60 dark:bg-muted/30 rounded-full p-1 border border-border/40 gap-0.5 max-h-[34px] shrink-0">
-                  <Button
-                    variant={drawTool === "pen" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="w-7 h-7 rounded-full"
-                    onClick={() => setDrawTool("pen")}
-                    title={t("penTooltip")}
-                  >
-                    <PenTool className="w-3.5 h-3.5" />
-                  </Button>
+                  {/* Collapsible Pen Tool with Normal Pen, Smart Shape, and Freehand Bubble Modes */}
+                  <div ref={penMenuRef} className="relative flex items-center">
+                    <Button
+                      variant={drawTool === "pen" ? "secondary" : "ghost"}
+                      size="icon"
+                      className={cn(
+                        "w-7 h-7 rounded-full relative transition-all",
+                        drawTool === "pen" && "bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/50",
+                        isPenMenuOpen && "ring-2 ring-primary/40"
+                      )}
+                      onClick={() => {
+                        setDrawTool("pen");
+                        setIsPenMenuOpen((prev) => !prev);
+                      }}
+                      title={
+                        penMode === "smartShape"
+                          ? "Pen: Smart Shape (Auto-snaps lines, circles, boxes, triangles) - Click to change mode"
+                          : penMode === "freehandBubble"
+                          ? "Pen: Freehand Speech Bubble (Draw closed loops to create bubbles) - Click to change mode"
+                          : "Pen: Normal Pen (Standard freehand stroke) - Click to change mode"
+                      }
+                    >
+                      {penMode === "smartShape" ? (
+                        <Shapes className="w-3.5 h-3.5 text-indigo-500" />
+                      ) : penMode === "freehandBubble" ? (
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+                      ) : (
+                        <PenTool className="w-3.5 h-3.5" />
+                      )}
+                      <span
+                        className={cn(
+                          "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background shadow-xs",
+                          penMode === "smartShape"
+                            ? "bg-indigo-500"
+                            : penMode === "freehandBubble"
+                            ? "bg-amber-500"
+                            : "bg-emerald-500"
+                        )}
+                        title={
+                          penMode === "smartShape"
+                            ? "Smart Shape Mode"
+                            : penMode === "freehandBubble"
+                            ? "Freehand Bubble Mode"
+                            : "Normal Pen Mode"
+                        }
+                      />
+                    </Button>
+
+                    {/* Downward sub-menu displaying the 3 Pen Modes */}
+                    {isPenMenuOpen && (
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[210px] animate-in fade-in slide-in-from-top-2 duration-150 z-[110]">
+                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
+                          <span>Pen Mode</span>
+                          <span className="text-[9px] font-normal lowercase opacity-70">tap to select</span>
+                        </div>
+
+                        {/* Mode 1: Normal Pen */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPenMode("normal");
+                            setDrawTool("pen");
+                            setIsPenMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                            penMode === "normal"
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted text-foreground"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                              penMode === "normal"
+                                ? "bg-primary/15 border-primary/30 text-primary"
+                                : "bg-muted/50 border-border/50 text-muted-foreground"
+                            )}
+                          >
+                            <PenTool className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-xs leading-none">Normal Pen</span>
+                              {penMode === "normal" && (
+                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              Standard freehand stroke
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Mode 2: Smart Shape */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPenMode("smartShape");
+                            setDrawTool("pen");
+                            setIsPenMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                            penMode === "smartShape"
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted text-foreground"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                              penMode === "smartShape"
+                                ? "bg-primary/15 border-primary/30 text-indigo-500"
+                                : "bg-muted/50 border-border/50 text-muted-foreground"
+                            )}
+                          >
+                            <Shapes className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-xs leading-none">Smart Shape</span>
+                              {penMode === "smartShape" && (
+                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              Auto-snaps lines, circles, boxes, triangles
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Mode 3: Freehand Speech Bubble */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPenMode("freehandBubble");
+                            setDrawTool("pen");
+                            setIsPenMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                            penMode === "freehandBubble"
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted text-foreground"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                              penMode === "freehandBubble"
+                                ? "bg-primary/15 border-primary/30 text-amber-500"
+                                : "bg-muted/50 border-border/50 text-muted-foreground"
+                            )}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-xs leading-none">Freehand Bubble</span>
+                              {penMode === "freehandBubble" && (
+                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              Converts closed loop into editable bubble
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {/* Foldable Eraser Tool with Stroke and Pixel Options */}
                   <div ref={eraserMenuRef} className="relative flex items-center">
                     <Button
@@ -6295,6 +6567,7 @@ export const Create: React.FC<CreateProps> = ({
                   onChange={updateActivePageTree}
                   isDrawingMode={isDrawingMode}
                   drawTool={drawTool}
+                  penMode={penMode}
                   eraserType={eraserType}
                   drawColor={drawColor}
                   drawRadius={drawRadius}
@@ -6307,6 +6580,7 @@ export const Create: React.FC<CreateProps> = ({
                   layerGroups={layerGroups}
                   backgroundColor={comicBackgroundColor}
                   bubbles={bubbles}
+                  onConvertFreehandBubble={handleConvertStrokeToBubble}
                 />
 
                 {/* Bubble overlays layer - ALWAYS on the top, regardless of whether draw is active or not */}
@@ -6406,12 +6680,26 @@ export const Create: React.FC<CreateProps> = ({
                         {/* Little Red Drag Handle with Red Cross Arrow Icon when active */}
                         {activeBubbleId === b.id && (
                           <div
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              removeBubble(b.id);
+                            }}
                             onPointerDown={(e) => {
                               e.stopPropagation();
                               setActiveBubbleId(b.id);
                               setNewBubbleText(b.text);
                               setBubbleStyle(b.style);
+
                               const target = e.currentTarget as HTMLElement;
+                              const now = Date.now();
+                              if ((target as any)._lastHandleClick && now - (target as any)._lastHandleClick < 350) {
+                                e.preventDefault();
+                                removeBubble(b.id);
+                                return;
+                              }
+                              (target as any)._lastHandleClick = now;
+
                               const overlay = target.parentElement!;
                               const parentOfOverlay = overlay.parentElement!; // bubbles layer container
                               
@@ -6538,8 +6826,8 @@ export const Create: React.FC<CreateProps> = ({
                       <label className="text-[10px] font-mono font-bold text-muted-foreground block">
                         {t("bubbleExpressionStyle")}
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(["classic", "action", "freehand"] as const).map(
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["classic", "action"] as const).map(
                           (style) => (
                             <Button
                               key={style}
@@ -6557,42 +6845,19 @@ export const Create: React.FC<CreateProps> = ({
                                         : b,
                                     ),
                                   );
-                                } else if (style === "freehand") {
-                                  convertDrawnBubble();
                                 }
                               }}
                             >
-                              {style === "classic" ? t("classic") : style === "action" ? t("action") : t("freehand")}
+                              {style === "classic" ? t("classic") : t("action")}
                             </Button>
                           ),
                         )}
                       </div>
-                    </div>
-
-                    {bubbleStyle === "freehand" && (
-                      <div className="p-2 border border-amber-200 bg-amber-50/50 rounded-none space-y-1.5 transition-all">
-                        <p className="text-[10px] text-amber-800 leading-tight">
-                          ✍️ <strong>{t("freehand")}:</strong> {t("freehandModeDesc")}
-                        </p>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={convertDrawnBubble}
-                          disabled={isTranscribing}
-                          className="w-full text-[10px] h-7 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold border border-amber-300 rounded-none flex items-center justify-center gap-1.5"
-                        >
-                          {isTranscribing ? (
-                            <>
-                              <span className="animate-spin text-amber-600">🌀</span> {t("transcribingHandwriting")}
-                            </>
-                          ) : (
-                            <>
-                              🪄 {t("convertHandDrawnBubble")}
-                            </>
-                          )}
-                        </Button>
+                      <div className="p-1.5 bg-muted/40 border border-border/50 text-[10px] text-muted-foreground flex items-center gap-1.5">
+                        <span className="shrink-0">💡</span>
+                        <span>{t("freehand")} bubbles are now in <strong>Pen Tool &rarr; Freehand Bubble</strong> mode.</span>
                       </div>
-                    )}
+                    </div>
 
                     <Button
                       onClick={addBubble}

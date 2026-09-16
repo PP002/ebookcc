@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Point, Stroke } from '../ComicCanvas';
 import { ComicLayer, ComicLayerGroup } from './drawingTypes';
+import { recognizeSmartShape, checkIsClosedBubblePath, detectMultiStrokeIntersectionPolygon } from './smartShapeRecognizer';
 
 export const PRECISE_CROSSHAIR_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='21' height='21' viewBox='0 0 21 21'%3E%3Ccircle cx='10.5' cy='10.5' r='1.5' fill='%23000000'/%3E%3Cpath d='M10.5 1v6M10.5 14v6M1 10.5h6M14 10.5h6' stroke='%23ffffff' stroke-width='3' stroke-linecap='square'/%3E%3Cpath d='M10.5 1v6M10.5 14v6M1 10.5h6M14 10.5h6' stroke='%23000000' stroke-width='1.2' stroke-linecap='square'/%3E%3C/svg%3E") 10 10, crosshair`;
 
@@ -11,6 +12,7 @@ interface RasterDrawingCanvasProps {
   onChange: (d: Stroke[]) => void;
   isDrawingMode: boolean;
   drawTool: 'pen' | 'erase' | 'select' | 'fill';
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
   eraserType?: 'stroke' | 'pixel';
   drawColor: string;
   drawRadius: number;
@@ -23,6 +25,7 @@ interface RasterDrawingCanvasProps {
   activeLayerId?: string;
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
+  onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
 }
 
 interface CanvasBuffer {
@@ -122,6 +125,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
   onChange,
   isDrawingMode,
   drawTool,
+  penMode = 'normal',
   eraserType = 'pixel',
   drawColor,
   drawRadius,
@@ -134,6 +138,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
   activeLayerId = 'layer-1',
   layerGroups = [],
   backgroundColor = '#ffffff',
+  onConvertFreehandBubble,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -506,7 +511,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
               stroke.color,
               stroke.type === 'erase',
               bufW,
-              bufH
+              bufH,
+              stroke.smartShapeType
             );
           }
         }
@@ -545,7 +551,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
             stroke.color,
             stroke.type === 'erase',
             bufW,
-            bufH
+            bufH,
+            stroke.smartShapeType
           );
         }
       }
@@ -560,7 +567,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     color: string,
     isEraser: boolean,
     bufW: number,
-    bufH: number
+    bufH: number,
+    smartShapeType?: string
   ) => {
     if (points.length === 0) return;
 
@@ -599,9 +607,20 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     const py0 = (p0.y / 100) * bufH;
     ctx.moveTo(px0, py0);
 
-    if (points.length === 2) {
-      const p1 = points[1];
-      ctx.lineTo((p1.x / 100) * bufW, (p1.y / 100) * bufH);
+    const isStraightOrSampledShape = smartShapeType && (
+      smartShapeType === 'line' ||
+      smartShapeType === 'polygon' ||
+      smartShapeType === 'rectangle' ||
+      smartShapeType === 'triangle' ||
+      smartShapeType === 'polyline' ||
+      smartShapeType === 'circle' ||
+      smartShapeType === 'ellipse'
+    );
+
+    if (points.length === 2 || isStraightOrSampledShape) {
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo((points[i].x / 100) * bufW, (points[i].y / 100) * bufH);
+      }
     } else {
       for (let i = 1; i < points.length - 1; i++) {
         const pi = points[i];
@@ -1232,6 +1251,110 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
 
       const layer = layerBufferRef.current;
       const temp = tempBufferRef.current;
+
+      // Smart Shape Recognition Mode:
+      // When the user draws a stroke and lifts the pen (pointerup) in smartShape mode,
+      // analyze stroke trajectory points.
+      // Replace the raw input points on tempCanvas with the clean geometric vector shape before baking to target layer.
+      if (penMode === 'smartShape' && stroke.points && stroke.points.length >= 2) {
+        const recognized = recognizeSmartShape(stroke.points);
+        let multiIntersect = null;
+
+        // Check if current stroke crosses with recent strokes to form an enclosed polygon region
+        // ONLY if the current stroke is explicitly recognized as a straight line. Never merge curves.
+        if (recognized && recognized.type === 'line') {
+          multiIntersect = detectMultiStrokeIntersectionPolygon(
+            recognized.points,
+            drawings,
+            activeLayerId
+          );
+        }
+
+        if (multiIntersect) {
+          stroke.points = multiIntersect.shape.points;
+          stroke.smartShapeType = multiIntersect.shape.type;
+          const consumedSet = new Set(multiIntersect.consumedStrokeIds);
+          // Discard outer dangling lines and remove consumed lines from drawings
+          const remainingDrawings = drawings.filter((s) => !consumedSet.has(s.id));
+          const nextDrawings = [...remainingDrawings, stroke];
+          lastDrawingsRef.current = nextDrawings;
+
+          if (temp) {
+            temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+          }
+          if (layer) {
+            bakeAllDrawings(nextDrawings, layer.ctx, layer.canvas.width, layer.canvas.height);
+          }
+          drawMainFrame();
+          onChange(nextDrawings);
+          return;
+        }
+
+        if (recognized && recognized.points.length >= 2) {
+          stroke.points = recognized.points;
+          stroke.smartShapeType = recognized.type;
+
+          if (temp) {
+            temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+            renderStrokeToCtx(
+              temp.ctx,
+              stroke.points,
+              stroke.brushRadius,
+              stroke.color,
+              false,
+              temp.canvas.width,
+              temp.canvas.height,
+              stroke.smartShapeType
+            );
+          }
+        } else {
+          if (temp) {
+            temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+          }
+          drawMainFrame();
+          return;
+        }
+      }
+
+      // Freehand Speech Bubble Mode:
+      // Converts closed freehand paths into editable speech bubbles using the exact same transform logic as Smart Shape.
+      // Unclosed strokes are NOT converted and NOT baked: they are simply discarded/deleted.
+      if (penMode === 'freehandBubble') {
+        if (temp) {
+          temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+        }
+        drawMainFrame();
+
+        const pts = stroke.points || [];
+        if (pts.length < 5) return;
+
+        // Apply the exact same Smart Shape transform logic:
+        const recognized = recognizeSmartShape(pts);
+
+        // If recognized as an open shape (straight line, polyline, open curve), unclosed strokes are deleted
+        if (recognized && (recognized.type === 'line' || (recognized.type as string) === 'polyline' || (recognized.type as string) === 'curve')) {
+          return;
+        }
+
+        const isClosed = recognized ? true : checkIsClosedBubblePath(pts);
+        if (!isClosed) {
+          // Unclosed stroke: discard without baking
+          return;
+        }
+
+        // If recognized as a closed smart shape (circle, ellipse, rectangle, triangle, polygon),
+        // transform stroke.points directly to the clean smooth shape!
+        if (recognized && recognized.points.length >= 3) {
+          stroke.points = recognized.points;
+          stroke.smartShapeType = recognized.type;
+        }
+
+        if (onConvertFreehandBubble) {
+          onConvertFreehandBubble(stroke, panelBox);
+        }
+        // Always return: unclosed strokes are simply deleted; never bake stray dots or lines to drawing layers
+        return;
+      }
 
       if (layer && temp) {
         // 1. Bake stroke onto layerBuffer using EXACT same local coordinates and resolution

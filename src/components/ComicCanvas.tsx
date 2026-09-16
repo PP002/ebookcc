@@ -123,6 +123,7 @@ export type Stroke = {
   imageUrl?: string,
   bounds?: {x: number, y: number, w: number, h: number},
   isFullArea?: boolean;
+  smartShapeType?: string;
 };
 
 export type Direction = 'row' | 'col';
@@ -1187,6 +1188,7 @@ interface ComicCanvasProps {
   onChange: (tree: TreeNode) => void;
   isDrawingMode?: boolean;
   drawTool?: 'pen'|'erase'|'select'|'fill';
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
   eraserType?: 'stroke'|'pixel';
   drawColor?: string;
   drawRadius?: number;
@@ -1199,6 +1201,7 @@ interface ComicCanvasProps {
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
   bubbles?: BubbleData[];
+  onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
 }
 
 export const COMIC_PAGE_ASPECT = 3 / 4; // Height/Width = 4:3 page ratio (Width/Height = 3/4 = 0.75)
@@ -1208,6 +1211,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   onChange, 
   isDrawingMode = false, 
   drawTool = 'pen', 
+  penMode = 'normal',
   eraserType = 'pixel',
   drawColor = '#000000', 
   drawRadius = 2,
@@ -1220,6 +1224,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   layerGroups,
   backgroundColor,
   bubbles,
+  onConvertFreehandBubble,
 }) => {
   const { t } = useLanguage();
   const [expandedPanelPath, setExpandedPanelPath] = useState<number[] | null>(null);
@@ -1378,6 +1383,8 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           drawRadius={drawRadius}
           touchOff={touchOff}
           setTouchOff={setTouchOff}
+          penMode={penMode}
+          onConvertFreehandBubble={onConvertFreehandBubble}
           onExitExpanded={() => setExpandedPanelPath(null)}
           originalRatio={(() => {
             const box = leafBoxes.find(b => b.node.id === expandedNode.id);
@@ -1403,6 +1410,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             rootTree={tree} 
             isDrawingMode={isDrawingMode} 
             drawTool={drawTool} 
+            penMode={penMode}
             eraserType={eraserType}
             drawColor={drawColor} 
             drawRadius={drawRadius} 
@@ -1416,6 +1424,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             selectedLayerIds={selectedLayerIds}
             layerGroups={layerGroups}
             backgroundColor={backgroundColor}
+            onConvertFreehandBubble={onConvertFreehandBubble}
           />
 
           <SharedEdgesOverlay
@@ -1519,6 +1528,7 @@ const SplitView: React.FC<{
   rootTree: TreeNode; 
   isDrawingMode: boolean; 
   drawTool: 'pen'|'erase'|'select'|'fill'; 
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
   eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
@@ -1532,6 +1542,7 @@ const SplitView: React.FC<{
   selectedLayerIds?: string[];
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
+  onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
 }> = ({ 
   node, 
   path, 
@@ -1539,6 +1550,7 @@ const SplitView: React.FC<{
   rootTree, 
   isDrawingMode, 
   drawTool, 
+  penMode = 'normal',
   eraserType = 'pixel',
   drawColor, 
   drawRadius, 
@@ -1552,6 +1564,7 @@ const SplitView: React.FC<{
   selectedLayerIds,
   layerGroups,
   backgroundColor,
+  onConvertFreehandBubble,
 }) => {
   const boxes = leafBoxes || useMemo(() => getLeafBoxes(rootTree), [rootTree]);
 
@@ -1566,6 +1579,7 @@ const SplitView: React.FC<{
         rootTree={rootTree} 
         isDrawingMode={isDrawingMode} 
         drawTool={drawTool} 
+        penMode={penMode}
         eraserType={eraserType}
         drawColor={drawColor} 
         drawRadius={drawRadius} 
@@ -1579,6 +1593,7 @@ const SplitView: React.FC<{
         selectedLayerIds={selectedLayerIds}
         layerGroups={layerGroups}
         backgroundColor={backgroundColor}
+        onConvertFreehandBubble={onConvertFreehandBubble}
       />
     );
   }
@@ -1588,13 +1603,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} />
       </div>
       
       <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
 
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} />
       </div>
     </div>
   );
@@ -2101,6 +2116,7 @@ const PanelView: React.FC<{
   rootTree: TreeNode; 
   isDrawingMode: boolean; 
   drawTool: 'pen'|'erase'|'select'|'fill'; 
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
   eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
@@ -2117,6 +2133,7 @@ const PanelView: React.FC<{
   selectedLayerIds?: string[];
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
+  onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
 }> = ({ 
   node, 
   path, 
@@ -2124,6 +2141,7 @@ const PanelView: React.FC<{
   rootTree, 
   isDrawingMode, 
   drawTool, 
+  penMode = 'normal',
   eraserType = 'pixel',
   drawColor, 
   drawRadius, 
@@ -2140,6 +2158,7 @@ const PanelView: React.FC<{
   selectedLayerIds,
   layerGroups,
   backgroundColor,
+  onConvertFreehandBubble,
 }) => {
   const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2418,6 +2437,7 @@ const PanelView: React.FC<{
           onChange={handleDrawingsChange} 
           isDrawingMode={isDrawingMode} 
           drawTool={drawTool} 
+          penMode={penMode}
           eraserType={eraserType}
           drawColor={drawColor} 
           drawRadius={drawRadius} 
@@ -2430,6 +2450,7 @@ const PanelView: React.FC<{
           activeLayerId={activeLayerId}
           layerGroups={layerGroups}
           backgroundColor={backgroundColor}
+          onConvertFreehandBubble={onConvertFreehandBubble}
         />
         <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
       </div>
@@ -2444,6 +2465,7 @@ const ExpandedPanelWorkspace: React.FC<{
   rootTree: TreeNode;
   isDrawingMode: boolean;
   drawTool: 'pen'|'erase'|'select'|'fill';
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
   eraserType?: 'stroke'|'pixel';
   drawColor: string;
   drawRadius: number;
@@ -2458,6 +2480,7 @@ const ExpandedPanelWorkspace: React.FC<{
   backgroundColor?: string;
   bubbles?: BubbleData[];
   leafBoxes?: PanelBox[];
+  onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
 }> = ({
   node,
   path,
@@ -2465,6 +2488,7 @@ const ExpandedPanelWorkspace: React.FC<{
   rootTree,
   isDrawingMode,
   drawTool,
+  penMode = 'normal',
   eraserType = 'pixel',
   drawColor,
   drawRadius,
@@ -2479,6 +2503,7 @@ const ExpandedPanelWorkspace: React.FC<{
   backgroundColor,
   bubbles,
   leafBoxes,
+  onConvertFreehandBubble,
 }) => {
   const { t } = useLanguage();
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -2842,6 +2867,7 @@ const ExpandedPanelWorkspace: React.FC<{
             rootTree={rootTree}
             isDrawingMode={isDrawingMode}
             drawTool={drawTool}
+            penMode={penMode}
             eraserType={eraserType}
             drawColor={drawColor}
             drawRadius={drawRadius}
@@ -2857,6 +2883,7 @@ const ExpandedPanelWorkspace: React.FC<{
             selectedLayerIds={selectedLayerIds}
             layerGroups={layerGroups}
             backgroundColor={backgroundColor}
+            onConvertFreehandBubble={onConvertFreehandBubble}
           />
 
           {/* Speech Bubbles on this expanded panel - intentionally hidden per user request */}

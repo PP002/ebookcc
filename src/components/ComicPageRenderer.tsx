@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect, useId } from 'react';
 import { cn } from '@/lib/utils';
 import { getSvgPathFromPoints, TreeNode, PanelNode, SplitNode, Stroke } from './ComicCanvas';
+import { generateBubbleSvgPath, detectCornersAndProtrusions } from './comic/bubbleContour';
+import { ShapeAwareTextLayout } from './comic/ShapeAwareTextLayout';
 
 export interface BubbleData {
   id?: string;
@@ -8,6 +10,7 @@ export interface BubbleData {
   x: number; // 0 to 100 (%)
   y: number; // 0 to 100 (%)
   style?: string;
+  hasTail?: boolean;
   tailX?: number;
   tailY?: number;
   points?: { x: number; y: number }[];
@@ -157,8 +160,7 @@ export function SpeechBubbleRenderer({ bubble }: { bubble: BubbleData }) {
       normPoints = generateDefaultSpeechBubblePoints();
     }
 
-    const smoothedNorm = chaikinSmooth(normPoints, 3);
-    const bodyPts = smoothedNorm.map((p) => ({
+    const bodyPts = normPoints.map((p) => ({
       x: (p.x / 100) * W,
       y: (p.y / 100) * H,
     }));
@@ -166,51 +168,43 @@ export function SpeechBubbleRenderer({ bubble }: { bubble: BubbleData }) {
     const N = bodyPts.length;
     const tailPxX = (tailX / 100) * W;
     const tailPxY = (tailY / 100) * H;
+    const { cornerIndices, tipIndex } = detectCornersAndProtrusions(bodyPts);
+    const hasTail = bubble.hasTail ?? (tipIndex !== null);
 
-    const dx = tailPxX - cx;
-    const dy = tailPxY - cy;
-    const tailAngle = Math.atan2(dy, dx);
-
-    let closestIdx = 0;
-    let minDiff = Infinity;
-    for (let i = 0; i < N; i++) {
-      const ptAngle = Math.atan2(bodyPts[i].y - cy, bodyPts[i].x - cx);
-      let diff = Math.abs(ptAngle - tailAngle);
-      if (diff > Math.PI) diff = 2 * Math.PI - diff;
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIdx = i;
+    if (hasTail && tipIndex !== null && tipIndex >= 0 && tipIndex < N) {
+      const ptsCopy = bodyPts.map((p) => ({ ...p }));
+      ptsCopy[tipIndex] = { x: tailPxX, y: tailPxY };
+      dPath = generateBubbleSvgPath(ptsCopy, cornerIndices);
+    } else if (hasTail && bubble.tailX !== undefined && bubble.tailY !== undefined) {
+      const dx = tailPxX - cx;
+      const dy = tailPxY - cy;
+      const tailAngle = Math.atan2(dy, dx);
+      let closestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < N; i++) {
+        const ptAngle = Math.atan2(bodyPts[i].y - cy, bodyPts[i].x - cx);
+        let diff = Math.abs(ptAngle - tailAngle);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
       }
-    }
-
-    const baseRange = Math.max(1, Math.min(4, Math.floor(N * 0.04)));
-    const idxStart = (closestIdx - baseRange + N) % N;
-    const idxEnd = (closestIdx + baseRange) % N;
-
-    const pathPts: { x: number; y: number }[] = [];
-    let curr = idxEnd;
-    while (curr !== idxStart) {
-      pathPts.push(bodyPts[curr]);
-      curr = (curr + 1) % N;
-    }
-    pathPts.push(bodyPts[idxStart]);
-    pathPts.push({ x: tailPxX, y: tailPxY });
-
-    if (pathPts.length > 0) {
-      let d = `M ${pathPts[0].x.toFixed(1)} ${pathPts[0].y.toFixed(1)}`;
-      for (let i = 0; i < pathPts.length - 1; i++) {
-        const p1 = pathPts[i];
-        const p2 = pathPts[i + 1];
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        d += ` Q ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+      const baseRange = Math.max(1, Math.min(4, Math.floor(N * 0.04)));
+      const idxStart = (closestIdx - baseRange + N) % N;
+      const idxEnd = (closestIdx + baseRange) % N;
+      const pathPts: { x: number; y: number }[] = [];
+      let curr = idxEnd;
+      while (curr !== idxStart) {
+        pathPts.push(bodyPts[curr]);
+        curr = (curr + 1) % N;
       }
-      const last = pathPts[pathPts.length - 1];
-      const first = pathPts[0];
-      const midX = (last.x + first.x) / 2;
-      const midY = (last.y + first.y) / 2;
-      d += ` Q ${last.x.toFixed(1)} ${last.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)} Z`;
-      dPath = d;
+      pathPts.push(bodyPts[idxStart]);
+      const tailCornerIdx = pathPts.length;
+      pathPts.push({ x: tailPxX, y: tailPxY });
+      dPath = generateBubbleSvgPath(pathPts, [tailCornerIdx]);
+    } else {
+      dPath = generateBubbleSvgPath(bodyPts, cornerIndices);
     }
   } else {
     // Classic rectangular comic bubble with corner-snapped tail
@@ -278,8 +272,48 @@ export function SpeechBubbleRenderer({ bubble }: { bubble: BubbleData }) {
     dPath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
   }
 
+  const bubblePolygon = React.useMemo(() => {
+    if (style === 'freehand') {
+      let normPoints = bubble.points;
+      if (!normPoints || normPoints.length < 3) {
+        normPoints = [
+          { x: 20, y: 10 }, { x: 50, y: 5 }, { x: 80, y: 10 },
+          { x: 95, y: 35 }, { x: 95, y: 65 }, { x: 80, y: 90 },
+          { x: 50, y: 95 }, { x: 20, y: 90 }, { x: 5, y: 65 }, { x: 5, y: 35 }
+        ];
+      }
+      return normPoints.map((p) => ({
+        x: (p.x / 100) * W,
+        y: (p.y / 100) * H,
+      }));
+    } else if (style === 'action') {
+      const pts: { x: number; y: number }[] = [];
+      const steps = 36;
+      const cx = W / 2;
+      const cy = H / 2;
+      const rx = (W / 2) * 0.70;
+      const ry = (H / 2) * 0.70;
+      for (let i = 0; i < steps; i++) {
+        const th = (i / steps) * 2 * Math.PI;
+        pts.push({
+          x: cx + rx * Math.cos(th),
+          y: cy + ry * Math.sin(th),
+        });
+      }
+      return pts;
+    } else {
+      const pad = 6;
+      return [
+        { x: pad, y: pad },
+        { x: W - pad, y: pad },
+        { x: W - pad, y: H - pad },
+        { x: pad, y: H - pad },
+      ];
+    }
+  }, [style, bubble.points, W, H]);
+
   return (
-    <div className="relative pointer-events-none select-none">
+    <div className="relative pointer-events-none select-none" style={{ width: `${W}px`, height: `${H}px` }}>
       <svg className="absolute inset-0 w-full h-full -z-10" style={{ overflow: 'visible' }}>
         <path
           d={dPath}
@@ -290,14 +324,26 @@ export function SpeechBubbleRenderer({ bubble }: { bubble: BubbleData }) {
           strokeLinejoin="round"
         />
       </svg>
+      {/* Shape-Aware Dynamic Text Layout */}
+      <ShapeAwareTextLayout
+        text={bubble.text}
+        polygon={bubblePolygon}
+        width={W}
+        height={H}
+        fontSize={style === 'action' ? 13 : 12}
+        fontWeight={style === 'action' ? '800' : '600'}
+        fontStyle={style === 'freehand' ? 'italic' : 'normal'}
+        margin={style === 'action' ? 8 : (style === 'freehand' ? 8 : 5)}
+        color="#000000"
+      />
       <div
         ref={containerRef}
         className={cn(
-          "text-xs break-words text-center min-w-[60px] max-w-[180px] whitespace-pre-wrap outline-none font-semibold select-none",
+          "text-xs break-words text-center min-w-[60px] max-w-[240px] whitespace-pre-wrap outline-none font-semibold select-none opacity-0 pointer-events-none",
           style === 'action'
             ? "font-extrabold uppercase text-black py-4 px-6"
             : style === 'freehand'
-            ? "text-black py-5 px-7 italic font-sans leading-tight"
+            ? "text-black py-4 px-6 italic font-sans leading-tight"
             : "text-black py-2.5 px-4"
         )}
       >

@@ -1255,13 +1255,13 @@ function CreateMetroTile({
   return (
     <div
       onClick={() => onEdit(book)}
-      className="flex-shrink-0 w-[180px] group flex flex-col cursor-pointer select-none"
+      className="group relative flex flex-col cursor-pointer select-none w-full"
     >
       {/* BOOK PREVIEW CONTAINER */}
-      <div className="relative w-full h-[240px] flex flex-col justify-between bg-slate-900 border border-slate-800 rounded-none shadow-md overflow-hidden transition-all duration-300 group-hover:shadow-xl group-active:scale-95">
+      <div className="relative aspect-[3/4] w-full flex flex-col justify-between bg-slate-900 border border-border/80 rounded-none shadow-xs overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:border-primary/50 group-active:scale-95">
         {/* BACKGROUND & METRO LIVE TILE CONTENT */}
         {book.type === 'comic' ? (
-          <div className="absolute inset-0 bg-white overflow-hidden flex items-center justify-center p-1">
+          <div className="absolute inset-0 bg-white overflow-hidden flex items-center justify-center p-0.5">
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.div
                 key={`comic-page-${slideIndex}`}
@@ -1283,9 +1283,9 @@ function CreateMetroTile({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-4 text-center border border-zinc-300">
-                    <Sparkles className="w-8 h-8 text-primary mb-2 animate-pulse" />
-                    <span className="text-xs font-bold text-foreground line-clamp-2">{book.title}</span>
+                  <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-2 text-center border border-zinc-300">
+                    <Sparkles className="w-6 h-6 text-primary mb-1 animate-pulse" />
+                    <span className="text-[10px] font-bold text-foreground line-clamp-2">{book.title}</span>
                   </div>
                 )}
               </motion.div>
@@ -1312,15 +1312,31 @@ function CreateMetroTile({
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/40 pointer-events-none" />
               </>
             ) : (
-              <div className="w-full h-full bg-slate-900" />
+              <div className="w-full h-full bg-slate-900 flex flex-col justify-between p-2 select-none text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-0.5">
+                  <span className="text-[7px] font-mono uppercase font-bold text-slate-400">Novel</span>
+                  <span className="text-[7px] font-mono text-primary font-bold uppercase">DOC</span>
+                </div>
+                <div className="my-auto space-y-0.5 py-0.5">
+                  <h5 className="text-[10px] font-serif font-bold text-slate-100 line-clamp-2 leading-tight">
+                    {book.title}
+                  </h5>
+                  <p className="text-[8px] text-slate-400 italic font-serif truncate">
+                    {book.author || "Author"}
+                  </p>
+                </div>
+                <div className="text-[6px] text-slate-500 font-mono border-t border-white/10 pt-0.5 text-center truncate">
+                  eBookCC Original
+                </div>
+              </div>
             )}
           </div>
         )}
 
         {/* TOP HEADER BAR: METRO TYPE BADGE */}
-        <div className="relative z-10 p-2 flex items-center justify-between w-full">
+        <div className="relative z-10 p-1.5 flex items-center justify-between w-full pointer-events-none">
           <span
-            className={`px-2 py-0.5 text-[9px] font-black tracking-widest uppercase text-white shadow-sm font-mono ${
+            className={`px-1.5 py-0.5 text-[8px] font-black tracking-wider uppercase text-white shadow-xs font-mono ${
               book.type === 'comic' ? 'bg-amber-600' : 'bg-blue-600'
             }`}
           >
@@ -1329,22 +1345,24 @@ function CreateMetroTile({
         </div>
 
         {/* MIDDLE DYNAMIC CONTENT AREA */}
-        <div className="relative z-10 px-3 py-1 flex-1 flex flex-col justify-end pb-2 overflow-hidden">
+        <div className="relative z-10 px-2 py-1 flex-1 flex flex-col justify-end pb-1.5 overflow-hidden pointer-events-none">
           {book.type === 'novel' ? (
-            <div className="relative w-full h-24 overflow-hidden flex items-center">
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.p
-                  key={`novel-text-${slideIndex}`}
-                  initial={currentDirection.initial}
-                  animate={{ x: "0%", y: "0%", opacity: 1 }}
-                  exit={currentDirection.exit}
-                  transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                  className="absolute inset-0 text-[11px] leading-relaxed text-slate-200 font-serif line-clamp-4 italic bg-slate-950/85 p-2 backdrop-blur-xs flex items-center"
-                >
-                  {currentNovelSnippet}
-                </motion.p>
-              </AnimatePresence>
-            </div>
+            novelBgImage && (
+              <div className="relative w-full h-16 overflow-hidden flex items-center">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.p
+                    key={`novel-text-${slideIndex}`}
+                    initial={currentDirection.initial}
+                    animate={{ x: "0%", y: "0%", opacity: 1 }}
+                    exit={currentDirection.exit}
+                    transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
+                    className="absolute inset-0 text-[9px] leading-tight text-slate-200 font-serif line-clamp-3 italic bg-slate-950/85 p-1.5 backdrop-blur-xs flex items-center"
+                  >
+                    {currentNovelSnippet}
+                  </motion.p>
+                </AnimatePresence>
+              </div>
+            )
           ) : (
             currentComicPage?.speechSnippet && (
               <div className="relative w-full overflow-hidden">
@@ -1355,7 +1373,7 @@ function CreateMetroTile({
                     animate={{ x: "0%", y: "0%", opacity: 1 }}
                     exit={currentDirection.exit}
                     transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                    className="text-[10px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1.5 rounded-none border border-amber-500/40 backdrop-blur-xs"
+                    className="text-[9px] leading-tight text-amber-100 font-sans line-clamp-2 bg-slate-950/85 p-1 rounded-none border border-amber-500/40 backdrop-blur-xs"
                   >
                     💬 "{currentComicPage.speechSnippet}"
                   </motion.p>
@@ -1366,56 +1384,68 @@ function CreateMetroTile({
         </div>
       </div>
 
-      {/* TITLE & AUTHOR (BELOW THE BOOK PREVIEW) */}
-      <div className="pt-2 px-0.5 flex flex-col gap-1 w-full">
-        <h4 className="text-xs font-black text-white truncate tracking-tight font-sans" title={book.title}>
-          {book.title || "Untitled Work"}
-        </h4>
-        
-        <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
-          <span className="truncate flex items-center gap-1 max-w-[140px]" title={book.author}>
-            <User className="w-3 h-3 text-slate-400 shrink-0" />
+      {/* METADATA AREA: Line 1 Title (contain delete/actions), Line 2 Author */}
+      <div className="p-1.5 flex flex-col w-full min-w-0">
+        <div className="flex items-center justify-between gap-1 w-full min-w-0">
+          <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={book.title}>
+            {book.title || "Untitled Work"}
+          </h4>
+          
+          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {isAuthor ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(book);
+                  }}
+                  className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                  title={t("edit")}
+                >
+                  <PenTool className="w-2.5 h-2.5" />
+                </Button>
+                {onExportDrive && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExportDrive(e, book);
+                    }}
+                    className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    title="Save to Google Drive"
+                  >
+                    <GoogleDriveIcon className="w-2.5 h-2.5" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(e, book);
+                  }}
+                  className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  title={t("deleteWork")}
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                </Button>
+              </>
+            ) : (
+              <span className="text-[8px] text-amber-500 font-mono flex items-center gap-0.5" title={t("readOnly")}>
+                <Lock className="w-2.5 h-2.5" />
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground font-medium mt-0.5 min-w-0">
+          <span className="truncate flex-1" title={book.author || "Author"}>
             {book.author || "Author"}
           </span>
         </div>
-
-        {isAuthor ? (
-          <div className="flex items-center justify-between gap-1.5 mt-0.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(book);
-              }}
-              className="flex-1 py-1 px-2 bg-primary text-primary-foreground hover:bg-primary/90 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
-            >
-              <PenTool className="w-3 h-3" />
-              {t("edit")}
-            </button>
-            {onExportDrive && (
-              <button
-                onClick={(e) => onExportDrive(e, book)}
-                className="p-1 bg-slate-900 border border-slate-800 hover:border-primary/50 text-slate-400 hover:text-primary hover:bg-primary/10 text-[10px] transition-colors flex items-center justify-center"
-                title="Save to Google Drive"
-              >
-                <GoogleDriveIcon className="w-3.5 h-3.5" />
-              </button>
-            )}
-            <button
-              onClick={(e) => onDelete(e, book)}
-              className="p-1 bg-slate-900 border border-slate-800 hover:border-red-500/50 text-slate-400 hover:text-red-400 hover:bg-red-950/40 text-[10px] transition-colors flex items-center justify-center"
-              title={t("deleteWork")}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
-            <span className="flex items-center gap-0.5 text-amber-400/80">
-              <Lock className="w-2.5 h-2.5 shrink-0" />
-              {t("readOnly")}
-            </span>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -5003,30 +5033,30 @@ export const Create: React.FC<CreateProps> = ({
     };
 
     return (
-      <div className="w-full flex-1 overflow-y-auto min-h-0 p-4 md:p-8">
-        <div className="max-w-5xl mx-auto space-y-12 flex flex-col items-stretch pb-24">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">{t("createCardTitle")}</h1>
-          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+      <div className="w-full flex-1 overflow-y-auto min-h-0 py-6 px-4 sm:px-6 md:px-8">
+        <div className="w-full max-w-full space-y-8 flex flex-col items-stretch pb-16">
+        <div className="text-center space-y-1.5 max-w-2xl mx-auto">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground uppercase">{t("createCardTitle")}</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm max-w-md mx-auto">
             {t("createCardDesc")}
           </p>
-          <div className="flex items-center justify-center gap-3 pt-3">
+          <div className="flex items-center justify-center gap-3 pt-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleOpenDriveImport}
-              className="h-9 px-4 text-xs font-semibold gap-2 border-border/80 bg-background hover:bg-muted shadow-xs transition-colors"
+              className="h-8 px-3 text-xs font-semibold gap-2 border-border/80 bg-background hover:bg-muted shadow-xs transition-colors"
             >
-              <GoogleDriveIcon className="w-4 h-4" />
+              <GoogleDriveIcon className="w-3.5 h-3.5" />
               <span>Open Work from Google Drive</span>
             </Button>
           </div>
         </div>
         
-        <div className="grid md:grid-cols-2 gap-6 w-full max-w-2xl mx-auto">
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl mx-auto">
           <Card
-            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card group rounded-none"
+            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none"
             onClick={() => {
               resetDrawToolSettingsToDefault();
               setCurrentComicId(null);
@@ -5051,11 +5081,11 @@ export const Create: React.FC<CreateProps> = ({
               setCreateMode("comic");
             }}
           >
-            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
-              <Layout className="w-8 h-8" />
+            <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+              <Layout className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
+              <h3 className="font-bold mb-0.5 text-foreground uppercase tracking-wide text-sm">
                 {t("freeComicCreatorTitle")}
               </h3>
               <p className="text-xs text-muted-foreground">{t("freeComicCreatorDesc")}</p>
@@ -5063,7 +5093,7 @@ export const Create: React.FC<CreateProps> = ({
           </Card>
 
           <Card
-            className="p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-4 bg-card group rounded-none"
+            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none"
             onClick={() => {
               setCurrentStoryId(null);
               setStoryTitle("Untitled Story");
@@ -5071,11 +5101,11 @@ export const Create: React.FC<CreateProps> = ({
               setCreateMode("document");
             }}
           >
-            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
-              <Type className="w-8 h-8" />
+            <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+              <Type className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="font-bold mb-1 text-foreground uppercase tracking-wide">
+              <h3 className="font-bold mb-0.5 text-foreground uppercase tracking-wide text-sm">
                 {t("richTextEditorTitle")}
               </h3>
               <p className="text-xs text-muted-foreground">{t("richTextEditorDesc")}</p>
@@ -5084,11 +5114,11 @@ export const Create: React.FC<CreateProps> = ({
         </div>
 
         {/* Published Works Section (Displayed for Auth / Local Users) */}
-        <div className="space-y-4 pt-8 border-t">
+        <div className="space-y-3 pt-6 border-t w-full">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <h3 className="text-lg font-black tracking-wider uppercase text-foreground flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-primary" />
+              <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-primary" />
                 {t("publishedWorks")}
               </h3>
               {user && (
@@ -5122,7 +5152,7 @@ export const Create: React.FC<CreateProps> = ({
               </p>
             </Card>
           ) : (
-            <div className="flex flex-wrap gap-5 items-center justify-start">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
               {publishedWorks.filter((item) => checkIsAuthor(item, user)).map((item, index) => (
                 <CreateMetroTile
                   key={item.id}
@@ -5140,12 +5170,12 @@ export const Create: React.FC<CreateProps> = ({
 
         {/* Unfinished Comic list */}
         {unfinishedComics.length > 0 && (
-          <div className="space-y-4 pt-8 border-t">
+          <div className="space-y-3 pt-6 border-t w-full">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedComics")}</h3>
+              <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedComics")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedComics.length))}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
               {unfinishedComics.map((comic) => (
                 <Card 
                   key={comic.id}
@@ -5156,11 +5186,11 @@ export const Create: React.FC<CreateProps> = ({
                     setActivePageIndex(comic.activePageIndex || 0);
                     setCreateMode("comic");
                   }}
-                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm animate-fade-in"
+                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md animate-fade-in w-full"
                 >
-                  {/* Miniature Panel Tree Layout Preview */}
-                  <div className="relative aspect-[3/4] bg-muted/10 p-2 border-b flex items-stretch">
-                    <div className="w-full h-full flex flex-col items-stretch overflow-hidden border border-foreground/15 p-0.5 rounded-sm bg-background">
+                  {/* Miniature Panel Tree Layout Preview: 4/3 aspect ratio */}
+                  <div className="relative aspect-[3/4] bg-muted/10 p-1.5 border-b flex items-stretch">
+                    <div className="w-full h-full flex flex-col items-stretch overflow-hidden border border-foreground/15 p-0.5 rounded-none bg-background">
                       {comic.pages[0] && (
                         <div className="w-full h-full flex flex-col min-h-0 min-w-0">
                           <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -5208,27 +5238,18 @@ export const Create: React.FC<CreateProps> = ({
                     {/* Hover Play Button Overlay */}
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-md transform scale-90 group-hover:scale-100 transition-transform">
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-3 flex-1 flex flex-col justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-foreground line-clamp-1 leading-tight group-hover:text-primary transition-colors">
+                  {/* Metadata: Line 1 Title + delete/drive, Line 2 pages count & timestamp */}
+                  <div className="p-1.5 flex flex-col w-full min-w-0">
+                    <div className="flex items-center justify-between gap-1 w-full min-w-0">
+                      <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={comic.title}>
                         {comic.title}
                       </h4>
-                      <div className="flex items-center gap-1 text-[9px] text-muted-foreground mt-1">
-                        <Clock className="w-2.5 h-2.5 shrink-0" />
-                        <span className="truncate">{formatTime(comic.timestamp)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-2">
-                      <span className="text-[10px] text-muted-foreground font-mono">
-                        {t("pagesCountLabel").replace("{count}", String(comic.pages.length))}
-                      </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -5236,10 +5257,10 @@ export const Create: React.FC<CreateProps> = ({
                             e.stopPropagation();
                             handleQuickExportComicDraftToDrive(comic);
                           }}
-                          className="w-6 h-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
                           title="Save to Google Drive"
                         >
-                          <GoogleDriveIcon className="w-3.5 h-3.5" />
+                          <GoogleDriveIcon className="w-2.5 h-2.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -5250,11 +5271,19 @@ export const Create: React.FC<CreateProps> = ({
                             getUnfinishedComics().then(setUnfinishedComics);
                             toast.success("Comic project deleted");
                           }}
-                          className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title={t("deleteWork")}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-2.5 h-2.5" />
                         </Button>
                       </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono mt-0.5 min-w-0">
+                      <span className="truncate">
+                        {t("pagesCountLabel").replace("{count}", String(comic.pages.length))}
+                      </span>
+                      <span className="truncate text-[9px]">{formatTime(comic.timestamp)}</span>
                     </div>
                   </div>
                 </Card>
@@ -5265,12 +5294,12 @@ export const Create: React.FC<CreateProps> = ({
 
         {/* Unfinished Story list */}
         {unfinishedStories.length > 0 && (
-          <div className="space-y-4 pt-8 border-t">
+          <div className="space-y-3 pt-6 border-t w-full">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
+              <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedStories.length))}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
               {unfinishedStories.map((story) => (
                 <Card 
                   key={story.id}
@@ -5280,53 +5309,74 @@ export const Create: React.FC<CreateProps> = ({
                     setLoadedHtmlContent(story.htmlContent);
                     setCreateMode("document");
                   }}
-                  className="group relative flex flex-col justify-between bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-sm animate-fade-in p-4 h-[140px]"
+                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md animate-fade-in w-full"
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-xs font-bold text-foreground line-clamp-1 leading-tight group-hover:text-primary transition-colors">
-                        {story.title}
-                      </h4>
-                      <span className="text-[9px] font-bold text-primary px-1.5 py-0.5 bg-primary/10 shrink-0 uppercase">
-                        DOC
-                      </span>
+                  {/* Miniature Story Preview: 4/3 aspect ratio */}
+                  <div className="relative aspect-[3/4] bg-muted/15 p-2 border-b flex flex-col justify-between select-none">
+                    <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
+                      <span className="text-[7px] font-mono uppercase font-bold text-muted-foreground">Draft</span>
+                      <span className="text-[7px] font-mono text-primary font-bold uppercase">DOC</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground line-clamp-3 leading-relaxed mt-1">
-                      {getPreviewText(story.htmlContent) || "No text content written yet..."}
-                    </p>
+                    <div className="my-auto space-y-0.5 py-0.5 overflow-hidden">
+                      <h5 className="text-[10px] font-serif font-bold text-foreground line-clamp-2 leading-tight">
+                        {story.title}
+                      </h5>
+                      <p className="text-[8px] text-muted-foreground italic font-serif line-clamp-3 leading-snug">
+                        {getPreviewText(story.htmlContent) || "No text content written yet..."}
+                      </p>
+                    </div>
+                    <div className="text-[6px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
+                      eBookCC Story Draft
+                    </div>
+
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-md transform scale-90 group-hover:scale-100 transition-transform">
+                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-auto shrink-0">
-                    <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                      <Clock className="w-2.5 h-2.5 shrink-0" />
-                      <span className="truncate">{formatTime(story.timestamp)}</span>
+                  {/* Metadata: Line 1 Title + delete/drive, Line 2 timestamp */}
+                  <div className="p-1.5 flex flex-col w-full min-w-0">
+                    <div className="flex items-center justify-between gap-1 w-full min-w-0">
+                      <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={story.title}>
+                        {story.title}
+                      </h4>
+                      <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickExportStoryDraftToDrive(story);
+                          }}
+                          className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          title="Save to Google Drive"
+                        >
+                          <GoogleDriveIcon className="w-2.5 h-2.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await deleteUnfinishedStory(story.id);
+                            getUnfinishedStories().then(setUnfinishedStories);
+                            toast.success("Story project deleted");
+                          }}
+                          className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title={t("deleteWork")}
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleQuickExportStoryDraftToDrive(story);
-                        }}
-                        className="w-6 h-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        title="Save to Google Drive"
-                      >
-                        <GoogleDriveIcon className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await deleteUnfinishedStory(story.id);
-                          getUnfinishedStories().then(setUnfinishedStories);
-                          toast.success("Story project deleted");
-                        }}
-                        className="w-6 h-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono mt-0.5 min-w-0">
+                      <span className="truncate flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5 shrink-0" />
+                        {formatTime(story.timestamp)}
+                      </span>
                     </div>
                   </div>
                 </Card>

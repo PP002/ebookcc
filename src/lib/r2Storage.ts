@@ -640,6 +640,59 @@ export async function publishWorkToR2(
   };
 }
 
+export function safeSetPublishedCache(items: any[]) {
+  if (!Array.isArray(items)) return;
+  try {
+    // 1. Sanitize heavy base64 or deep comic page drawings
+    const sanitized = items.map(item => {
+      const copy = { ...item };
+      if (Array.isArray(copy.pages)) {
+        copy.pages = copy.pages.slice(0, 10).map((p: any) => {
+          if (!p || typeof p !== 'object') return p;
+          const pCopy = { ...p };
+          if (typeof pCopy.image === 'string' && pCopy.image.length > 50000) {
+            delete pCopy.image;
+          }
+          if (typeof pCopy.cover === 'string' && pCopy.cover.length > 50000) {
+            delete pCopy.cover;
+          }
+          return pCopy;
+        });
+      }
+      if (typeof copy.content === 'string' && copy.content.length > 10000) {
+        copy.content = copy.content.slice(0, 10000);
+      }
+      return copy;
+    });
+    localStorage.setItem("ebookcc_published_items", JSON.stringify(sanitized));
+  } catch (err) {
+    try {
+      // 2. Aggressive fallback: preserve essential catalog metadata only
+      const minimal = items.map(item => ({
+        id: item.id,
+        title: item.title,
+        author: item.author,
+        authorId: item.authorId,
+        authorEmail: item.authorEmail,
+        type: item.type,
+        content_type: item.content_type,
+        resource_url: item.resource_url,
+        identifier: item.identifier,
+        cover: typeof item.cover === 'string' && item.cover.length < 30000 ? item.cover : '',
+        cover_url: item.cover_url,
+        description: typeof item.description === 'string' ? item.description.slice(0, 200) : '',
+        total_pages: item.total_pages,
+        source: item.source,
+        timestamp: item.timestamp,
+        download_count: item.download_count,
+      }));
+      localStorage.setItem("ebookcc_published_items", JSON.stringify(minimal));
+    } catch (_) {
+      // Gracefully ignore if storage is completely full from outside data
+    }
+  }
+}
+
 export async function fetchPublishedWorksFromR2(
   config?: R2Config
 ): Promise<{ success: boolean; works: any[] }> {
@@ -739,7 +792,8 @@ export async function fetchPublishedWorksFromR2(
       }
     }
   } catch (err) {
-    console.warn("Failed fetching published works from R2 API:", err);
+    // Silently handle expected network fetch failures when R2 is not fully configured
+    // console.warn("Failed fetching published works from R2 API:", err);
   }
 
   // 2. Query Supabase database published_works table if connected
@@ -765,7 +819,7 @@ export async function fetchPublishedWorksFromR2(
   if (networkSuccess) {
     const networkWorks = Array.from(worksMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     try {
-      localStorage.setItem("ebookcc_published_items", JSON.stringify(networkWorks));
+      safeSetPublishedCache(networkWorks);
     } catch (_) {}
     return { success: true, works: networkWorks };
   }

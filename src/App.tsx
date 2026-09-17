@@ -389,7 +389,7 @@ function AppContent() {
                 </div>
               </header>
 
-              <div className="grid md:grid-cols-3 gap-6 pt-4">
+              <div className="hidden md:grid portrait:hidden md:grid-cols-3 gap-6 pt-4">
                 {/* Read Card */}
                 <Card
                   className="p-6 border-none rounded-lg shadow-none bg-card/60 hover:bg-card/90 cursor-pointer transition-all flex flex-col justify-between group h-64"

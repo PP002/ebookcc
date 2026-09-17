@@ -484,6 +484,107 @@ async function startServer() {
   // Routes
   // ─────────────────────────────────────────────
 
+  // ─────────────────────────────────────────────
+  // Public Domain Library Proxy (/api/library/proxy)
+  // ─────────────────────────────────────────────
+  app.options(["/api/library/proxy", "/api/library/proxy/*"], (req, res) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "*");
+    res.header("Access-Control-Max-Age", "86400");
+    res.status(204).end();
+  });
+
+  app.get(["/api/library/proxy", "/api/library/proxy/*"], async (req, res): Promise<any> => {
+    const fileUrl = (req.query.fileUrl || req.query.url || req.query.target) as string;
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "*");
+    res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
+
+    if (!fileUrl) {
+      return res.status(400).json({ error: 'Missing required query parameter "fileUrl".' });
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(fileUrl);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        return res.status(403).json({ error: "Protocol not allowed. Only HTTP and HTTPS are permitted." });
+      }
+    } catch {
+      return res.status(400).json({ error: "Invalid URL provided." });
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isWhitelisted =
+      hostname === "gutenberg.org" ||
+      hostname.endsWith(".gutenberg.org") ||
+      hostname === "archive.org" ||
+      hostname.endsWith(".archive.org");
+
+    if (!isWhitelisted) {
+      return res.status(403).json({
+        error: `Forbidden domain: ${hostname}. Only *.gutenberg.org and *.archive.org are authorized.`
+      });
+    }
+
+    try {
+      const headers: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+      };
+
+      if (req.headers.range) {
+        headers["Range"] = req.headers.range as string;
+      }
+
+      const upstreamRes = await fetch(parsedUrl.toString(), {
+        method: req.method === "HEAD" ? "HEAD" : "GET",
+        headers,
+        redirect: "follow",
+      });
+
+      res.status(upstreamRes.status);
+      res.header("Access-Control-Allow-Origin", "*");
+      res.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.header("Access-Control-Allow-Headers", "*");
+      res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
+      res.header("Cache-Control", "public, max-age=86400");
+
+      const headersToForward = [
+        "content-type",
+        "content-length",
+        "content-range",
+        "accept-ranges",
+        "etag",
+        "last-modified",
+      ];
+      for (const h of headersToForward) {
+        const val = upstreamRes.headers.get(h);
+        if (val) res.header(h, val);
+      }
+
+      // If it is an epub, enforce content-type
+      if (parsedUrl.pathname.endsWith(".epub") || fileUrl.includes(".epub")) {
+        res.header("Content-Type", "application/epub+zip");
+      }
+
+      if (req.method === "HEAD" || !upstreamRes.body) {
+        return res.end();
+      }
+
+      const arrayBuffer = await upstreamRes.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      console.error("[Library Proxy Error]:", err);
+      return res.status(502).json({
+        error: "Proxy forwarding failed",
+        message: err?.message || "Network error",
+      });
+    }
+  });
+
   app.get("/api/config", (req, res) => {
     const rawBucket = (process.env.R2_BUCKET_NAME || process.env.VITE_R2_BUCKET_NAME || "").trim();
     const bucket = (!rawBucket || rawBucket === "ebookcc-assets") ? "ebookcc-media" : rawBucket;

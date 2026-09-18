@@ -33,6 +33,7 @@ export interface ComicLayerGroup {
   name: string;
   visible?: boolean;
   collapsed?: boolean;
+  opacity?: number; // 0 to 1
 }
 
 export interface DrawingLayer {

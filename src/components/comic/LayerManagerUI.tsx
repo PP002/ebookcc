@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Layers,
   Plus,
@@ -15,6 +15,7 @@ import {
   Sliders,
   X,
   Check,
+  GripVertical,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -27,7 +28,7 @@ export interface LayerManagerUIProps {
   layerGroups?: ComicLayerGroup[];
   isOpen: boolean;
   onClose: () => void;
-  onSelectLayer?: (layerId: string, e: React.MouseEvent) => void;
+  onSelectLayer?: (layerId: string, e?: React.MouseEvent) => void;
   onAddLayer?: () => void;
   onCombineLayers?: () => void;
   onGroupLayers?: () => void;
@@ -36,7 +37,8 @@ export interface LayerManagerUIProps {
   onToggleGroupVisibility?: (groupId: string) => void;
   onToggleGroupCollapse?: (groupId: string) => void;
   onUpdateLayer?: (layerId: string, updates: Partial<ComicLayer>) => void;
-  onReorderLayers?: (startIndex: number, endIndex: number) => void;
+  onUpdateGroup?: (groupId: string, updates: Partial<ComicLayerGroup>) => void;
+  onReorderLayers?: (newLayers: ComicLayer[]) => void;
   className?: string;
   engine?: any; // backward-compat
 }
@@ -69,15 +71,32 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
   onToggleGroupVisibility = () => {},
   onToggleGroupCollapse = () => {},
   onUpdateLayer = () => {},
+  onUpdateGroup = () => {},
+  onReorderLayers = () => {},
   className,
 }) => {
+  // Layer renaming state
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+
+  // Group renaming state
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
+
+  // Double tap tracking for mobile / touch devices
+  const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const colorInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Drag & drop state for layer reordering
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+  const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'above' | 'below' | null>(null);
+
   const activeLayer = layers.find((l) => l.id === activeLayerId) || layers[0];
+  const activeGroup = activeLayer?.groupId ? layerGroups.find((g) => g.id === activeLayer.groupId) : null;
   const backgroundLayer = layers.find((l) => l.isBackground) || layers[0];
 
   // Close when clicking outside
@@ -85,7 +104,6 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        // Only close if not clicking on color picker or dialog
         if (!(e.target as HTMLElement)?.closest?.('.color-picker-trigger')) {
           onClose();
         }
@@ -114,11 +132,11 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onAddLayer, onCombineLayers, onGroupLayers]);
 
-  if (!isOpen) return null;
+  // Group handling map
+  const groupsMap = new Map<string, ComicLayerGroup>();
+  layerGroups.forEach((g) => groupsMap.set(g.id, g));
 
-  // Display layers in stack order (top layer first, background layer last)
-  const displayLayers = [...layers].reverse();
-
+  // Layer Rename Handlers
   const handleStartRename = (id: string, currentName: string) => {
     setEditingLayerId(id);
     setEditingName(currentName);
@@ -131,15 +149,136 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
     setEditingLayerId(null);
   };
 
-  // Group handling
-  const groupsMap = new Map<string, ComicLayerGroup>();
-  layerGroups.forEach((g) => groupsMap.set(g.id, g));
+  // Group Rename Handlers
+  const handleStartRenameGroup = (id: string, currentName: string) => {
+    setEditingGroupId(id);
+    setEditingGroupName(currentName);
+  };
+
+  const handleFinishRenameGroup = (id: string) => {
+    if (editingGroupName.trim()) {
+      onUpdateGroup(id, { name: editingGroupName.trim() });
+    }
+    setEditingGroupId(null);
+  };
+
+  // Double tap handler for touch devices
+  const handleItemTouch = (id: string, type: 'layer' | 'group', currentName: string) => {
+    const now = Date.now();
+    if (lastTapRef.current && lastTapRef.current.id === id && now - lastTapRef.current.time < 350) {
+      // Double tapped!
+      if (type === 'layer') {
+        handleStartRename(id, currentName);
+      } else {
+        handleStartRenameGroup(id, currentName);
+      }
+      lastTapRef.current = null;
+    } else {
+      lastTapRef.current = { id, time: now };
+    }
+  };
+
+  // Reorder logic when dropping
+  const performReorder = useCallback((sourceId: string, targetId: string, pos: 'above' | 'below') => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+
+    const sourceIdx = layers.findIndex((l) => l.id === sourceId);
+    const targetIdx = layers.findIndex((l) => l.id === targetId);
+    if (sourceIdx === -1 || targetIdx === -1) return;
+
+    const sourceLayer = layers[sourceIdx];
+    const targetLayer = layers[targetIdx];
+    if (sourceLayer.isBackground || targetLayer.isBackground) return;
+
+    const filtered = layers.filter((l) => l.id !== sourceId);
+    let insertIdx = filtered.findIndex((l) => l.id === targetId);
+    if (insertIdx === -1) return;
+
+    // In UI display, top layer is highest index in `layers` array.
+    // 'above' in UI means higher z-index (after target in `layers` array)
+    // 'below' in UI means lower z-index (before target in `layers` array)
+    if (pos === 'above') {
+      insertIdx += 1;
+    }
+
+    // Ensure background stays at index 0
+    const bgIndex = filtered.findIndex((l) => l.isBackground);
+    if (insertIdx <= bgIndex) {
+      insertIdx = bgIndex + 1;
+    }
+
+    const nextLayers = [...filtered];
+    nextLayers.splice(insertIdx, 0, sourceLayer);
+
+    onReorderLayers(nextLayers);
+  }, [layers, onReorderLayers]);
+
+  // HTML5 Drag Handlers
+  const handleDragStart = (e: React.DragEvent, layerId: string) => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (layer?.isBackground) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedLayerId(layerId);
+    e.dataTransfer.setData('text/plain', layerId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetLayerId: string) => {
+    e.preventDefault();
+    if (!draggedLayerId || draggedLayerId === targetLayerId) return;
+
+    const targetLayer = layers.find((l) => l.id === targetLayerId);
+    if (targetLayer?.isBackground) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'above' : 'below';
+
+    setDragOverLayerId(targetLayerId);
+    setDropPosition(pos);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverLayerId(null);
+    setDropPosition(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetLayerId: string) => {
+    e.preventDefault();
+    if (!draggedLayerId || !dropPosition || draggedLayerId === targetLayerId) {
+      setDraggedLayerId(null);
+      setDragOverLayerId(null);
+      setDropPosition(null);
+      return;
+    }
+
+    performReorder(draggedLayerId, targetLayerId, dropPosition);
+    setDraggedLayerId(null);
+    setDragOverLayerId(null);
+    setDropPosition(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedLayerId(null);
+    setDragOverLayerId(null);
+    setDropPosition(null);
+  };
+
+  if (!isOpen) return null;
+
+  // Display layers in stack order (top layer first, background layer last)
+  const displayLayers = [...layers].reverse();
+
+  // Distinct groups present
+  const renderedGroupIds = new Set<string>();
 
   return (
     <div
       ref={panelRef}
       className={cn(
-        'w-80 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col text-popover-foreground select-none overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 z-50',
+        'w-88 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col text-popover-foreground select-none overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 z-50',
         className
       )}
       onClick={(e) => e.stopPropagation()}
@@ -200,154 +339,326 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
         </div>
       </div>
 
-      {/* Layer Stack */}
-      <div className="flex-1 overflow-y-auto max-h-72 p-2 space-y-1 divide-y divide-border/20">
+      {/* Layer Stack with Drag-to-Reorder, Group Folding, Group Opacity, and Front Hide/Show Buttons */}
+      <div className="flex-1 overflow-y-auto max-h-80 p-2 space-y-1 divide-y divide-border/20">
         {displayLayers.map((layer) => {
           const isActive = layer.id === activeLayerId;
           const isSelected = selectedLayerIds.includes(layer.id);
           const isBg = Boolean(layer.isBackground);
           const isGrouped = Boolean(layer.groupId);
           const group = layer.groupId ? groupsMap.get(layer.groupId) : null;
+          const isGroupCollapsed = Boolean(group?.collapsed);
+
+          // Group Header (Rendered above the first displayed member of this group)
+          let renderGroupHeader = false;
+          if (group && !renderedGroupIds.has(group.id)) {
+            renderedGroupIds.add(group.id);
+            renderGroupHeader = true;
+          }
+
+          const isDraggingThis = draggedLayerId === layer.id;
+          const isDragOverTarget = dragOverLayerId === layer.id;
+          const memberCount = group ? layers.filter((l) => l.groupId === group.id).length : 0;
+          const groupOpacity = group?.opacity !== undefined ? group.opacity : 1;
 
           return (
-            <div
-              key={layer.id}
-              className={cn(
-                'group relative flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer border',
-                isGrouped && 'ml-3 border-dashed',
-                isSelected
-                  ? 'bg-primary/15 border-primary/40 text-foreground font-medium shadow-xs'
-                  : isActive
-                  ? 'bg-muted/80 border-border text-foreground font-medium'
-                  : 'bg-transparent border-transparent hover:bg-muted/40 text-muted-foreground hover:text-foreground'
-              )}
-              onClick={(e) => onSelectLayer(layer.id, e)}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (isBg) {
-                  // Double click background layer -> change colour!
-                  setIsColorPickerOpen(true);
-                  colorInputRef.current?.click();
-                } else {
-                  handleStartRename(layer.id, layer.name);
-                }
-              }}
-              title={
-                isBg
-                  ? 'Double click to change background colour'
-                  : 'Click to select. Ctrl+Click to multi-select. Shift+Click to range select.'
-              }
-            >
-              {/* Visibility Toggle */}
-              <button
-                type="button"
-                className={cn(
-                  'p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors',
-                  !layer.visible && 'text-muted-foreground/40'
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleVisibility(layer.id);
-                }}
-                title={layer.visible ? 'Hide Layer' : 'Show Layer'}
-              >
-                {layer.visible ? (
-                  <Eye className="w-3.5 h-3.5" />
-                ) : (
-                  <EyeOff className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              {/* Layer Icon / Swatch */}
-              {isBg ? (
+            <React.Fragment key={layer.id}>
+              {/* Collapsible Group Header */}
+              {renderGroupHeader && group && (
                 <div
-                  className="relative w-4 h-4 rounded border border-border/80 shrink-0 shadow-xs flex items-center justify-center cursor-pointer overflow-hidden group/swatch"
-                  style={{ backgroundColor: layer.color || '#ffffff' }}
-                  onClick={(e) => {
+                  className={cn(
+                    'flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold bg-muted/50 border border-border/70 hover:bg-muted transition-colors cursor-pointer my-1 text-foreground shadow-2xs',
+                    isGroupCollapsed && 'border-amber-500/40 bg-amber-500/5'
+                  )}
+                  onClick={() => onToggleGroupCollapse(group.id)}
+                  onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setIsColorPickerOpen(true);
-                    colorInputRef.current?.click();
+                    handleStartRenameGroup(group.id, group.name);
                   }}
-                  title="Double click to change colour"
+                  onTouchEnd={() => handleItemTouch(group.id, 'group', group.name)}
+                  title="Double click to rename group. Click to toggle fold."
                 >
-                  <Palette className="w-2.5 h-2.5 text-black/50 mix-blend-difference opacity-0 group-hover/swatch:opacity-100 transition-opacity" />
-                </div>
-              ) : isGrouped ? (
-                <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              ) : (
-                <div className="w-3.5 h-3.5 rounded bg-muted border border-border/50 shrink-0 flex items-center justify-center">
-                  <span className="text-[9px] font-mono leading-none text-muted-foreground">
-                    L
-                  </span>
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    {/* 1. HIDE/SHOW BUTTON ON THE VERY FRONT */}
+                    <button
+                      type="button"
+                      className={cn(
+                        'p-1 rounded text-muted-foreground hover:text-foreground shrink-0 transition-colors',
+                        group.visible === false && 'text-muted-foreground/40'
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleGroupVisibility(group.id);
+                      }}
+                      title={group.visible === false ? 'Show Group' : 'Hide Group'}
+                    >
+                      {group.visible === false ? (
+                        <EyeOff className="w-3.5 h-3.5 text-muted-foreground/50" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {/* Fold/Unfold Toggle Chevron */}
+                    <button
+                      type="button"
+                      className="p-0.5 text-muted-foreground hover:text-foreground rounded transition-transform shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleGroupCollapse(group.id);
+                      }}
+                      title={isGroupCollapsed ? 'Unfold group' : 'Fold group'}
+                    >
+                      {isGroupCollapsed ? (
+                        <ChevronRight className="w-3.5 h-3.5 text-amber-500" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-amber-500" />
+                      )}
+                    </button>
+
+                    {/* Folder Icon */}
+                    {isGroupCollapsed ? (
+                      <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    ) : (
+                      <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    )}
+
+                    {/* Group Name / Inline Rename Input */}
+                    {editingGroupId === group.id ? (
+                      <input
+                        type="text"
+                        value={editingGroupName}
+                        autoFocus
+                        onChange={(e) => setEditingGroupName(e.target.value)}
+                        onBlur={() => handleFinishRenameGroup(group.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleFinishRenameGroup(group.id);
+                          if (e.key === 'Escape') setEditingGroupId(null);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 bg-background border border-primary/60 rounded px-1 py-0.5 text-xs text-foreground focus:outline-none min-w-0"
+                      />
+                    ) : (
+                      <span className="truncate text-[11px] font-semibold select-none min-w-0">
+                        {group.name}
+                      </span>
+                    )}
+
+                    {/* Member Count Badge */}
+                    <span className="text-[10px] bg-background/80 border border-border/60 text-muted-foreground px-1.5 py-0.2 rounded-full font-mono shrink-0">
+                      {memberCount}
+                    </span>
+                  </div>
+
+                  {/* Group Opacity Slider Control */}
+                  <div
+                    className="flex items-center gap-1 shrink-0 ml-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Sliders className="w-3 h-3 text-muted-foreground/70" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={groupOpacity}
+                      onChange={(e) => {
+                        onUpdateGroup(group.id, { opacity: parseFloat(e.target.value) });
+                      }}
+                      className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-amber-500"
+                      title={`Group Opacity: ${Math.round(groupOpacity * 100)}%`}
+                    />
+                    <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">
+                      {Math.round(groupOpacity * 100)}%
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {/* Layer Name / Inline Edit */}
-              <div className="flex-1 min-w-0 flex items-center">
-                {editingLayerId === layer.id && !isBg ? (
-                  <input
-                    type="text"
-                    value={editingName}
-                    autoFocus
-                    onChange={(e) => setEditingName(e.target.value)}
-                    onBlur={() => handleFinishRename(layer.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleFinishRename(layer.id);
-                      if (e.key === 'Escape') setEditingLayerId(null);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-full bg-background border border-primary/50 rounded px-1 py-0.5 text-xs text-foreground focus:outline-none"
-                  />
-                ) : (
-                  <div className="flex flex-col min-w-0">
-                    <span className="truncate leading-tight">
-                      {layer.name}
-                    </span>
-                    {isBg && (
-                      <span className="text-[10px] text-muted-foreground/75 font-normal truncate">
-                        Default background ({layer.color || '#ffffff'})
-                      </span>
-                    )}
-                    {group && (
-                      <span className="text-[9px] text-amber-500/80 font-normal">
-                        in {group.name}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Selection Indicator or Delete Button */}
-              <div className="flex items-center gap-1 shrink-0">
-                {isBg ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
+              {/* Layer Row (STRICT: Never displayed when the parent group is folded/collapsed) */}
+              {!isGroupCollapsed && (
+                <div
+                  draggable={!isBg}
+                  onDragStart={(e) => handleDragStart(e, layer.id)}
+                  onDragOver={(e) => handleDragOver(e, layer.id)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, layer.id)}
+                  onDragEnd={handleDragEnd}
+                  className={cn(
+                    'group relative flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs transition-all cursor-pointer border select-none',
+                    isGrouped && 'ml-4 border-l-2 border-l-amber-500/50',
+                    isSelected
+                      ? 'bg-primary/15 border-primary/40 text-foreground font-medium shadow-xs'
+                      : isActive
+                      ? 'bg-muted/80 border-border text-foreground font-medium'
+                      : 'bg-transparent border-transparent hover:bg-muted/40 text-muted-foreground hover:text-foreground',
+                    isDraggingThis && 'opacity-40 scale-[0.98] border-dashed border-primary',
+                    isDragOverTarget && dropPosition === 'above' && 'border-t-2 border-t-primary shadow-xs',
+                    isDragOverTarget && dropPosition === 'below' && 'border-b-2 border-b-primary shadow-xs'
+                  )}
+                  onClick={(e) => onSelectLayer(layer.id, e)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (isBg) {
                       setIsColorPickerOpen(true);
                       colorInputRef.current?.click();
-                    }}
-                    className="text-[10px] text-primary hover:underline px-1 py-0.5 rounded"
-                    title="Change background colour"
-                  >
-                    Colour
-                  </button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="w-5 h-5 opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                    } else {
+                      handleStartRename(layer.id, layer.name);
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    if (!isBg) {
+                      handleItemTouch(layer.id, 'layer', layer.name);
+                    }
+                  }}
+                  title={
+                    isBg
+                      ? 'Double click to change background colour'
+                      : 'Click to select. Double click / double tap to rename. Hold and drag to reorder.'
+                  }
+                >
+                  {/* 1. HIDE/SHOW BUTTON ON THE VERY FRONT */}
+                  <button
+                    type="button"
+                    className={cn(
+                      'p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors shrink-0',
+                      !layer.visible && 'text-muted-foreground/40'
+                    )}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteLayer(layer.id);
+                      onToggleVisibility(layer.id);
                     }}
-                    title="Delete Layer"
+                    title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                   >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
+                    {layer.visible ? (
+                      <Eye className="w-3.5 h-3.5" />
+                    ) : (
+                      <EyeOff className="w-3.5 h-3.5 text-muted-foreground/50" />
+                    )}
+                  </button>
+
+                  {/* Reorder Drag Handle (for non-background layers) */}
+                  {!isBg ? (
+                    <div
+                      className="text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing p-0.5 shrink-0"
+                      title="Hold and drag to reorder layer"
+                    >
+                      <GripVertical className="w-3.5 h-3.5" />
+                    </div>
+                  ) : (
+                    <div className="w-4 shrink-0" />
+                  )}
+
+                  {/* Layer Icon / Swatch */}
+                  {isBg ? (
+                    <div
+                      className="relative w-4 h-4 rounded border border-border/80 shrink-0 shadow-xs flex items-center justify-center cursor-pointer overflow-hidden group/swatch"
+                      style={{ backgroundColor: layer.color || '#ffffff' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsColorPickerOpen(true);
+                        colorInputRef.current?.click();
+                      }}
+                      title="Double click to change colour"
+                    >
+                      <Palette className="w-2.5 h-2.5 text-black/50 mix-blend-difference opacity-0 group-hover/swatch:opacity-100 transition-opacity" />
+                    </div>
+                  ) : (
+                    <div className="w-3.5 h-3.5 rounded bg-muted border border-border/50 shrink-0 flex items-center justify-center">
+                      <span className="text-[9px] font-mono leading-none text-muted-foreground">
+                        L
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Layer Name / Inline Edit */}
+                  <div className="flex-1 min-w-0 flex items-center">
+                    {editingLayerId === layer.id && !isBg ? (
+                      <input
+                        type="text"
+                        value={editingName}
+                        autoFocus
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={() => handleFinishRename(layer.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleFinishRename(layer.id);
+                          if (e.key === 'Escape') setEditingLayerId(null);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full bg-background border border-primary/50 rounded px-1 py-0.5 text-xs text-foreground focus:outline-none"
+                      />
+                    ) : (
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate leading-tight">
+                          {layer.name}
+                        </span>
+                        {isBg && (
+                          <span className="text-[10px] text-muted-foreground/75 font-normal truncate">
+                            Default background ({layer.color || '#ffffff'})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Layer Opacity Slider upon the layer row */}
+                  {!isBg && (
+                    <div
+                      className="flex items-center gap-1 shrink-0 ml-auto mr-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Sliders className="w-3 h-3 text-muted-foreground/60" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={layer.opacity !== undefined ? layer.opacity : 1}
+                        onChange={(e) => {
+                          onUpdateLayer(layer.id, { opacity: parseFloat(e.target.value) });
+                        }}
+                        className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-primary"
+                        title={`Opacity: ${Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}%`}
+                      />
+                      <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">
+                        {Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Selection Indicator or Delete Button */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isBg ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsColorPickerOpen(true);
+                          colorInputRef.current?.click();
+                        }}
+                        className="text-[10px] text-primary hover:underline px-1 py-0.5 rounded"
+                        title="Change background colour"
+                      >
+                        Colour
+                      </button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-5 h-5 opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteLayer(layer.id);
+                        }}
+                        title="Delete Layer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
           );
         })}
       </div>
@@ -419,35 +730,17 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
         </div>
       )}
 
-      {/* Active Layer Opacity Controls */}
-      {activeLayer && !activeLayer.isBackground && (
-        <div className="px-3.5 py-2 border-t border-border/60 bg-muted/15 flex items-center gap-2">
-          <Sliders className="w-3 h-3 text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground font-medium w-12">
-            Opacity
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={activeLayer.opacity !== undefined ? activeLayer.opacity : 1}
-            onChange={(e) => {
-              onUpdateLayer(activeLayer.id, { opacity: parseFloat(e.target.value) });
-            }}
-            className="flex-1 h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-          />
-          <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">
-            {Math.round((activeLayer.opacity !== undefined ? activeLayer.opacity : 1) * 100)}%
-          </span>
+      {/* Shortcuts & Guide Footer */}
+      <div className="px-3 py-2 border-t border-border/40 bg-muted/40 text-[10px] text-muted-foreground flex flex-col gap-1">
+        <div className="flex items-center justify-between font-mono">
+          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+J</kbd> New</span>
+          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+E</kbd> Combine</span>
+          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+G</kbd> Group</span>
         </div>
-      )}
-
-      {/* Shortcuts Footer */}
-      <div className="px-3 py-2 border-t border-border/40 bg-muted/40 text-[10px] text-muted-foreground flex flex-wrap items-center justify-between gap-1">
-        <span><kbd className="font-mono font-semibold text-[9px] bg-background border px-1 py-0.5 rounded">Ctrl+J</kbd> New Layer</span>
-        <span><kbd className="font-mono font-semibold text-[9px] bg-background border px-1 py-0.5 rounded">Ctrl+E</kbd> Combine</span>
-        <span><kbd className="font-mono font-semibold text-[9px] bg-background border px-1 py-0.5 rounded">Ctrl+G</kbd> Group</span>
+        <div className="text-[9px] text-muted-foreground/80 flex items-center justify-between pt-0.5 border-t border-border/30">
+          <span>• Double tap to rename</span>
+          <span>• Hold & drag to reorder</span>
+        </div>
       </div>
     </div>
   );

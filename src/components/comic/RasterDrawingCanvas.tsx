@@ -472,8 +472,13 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         if (layer.visible === false) continue;
         if (layer.groupId && hiddenGroups.has(layer.groupId)) continue;
 
+        const group = layer.groupId ? layerGroups.find((g) => g.id === layer.groupId) : null;
+        const groupOpacity = group && group.opacity !== undefined ? group.opacity : 1;
+        const layerOpacity = layer.opacity !== undefined ? layer.opacity : 1;
+        const effectiveAlpha = Math.max(0, Math.min(1, layerOpacity * groupOpacity));
+
         ctx.save();
-        ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1;
+        ctx.globalAlpha = effectiveAlpha;
 
         // Filter strokes belonging to this layer
         const layerStrokes = strokes.filter(
@@ -719,8 +724,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
 
   /**
    * Flood Fill Implementation
-   * STRICT REQUIREMENT: Remove the function from the Fill tool to fill the entire canvas by filling the outside of closed stroke shapes.
-   * If the fill hits the canvas perimeter/edges, it aborts immediately with zero modifications!
+   * The panel mask boundary can also be used as a side line of a closed shape.
+   * Traversal fills contiguous pixels bounded by drawn strokes and the panel mask boundary.
    */
   const handleFillClick = (pt: Point) => {
     const layerBuf = layerBufferRef.current;
@@ -752,7 +757,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     // If filling with the same color, abort
     if (Math.abs(targetR - fr) < 5 && Math.abs(targetG - fg) < 5 && Math.abs(targetB - fb) < 5 && Math.abs(targetA - fa) < 5) return;
 
-    const colorMatch = (idx) => {
+    const colorMatch = (idx: number) => {
       const dr = data[idx] - targetR;
       const dg = data[idx + 1] - targetG;
       const db = data[idx + 2] - targetB;
@@ -760,27 +765,18 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       return (dr * dr + dg * dg + db * db + da * da) < 4000;
     };
 
-    // Flood fill traversal
+    // Flood fill traversal bounded by strokes and panel mask edges
     const visited = new Uint8Array(w * h);
-    const queue = [startX, startY];
+    const queue: number[] = [startX, startY];
     visited[startY * w + startX] = 1;
 
-    const filledPixels = [];
-    let reachedEdge = false;
+    const filledPixels: number[] = [];
 
     let minX = startX, maxX = startX, minY = startY, maxY = startY;
 
     while (queue.length > 0) {
       const cy = queue.pop()!;
       const cx = queue.pop()!;
-
-      // BOUNDARY CHECK:
-      // If the flood touches any boundary/perimeter of the canvas, the click was in the open canvas / outside closed shapes!
-      // ABORT immediately so the entire canvas is NEVER filled!
-      if (cx <= 1 || cx >= w - 2 || cy <= 1 || cy >= h - 2) {
-        reachedEdge = true;
-        break;
-      }
 
       filledPixels.push(cx, cy);
       if (cx < minX) minX = cx;
@@ -796,9 +792,9 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       ];
 
       for (const [nx, ny] of neighbors) {
+        // Panel mask boundary acts as a closed side line
         if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
-          reachedEdge = true;
-          break;
+          continue;
         }
         const nPos = ny * w + nx;
         if (visited[nPos]) continue;
@@ -809,16 +805,13 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
           queue.push(nx, ny);
         }
       }
-
-      if (reachedEdge) break;
     }
 
-    // If it reached the edge of the canvas, abort completely!
-    if (reachedEdge) {
+    if (filledPixels.length === 0) {
       return;
     }
 
-    // It is a fully closed shape! Create a raster fill image
+    // Create a raster fill image for the enclosed region
     const fillCanvas = document.createElement('canvas');
     const fw = Math.max(1, maxX - minX + 1);
     const fh = Math.max(1, maxY - minY + 1);
@@ -1047,7 +1040,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         else if (mode === 't' || mode === 'b') cursor = 'ns-resize';
         if (containerRef.current) containerRef.current.style.cursor = cursor;
       } else {
-        if (containerRef.current) containerRef.current.style.cursor = isDrawingMode ? PRECISE_CROSSHAIR_CURSOR : 'default';
+        const cursor = drawTool === 'fill' ? FILL_BUCKET_CURSOR : PRECISE_CROSSHAIR_CURSOR;
+        if (containerRef.current) containerRef.current.style.cursor = isDrawingMode ? cursor : 'default';
       }
       return;
     }
@@ -1418,7 +1412,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         }
       }
       if (containerRef.current) {
-        containerRef.current.style.cursor = isDrawingMode ? PRECISE_CROSSHAIR_CURSOR : 'default';
+        const cursor = drawTool === 'fill' ? FILL_BUCKET_CURSOR : PRECISE_CROSSHAIR_CURSOR;
+        containerRef.current.style.cursor = isDrawingMode ? cursor : 'default';
       }
       requestRender();
     }

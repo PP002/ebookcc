@@ -1490,6 +1490,7 @@ export const Create: React.FC<CreateProps> = ({
   const [penMode, setPenMode] = useState<PenMode>("normal");
   const [isPenMenuOpen, setIsPenMenuOpen] = useState(false);
   const brushSizePickerRef = useRef<HTMLDivElement>(null);
+  const drawColorInputRef = useRef<HTMLInputElement>(null);
   const layerPanelRef = useRef<HTMLDivElement>(null);
   const eraserMenuRef = useRef<HTMLDivElement>(null);
   const penMenuRef = useRef<HTMLDivElement>(null);
@@ -2273,6 +2274,10 @@ export const Create: React.FC<CreateProps> = ({
     );
   }, []);
 
+  const handleReorderLayers = useCallback((newLayers: ComicLayer[]) => {
+    setComicLayers(newLayers);
+  }, []);
+
   const handleUpdateLayer = useCallback(
     (id: string, updates: Partial<ComicLayer>) => {
       if (updates.color) {
@@ -2280,6 +2285,15 @@ export const Create: React.FC<CreateProps> = ({
       }
       setComicLayers((prev) =>
         prev.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+      );
+    },
+    [],
+  );
+
+  const handleUpdateGroup = useCallback(
+    (groupId: string, updates: Partial<ComicLayerGroup>) => {
+      setLayerGroups((prev) =>
+        prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g)),
       );
     },
     [],
@@ -5938,7 +5952,10 @@ export const Create: React.FC<CreateProps> = ({
             {isDrawingMode && (
               <>
                 <div className="w-px h-5 bg-border mx-1 shrink-0" />
-                <div className="flex items-center justify-center bg-muted/60 dark:bg-muted/30 rounded-full p-1 border border-border/40 gap-0.5 max-h-[34px] shrink-0">
+                <div
+                  data-draw-toolbar="true"
+                  className="flex items-center justify-center gap-0.5 max-h-[34px] shrink-0"
+                >
                   {/* Collapsible Pen Tool with Normal Pen, Smart Shape, and Freehand Bubble Modes */}
                   <div ref={penMenuRef} className="relative flex items-center">
                     <Button
@@ -6259,13 +6276,23 @@ export const Create: React.FC<CreateProps> = ({
                     <Hand className="w-3.5 h-3.5" />
                   </Button>
                   <div className="w-px h-4 bg-border mx-1" />
-                  <input
-                    type="color"
-                    value={drawColor}
-                    onChange={(e) => setDrawColor(e.target.value)}
-                    className="w-5 h-5 rounded cursor-pointer border-0 p-0"
-                    title={t("colorTooltip")}
-                  />
+                  <div className="relative flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => drawColorInputRef.current?.click()}
+                      className="w-5 h-5 rounded-full color-circle-button cursor-pointer shadow-xs hover:scale-105 transition-transform shrink-0 border border-black/50 dark:border-white/50"
+                      style={{ backgroundColor: drawColor, borderRadius: "9999px" }}
+                      title={t("colorTooltip")}
+                    />
+                    <input
+                      ref={drawColorInputRef}
+                      type="color"
+                      value={drawColor}
+                      onChange={(e) => setDrawColor(e.target.value)}
+                      className="sr-only pointer-events-none"
+                      tabIndex={-1}
+                    />
+                  </div>
                   <div className="w-px h-4 bg-border mx-1" />
                   {/* Foldable Brush Size Input with Downward Arrow Beside and Dropdown Below */}
                   <div ref={brushSizePickerRef} className="relative flex items-center">
@@ -6316,16 +6343,16 @@ export const Create: React.FC<CreateProps> = ({
                         </div>
                         <div className="grid grid-cols-3 gap-1.5">
                           {[
-                            { size: 1, dotClass: "w-[3px] h-[3px]" },
-                            { size: 1.8, dotClass: "w-[5px] h-[5px]" },
-                            { size: 2.8, dotClass: "w-[7px] h-[7px]" },
-                            { size: 4, dotClass: "w-[9px] h-[9px]" },
-                            { size: 5.5, dotClass: "w-[12px] h-[12px]" },
-                            { size: 7, dotClass: "w-[14px] h-[14px]" },
-                            { size: 10, dotClass: "w-[16px] h-[16px]" },
-                            { size: 15, dotClass: "w-[18px] h-[18px]" },
-                            { size: 20, dotClass: "w-[20px] h-[20px]" },
-                          ].map(({ size, dotClass }) => {
+                            { size: 1, px: 3 },
+                            { size: 1.8, px: 5 },
+                            { size: 2.8, px: 7 },
+                            { size: 4, px: 9 },
+                            { size: 5.5, px: 11 },
+                            { size: 7, px: 13 },
+                            { size: 10, px: 15 },
+                            { size: 15, px: 17 },
+                            { size: 20, px: 19 },
+                          ].map(({ size, px }) => {
                             const isSelected = drawRadius === size;
                             return (
                               <button
@@ -6337,19 +6364,25 @@ export const Create: React.FC<CreateProps> = ({
                                 }}
                                 title={`${size}px`}
                                 className={cn(
-                                  "h-9 rounded-lg flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
+                                  "h-10 rounded flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
                                   isSelected
                                     ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30 font-bold"
                                     : "hover:bg-muted text-muted-foreground hover:text-foreground"
                                 )}
                               >
-                                <span
-                                  className={cn(
-                                    "rounded-full transition-transform shrink-0",
-                                    dotClass,
-                                    isSelected ? "bg-primary scale-110" : "bg-current"
-                                  )}
-                                />
+                                <div className="w-5 h-5 flex items-center justify-center">
+                                  <span
+                                    className={cn(
+                                      "rounded-full brush-circle-dot transition-transform shrink-0",
+                                      isSelected ? "bg-primary scale-110" : "bg-foreground"
+                                    )}
+                                    style={{
+                                      width: `${px}px`,
+                                      height: `${px}px`,
+                                      borderRadius: "9999px",
+                                    }}
+                                  />
+                                </div>
                                 <span className="text-[9px] font-mono leading-none">{size}</span>
                               </button>
                             );
@@ -6367,28 +6400,21 @@ export const Create: React.FC<CreateProps> = ({
                       type="button"
                       onClick={() => setIsLayerPanelOpen((prev) => !prev)}
                       className={cn(
-                        "h-7 px-2.5 rounded-full flex items-center gap-1.5 text-xs font-semibold transition-all border shadow-xs cursor-pointer",
+                        "h-6 px-2 border border-border/60 rounded bg-background flex items-center gap-1.5 text-xs font-mono font-medium transition-colors cursor-pointer",
                         isLayerPanelOpen
-                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                          : "bg-background border-border/70 hover:bg-muted text-foreground"
+                          ? "bg-muted text-foreground ring-1 ring-primary/60"
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
                       )}
                       title="Layers (Ctrl+J: New, Ctrl+E: Combine, Ctrl+G: Group)"
                     >
-                      <Layers className="w-3.5 h-3.5" />
-                      <span
-                        className={cn(
-                          "text-[10px] px-1 py-0.2 rounded-full font-mono",
-                          isLayerPanelOpen
-                            ? "bg-primary-foreground/20 text-primary-foreground"
-                            : "bg-muted text-muted-foreground"
-                        )}
-                      >
+                      <Layers className="w-3.5 h-3.5 text-foreground" />
+                      <span className="text-xs font-mono leading-none text-foreground">
                         {comicLayers.filter((l) => !l.isBackground).length}
                       </span>
                       <ChevronDown
                         className={cn(
-                          "w-3 h-3 transition-transform duration-200",
-                          isLayerPanelOpen && "rotate-180"
+                          "w-3 h-3 text-muted-foreground transition-transform duration-200",
+                          isLayerPanelOpen && "rotate-180 text-foreground"
                         )}
                       />
                     </button>
@@ -6412,6 +6438,8 @@ export const Create: React.FC<CreateProps> = ({
                           onToggleGroupVisibility={handleToggleGroupVisibility}
                           onToggleGroupCollapse={handleToggleGroupCollapse}
                           onUpdateLayer={handleUpdateLayer}
+                          onUpdateGroup={handleUpdateGroup}
+                          onReorderLayers={handleReorderLayers}
                         />
                       </div>
                     )}

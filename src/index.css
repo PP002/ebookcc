@@ -63,6 +63,11 @@
     @apply border-border outline-ring/50;
     border-radius: 0 !important;
   }
+  .rounded-full,
+  .brush-circle-dot,
+  .color-circle-button {
+    border-radius: 9999px !important;
+  }
   body {
     @apply text-foreground font-sans antialiased;
   }

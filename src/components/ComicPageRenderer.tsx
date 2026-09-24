@@ -556,16 +556,13 @@ export const ComicPageRenderer: React.FC<{
   // Handle flat single image page (e.g. uploaded CBZ/JPG or rendered cover)
   if (typeof page === 'string') {
     return (
-      <div className={cn("relative max-h-full max-w-full inline-flex justify-center items-center h-full", className)}>
-        <svg viewBox="0 0 3 4" className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none" />
-        <div className={cn("absolute top-0 left-0 w-full h-full bg-white ring-1 ring-border overflow-hidden", showShadow && "shadow-2xl")}>
-          <img
-            src={page}
-            alt="Comic Page"
-            className="w-full h-full object-contain pointer-events-auto select-none bg-white"
-            referrerPolicy="no-referrer"
-          />
-        </div>
+      <div className={cn("relative max-h-full max-w-full flex justify-center items-center h-full w-full", className)}>
+        <img
+          src={page}
+          alt="Comic Page"
+          className={cn("max-w-full max-h-full w-auto h-auto object-contain pointer-events-auto select-none bg-transparent", showShadow && "shadow-2xl")}
+          referrerPolicy="no-referrer"
+        />
       </div>
     );
   }
@@ -573,26 +570,36 @@ export const ComicPageRenderer: React.FC<{
   const hasTree = !!page.tree;
   const flatCover = page.cover || page.imageUrl || page.image || page.url;
 
-  return (
-    <div className={cn("relative max-h-full max-w-full inline-flex justify-center items-center h-full pointer-events-auto", className)}>
-      {/* 3:4 Aspect ratio locking SVG */}
-      <svg viewBox="0 0 3 4" className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none" />
+  if (flatCover && !hasTree && (!Array.isArray(page.bubbles) || page.bubbles.length === 0)) {
+    return (
+      <div className={cn("relative max-h-full max-w-full flex justify-center items-center h-full w-full", className)}>
+        <img
+          src={flatCover}
+          alt="Comic Cover"
+          className={cn("max-w-full max-h-full w-auto h-auto object-contain pointer-events-auto select-none bg-transparent", showShadow && "shadow-2xl")}
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    );
+  }
 
+  return (
+    <div className={cn("relative max-h-full max-w-full flex justify-center items-center h-full w-full pointer-events-auto", className)}>
       {/* Comic Page Canvas Root */}
-      <div className={cn("absolute top-0 left-0 w-full h-full bg-white ring-1 ring-border overflow-hidden select-none", showShadow && "shadow-2xl")}>
+      <div className={cn("relative w-full h-full bg-transparent overflow-hidden select-none flex items-center justify-center", showShadow && "shadow-2xl")}>
         {hasTree ? (
-          <div className="w-full h-full bg-white relative select-none">
+          <div className="w-full h-full bg-transparent relative select-none">
             <ComicTreeNodeView node={page.tree} />
           </div>
         ) : flatCover ? (
           <img
             src={flatCover}
             alt="Comic Cover"
-            className="w-full h-full object-contain pointer-events-auto select-none bg-white"
+            className="w-full h-full max-w-full max-h-full object-contain pointer-events-auto select-none bg-transparent"
             referrerPolicy="no-referrer"
           />
         ) : (
-          <div className="w-full h-full bg-white flex items-center justify-center text-xs text-muted-foreground font-mono">
+          <div className="w-full h-full bg-transparent flex items-center justify-center text-xs text-muted-foreground font-mono">
             Empty Comic Page
           </div>
         )}

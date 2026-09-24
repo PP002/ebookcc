@@ -628,7 +628,7 @@ export async function publishWorkToR2(
     const localItems = JSON.parse(localJson);
     const filtered = localItems.filter((w: any) => w && String(w.id) !== String(cleanedItem.id));
     filtered.unshift(cleanedItem);
-    localStorage.setItem("ebookcc_published_items", JSON.stringify(filtered));
+    safeSetPublishedCache(filtered);
   } catch (_) {}
 
   if (onProgress) onProgress(100, "Published successfully!");

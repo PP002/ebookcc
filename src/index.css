@@ -235,4 +235,20 @@ html.dark .prose *:not(img):not(svg):not(path):not(button):not(input):not(audio)
   --tw-prose-code: #ffffff !important;
 }
 
+/* Complete removal of EPUB container and iframe backgrounds */
+.reader-epub-container,
+.reader-epub-container iframe,
+.reader-epub-container div,
+.reader-epub-container section {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+@media (orientation: portrait) {
+  .portrait-hidden {
+    display: none !important;
+  }
+}
+
+
 

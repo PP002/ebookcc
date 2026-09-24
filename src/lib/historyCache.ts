@@ -85,7 +85,7 @@ export interface RecentBookMetadata {
   title: string;
   author: string;
   cover: string; // Base64 or placeholder URL
-  fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
+  fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic' | 'docx';
   lastReadPage: number;
   lastReadLocation?: string | number;
   timestamp: number;
@@ -123,6 +123,139 @@ export interface ConversionLog {
    READ BOOK CACHE
    ========================================================================== */
 
+/**
+ * Downscales and compresses a source image URL, blob URL, or data URL into a tiny,
+ * compact JPEG thumbnail (max 120x160, quality 0.6) suitable for localStorage storage.
+ * Keeps remote URLs (http/https//) as-is since their string length is minimal.
+ */
+async function compressCoverToThumbnail(source: string, maxW = 120, maxH = 160, quality = 0.6): Promise<string> {
+  if (!source || typeof source !== 'string') return '';
+  // Remote URLs or root-relative paths are already tiny strings (< 200 chars)
+  if (source.startsWith('http://') || source.startsWith('https://') || source.startsWith('/')) {
+    return source;
+  }
+
+  return new Promise<string>((resolve) => {
+    const img = new Image();
+    const timeout = setTimeout(() => {
+      resolve(source.length < 5000 ? source : '');
+    }, 2000);
+
+    img.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const { width, height } = img;
+        if (!width || !height) {
+          resolve(source.length < 5000 ? source : '');
+          return;
+        }
+
+        const ratio = Math.min(maxW / width, maxH / height, 1);
+        const targetW = Math.max(1, Math.round(width * ratio));
+        const targetH = Math.max(1, Math.round(height * ratio));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(source.length < 5000 ? source : '');
+          return;
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, targetW, targetH);
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        if (compressed.length > 20000) {
+          // If still over 20KB, return empty string so we don't blow quota
+          resolve('');
+        } else {
+          resolve(compressed);
+        }
+      } catch (err) {
+        console.warn('[historyCache] Failed compressing cover canvas:', err);
+        resolve(source.length < 5000 ? source : '');
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timeout);
+      resolve(source.length < 5000 ? source : '');
+    };
+
+    img.src = source;
+  });
+}
+
+/**
+ * Safely persists RecentBookMetadata to localStorage with progressive quota mitigation.
+ * Never throws QuotaExceededError - aggressively strips heavy data covers if quota is tight.
+ */
+function safeSaveRecentBooksMeta(list: RecentBookMetadata[]): void {
+  if (!Array.isArray(list)) return;
+
+  // Enforce small bounds on all covers before first attempt
+  const sanitized = list.slice(0, 20).map((item) => {
+    if (item.cover && item.cover.length > 20000) {
+      return { ...item, cover: '' };
+    }
+    return item;
+  });
+
+  // Attempt 1: Full sanitized list
+  try {
+    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(sanitized));
+    return;
+  } catch (err1) {
+    console.warn("[historyCache] localStorage save hit quota, applying tiered reduction...", err1);
+  }
+
+  // Attempt 2: Strip data: covers from items beyond top 4
+  try {
+    const tiered = sanitized.slice(0, 15).map((item, idx) => {
+      if (idx >= 4 && item.cover && item.cover.startsWith('data:')) {
+        return { ...item, cover: '' };
+      }
+      return item;
+    });
+    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(tiered));
+    return;
+  } catch (err2) {
+    console.warn("[historyCache] Tier 2 save failed, removing all base64 covers...", err2);
+  }
+
+  // Attempt 3: Remove all base64 data: covers completely, retain only URLs and essential metadata
+  try {
+    const urlsOnly = sanitized.slice(0, 10).map((item) => ({
+      ...item,
+      cover: item.cover && (item.cover.startsWith('http') || item.cover.startsWith('/')) ? item.cover : ''
+    }));
+    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(urlsOnly));
+    return;
+  } catch (err3) {
+    console.warn("[historyCache] Tier 3 save failed, storing minimal top 5 items...", err3);
+  }
+
+  // Attempt 4: Minimal top 5 records with minimal attributes
+  try {
+    const minimal = sanitized.slice(0, 5).map((item) => ({
+      id: item.id,
+      title: item.title,
+      author: item.author,
+      cover: '',
+      fileType: item.fileType,
+      lastReadPage: item.lastReadPage,
+      timestamp: item.timestamp,
+      hasFile: item.hasFile
+    }));
+    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(minimal));
+  } catch (fatalErr) {
+    console.error("[historyCache] Failed to save recent books metadata to localStorage:", fatalErr);
+  }
+}
+
 async function resolveThumbnailCover(cover?: string, pages?: any[]): Promise<string> {
   let candidate = cover;
   if (!candidate || typeof candidate !== 'string' || (!candidate.startsWith('data:') && !candidate.startsWith('http') && !candidate.startsWith('blob:') && !candidate.startsWith('/'))) {
@@ -157,23 +290,16 @@ async function resolveThumbnailCover(cover?: string, pages?: any[]): Promise<str
     }
   }
 
-  if (candidate && candidate.startsWith('blob:')) {
-    try {
-      const res = await fetch(candidate);
-      const blob = await res.blob();
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(candidate!);
-        reader.readAsDataURL(blob);
-      });
-      return dataUrl;
-    } catch (_) {
-      return candidate;
-    }
+  if (candidate && (candidate.startsWith('blob:') || candidate.startsWith('data:'))) {
+    const compressed = await compressCoverToThumbnail(candidate);
+    if (compressed) return compressed;
   }
 
-  return candidate || 'https://placehold.co/150x220/png?text=eBook';
+  if (candidate && (candidate.startsWith('http://') || candidate.startsWith('https://') || candidate.startsWith('/'))) {
+    return candidate;
+  }
+
+  return 'https://placehold.co/120x160/png?text=eBook';
 }
 
 export async function saveRecentBook(
@@ -182,15 +308,19 @@ export async function saveRecentBook(
     title: string;
     author: string;
     cover: string;
-    fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
+    fileType: 'images' | 'epub' | 'pdf' | 'text' | 'comic' | 'docx';
     pages: any[];
     file?: File;
     fileBuffer?: ArrayBuffer;
+    readingDirection?: 'ltr' | 'rtl';
+    readingDirectionInfo?: string;
   },
   lastReadPage: number,
   lastReadLocation?: string | number
 ): Promise<void> {
   const resolvedCover = await resolveThumbnailCover(book.cover, book.pages);
+
+  const normalizedTitle = (book.title || '').trim().toLowerCase();
 
   const metadata: RecentBookMetadata = {
     id: book.id,
@@ -204,15 +334,16 @@ export async function saveRecentBook(
     hasFile: !!(book.file || book.fileBuffer || (book.pages && book.pages.length > 1))
   };
 
-  // 1. Save metadata to list in localStorage for instant access
+  // 1. Save metadata to list in localStorage, strictly deduplicating by title and id
   try {
-    const listJson = localStorage.getItem("ebookcc_recent_books_meta") || "[]";
-    let list: RecentBookMetadata[] = JSON.parse(listJson);
-    list = list.filter((item) => item.id !== book.id);
+    const list = getRecentBooksMeta().filter((item) => {
+      if (!item) return false;
+      if (item.id === book.id) return false;
+      if (normalizedTitle && item.title && item.title.trim().toLowerCase() === normalizedTitle) return false;
+      return true;
+    });
     list.unshift(metadata);
-    // Limit to 20 items
-    if (list.length > 20) list.pop();
-    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(list));
+    safeSaveRecentBooksMeta(list);
   } catch (e) {
     console.error("localStorage save failed", e);
   }
@@ -230,6 +361,8 @@ export async function saveRecentBook(
         : [],
       file: book.file,
       fileBuffer: book.fileBuffer,
+      readingDirection: book.readingDirection,
+      readingDirectionInfo: book.readingDirectionInfo,
       lastReadPage,
       lastReadLocation,
       timestamp: Date.now()
@@ -240,7 +373,40 @@ export async function saveRecentBook(
 export function getRecentBooksMeta(): RecentBookMetadata[] {
   try {
     const listJson = localStorage.getItem("ebookcc_recent_books_meta") || "[]";
-    return JSON.parse(listJson);
+    const list: RecentBookMetadata[] = JSON.parse(listJson);
+    if (!Array.isArray(list)) return [];
+
+    let hasOversizedCover = false;
+    const sanitized = list.map((item) => {
+      if (item && item.cover && item.cover.length > 20000) {
+        hasOversizedCover = true;
+        return { ...item, cover: '' };
+      }
+      return item;
+    });
+
+    // Deduplicate list by normalized title / id so duplicates are never displayed
+    const seenKeys = new Set<string>();
+    const deduplicated: RecentBookMetadata[] = [];
+    let hadDuplicates = false;
+
+    for (const item of sanitized) {
+      if (!item) continue;
+      const key = (item.title || item.id || '').trim().toLowerCase();
+      if (!key || seenKeys.has(key)) {
+        hadDuplicates = true;
+        continue;
+      }
+      seenKeys.add(key);
+      deduplicated.push(item);
+    }
+
+    // If any legacy item had an oversized cover or duplicates, persist cleaned list
+    if (hasOversizedCover || hadDuplicates) {
+      safeSaveRecentBooksMeta(deduplicated);
+    }
+
+    return deduplicated;
   } catch (e) {
     return [];
   }
@@ -255,10 +421,8 @@ export async function getFullBookFile(id: string): Promise<any | null> {
 export async function deleteRecentBook(id: string): Promise<void> {
   // Delete meta
   try {
-    const listJson = localStorage.getItem("ebookcc_recent_books_meta") || "[]";
-    let list: RecentBookMetadata[] = JSON.parse(listJson);
-    list = list.filter((item) => item.id !== id);
-    localStorage.setItem("ebookcc_recent_books_meta", JSON.stringify(list));
+    const list = getRecentBooksMeta().filter((item) => item.id !== id);
+    safeSaveRecentBooksMeta(list);
   } catch (e) {}
 
   // Delete from DB

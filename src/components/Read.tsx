@@ -60,7 +60,7 @@ interface BookItem {
   chapters: number;
   rating: number;
   pages: any[];
-  fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic';
+  fileType?: 'images' | 'epub' | 'pdf' | 'text' | 'comic' | 'docx';
   file?: File;
   fileBuffer?: ArrayBuffer;
   streamUrl?: string;
@@ -91,11 +91,75 @@ function isBookshelfComic(book: BookItem | null): boolean {
   return false;
 }
 
+const imageBlobCache = new Map<string, string>();
+
+function getPageImageUrl(page: any): string | null {
+  if (!page) return null;
+  if (typeof page === 'string') return page.trim() || null;
+  if (typeof page === 'object') {
+    const candidate = page.imageUrl || page.image || page.cover || page.url;
+    if (typeof candidate === 'string' && candidate.trim() !== '') {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+async function fetchCleanImageBlobUrl(url: string): Promise<string> {
+  if (!url || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  if (imageBlobCache.has(url)) return imageBlobCache.get(url)!;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (res.ok) {
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      imageBlobCache.set(url, blobUrl);
+      return blobUrl;
+    }
+  } catch (_) {}
+  try {
+    const proxyUrl = getLibraryProxyUrl(url);
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      imageBlobCache.set(url, blobUrl);
+      return blobUrl;
+    }
+  } catch (_) {}
+  return url;
+}
+
+/**
+ * Checks if a book was authored / published via the CREATE tool.
+ * Published creator works already possess panel architectures and should NEVER invoke YOLO.
+ */
+function isPublishedCreatorWork(book: BookItem | null): boolean {
+  if (!book) return false;
+  // If it's an archive.org comic or Gutenberg, it is not a creator-published work
+  if (book.archiveIdentifier || (typeof book.id === 'string' && book.id.startsWith('archive-')) || (book as any).source === 'archive' || (book as any).source === 'gutenberg') {
+    return false;
+  }
+  // If pages contain creator canvas nodes (tree, panels, bubbles)
+  if (Array.isArray(book.pages) && book.pages.some(p => p && typeof p === 'object' && (p.tree || p.panels || p.bubbles))) {
+    return true;
+  }
+  if ((book as any).source === 'creator' || (book as any).source === 'published') {
+    return true;
+  }
+  // Bookshelf comic that is not an external archive stream
+  if (book.isBookshelf && book.fileType === 'comic' && !book.archiveIdentifier) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Recursively extracts all asset panel images from a comic page in reading order.
  * Works with ComicCreator layout trees (SplitNode / PanelNode), panel arrays, or direct page assets.
+ * Respects reading direction (LTR vs RTL) for horizontal splits and panel sequences.
  */
-function extractAssetPanelsFromPage(page: any): string[] {
+function extractAssetPanelsFromPage(page: any, readingDirection: ReadingDirection = 'ltr'): string[] {
   if (!page) return [];
   if (typeof page === 'string') {
     return page.trim() !== '' ? [page] : [];
@@ -117,17 +181,25 @@ function extractAssetPanelsFromPage(page: any): string[] {
         }
       }
     } else if (node.type === 'split') {
+      const isRow = node.dir === 'row' || node.dir === 'h' || node.dir === 'horizontal' || node.direction === 'horizontal';
       const c1 = node.c1 || node.left;
       const c2 = node.c2 || node.right;
-      traverseNode(c1);
-      traverseNode(c2);
+      if (isRow && readingDirection === 'rtl') {
+        // In RTL manga, panels on the right side come before panels on the left side
+        traverseNode(c2);
+        traverseNode(c1);
+      } else {
+        traverseNode(c1);
+        traverseNode(c2);
+      }
     }
   };
 
   if (page.tree) {
     traverseNode(page.tree);
   } else if (Array.isArray(page.panels)) {
-    page.panels.forEach((p: any) => {
+    const list = readingDirection === 'rtl' ? [...page.panels].reverse() : page.panels;
+    list.forEach((p: any) => {
       if (typeof p === 'string') {
         if (p.trim() !== '') panels.push(p);
       } else if (p && typeof p === 'object') {
@@ -144,6 +216,319 @@ function extractAssetPanelsFromPage(page: any): string[] {
 
   return panels;
 }
+
+interface ExtractedComicEpub {
+  isComic: boolean;
+  pages: string[];
+  readingDirection?: ReadingDirection;
+  readingDirectionDetail?: string;
+  cover?: string;
+  totalImages: number;
+}
+
+/**
+ * Inspects and extracts images from an EPUB file.
+ * Handles comic books, manga, and fixed-layout image EPUBs with spine reading order
+ * or natural sorting, ensuring comic EPUBs open seamlessly.
+ */
+async function extractComicFromEpub(fileOrBuffer: File | ArrayBuffer): Promise<ExtractedComicEpub | null> {
+  try {
+    const zip = new JSZip();
+    const loadedZip = await zip.loadAsync(fileOrBuffer);
+
+    // 1. Gather all potential image files
+    const allImageFiles = Object.keys(loadedZip.files).filter(name =>
+      !name.startsWith('__MACOSX') &&
+      !loadedZip.files[name].dir &&
+      name.match(/\.(jpe?g|png|webp|gif|avif)$/i)
+    );
+
+    if (allImageFiles.length === 0) {
+      return null;
+    }
+
+    // 2. Try to locate OPF file from META-INF/container.xml
+    let opfPath: string | null = null;
+    const containerFile = loadedZip.file("META-INF/container.xml") ||
+      Object.values(loadedZip.files).find(f => f.name.toLowerCase() === "meta-inf/container.xml");
+    if (containerFile) {
+      try {
+        const containerXml = await containerFile.async("text");
+        const match = containerXml.match(/<rootfile[^>]*full-path=["']([^"']+)["']/i);
+        if (match && match[1]) {
+          opfPath = match[1];
+        }
+      } catch (_) {}
+    }
+
+    if (!opfPath) {
+      opfPath = Object.keys(loadedZip.files).find(n => n.toLowerCase().endsWith('.opf')) || null;
+    }
+
+    let orderedImagePaths: string[] = [];
+    let detectedDirection: ReadingDirection | undefined = undefined;
+    let detectedDirectionDetail: string | undefined = undefined;
+    let totalTextChars = 0;
+    let totalXhtmlFiles = 0;
+    let spineImagesCount = 0;
+    let totalSpineItems = 0;
+
+    const opfDir = opfPath && opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+
+    const resolveZipPath = (baseDir: string, relativeHref: string): string => {
+      let cleanHref = decodeURIComponent(relativeHref.split('#')[0].split('?')[0]);
+      const combined = (baseDir ? baseDir : '') + cleanHref;
+      const parts = combined.split('/');
+      const resolved: string[] = [];
+      for (const part of parts) {
+        if (part === '.' || part === '') continue;
+        if (part === '..') {
+          resolved.pop();
+        } else {
+          resolved.push(part);
+        }
+      }
+      return resolved.join('/');
+    };
+
+    const opfFile = opfPath ? (loadedZip.file(opfPath) || Object.values(loadedZip.files).find(f => f.name.toLowerCase() === opfPath!.toLowerCase())) : null;
+
+    if (opfFile) {
+      try {
+        const opfText = await opfFile.async("text");
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(opfText, "application/xml");
+
+        // Check reading direction from spine: page-progression-direction="rtl"
+        const spineEl = xmlDoc.querySelector("spine");
+        if (spineEl) {
+          const ppd = spineEl.getAttribute("page-progression-direction");
+          if (ppd === "rtl") {
+            detectedDirection = "rtl";
+            detectedDirectionDetail = "EPUB spine (page-progression-direction: rtl)";
+          } else if (ppd === "ltr") {
+            detectedDirection = "ltr";
+            detectedDirectionDetail = "EPUB spine (page-progression-direction: ltr)";
+          }
+        }
+
+        // Build manifest map: id -> { path, mediaType }
+        const manifestItems = xmlDoc.querySelectorAll("manifest > item");
+        const manifestMap = new Map<string, { path: string; mediaType: string }>();
+        manifestItems.forEach(item => {
+          const id = item.getAttribute("id");
+          const href = item.getAttribute("href");
+          const mediaType = item.getAttribute("media-type") || "";
+          if (id && href) {
+            manifestMap.set(id, {
+              path: resolveZipPath(opfDir, href),
+              mediaType: mediaType.toLowerCase()
+            });
+          }
+        });
+
+        // Walk spine itemrefs in reading order
+        const itemrefs = xmlDoc.querySelectorAll("spine > itemref");
+        totalSpineItems = itemrefs.length;
+        for (let i = 0; i < itemrefs.length; i++) {
+          const idref = itemrefs[i].getAttribute("idref");
+          if (!idref) continue;
+          const manifestItem = manifestMap.get(idref);
+          if (!manifestItem) continue;
+
+          if (manifestItem.mediaType.startsWith("image/")) {
+            orderedImagePaths.push(manifestItem.path);
+            spineImagesCount++;
+          } else if (
+            manifestItem.mediaType.includes("xhtml") ||
+            manifestItem.mediaType.includes("html") ||
+            manifestItem.mediaType.includes("xml")
+          ) {
+            const zipEntry = loadedZip.file(manifestItem.path) ||
+              Object.values(loadedZip.files).find(f => f.name.toLowerCase() === manifestItem.path.toLowerCase());
+            if (zipEntry) {
+              const htmlContent = await zipEntry.async("text");
+              const plainText = htmlContent.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+              totalTextChars += plainText.length;
+              totalXhtmlFiles++;
+
+              // Look for <img> or SVG <image> tag
+              const imgMatch = htmlContent.match(/<(?:img|image)[^>]*(?:src|href|xlink:href)=["']([^"']+)["']/i);
+              if (imgMatch && imgMatch[1]) {
+                const xhtmlDir = manifestItem.path.includes("/") ? manifestItem.path.substring(0, manifestItem.path.lastIndexOf("/") + 1) : "";
+                const imgPath = resolveZipPath(xhtmlDir, imgMatch[1]);
+                orderedImagePaths.push(imgPath);
+                spineImagesCount++;
+              }
+            }
+          }
+        }
+      } catch (xmlErr) {
+        console.warn("[Read] Failed to parse EPUB OPF:", xmlErr);
+      }
+    }
+
+    // Match file paths in zip (case-insensitive)
+    const findMatchingZipKey = (pathStr: string) => {
+      if (loadedZip.files[pathStr]) return pathStr;
+      const lower = pathStr.toLowerCase();
+      return Object.keys(loadedZip.files).find(k => k.toLowerCase() === lower);
+    };
+
+    let finalImageFiles = orderedImagePaths
+      .map(findMatchingZipKey)
+      .filter((p): p is string => Boolean(p));
+
+    // Fallback: If spine extraction yielded fewer than 2 images, but allImageFiles has images,
+    // use natural sort of all images (matching Convert)
+    if (finalImageFiles.length === 0 || (finalImageFiles.length === 1 && allImageFiles.length > 2)) {
+      finalImageFiles = [...allImageFiles].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      );
+    }
+
+    // Deduplicate
+    finalImageFiles = Array.from(new Set(finalImageFiles));
+
+    // Decision: Is this a Comic EPUB?
+    const avgTextPerHtml = totalXhtmlFiles > 0 ? (totalTextChars / totalXhtmlFiles) : 0;
+    const isComic = finalImageFiles.length >= 2 && (
+      totalXhtmlFiles === 0 ||
+      avgTextPerHtml < 500 ||
+      (totalTextChars < 8000 && finalImageFiles.length >= 2) ||
+      (totalSpineItems > 0 && spineImagesCount / totalSpineItems >= 0.5)
+    );
+
+    if (isComic && finalImageFiles.length > 0) {
+      const pageBlobs = await Promise.all(
+        finalImageFiles.map(async imgPath => {
+          const blob = await loadedZip.files[imgPath].async("blob");
+          return URL.createObjectURL(blob);
+        })
+      );
+
+      return {
+        isComic: true,
+        pages: pageBlobs,
+        readingDirection: detectedDirection,
+        readingDirectionDetail: detectedDirectionDetail,
+        cover: pageBlobs[0],
+        totalImages: pageBlobs.length,
+      };
+    }
+
+    return {
+      isComic: false,
+      pages: [],
+      readingDirection: detectedDirection,
+      readingDirectionDetail: detectedDirectionDetail,
+      totalImages: finalImageFiles.length,
+    };
+  } catch (err) {
+    console.error("[Read] Error checking comic EPUB:", err);
+    return null;
+  }
+}
+
+interface RecentBookCardProps {
+  book: RecentBookMetadata;
+  onOpen: (book: RecentBookMetadata) => void;
+  onDelete: (e: React.MouseEvent, id: string) => void;
+  t: (key: string) => string;
+}
+
+const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete, t }) => {
+  const [imgError, setImgError] = useState(false);
+
+  const cleanArchiveId = book.id?.startsWith('archive-')
+    ? book.id.replace(/^archive-/, '')
+    : (book as any).identifier || null;
+
+  const rawCover = typeof book.cover === 'string' ? book.cover : '';
+  const hasValidCover = !imgError && rawCover && 
+    (rawCover.startsWith('data:') || rawCover.startsWith('http') || rawCover.startsWith('blob:') || rawCover.startsWith('/')) &&
+    !rawCover.includes('placehold.co') &&
+    !rawCover.includes('archive.org/services/img');
+
+  const effectiveRecentCover = hasValidCover
+    ? rawCover
+    : (!imgError && cleanArchiveId)
+    ? `https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`
+    : null;
+
+  return (
+    <div 
+      onClick={() => onOpen(book)}
+      className="group relative flex flex-col bg-card hover:bg-accent/35 border border-border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md w-full select-none m-0 p-0"
+    >
+      {/* Cover Preview: Auto-resize by natural cover aspect ratio with zero blank margins */}
+      {effectiveRecentCover && !imgError ? (
+        <div className="relative w-full overflow-hidden border-b bg-card block m-0 p-0 leading-none text-[0px]">
+          <img 
+            src={effectiveRecentCover} 
+            alt={book.title}
+            onError={() => setImgError(true)}
+            className="w-full h-auto block m-0 p-0 object-cover transition-transform duration-300 group-hover:scale-105"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+            </div>
+          </div>
+          <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[8px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none leading-normal">
+            {book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType}
+          </span>
+        </div>
+      ) : (
+        // Standard 3:4 layout if no cover or if cover image failed to load (preserves card height)
+        <div className="relative w-full aspect-[3/4] min-h-[140px] bg-card overflow-hidden flex flex-col justify-between border-b p-2 sm:p-2.5 select-none text-left">
+          <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
+            <span className="text-[7px] font-mono uppercase font-bold text-muted-foreground">Page 1</span>
+            <span className="text-[7px] font-mono text-primary font-bold uppercase">{book.fileType}</span>
+          </div>
+          <div className="my-auto space-y-0.5 py-0.5">
+            <h5 className="text-[10px] font-serif font-bold text-foreground line-clamp-2 leading-tight">
+              {book.title}
+            </h5>
+            <p className="text-[8px] text-muted-foreground italic font-serif truncate">
+              {book.author === "Local File" ? t("localFile") : book.author}
+            </p>
+          </div>
+          <div className="text-[6px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
+            Offline Document
+          </div>
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Book Metadata: Line 1 Title (contain delete), Line 2 Author */}
+      <div className="p-1.5 flex flex-col w-full min-w-0 bg-card">
+        <div className="flex items-center justify-between gap-1 w-full min-w-0">
+          <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={book.title}>
+            {book.title}
+          </h4>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => onDelete(e, book.id)}
+            className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer"
+            title="Remove from history"
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5" title={book.author === "Local File" ? t("localFile") : book.author}>
+          {book.author === "Local File" ? t("localFile") : book.author}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, onFullscreenChange }) => {
   const { t } = useLanguage();
@@ -286,23 +671,107 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     }
   }, [selectedBook, currentPage, location]);
 
+  const handleRecoverEpubAsComic = async () => {
+    if (!selectedBook) return;
+    try {
+      const buf = selectedBook.fileBuffer || (selectedBook.file ? await selectedBook.file.arrayBuffer() : null);
+      if (!buf) {
+        toast.error("No file buffer available to extract.");
+        return;
+      }
+      toast.info("Extracting comic pages from EPUB...");
+      const comicRes = await extractComicFromEpub(buf);
+      if (comicRes && comicRes.pages.length > 0) {
+        setSelectedBook(prev => prev ? {
+          ...prev,
+          fileType: 'images',
+          pages: comicRes.pages,
+          cover: comicRes.cover || prev.cover,
+          readingDirection: comicRes.readingDirection || prev.readingDirection,
+          readingDirectionInfo: comicRes.readingDirectionDetail || prev.readingDirectionInfo
+        } : null);
+        if (comicRes.readingDirection) {
+          setReadingDirection(comicRes.readingDirection);
+        }
+        setCurrentPage(0);
+        toast.success(`Loaded ${comicRes.pages.length} comic pages!`);
+      } else {
+        toast.error("No comic pages found in this EPUB archive.");
+      }
+    } catch (e) {
+      console.error("[Read] Failed to extract comic from EPUB:", e);
+      toast.error("Failed to extract comic pages from EPUB.");
+    }
+  };
+
   const handleOpenRecent = async (meta: RecentBookMetadata) => {
     try {
       const fullBook = await getFullBookFile(meta.id);
       if (fullBook) {
+        let resolvedPages = Array.isArray(fullBook.pages) && fullBook.pages.length > 0 ? fullBook.pages : [fullBook.cover];
+        let resolvedFileType = fullBook.fileType;
+        let resolvedDirection = fullBook.readingDirection;
+        let resolvedDirectionInfo = fullBook.readingDirectionInfo;
+
+        // If stored file/fileBuffer exists, re-extract pages for comic EPUBs, ZIPs, or when pages were purged
+        const buf = fullBook.fileBuffer || (fullBook.file ? await fullBook.file.arrayBuffer() : null);
+        if (buf) {
+          const isEpubLike = fullBook.fileType === 'epub' || fullBook.title?.toLowerCase().endsWith('.epub');
+          const isZipLike = fullBook.title?.toLowerCase().endsWith('.zip') || fullBook.title?.toLowerCase().endsWith('.cbz') || fullBook.title?.toLowerCase().endsWith('.cbr');
+
+          if (isEpubLike || fullBook.fileType === 'images' || fullBook.fileType === 'comic') {
+            try {
+              const comicRes = await extractComicFromEpub(buf);
+              if (comicRes && comicRes.isComic && comicRes.pages.length > 0) {
+                resolvedPages = comicRes.pages;
+                resolvedFileType = 'images';
+                if (comicRes.readingDirection) {
+                  resolvedDirection = comicRes.readingDirection;
+                  resolvedDirectionInfo = comicRes.readingDirectionDetail;
+                }
+              }
+            } catch (err) {
+              console.warn("[Read] Could not re-extract comic from EPUB buffer:", err);
+            }
+          } else if (isZipLike) {
+            try {
+              const zip = new JSZip();
+              const loadedZip = await zip.loadAsync(buf);
+              const imageFiles = Object.keys(loadedZip.files)
+                .filter(name => !name.startsWith('__MACOSX') && !loadedZip.files[name].dir && name.match(/\.(jpe?g|png|webp|gif|avif)$/i))
+                .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+              if (imageFiles.length > 0) {
+                resolvedPages = await Promise.all(imageFiles.map(async name => {
+                  const blob = await loadedZip.files[name].async("blob");
+                  return URL.createObjectURL(blob);
+                }));
+                resolvedFileType = 'images';
+              }
+            } catch (err) {
+              console.warn("[Read] Could not re-extract images from archive buffer:", err);
+            }
+          }
+        }
+
         setSelectedBook({
           id: fullBook.id,
           title: fullBook.title,
           author: fullBook.author || 'Local File',
-          cover: fullBook.cover,
+          cover: resolvedPages[0] || fullBook.cover,
           chapters: 1,
           rating: 0,
-          pages: fullBook.pages && fullBook.pages.length > 0 ? fullBook.pages : [fullBook.cover],
-          fileType: fullBook.fileType,
+          pages: resolvedPages,
+          fileType: resolvedFileType,
           file: fullBook.file,
-          fileBuffer: fullBook.fileBuffer
+          fileBuffer: fullBook.fileBuffer || buf,
+          readingDirection: resolvedDirection,
+          readingDirectionInfo: resolvedDirectionInfo
         });
-        setCurrentPage(fullBook.lastReadPage || 0);
+        if (resolvedDirection) {
+          setReadingDirection(resolvedDirection);
+        }
+        const targetPage = typeof fullBook.lastReadPage === 'number' ? fullBook.lastReadPage : 0;
+        setCurrentPage(Math.max(0, Math.min(targetPage, resolvedPages.length > 0 ? resolvedPages.length - 1 : targetPage)));
         setLocation(fullBook.lastReadLocation || 0);
         toast.success(`Resumed reading: ${fullBook.title}`);
       } else {
@@ -471,12 +940,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     pagesToPreload.forEach((idx) => {
       if (idx >= 0 && idx < selectedBook.pages.length) {
         const page = selectedBook.pages[idx];
-        const imgUrl = typeof page === 'string' 
-          ? page 
-          : (page?.image || page?.imageUrl || page?.cover || page?.url);
-        if (imgUrl && typeof imgUrl === 'string' && imgUrl.startsWith('http')) {
-          const img = new Image();
-          img.src = imgUrl;
+        const pageUrl = getPageImageUrl(page);
+        if (pageUrl && typeof pageUrl === 'string' && pageUrl.startsWith('http')) {
+          fetchCleanImageBlobUrl(pageUrl).catch(() => {});
         }
       }
     });
@@ -497,13 +963,169 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontFamily, setFontFamily] = useState('font-serif');
   const [fontSize, setFontSize] = useState<number>(18);
+  const [textAlign, setTextAlign] = useState('text-left');
+
+  const applyEpubThemeStylesRef = React.useRef<((contents: any) => void) | null>(null);
+
+  const applyEpubThemeStyles = React.useCallback((contents: any) => {
+    if (!contents) return;
+    const doc = contents.document;
+    if (!doc) return;
+
+    const isDark = (theme === 'dark') || 
+                   (theme === 'system' && (resolvedTheme === 'dark' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches))) ||
+                   (!theme && resolvedTheme === 'dark');
+
+    const textColor = isDark ? '#f4f4f5' : '#18181b';
+    const linkColor = isDark ? '#60a5fa' : '#2563eb';
+    const borderColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)';
+
+    // 1. Ensure iframe element is 100% transparent and allows transparency
+    try {
+      const iframe = contents.content || (doc.defaultView?.frameElement as HTMLIFrameElement | null);
+      if (iframe) {
+        iframe.style.setProperty('background', 'transparent', 'important');
+        iframe.style.setProperty('background-color', 'transparent', 'important');
+        iframe.setAttribute('allowtransparency', 'true');
+      }
+    } catch (e) {}
+
+    // 2. Clear out any inline backgrounds or hardcoded colors immediately
+    if (doc.documentElement) {
+      doc.documentElement.style.setProperty('background', 'transparent', 'important');
+      doc.documentElement.style.setProperty('background-color', 'transparent', 'important');
+      doc.documentElement.style.setProperty('color', textColor, 'important');
+      doc.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    }
+    if (doc.body) {
+      doc.body.style.setProperty('background', 'transparent', 'important');
+      doc.body.style.setProperty('background-color', 'transparent', 'important');
+      doc.body.style.setProperty('color', textColor, 'important');
+      doc.body.removeAttribute('bgcolor');
+    }
+
+    // 3. Remove any previous custom style tag to ensure a complete fresh CSS parse
+    try {
+      const oldStyles = doc.querySelectorAll('#custom-epub-override-style');
+      oldStyles.forEach((el: Element) => el.remove());
+    } catch (e) {}
+
+    const fontFam = fontFamily === 'font-sans' 
+      ? '"Inter", ui-sans-serif, system-ui, sans-serif' 
+      : fontFamily === 'font-mono' 
+      ? '"JetBrains Mono", ui-monospace, monospace' 
+      : 'Georgia, Cambria, "Times New Roman", Times, serif';
+
+    const cssTextAlign = textAlign === 'text-center' ? 'center' : textAlign === 'text-justify' ? 'justify' : 'left';
+
+    const styleEl = doc.createElement('style');
+    styleEl.id = 'custom-epub-override-style';
+    styleEl.textContent = `
+      *, *::before, *::after {
+        background: transparent !important;
+        background-color: transparent !important;
+        background-image: none !important;
+      }
+      html, body {
+        background: transparent !important;
+        background-color: transparent !important;
+        background-image: none !important;
+        color: ${textColor} !important;
+        font-family: ${fontFam} !important;
+        font-size: ${fontSize}px !important;
+        text-align: ${cssTextAlign} !important;
+      }
+      body, p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote, em, strong, b, i, small, dd, dt, th, td, pre, code {
+        color: ${textColor} !important;
+      }
+      a {
+        color: ${linkColor} !important;
+      }
+      hr {
+        border-color: ${borderColor} !important;
+      }
+      img, svg {
+        max-width: 100% !important;
+        height: auto !important;
+      }
+    `;
+
+    // Append to body and head to guarantee final cascading order over any EPUB internal stylesheets
+    if (doc.head) {
+      doc.head.appendChild(styleEl);
+    } else if (doc.body) {
+      doc.body.appendChild(styleEl);
+    } else if (doc.documentElement) {
+      doc.documentElement.appendChild(styleEl);
+    }
+  }, [theme, resolvedTheme, fontSize, fontFamily, textAlign]);
+
+  useEffect(() => {
+    applyEpubThemeStylesRef.current = applyEpubThemeStyles;
+  }, [applyEpubThemeStyles]);
 
   React.useEffect(() => {
-    if (renditionRef.current) {
-      const isDark = (resolvedTheme || theme) === 'dark';
-      try { renditionRef.current.themes.select(isDark ? 'dark' : 'light'); } catch(e) {}
-    }
-  }, [theme, resolvedTheme]);
+    const isDark = (theme === 'dark') || 
+                   (theme === 'system' && (resolvedTheme === 'dark' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches))) ||
+                   (!theme && resolvedTheme === 'dark');
+
+    const textColor = isDark ? '#f4f4f5' : '#18181b';
+
+    const updateAllEpubViews = () => {
+      if (renditionRef.current) {
+        try { renditionRef.current.themes.select(isDark ? 'dark' : 'light'); } catch(e) {}
+        try { renditionRef.current.themes.fontSize(`${fontSize}px`); } catch(e) {}
+        try { renditionRef.current.themes.override('color', textColor, 'important'); } catch(e) {}
+        try { renditionRef.current.themes.override('background', 'transparent', 'important'); } catch(e) {}
+        try { renditionRef.current.themes.override('background-color', 'transparent', 'important'); } catch(e) {}
+
+        // Re-apply to all currently active contents
+        try {
+          const contentsList = renditionRef.current.getContents ? renditionRef.current.getContents() : [];
+          if (Array.isArray(contentsList)) {
+            contentsList.forEach((contents: any) => {
+              applyEpubThemeStyles(contents);
+            });
+          }
+        } catch (e) {}
+
+        // Re-apply to all active rendition views
+        try {
+          if (renditionRef.current.views) {
+            const views = renditionRef.current.views();
+            if (Array.isArray(views)) {
+              views.forEach((v: any) => {
+                if (v && v.document) {
+                  applyEpubThemeStyles({ document: v.document, content: v.iframe });
+                }
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Direct DOM inspection for all EPUB iframes in the document
+      const iframes = document.querySelectorAll<HTMLIFrameElement>('.reader-epub-container iframe');
+      iframes.forEach(iframe => {
+        try {
+          if (iframe.contentDocument) {
+            applyEpubThemeStyles({ document: iframe.contentDocument, content: iframe });
+          }
+        } catch (e) {}
+      });
+    };
+
+    updateAllEpubViews();
+    const raf = requestAnimationFrame(updateAllEpubViews);
+    const timer1 = setTimeout(updateAllEpubViews, 50);
+    const timer2 = setTimeout(updateAllEpubViews, 150);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [theme, resolvedTheme, fontSize, fontFamily, textAlign, applyEpubThemeStyles]);
 
   const lockedEpubCfiRef = React.useRef<string | null>(null);
 
@@ -543,7 +1165,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       } catch(e) {}
     }
   }, [fontSize, containerSize.width, containerSize.height]);
-  const [textAlign, setTextAlign] = useState('text-left');
   
   const [cropBorders, setCropBorders] = useState(false);
   const [gridView, setGridView] = useState(false);
@@ -591,129 +1212,185 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     return () => { isActive = false; };
   }, [selectedBook?.id, selectedBook?.title]);
 
-  // Clear panels cache when readingDirection changes so panels are re-sorted according to the new direction
-  useEffect(() => {
-    setPanelsCache({});
-  }, [readingDirection]);
-
+  // Adjust panels cache when readingDirection changes so panel order aligns with direction
+  // WITHOUT wiping away already detected YOLO panels or forcing re-computation
   useEffect(() => {
     if (!selectedBook) return;
-    if (isBookshelfComic(selectedBook)) {
+    setPanelsCache(prev => {
+      const nextCache: Record<number, string[]> = {};
+      const isCreator = isPublishedCreatorWork(selectedBook);
+
+      selectedBook.pages.forEach((page, idx) => {
+        if (isCreator) {
+          const pre = extractAssetPanelsFromPage(page, readingDirection);
+          if (pre.length > 0) nextCache[idx] = pre;
+        } else if (prev[idx] && prev[idx].length > 1) {
+          // Reverse existing panel order to match the new reading direction
+          nextCache[idx] = [...prev[idx]].reverse();
+        } else if (prev[idx]) {
+          nextCache[idx] = prev[idx];
+        }
+      });
+      return nextCache;
+    });
+  }, [readingDirection]);
+
+  // Initial load of creator panels when selectedBook changes
+  useEffect(() => {
+    if (!selectedBook) return;
+    if (isPublishedCreatorWork(selectedBook) || isBookshelfComic(selectedBook)) {
       const newCache: Record<number, string[]> = {};
       selectedBook.pages.forEach((page, idx) => {
-        const panels = extractAssetPanelsFromPage(page);
+        const panels = extractAssetPanelsFromPage(page, readingDirection);
         if (panels.length > 0) {
           newCache[idx] = panels;
-        } else if (page && typeof page === 'object' && (page.cover || page.imageUrl)) {
-          newCache[idx] = [page.cover || page.imageUrl];
         }
       });
       setPanelsCache(newCache);
+    } else {
+      setPanelsCache({});
     }
-  }, [selectedBook]);
+    setCroppedCache({});
+  }, [selectedBook?.id]);
 
   useEffect(() => {
-    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text' || isBookshelfComic(selectedBook)) return;
+    if (!selectedBook || selectedBook.fileType === 'pdf' || selectedBook.fileType === 'epub' || selectedBook.fileType === 'text') return;
     
     let isActive = true;
 
     const processPageInBg = async (idx: number) => {
-      if (!isActive) return;
+      if (!isActive || !selectedBook) return;
       const rawPage = selectedBook.pages[idx];
-      if (!rawPage || typeof rawPage !== 'string') return;
+      const pageUrl = getPageImageUrl(rawPage);
+      if (!pageUrl) return;
 
       let croppedData: string | null = null;
       let panelsData: string[] | null = null;
 
+      // 1. Fetch clean, CORS-safe local blob URL for external library or remote images
+      let cleanSourceUrl = pageUrl;
+      if (pageUrl.startsWith('http://') || pageUrl.startsWith('https://')) {
+        cleanSourceUrl = await fetchCleanImageBlobUrl(pageUrl);
+        if (!isActive) return;
+      }
+
+      // 2. Crop borders if cropBorders is enabled
       if (cropBorders && !croppedCache[idx]) {
         try {
           if (!isActive) return;
-          const res = await autoCropImageBorders(selectedBook.pages[idx]);
+          const res = await autoCropImageBorders(cleanSourceUrl);
           if (!isActive) return;
-          if (res) {
+          if (res && res.url) {
              croppedData = res.url;
           }
-        } catch(e) {}
+        } catch(e) {
+          console.warn('[Read] autoCropImageBorders error:', e);
+        }
       }
 
-      if (gridView && !panelsCache[idx]) {
-        try {
-          if (!isActive || !gridView) return;
-          const imgToProcess = croppedData || (croppedCache[idx] ? croppedCache[idx] : selectedBook.pages[idx]);
-          
-          const base64Source = await new Promise<string>((resolve) => {
-              if (imgToProcess.startsWith('data:')) return resolve(imgToProcess);
-              const img = new Image();
-              if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
-                  img.crossOrigin = 'Anonymous';
-              }
-              img.onload = () => {
-                  if (!isActive || !gridView) return;
-                  const canvas = document.createElement('canvas');
-                  canvas.width = img.width;
-                  canvas.height = img.height;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) {
-                      ctx.drawImage(img, 0, 0);
-                      resolve(canvas.toDataURL('image/jpeg', 0.95));
-                  } else {
-                      resolve(imgToProcess);
-                  }
-              };
-              img.onerror = () => resolve(imgToProcess);
-              img.src = imgToProcess;
-          });
+      // 3. Split panels if gridView (Split Panels) is enabled
+      const isCreatorWork = isPublishedCreatorWork(selectedBook);
+      const creatorPanels = (isCreatorWork || isBookshelfComic(selectedBook)) 
+        ? extractAssetPanelsFromPage(rawPage, readingDirection) 
+        : [];
+      const hasPreAuthoredPanels = creatorPanels.length > 0;
 
-          if (!isActive || !gridView) return;
-          const layoutResult = await runPredictAPI(base64Source);
-          if (!isActive || !gridView) return;
-          let regions = layoutResult?.panels || [];
-          
-          if (regions.length > 0) {
-              regions = [...regions].sort((a: any, b: any) => {
-                  const boxA = a.box_2d || a;
-                  const boxB = b.box_2d || b;
-                  const yDiff = boxA[0] - boxB[0];
-                  if (Math.abs(yDiff) < 50) return readingDirection === 'rtl' ? boxB[1] - boxA[1] : boxA[1] - boxB[1];
-                  return yDiff;
-              });
-              
-              if (!isActive || !gridView) return;
-              const base64Panels = await new Promise<string[]>((resolve) => {
-                 const img = new Image();
-                 img.src = imgToProcess;
-                 if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
-                     img.crossOrigin = 'Anonymous';
-                 }
-                 img.onload = () => {
-                     if (!isActive || !gridView) return resolve([imgToProcess]);
-                     const canvas = document.createElement('canvas');
-                     const ctx = canvas.getContext('2d');
-                     if (!ctx) return resolve([imgToProcess]);
-                     
-                     const extracted = regions.map((p: any) => {
-                         const box = p.box_2d || p;
-                         const [ymin, xmin, ymax, xmax] = box;
-                         const y = (ymin / 1000) * img.height;
-                         const x = (xmin / 1000) * img.width;
-                         const h = ((ymax - ymin) / 1000) * img.height;
-                         const w = ((xmax - xmin) / 1000) * img.width;
-                         canvas.width = w;
-                         canvas.height = h;
-                         ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-                         return canvas.toDataURL('image/jpeg', 0.95);
-                     });
-                     resolve(extracted);
-                 };
-                 img.onerror = () => resolve([imgToProcess]);
-              });
-              
-              if (!isActive || !gridView) return;
-              panelsData = base64Panels;
-          } else {
-              panelsData = [imgToProcess];
+      if (gridView && !panelsCache[idx]) {
+        if (isCreatorWork || hasPreAuthoredPanels) {
+          // Published works created with CREATE tool ALREADY have pre-authored panels!
+          // NEVER call the YOLO model (runPredictAPI) for published works!
+          panelsData = creatorPanels.length > 0 ? creatorPanels : [cleanSourceUrl];
+        } else {
+          try {
+            if (!isActive || !gridView) return;
+            const imgToProcess = croppedData || (cropBorders && croppedCache[idx] ? croppedCache[idx] : cleanSourceUrl);
+            
+            const base64Source = await new Promise<string>((resolve) => {
+                if (imgToProcess.startsWith('data:')) return resolve(imgToProcess);
+                const img = new Image();
+                if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
+                    img.crossOrigin = 'Anonymous';
+                }
+                img.onload = () => {
+                    if (!isActive || !gridView) return;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(img, 0, 0);
+                        try {
+                          resolve(canvas.toDataURL('image/jpeg', 0.95));
+                        } catch (taintErr) {
+                          console.warn('[Read] Canvas export error, using source:', taintErr);
+                          resolve(imgToProcess);
+                        }
+                    } else {
+                        resolve(imgToProcess);
+                    }
+                };
+                img.onerror = () => resolve(imgToProcess);
+                img.src = imgToProcess;
+            });
+
+            if (!isActive || !gridView) return;
+            const layoutResult = await runPredictAPI(base64Source);
+            if (!isActive || !gridView) return;
+            let regions = layoutResult?.panels || [];
+            
+            if (regions.length > 0) {
+                regions = [...regions].sort((a: any, b: any) => {
+                    const boxA = a.box_2d || a;
+                    const boxB = b.box_2d || b;
+                    const yDiff = boxA[0] - boxB[0];
+                    if (Math.abs(yDiff) < 50) return readingDirection === 'rtl' ? boxB[1] - boxA[1] : boxA[1] - boxB[1];
+                    return yDiff;
+                });
+                
+                if (!isActive || !gridView) return;
+                const base64Panels = await new Promise<string[]>((resolve) => {
+                   const img = new Image();
+                   if (imgToProcess && !imgToProcess.startsWith('blob:') && !imgToProcess.startsWith('data:')) {
+                       img.crossOrigin = 'Anonymous';
+                   }
+                   img.onload = () => {
+                       if (!isActive || !gridView) return resolve([imgToProcess]);
+                       const canvas = document.createElement('canvas');
+                       const ctx = canvas.getContext('2d');
+                       if (!ctx) return resolve([imgToProcess]);
+                       
+                       try {
+                         const extracted = regions.map((p: any) => {
+                             const box = p.box_2d || p;
+                             const [ymin, xmin, ymax, xmax] = box;
+                             const y = (ymin / 1000) * img.height;
+                             const x = (xmin / 1000) * img.width;
+                             const h = ((ymax - ymin) / 1000) * img.height;
+                             const w = ((xmax - xmin) / 1000) * img.width;
+                             canvas.width = Math.max(1, Math.round(w));
+                             canvas.height = Math.max(1, Math.round(h));
+                             ctx.drawImage(img, x, y, w, h, 0, 0, canvas.width, canvas.height);
+                             return canvas.toDataURL('image/jpeg', 0.95);
+                         });
+                         resolve(extracted);
+                       } catch (e) {
+                         console.warn('[Read] Panel extraction error:', e);
+                         resolve([imgToProcess]);
+                       }
+                   };
+                   img.onerror = () => resolve([imgToProcess]);
+                   img.src = imgToProcess;
+                });
+                
+                if (!isActive || !gridView) return;
+                panelsData = base64Panels;
+            } else {
+                panelsData = hasPreAuthoredPanels ? creatorPanels : [imgToProcess];
+            }
+          } catch(e) {
+            console.warn('[Read] Panel detection error:', e);
           }
-        } catch(e) {}
+        }
       }
 
       if (isActive) {
@@ -752,7 +1429,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
   // Notify user when they navigate to a page that hasn't finished layout detection yet
   useEffect(() => {
-    if (selectedBook && !isBookshelfComic(selectedBook) && gridView && !panelsCache[currentPage]) {
+    if (selectedBook && selectedBook.fileType !== 'text' && selectedBook.fileType !== 'pdf' && selectedBook.fileType !== 'epub' && gridView && !panelsCache[currentPage]) {
       toast.info(`Page ${currentPage + 1} layout detection is in progress... Panels will render automatically when complete.`, {
         id: `grid-loading-${currentPage}`
       });
@@ -769,8 +1446,27 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     return () => observer.disconnect();
   }, [selectedBook?.fileType, isFullscreen]);
 
-  // Lock page view aspect ratio: Height / Width = 4 / 3 (Width / Height = 3 / 4)
-  const PAGE_ASPECT_RATIO = 3 / 4;
+  // Derived book layout type: Reflow text book (EPUB / Text) vs Image book (Comics / Scanned / Manga)
+  const isReflowTextBook = Boolean(
+    selectedBook && (
+      selectedBook.fileType === 'text' || 
+      selectedBook.fileType === 'docx' ||
+      (selectedBook.fileType === 'epub' && (!selectedBook.pages || selectedBook.pages.length === 0))
+    )
+  );
+  const isImageBook = Boolean(selectedBook && !isReflowTextBook);
+
+  // DOCX and PDF files require locked page view layout (h/w = 4/3, w/h = 3/4)
+  const isPagedDoc = Boolean(
+    selectedBook && (
+      selectedBook.fileType === 'pdf' || 
+      selectedBook.fileType === 'docx' ||
+      (selectedBook.fileType === 'text' && selectedBook.title?.toLowerCase().endsWith('.docx'))
+    )
+  );
+
+  const PAGE_ASPECT_RATIO = 3 / 4; // Width / Height = 3 / 4 (Height / Width = 4 / 3)
+
   const pageDimensions = useMemo(() => {
     const containerW = containerSize.width || 0;
     const containerH = containerSize.height || 0;
@@ -778,18 +1474,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       return { width: 0, height: 0 };
     }
 
-    if (containerW / containerH > PAGE_ASPECT_RATIO) {
-      // Height is limiting factor
-      const h = containerH;
-      const w = Math.round(h * PAGE_ASPECT_RATIO);
-      return { width: w, height: h };
-    } else {
-      // Width is limiting factor
-      const w = containerW;
-      const h = Math.round(w / PAGE_ASPECT_RATIO);
-      return { width: w, height: h };
+    if (isPagedDoc) {
+      if (containerW / containerH > PAGE_ASPECT_RATIO) {
+        // Height is limiting factor
+        const h = containerH;
+        const w = Math.round(h * PAGE_ASPECT_RATIO);
+        return { width: w, height: h };
+      } else {
+        // Width is limiting factor
+        const w = containerW;
+        const h = Math.round(w / PAGE_ASPECT_RATIO);
+        return { width: w, height: h };
+      }
     }
-  }, [containerSize.width, containerSize.height]);
+
+    return {
+      width: containerW,
+      height: containerH
+    };
+  }, [containerSize.width, containerSize.height, isPagedDoc]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -1224,7 +1927,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
       touchStartRef.current = null;
     },
-    [nextPage, prevPage, toggleFullscreenSafe]
+    [nextPage, prevPage, toggleFullscreenSafe, readingDirection]
   );
 
   const handleLeftClick = useCallback(
@@ -1274,6 +1977,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     let pages: string[] = [];
     let fileType: 'images' | 'epub' | 'pdf' | 'text' = 'images';
     let fileBuffer: ArrayBuffer | undefined = undefined;
+    let detectedDir: ReadingDirection = 'ltr';
+    let detectedDetail = '';
 
     const fileName = file.name.toLowerCase();
     // Generate basic object URL if Image
@@ -1283,7 +1988,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       try {
         const zip = new JSZip();
         const loadedZip = await zip.loadAsync(file);
-        const imageFiles = Object.keys(loadedZip.files).filter(name => name.match(/\.(jpe?g|png|webp|gif)$/i)).sort();
+        const imageFiles = Object.keys(loadedZip.files)
+          .filter(name => !name.startsWith('__MACOSX') && !loadedZip.files[name].dir && name.match(/\.(jpe?g|png|webp|gif|avif)$/i))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         if (imageFiles.length > 0) {
           pages = await Promise.all(imageFiles.map(async name => {
             const blob = await loadedZip.files[name].async("blob");
@@ -1299,13 +2006,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       fileType = 'pdf';
       pages = [`https://placehold.co/800x1200/png?text=Loading+PDF...`];
     } else if (fileName.endsWith('.epub')) {
-      fileType = 'epub';
       try {
         fileBuffer = await file.arrayBuffer();
+        const comicRes = await extractComicFromEpub(fileBuffer);
+        if (comicRes && comicRes.isComic && comicRes.pages.length > 0) {
+          fileType = 'images';
+          pages = comicRes.pages;
+          if (comicRes.readingDirection) {
+            detectedDir = comicRes.readingDirection;
+            detectedDetail = comicRes.readingDirectionDetail || 'Detected from EPUB spine';
+          }
+        } else {
+          fileType = 'epub';
+          pages = [`https://placehold.co/800x1200/png?text=Loading+EPUB...`];
+        }
       } catch (e) {
-        console.error(e);
+        console.error("[Read] Failed to parse EPUB:", e);
+        fileType = 'epub';
+        pages = [`https://placehold.co/800x1200/png?text=Loading+EPUB...`];
       }
-      pages = [`https://placehold.co/800x1200/png?text=Loading+EPUB...`];
     } else if (fileName.endsWith('.txt') || fileName.endsWith('.html') || fileName.endsWith('.htm') || fileName.endsWith('.docx')) {
       fileType = 'text';
       if (fileName.endsWith('.docx')) {
@@ -1328,29 +2047,34 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       pages = [`https://placehold.co/800x1200/png?text=Preview+of+${file.name}`];
     }
 
-    let detectedDir: ReadingDirection = 'ltr';
-    let detectedDetail = '';
-    try {
-      const dirResult = await detectReadingDirectionWaterfall({
-        file,
-        filename: file.name,
-        pages: pages.filter(p => typeof p === 'string')
-      });
-      detectedDir = dirResult.direction;
-      detectedDetail = dirResult.detail;
+    if (!detectedDetail) {
+      try {
+        const dirResult = await detectReadingDirectionWaterfall({
+          file,
+          filename: file.name,
+          pages: pages.filter(p => typeof p === 'string')
+        });
+        detectedDir = dirResult.direction;
+        detectedDetail = dirResult.detail;
+        setReadingDirection(detectedDir);
+        setDirectionInfo(detectedDetail);
+        if (dirResult.strategy !== 'default') {
+          toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
+            id: 'reading-direction-upload-toast'
+          });
+        }
+      } catch (dirErr) {
+        console.warn('[Read] Direction detection on drop failed:', dirErr);
+      }
+    } else {
       setReadingDirection(detectedDir);
       setDirectionInfo(detectedDetail);
-      if (dirResult.strategy !== 'default') {
-        toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
-          id: 'reading-direction-upload-toast'
-        });
-      }
-    } catch (dirErr) {
-      console.warn('[Read] Direction detection on drop failed:', dirErr);
     }
 
+    const fileId = 'local-' + encodeURIComponent(file.name.toLowerCase().trim()) + '-' + file.size;
+
     setSelectedBook({
-      id: 'uploaded-' + Date.now(),
+      id: fileId,
       title: file.name,
       author: 'Local File',
       cover: pages[0], 
@@ -1478,97 +2202,16 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
-                {recentBooks.map((book) => {
-                  const cleanArchiveId = book.id?.startsWith('archive-')
-                    ? book.id.replace(/^archive-/, '')
-                    : (book as any).identifier || null;
-
-                  const rawCover = typeof book.cover === 'string' ? book.cover : '';
-                  const hasValidCover = rawCover && 
-                    (rawCover.startsWith('data:') || rawCover.startsWith('http') || rawCover.startsWith('blob:') || rawCover.startsWith('/')) &&
-                    !rawCover.includes('placehold.co') &&
-                    !rawCover.includes('archive.org/services/img');
-
-                  const effectiveRecentCover = hasValidCover
-                    ? rawCover
-                    : cleanArchiveId
-                    ? `https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`
-                    : null;
-
-                  return (
-                    <Card 
-                      key={book.id} 
-                      onClick={() => handleOpenRecent(book)}
-                      className="group relative flex flex-col bg-card hover:bg-accent/35 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md w-full"
-                    >
-                      {/* Cover Preview: 4/3 Aspect Ratio */}
-                      {effectiveRecentCover ? (
-                        <div className="relative aspect-[3/4] bg-white overflow-hidden flex items-center justify-center border-b">
-                          <img 
-                            src={effectiveRecentCover} 
-                            alt={book.title}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 bg-white"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                            </div>
-                          </div>
-                          <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[8px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none">
-                            {book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType}
-                          </span>
-                        </div>
-                      ) : (
-                        // Display First Page layout on card if no cover image
-                        <div className="relative aspect-[3/4] bg-card overflow-hidden flex flex-col justify-between border-b p-2 sm:p-2.5 select-none text-left">
-                          <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
-                            <span className="text-[7px] font-mono uppercase font-bold text-muted-foreground">Page 1</span>
-                            <span className="text-[7px] font-mono text-primary font-bold uppercase">{book.fileType}</span>
-                          </div>
-                          <div className="my-auto space-y-0.5 py-0.5">
-                            <h5 className="text-[10px] font-serif font-bold text-foreground line-clamp-2 leading-tight">
-                              {book.title}
-                            </h5>
-                            <p className="text-[8px] text-muted-foreground italic font-serif truncate">
-                              {book.author === "Local File" ? t("localFile") : book.author}
-                            </p>
-                          </div>
-                          <div className="text-[6px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
-                            Offline Document
-                          </div>
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Book Metadata: Line 1 Title (contain delete), Line 2 Author */}
-                      <div className="p-1.5 flex flex-col w-full min-w-0">
-                        <div className="flex items-center justify-between gap-1 w-full min-w-0">
-                          <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={book.title}>
-                            {book.title}
-                          </h4>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => handleDeleteRecent(e, book.id)}
-                            className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
-                            title="Remove from history"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5" title={book.author === "Local File" ? t("localFile") : book.author}>
-                          {book.author === "Local File" ? t("localFile") : book.author}
-                        </p>
-                      </div>
-                    </Card>
-                  );
-                })}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full items-end">
+                {recentBooks.map((book) => (
+                  <RecentBookCard
+                    key={book.id}
+                    book={book}
+                    onOpen={handleOpenRecent}
+                    onDelete={handleDeleteRecent}
+                    t={t}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -1577,8 +2220,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">
           {!isFullscreen && (
             <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
-            <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
-              <div className="flex flex-1 items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            <div className="relative w-full px-2 h-11 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 shrink-0 z-10">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1592,12 +2235,28 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <Button variant="ghost" size="sm" onClick={() => setSelectedBook(null)} className="h-8 gap-2 text-xs font-semibold px-3 shrink-0 hover:bg-transparent hover:text-foreground">
                   <ChevronLeft className="w-3.5 h-3.5" /> {t("back")}
                 </Button>
-                <div className="ml-2 hidden sm:block shrink-0 max-w-[200px] md:max-w-[300px]">
-                  <h2 className="text-sm font-bold text-foreground truncate">{selectedBook.title}</h2>
-                </div>
               </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              {/* Centered Book Title on Toolbar - Hidden in Portrait screens */}
+              <div className="absolute left-1/2 -translate-x-1/2 max-w-[28%] sm:max-w-[38%] md:max-w-[48%] lg:max-w-[58%] text-center pointer-events-none z-0 portrait:hidden portrait-hidden hidden landscape:block">
+                <h2 className="text-sm font-bold text-foreground truncate pointer-events-auto select-none" title={selectedBook.title}>
+                  {selectedBook.title}
+                </h2>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0 z-10">
+                {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 px-2.5"
+                    onClick={handleRecoverEpubAsComic}
+                    title="Read this EPUB as Comic (extract image pages)"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Comic View</span>
+                  </Button>
+                )}
                 {selectedBook.fileType !== 'text' && selectedBook.fileType !== 'pdf' && selectedBook.fileType !== 'epub' && (
                    <>
                      <Button 
@@ -2004,18 +2663,26 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 title={readingDirection === 'rtl' ? t("previousPage") : t("nextPage")} 
               />
 
-              {/* Locked Page View Frame with exact 4:3 Height-to-Width Ratio */}
+              {/* Page View Frame: locked 3:4 (h/w=4/3) for DOCX and PDF, full container for EPUB, TXT, HTML, Comics */}
               <div
-                className="relative flex items-center justify-center max-w-full max-h-full transition-all duration-200"
-                style={{
-                  width: pageDimensions.width > 0 ? `${pageDimensions.width}px` : 'auto',
-                  height: pageDimensions.height > 0 ? `${pageDimensions.height}px` : '100%',
-                  aspectRatio: '3 / 4',
-                }}
+                className="relative flex items-center justify-center max-w-full max-h-full p-0 m-0 transition-all duration-200"
+                style={
+                  isPagedDoc ? {
+                    width: pageDimensions.width > 0 ? `${pageDimensions.width}px` : 'auto',
+                    height: pageDimensions.height > 0 ? `${pageDimensions.height}px` : '100%',
+                    aspectRatio: '3 / 4',
+                  } : {
+                    width: '100%',
+                    height: '100%',
+                  }
+                }
               >
-                <div className="relative w-full h-full bg-white dark:bg-zinc-950 overflow-hidden shadow-2xl ring-1 ring-border/40 flex items-center justify-center">
+                <div className={cn(
+                  "relative w-full h-full overflow-hidden flex items-center justify-center bg-transparent",
+                  isPagedDoc && "shadow-2xl ring-1 ring-border/40"
+                )}>
                   {selectedBook.fileType === 'epub' && (selectedBook.streamUrl || selectedBook.fileBuffer || selectedBook.file) ? (
-                    <div className="absolute inset-0 z-0 bg-background">
+                    <div className="absolute inset-0 z-0 bg-transparent reader-epub-container">
                       {isDownloadingEpub && (
                         <div className="absolute inset-0 z-30 bg-background/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center">
                           <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -2023,19 +2690,30 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           <p className="text-xs text-muted-foreground mt-1">Preparing chapters and reader</p>
                         </div>
                       )}
-                      {epubDownloadError && !selectedBook.fileBuffer && (
+                      {epubDownloadError && (
                         <div className="absolute inset-0 z-30 bg-background flex flex-col items-center justify-center p-6 text-center">
                           <BookOpen className="w-10 h-10 text-destructive/70 mb-3" />
-                          <p className="text-sm font-semibold text-foreground">Could not load Gutenberg Book</p>
+                          <p className="text-sm font-semibold text-foreground">Could not load EPUB Book</p>
                           <p className="text-xs text-muted-foreground mt-1 mb-4 max-w-xs">{epubDownloadError}</p>
-                          <Button 
-                            size="sm" 
-                            onClick={() => {
-                              setSelectedBook(prev => prev ? { ...prev, fileBuffer: undefined } : null);
-                            }}
-                          >
-                            Retry Loading
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              size="sm" 
+                              onClick={() => {
+                                setSelectedBook(prev => prev ? { ...prev, fileBuffer: undefined } : null);
+                              }}
+                            >
+                              Retry Loading
+                            </Button>
+                            {(selectedBook.fileBuffer || selectedBook.file) && (
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={handleRecoverEpubAsComic}
+                              >
+                                Open as Comic
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )}
                       <EpubView
@@ -2068,26 +2746,57 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         }}
                         getRendition={(rendition: any) => {
                           renditionRef.current = rendition;
-                          const isDark = (resolvedTheme || theme) === 'dark';
+                          const isDark = (theme === 'dark') || 
+                                         (theme === 'system' && (resolvedTheme === 'dark' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches))) ||
+                                         (!theme && resolvedTheme === 'dark');
+                          const textColor = isDark ? '#f4f4f5' : '#18181b';
                           
                           rendition.themes.register('light', {
                             'html, body': { 'background': 'transparent !important', 'background-color': 'transparent !important' },
-                            'p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote, em, strong, b, i, small': { 'color': '#000000 !important' },
+                            '*, body, p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote, em, strong, b, i, small': { 'color': '#18181b !important' },
                             'img': { 'max-width': '100% !important', 'height': 'auto !important' }
                           });
                           rendition.themes.register('dark', {
                             'html, body': { 'background': 'transparent !important', 'background-color': 'transparent !important' },
-                            'p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote, em, strong, b, i, small': { 'color': '#ffffff !important' },
+                            '*, body, p, span, div, h1, h2, h3, h4, h5, h6, a, li, blockquote, em, strong, b, i, small': { 'color': '#f4f4f5 !important' },
                             'img': { 'max-width': '100% !important', 'height': 'auto !important' }
                           });
                           rendition.themes.select(isDark ? 'dark' : 'light');
+                          rendition.themes.override('color', textColor, 'important');
+                          rendition.themes.override('background', 'transparent', 'important');
+                          rendition.themes.override('background-color', 'transparent', 'important');
                           rendition.themes.fontSize(`${fontSize}px`);
+
+                          // Register content hook to inject theme and transparent background before first paint
+                          rendition.hooks.content.register((contents: any) => {
+                            if (applyEpubThemeStylesRef.current) {
+                              applyEpubThemeStylesRef.current(contents);
+                            } else {
+                              applyEpubThemeStyles(contents);
+                            }
+                          });
+
+                          // Register render hook to ensure iframe is transparent as soon as it is inserted
+                          if (rendition.hooks.render) {
+                            rendition.hooks.render.register((view: any) => {
+                              if (view && view.iframe) {
+                                view.iframe.style.setProperty('background', 'transparent', 'important');
+                                view.iframe.style.setProperty('background-color', 'transparent', 'important');
+                                view.iframe.setAttribute('allowtransparency', 'true');
+                              }
+                            });
+                          }
                           
                           rendition.on('relocated', (location: any) => {
                             if (rendition.book.locations.length()) {
                               setEpubCurrentPage(location.start.location);
                               setEpubTotalPages(rendition.book.locations.length());
                             }
+                          });
+
+                          rendition.on('displayError', async (err: any) => {
+                            console.warn('[Read] Epub display error, attempting fallback to comic:', err);
+                            await handleRecoverEpubAsComic();
                           });
                           
                           rendition.book.ready.then(() => {
@@ -2114,7 +2823,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       />
                     </div>
                   ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
-                    <div className="absolute inset-0 flex items-center justify-center p-0 bg-white">
+                    <div className="absolute inset-0 flex items-center justify-center p-0 bg-transparent">
                       <Document 
                         file={selectedBook.file} 
                         onLoadSuccess={({ numPages }) => {
@@ -2132,7 +2841,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         />
                       </Document>
                     </div>
-                  ) : selectedBook.fileType === 'text' && selectedBook.pages && selectedBook.pages.length > 0 ? (
+                  ) : (selectedBook.fileType === 'text' || selectedBook.fileType === 'docx') && selectedBook.pages && selectedBook.pages.length > 0 ? (
                     (() => {
                       const pageWidth = pageDimensions.width || containerSize.width || 600;
                       const padding = pageWidth >= 500 ? 28 : 16;
@@ -2156,7 +2865,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       }
 
                       return (
-                        <div className="absolute inset-0 overflow-hidden bg-background text-foreground select-text reader-text-container">
+                        <div 
+                          className="absolute inset-0 overflow-hidden bg-transparent text-foreground select-text reader-text-container cursor-default"
+                          onClick={(e) => {
+                            // If user is selecting text, do not trigger page navigation
+                            const sel = window.getSelection();
+                            if (sel && sel.toString().trim().length > 0) return;
+                            const target = e.target as HTMLElement;
+                            if (target.closest('a, button, input, textarea')) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            if (clickX > rect.width / 2) {
+                              if (readingDirection === 'rtl') prevPage();
+                              else nextPage();
+                            } else {
+                              if (readingDirection === 'rtl') nextPage();
+                              else prevPage();
+                            }
+                          }}
+                        >
                           <div 
                             className="w-full h-full"
                             style={{
@@ -2168,7 +2895,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               ref={textContentRef}
                               className={cn(
                                 "reader-content-body",
-                                isHtml && "prose max-w-none",
+                                isHtml && "prose prose-slate dark:prose-invert max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-2 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mb-2 [&_p]:mb-4 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-4 [&_blockquote]:italic [&_hr]:border-border/40 [&_hr]:my-6 [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2",
                                 "h-full leading-relaxed break-words text-foreground [&_*]:text-foreground [&_img]:max-w-full [&_img]:max-h-[calc(100vh-12rem)] [&_img]:object-contain [&_img]:break-inside-avoid [&_p>img]:break-inside-avoid [&_figure]:break-inside-avoid",
                                 !isHtml && "whitespace-pre-wrap",
                                 fontFamily,
@@ -2197,51 +2924,72 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       );
                     })()
                   ) : (
-                    <div className="relative w-full h-full flex items-center justify-center bg-white overflow-hidden">
-                      {gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0 ? (
-                        <div className="relative w-full h-full flex flex-col items-center justify-center p-2">
-                          <img 
-                            key={`${currentPage}-${currentPanelIndex}`} 
-                            src={panelsCache[currentPage][currentPanelIndex] || undefined} 
-                            alt={`Page ${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
-                            className="w-full h-full object-contain pointer-events-auto select-none bg-white transition-opacity duration-200" 
-                            referrerPolicy="no-referrer"
-                          />
-                          {panelsCache[currentPage].length > 1 && (
-                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-md text-foreground border border-border px-3 py-1 rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 pointer-events-none z-20">
-                              <SplitPanelsIcon className="w-3 h-3 text-primary" />
-                              <span>{currentPanelIndex + 1} / {panelsCache[currentPage].length}</span>
-                              <span className="text-muted-foreground">•</span>
-                              <span className="text-muted-foreground">{t("page")} {selectedBook.fileType === 'epub' ? epubCurrentPage : currentPage + 1} / {selectedBook.fileType === 'epub' ? Math.max(1, epubTotalPages) : selectedBook.pages?.length || 1}</span>
+                    (() => {
+                      const rawPage = selectedBook.pages[currentPage];
+                      const hasInteractiveCreatorTree = Boolean(
+                        rawPage && typeof rawPage === 'object' && (rawPage.tree || (Array.isArray(rawPage.bubbles) && rawPage.bubbles.length > 0))
+                      );
+
+                      if (hasInteractiveCreatorTree && !gridView && !cropBorders) {
+                        return (
+                          <div className="relative w-full h-full flex items-center justify-center bg-transparent overflow-hidden">
+                            <ComicPageRenderer 
+                              key={`creator-page-${currentPage}`}
+                              page={rawPage} 
+                              className="w-full h-full" 
+                            />
+                          </div>
+                        );
+                      }
+
+                      const rawUrl = getPageImageUrl(rawPage) || '';
+                      const cachedUrl = imageBlobCache.get(rawUrl) || rawUrl;
+                      const isSplitActive = Boolean(gridView && panelsCache[currentPage] && panelsCache[currentPage].length > 0);
+                      const displaySrc = isSplitActive 
+                        ? panelsCache[currentPage][currentPanelIndex] 
+                        : (cropBorders && croppedCache[currentPage]) 
+                        ? croppedCache[currentPage] 
+                        : cachedUrl;
+
+                      return (
+                        <div className="relative w-full h-full flex items-center justify-center bg-transparent overflow-hidden">
+                          {isSplitActive ? (
+                            <div className="relative w-full h-full flex flex-col items-center justify-center p-0">
+                              <img 
+                                key={`reader-split-p-${currentPage}-${currentPanelIndex}`} 
+                                src={displaySrc || undefined} 
+                                alt={`Page ${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
+                                className="w-full h-full max-w-full max-h-full object-contain pointer-events-auto select-none bg-transparent transition-opacity duration-150" 
+                                referrerPolicy="no-referrer"
+                              />
+                              {panelsCache[currentPage].length > 1 && (
+                                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-md text-foreground border border-border px-3 py-1 rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 pointer-events-none z-20">
+                                  <SplitPanelsIcon className="w-3 h-3 text-primary" />
+                                  <span>{currentPanelIndex + 1} / {panelsCache[currentPage].length}</span>
+                                  <span className="text-muted-foreground">•</span>
+                                  <span className="text-muted-foreground">{t("page")} {selectedBook.fileType === 'epub' ? epubCurrentPage : currentPage + 1} / {selectedBook.fileType === 'epub' ? Math.max(1, epubTotalPages) : selectedBook.pages?.length || 1}</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <img 
+                              key={`reader-main-p-${currentPage}`} 
+                              src={displaySrc || undefined} 
+                              alt={`Page ${currentPage + 1}`} 
+                              className="w-full h-full max-w-full max-h-full object-contain pointer-events-auto select-none bg-transparent"
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+                          {(isProcessingPage && gridView && !panelsCache[currentPage]) && (
+                            <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none z-30">
+                              <div className="bg-background/90 text-foreground px-4 py-1.5 rounded-full text-xs shadow border animate-pulse backdrop-blur flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5 text-primary" /> {t("detectingLayout")}
+                              </div>
                             </div>
                           )}
                         </div>
-                      ) : cropBorders && croppedCache[currentPage] ? (
-                         <img 
-                           src={croppedCache[currentPage] || undefined} 
-                           alt={`Page ${currentPage + 1}`} 
-                           className="w-full h-full object-contain pointer-events-auto select-none bg-white"
-                         />
-                      ) : selectedBook.fileType === "comic" || typeof selectedBook.pages[currentPage] === "object" ? (
-                         <ComicPageRenderer 
-                           page={selectedBook.pages[currentPage]} 
-                           className="w-full h-full" 
-                         />
-                      ) : (
-                         <img 
-                           src={selectedBook.pages[currentPage] || undefined} 
-                           alt={`Page ${currentPage + 1}`} 
-                           className="w-full h-full object-contain pointer-events-auto select-none bg-white"
-                         />
-                      )}
-                      {(isProcessingPage && gridView && !panelsCache[currentPage]) && (
-                          <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
-                              <div className="bg-background/80 text-foreground px-4 py-1.5 rounded-full text-xs shadow border animate-pulse backdrop-blur flex items-center gap-2">
-                                  <Sparkles className="w-3.5 h-3.5" /> {t("detectingLayout")}
-                              </div>
-                          </div>
-                      )}
-                    </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>

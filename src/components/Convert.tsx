@@ -139,136 +139,282 @@ export async function autoCropImageBorders(imgSrc: string): Promise<{ url: strin
       const w = canvas.width;
       const h = canvas.height;
 
-      // 1. Find dominant background color by sampling only the outer edges (margins)
-      const counts: Record<string, number> = {};
-      let maxCount = 0;
-      let dominantBg = "rgb(255,255,255)";
-      let domR = 255, domG = 255, domB = 255;
-      
-      const borderX = Math.max(10, Math.floor(w * 0.05));
-      const borderY = Math.max(10, Math.floor(h * 0.05));
-      
+      // 1. Determine dominant paper background color from the margin regions
+      // Sample the outer 1.5% to 8% margin band, skipping extreme 0-1% scanner artifacts
+      const x1 = Math.max(1, Math.floor(w * 0.015));
+      const x2 = Math.min(w - 2, Math.floor(w * 0.08));
+      const x3 = Math.max(x2, Math.floor(w * 0.92));
+      const x4 = Math.min(w - 2, Math.floor(w * 0.985));
+
+      const y1 = Math.max(1, Math.floor(h * 0.015));
+      const y2 = Math.min(h - 2, Math.floor(h * 0.08));
+      const y3 = Math.max(y2, Math.floor(h * 0.92));
+      const y4 = Math.min(h - 2, Math.floor(h * 0.985));
+
+      let lightCount = 0;
+      let darkCount = 0;
+      let lightR = 0, lightG = 0, lightB = 0;
+
       const samplePixel = (x: number, y: number) => {
-          const i = (y * w + x) * 4;
-          // Group similar colors to handle noise
-          const r = Math.floor(data[i] / 10) * 10;
-          const g = Math.floor(data[i+1] / 10) * 10;
-          const b = Math.floor(data[i+2] / 10) * 10;
-          const key = `${r},${g},${b}`;
-          counts[key] = (counts[key] || 0) + 1;
-          if (counts[key] > maxCount) {
-              maxCount = counts[key];
-              dominantBg = `rgb(${r},${g},${b})`;
-              domR = r; domG = g; domB = b;
-          }
+        const i = (y * w + x) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const lum = (r + g + b) / 3;
+        // Paper has low color saturation: max(r,g,b) - min(r,g,b) <= 35
+        const diff = Math.max(r, g, b) - Math.min(r, g, b);
+        if (lum > 180 && diff <= 35) {
+          lightCount++;
+          lightR += r; lightG += g; lightB += b;
+        } else if (lum < 50) {
+          darkCount++;
+        }
       };
 
-      for (let y = 0; y < h; y += 4) {
-          for (let x = 0; x < w; x += 4) {
-              if (x < borderX || x > w - borderX || y < borderY || y > h - borderY) {
-                  samplePixel(x, y);
-              }
-          }
+      for (let y = y1; y <= y2; y += 4) {
+        for (let x = x1; x <= x4; x += 4) samplePixel(x, y);
+      }
+      for (let y = y3; y <= y4; y += 4) {
+        for (let x = x1; x <= x4; x += 4) samplePixel(x, y);
+      }
+      for (let y = y2; y <= y3; y += 4) {
+        for (let x = x1; x <= x2; x += 4) samplePixel(x, y);
+        for (let x = x3; x <= x4; x += 4) samplePixel(x, y);
       }
 
-      // 2. Find crop boundaries by looking for rows/cols that deviate significantly from background
-      // High tolerance to account for paper texture, dust, and scan artifacts
-      const colorDiffThreshold = 40; 
-      
-      // Require at least 2% of the row/col to be different from the background to consider it artwork
-      const contentToleranceX = Math.max(5, Math.floor(w * 0.02)); 
-      const contentToleranceY = Math.max(5, Math.floor(h * 0.02));
+      const isLightPage = lightCount >= darkCount || lightCount > 50;
+      const avgPaperR = lightCount > 0 ? lightR / lightCount : 255;
+      const avgPaperG = lightCount > 0 ? lightG / lightCount : 255;
+      const avgPaperB = lightCount > 0 ? lightB / lightCount : 255;
+      const dominantBg = isLightPage 
+        ? `rgb(${Math.round(avgPaperR)},${Math.round(avgPaperG)},${Math.round(avgPaperB)})` 
+        : `rgb(0,0,0)`;
 
+      const isPaperBackground = (r: number, g: number, b: number) => {
+        if (isLightPage) {
+          const lum = (r + g + b) / 3;
+          const diff = Math.max(r, g, b) - Math.min(r, g, b);
+          // Paper is bright white, cream, or light grey with low color saturation
+          if (lum >= 195 && diff <= 35) return true;
+          // Close to average paper color
+          const dist = Math.sqrt((r - avgPaperR)**2 + (g - avgPaperG)**2 + (b - avgPaperB)**2);
+          return dist < 35 && diff <= 40;
+        } else {
+          return r <= 45 && g <= 45 && b <= 45;
+        }
+      };
+
+      // Measure row content
+      const getRowMetrics = (y: number) => {
+        let contentPixels = 0;
+        let maxRun = 0;
+        let curRun = 0;
+        const startX = Math.max(3, Math.floor(w * 0.005));
+        const endX = Math.min(w - 4, Math.floor(w * 0.995));
+        const totalSampled = endX - startX + 1;
+
+        for (let x = startX; x <= endX; x++) {
+          const i = (y * w + x) * 4;
+          if (!isPaperBackground(data[i], data[i+1], data[i+2])) {
+            contentPixels++;
+            curRun++;
+            if (curRun > maxRun) maxRun = curRun;
+          } else {
+            curRun = 0;
+          }
+        }
+        return {
+          ratio: contentPixels / totalSampled,
+          maxRun,
+          isContent: (maxRun >= Math.max(20, Math.floor(w * 0.12))) || (contentPixels / totalSampled >= 0.05)
+        };
+      };
+
+      // Measure col content
+      const getColMetrics = (x: number, yFrom: number, yTo: number) => {
+        let contentPixels = 0;
+        let maxRun = 0;
+        let curRun = 0;
+        const totalSampled = yTo - yFrom + 1;
+
+        for (let y = yFrom; y <= yTo; y++) {
+          const i = (y * w + x) * 4;
+          if (!isPaperBackground(data[i], data[i+1], data[i+2])) {
+            contentPixels++;
+            curRun++;
+            if (curRun > maxRun) maxRun = curRun;
+          } else {
+            curRun = 0;
+          }
+        }
+        return {
+          ratio: contentPixels / totalSampled,
+          maxRun,
+          isContent: (maxRun >= Math.max(20, Math.floor(totalSampled * 0.12))) || (contentPixels / totalSampled >= 0.05)
+        };
+      };
+
+      // Outer scanner edge artifact filter:
+      // An outer artifact (e.g. edge line, dust at the extreme outer edge) is followed by
+      // a distinct white margin gap (at least 5 consecutive rows/cols with < 2% content).
+      // Real comic artwork does NOT have a wide white margin gap inside it.
+      
+      const edgeThresholdY = Math.min(25, Math.floor(h * 0.035));
+      const bottomThresholdY = Math.max(h - 26, Math.floor(h * 0.965));
+      const edgeThresholdX = Math.min(25, Math.floor(w * 0.035));
+      const rightThresholdX = Math.max(w - 26, Math.floor(w * 0.965));
+
+      // Find top
       let top = 0;
-      for (let y = 0; y < h; y++) {
-          let diffCount = 0;
-          for (let x = 0; x < w; x++) {
-              const i = (y * w + x) * 4;
-              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
-                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
-                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
-                  diffCount++;
+      for (let y = 0; y < Math.floor(h * 0.45); y++) {
+        const m = getRowMetrics(y);
+        if (m.isContent) {
+          if (y < edgeThresholdY) {
+            let hasMarginAfter = false;
+            let consecutiveMargin = 0;
+            for (let look = 1; look <= 25 && y + look < Math.floor(h * 0.45); look++) {
+              const nextM = getRowMetrics(y + look);
+              if (nextM.ratio < 0.02 && nextM.maxRun < 15) {
+                consecutiveMargin++;
+                if (consecutiveMargin >= 4) {
+                  hasMarginAfter = true;
+                  break;
+                }
+              } else {
+                consecutiveMargin = 0;
               }
+            }
+
+            if (!hasMarginAfter) {
+              top = y;
+              break;
+            }
+          } else {
+            top = y;
+            break;
           }
-          if (diffCount > contentToleranceX) { top = y; break; }
+        }
       }
 
+      // Find bottom
       let bottom = h - 1;
-      for (let y = h - 1; y >= top; y--) {
-          let diffCount = 0;
-          for (let x = 0; x < w; x++) {
-              const i = (y * w + x) * 4;
-              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
-                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
-                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
-                  diffCount++;
+      for (let y = h - 1; y >= Math.ceil(h * 0.55); y--) {
+        const m = getRowMetrics(y);
+        if (m.isContent) {
+          if (y > bottomThresholdY) {
+            let hasMarginAfter = false;
+            let consecutiveMargin = 0;
+            for (let look = 1; look <= 25 && y - look >= Math.ceil(h * 0.55); look++) {
+              const prevM = getRowMetrics(y - look);
+              if (prevM.ratio < 0.02 && prevM.maxRun < 15) {
+                consecutiveMargin++;
+                if (consecutiveMargin >= 4) {
+                  hasMarginAfter = true;
+                  break;
+                }
+              } else {
+                consecutiveMargin = 0;
               }
+            }
+
+            if (!hasMarginAfter) {
+              bottom = y;
+              break;
+            }
+          } else {
+            bottom = y;
+            break;
           }
-          if (diffCount > contentToleranceX) { bottom = y; break; }
+        }
       }
 
+      const scanTop = Math.max(0, top);
+      const scanBottom = Math.min(h - 1, bottom);
+
+      // Find left
       let left = 0;
-      for (let x = 0; x < w; x++) {
-          let diffCount = 0;
-          for (let y = top; y <= bottom; y++) {
-              const i = (y * w + x) * 4;
-              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
-                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
-                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
-                  diffCount++;
+      for (let x = 0; x < Math.floor(w * 0.45); x++) {
+        const m = getColMetrics(x, scanTop, scanBottom);
+        if (m.isContent) {
+          if (x < edgeThresholdX) {
+            let hasMarginAfter = false;
+            let consecutiveMargin = 0;
+            for (let look = 1; look <= 25 && x + look < Math.floor(w * 0.45); look++) {
+              const nextM = getColMetrics(x + look, scanTop, scanBottom);
+              if (nextM.ratio < 0.02 && nextM.maxRun < 15) {
+                consecutiveMargin++;
+                if (consecutiveMargin >= 4) {
+                  hasMarginAfter = true;
+                  break;
+                }
+              } else {
+                consecutiveMargin = 0;
               }
+            }
+
+            if (!hasMarginAfter) {
+              left = x;
+              break;
+            }
+          } else {
+            left = x;
+            break;
           }
-          if (diffCount > contentToleranceY) { left = x; break; }
+        }
       }
 
+      // Find right
       let right = w - 1;
-      for (let x = w - 1; x >= left; x--) {
-          let diffCount = 0;
-          for (let y = top; y <= bottom; y++) {
-              const i = (y * w + x) * 4;
-              if (Math.abs(data[i] - domR) > colorDiffThreshold ||
-                  Math.abs(data[i+1] - domG) > colorDiffThreshold ||
-                  Math.abs(data[i+2] - domB) > colorDiffThreshold) {
-                  diffCount++;
+      for (let x = w - 1; x >= Math.ceil(w * 0.55); x--) {
+        const m = getColMetrics(x, scanTop, scanBottom);
+        if (m.isContent) {
+          if (x > rightThresholdX) {
+            let hasMarginAfter = false;
+            let consecutiveMargin = 0;
+            for (let look = 1; look <= 25 && x - look >= Math.ceil(w * 0.55); look++) {
+              const prevM = getColMetrics(x - look, scanTop, scanBottom);
+              if (prevM.ratio < 0.02 && prevM.maxRun < 15) {
+                consecutiveMargin++;
+                if (consecutiveMargin >= 4) {
+                  hasMarginAfter = true;
+                  break;
+                }
+              } else {
+                consecutiveMargin = 0;
               }
+            }
+
+            if (!hasMarginAfter) {
+              right = x;
+              break;
+            }
+          } else {
+            right = x;
+            break;
           }
-          if (diffCount > contentToleranceY) { right = x; break; }
+        }
       }
 
-      const cropW = right - left + 1;
-      const cropH = bottom - top + 1;
-      
-      // If no cropping could be done, or it found something weird like completely empty
-      if (cropW <= 0 || cropH <= 0 || (cropW === w && cropH === h)) {
-          resolve({
-              url: imgSrc,
-              width: w,
-              height: h,
-              bgColor: dominantBg,
-              isCropped: false
-          });
-          return;
-      }
+      // Tight 2px padding to ensure edge strokes aren't clipped, but outer margins remain hidden
+      const pad = 2;
+      const paddedTop = Math.max(0, top - pad);
+      const paddedBottom = Math.min(h - 1, bottom + pad);
+      const paddedLeft = Math.max(0, left - pad);
+      const paddedRight = Math.min(w - 1, right + pad);
 
-      // Add a tiny bit of padding back so we don't accidentally cut into artwork
-      const padding = Math.max(2, Math.floor(Math.min(w, h) * 0.015));
-      const paddedTop = Math.max(0, top - padding);
-      const paddedBottom = Math.min(h - 1, bottom + padding);
-      const paddedLeft = Math.max(0, left - padding);
-      const paddedRight = Math.min(w - 1, right + padding);
       const paddedW = paddedRight - paddedLeft + 1;
       const paddedH = paddedBottom - paddedTop + 1;
 
-      // Only crop if it's a significant reduction (e.g. saves at least a few pixels)
-      if (paddedW >= w - 10 && paddedH >= h - 10) {
-          resolve({
-              url: imgSrc,
-              width: w,
-              height: h,
-              bgColor: dominantBg,
-              isCropped: false
-          });
-          return;
+      // Check if cropping achieved meaningful reduction on either axis (at least 6px total reduction)
+      const hasMeaningfulCrop = (paddedW <= w - 6) || (paddedH <= h - 6);
+
+      if (!hasMeaningfulCrop || paddedW <= 50 || paddedH <= 50) {
+        resolve({
+          url: imgSrc,
+          width: w,
+          height: h,
+          bgColor: dominantBg,
+          isCropped: false
+        });
+        return;
       }
 
       const cropCanvas = document.createElement("canvas");
@@ -276,20 +422,20 @@ export async function autoCropImageBorders(imgSrc: string): Promise<{ url: strin
       cropCanvas.height = paddedH;
       const cropCtx = cropCanvas.getContext("2d");
       if (cropCtx) {
-          cropCtx.drawImage(canvas, paddedLeft, paddedTop, paddedW, paddedH, 0, 0, paddedW, paddedH);
-          resolve({ 
-              url: cropCanvas.toDataURL('image/jpeg', 0.95), 
-              width: paddedW, 
-              height: paddedH,
-              bgColor: dominantBg,
-              isCropped: true,
-              origW: w,
-              origH: h,
-              padLeft: paddedLeft,
-              padTop: paddedTop
-          });
+        cropCtx.drawImage(canvas, paddedLeft, paddedTop, paddedW, paddedH, 0, 0, paddedW, paddedH);
+        resolve({
+          url: cropCanvas.toDataURL('image/jpeg', 0.95),
+          width: paddedW,
+          height: paddedH,
+          bgColor: dominantBg,
+          isCropped: true,
+          origW: w,
+          origH: h,
+          padLeft: paddedLeft,
+          padTop: paddedTop
+        });
       } else {
-          resolve(null);
+        resolve(null);
       }
     };
     img.onerror = () => resolve(null);
@@ -2501,20 +2647,41 @@ export default function Convert({
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const [isAddingTextMode, setIsAddingTextMode] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isProcessSidebarOpen, setIsProcessSidebarOpen] = useState(true);
+  const isPortraitScreen = () =>
+    typeof window !== 'undefined'
+      ? (window.innerHeight > window.innerWidth || window.matchMedia('(orientation: portrait)').matches)
+      : false;
 
-  const [isPortrait, setIsPortrait] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isPortraitScreen());
+  const [isProcessSidebarOpen, setIsProcessSidebarOpen] = useState(() => !isPortraitScreen());
+
+  const [isPortrait, setIsPortrait] = useState(() => isPortraitScreen());
+  const prevPortraitRef = useRef<boolean>(isPortraitScreen());
+  const cancelProcessRef = useRef(false);
+
+  const handleCancelProcess = useCallback(() => {
+    cancelProcessRef.current = true;
+    setIsBatchProcessing(false);
+    setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
+    toast.info("Process cancelled");
+  }, []);
 
   // Default fold on portrait screen
   useEffect(() => {
     const handleResize = () => {
-      const portrait = window.innerHeight > window.innerWidth;
+      const portrait = typeof window !== 'undefined'
+        ? (window.innerHeight > window.innerWidth || window.matchMedia('(orientation: portrait)').matches)
+        : false;
       setIsPortrait(portrait);
-      if (portrait) {
-        setIsSidebarOpen(false);
-      } else {
-        setIsSidebarOpen(true);
+      if (prevPortraitRef.current !== portrait) {
+        if (portrait) {
+          setIsSidebarOpen(false);
+          setIsProcessSidebarOpen(false);
+        } else {
+          setIsSidebarOpen(true);
+          setIsProcessSidebarOpen(true);
+        }
+        prevPortraitRef.current = portrait;
       }
     };
     handleResize();
@@ -3324,6 +3491,7 @@ export default function Convert({
   const processPage = async (pageIndex: number) => {
     const page = pages[pageIndex];
     if (!page || page.status === 'processing' || page.isIgnored) return;
+    if (cancelProcessRef.current) return;
 
     const runOcr = ocrDuringBatch && !page.hasOcrRun;
     const runLayout = splitDuringBatch && !page.hasLayoutRun;
@@ -3763,6 +3931,11 @@ export default function Convert({
         calculatedIsTextOnly = true;
       }
 
+      if (cancelProcessRef.current) {
+        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'pending' } : p));
+        return;
+      }
+
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { 
         ...p, 
         originalImage: workingImageSrc,
@@ -3789,6 +3962,10 @@ export default function Convert({
         toast.success(`Processed page ${pageIndex + 1}`);
       }
     } catch (error: any) {
+      if (cancelProcessRef.current) {
+        setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'pending' } : p));
+        return;
+      }
       console.error(error);
       setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'error' } : p));
       
@@ -3827,6 +4004,7 @@ export default function Convert({
       return;
     }
 
+    cancelProcessRef.current = false;
     setIsBatchProcessing(true);
     setBatchProgress(0);
     
@@ -3845,6 +4023,7 @@ export default function Convert({
     toast.info(`Initial scan for blank pages...`);
     const preservedIndices: number[] = [];
     for (let idxIdx = 0; idxIdx < indicesToProcess.length; idxIdx++) {
+      if (cancelProcessRef.current) break;
       const idx = indicesToProcess[idxIdx];
       const page = pages[idx];
       if (page.status === 'done' || page.hasOcrRun || page.hasLayoutRun) {
@@ -3862,6 +4041,12 @@ export default function Convert({
       setBatchProgress(Math.round(((idxIdx + 1) / indicesToProcess.length) * 10)); // Allocate 10% to scan
     }
 
+    if (cancelProcessRef.current) {
+      setIsBatchProcessing(false);
+      setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
+      return;
+    }
+
     if (preservedIndices.length === 0) {
       setIsBatchProcessing(false);
       toast.success("Batch review complete. All pages were empty.");
@@ -3873,6 +4058,7 @@ export default function Convert({
     let stoppedBecauseOfQuota = false;
 
     for (let index = 0; index < preservedIndices.length; index++) {
+      if (cancelProcessRef.current) break;
       const i = preservedIndices[index];
       setCurrentPageIndex(i); // Follow along
       const chunkSize = 90 / preservedIndices.length;
@@ -3897,6 +4083,7 @@ export default function Convert({
         }
         
         clearInterval(simInterval);
+        if (cancelProcessRef.current) break;
         setBatchProgress(Math.round(progressAfterApi));
         
         if (index < preservedIndices.length - 1) {
@@ -3905,6 +4092,7 @@ export default function Convert({
            const progressPerStep = (chunkSize * 0.6) / delaySteps;
            
            for (let step = 1; step <= delaySteps; step++) {
+             if (cancelProcessRef.current) break;
              await new Promise(r => setTimeout(r, 100)); // 100ms per step
              setBatchProgress(Math.round(progressAfterApi + (progressPerStep * step)));
            }
@@ -3913,7 +4101,9 @@ export default function Convert({
            const progressAfter = Math.round(10 + ((index + 1) * chunkSize));
            setBatchProgress(progressAfter);
         }
+        if (cancelProcessRef.current) break;
       } catch (e: any) {
+        if (cancelProcessRef.current) break;
         if (e?.message?.toLowerCase().includes("quota") || e?.status === 429) {
           stoppedBecauseOfQuota = true;
           break; // Stop batch processing on quota error
@@ -3923,6 +4113,10 @@ export default function Convert({
     }
     
     setIsBatchProcessing(false);
+    if (cancelProcessRef.current) {
+      setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
+      return;
+    }
     if (!stoppedBecauseOfQuota) {
       toast.success("Batch processing complete!");
     }
@@ -4887,27 +5081,61 @@ ${navItems}    </ol>
             )}
           </div>
 
-          <Button 
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2.5" 
-            onClick={() => processPage(currentPageIndex)} 
-            disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
-          >
-            {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Sparkles className="w-4 h-4 shrink-0" />}
-            <span className="whitespace-nowrap">{t("processCurrentPage")}</span>
-          </Button>
+          <div className="flex items-center gap-1 w-full">
+            <Button 
+              variant="ghost"
+              className="flex-1 justify-start gap-2 h-9 px-2.5 overflow-hidden" 
+              onClick={() => {
+                cancelProcessRef.current = false;
+                processPage(currentPageIndex);
+              }} 
+              disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
+            >
+              {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Sparkles className="w-4 h-4 shrink-0" />}
+              <span className="whitespace-nowrap truncate">{t("processCurrentPage")}</span>
+            </Button>
+            {activePage?.status === 'processing' && !isBatchProcessing && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors"
+                onClick={handleCancelProcess}
+                title={t("cancel") || "Cancel process"}
+                aria-label="Cancel current page process"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
 
-          <Button 
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2.5" 
-            onClick={handleBatchProcess} 
-            disabled={isBatchProcessing || pages.length === 0 || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
-          >
-            {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Play className="w-4 h-4 shrink-0" />}
-            <span className="whitespace-nowrap">
-              {selectedPages.size > 0 ? t("batchProcessSelected").replace("{count}", selectedPages.size.toString()) : t("batchProcessAll")}
-            </span>
-          </Button>
+          <div className="flex items-center gap-1 w-full">
+            <Button 
+              variant="ghost"
+              className="flex-1 justify-start gap-2 h-9 px-2.5 overflow-hidden" 
+              onClick={() => {
+                cancelProcessRef.current = false;
+                handleBatchProcess();
+              }} 
+              disabled={isBatchProcessing || pages.length === 0 || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
+            >
+              {isBatchProcessing ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Play className="w-4 h-4 shrink-0" />}
+              <span className="whitespace-nowrap truncate">
+                {selectedPages.size > 0 ? t("batchProcessSelected").replace("{count}", selectedPages.size.toString()) : t("batchProcessAll")}
+              </span>
+            </Button>
+            {isBatchProcessing && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors"
+                onClick={handleCancelProcess}
+                title={t("cancel") || "Cancel process"}
+                aria-label="Cancel batch process"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
           
           <div className="pt-3 border-t mt-3 space-y-2 flex flex-col items-center w-full">
             <DropdownMenu>
@@ -6256,7 +6484,7 @@ ${navItems}    </ol>
               variant="outline" 
               size="sm"
               className="mt-4 border-foreground text-foreground hover:bg-foreground hover:text-background transition-colors rounded-none"
-              onClick={() => setIsBatchProcessing(false)}
+              onClick={handleCancelProcess}
             >
               {t("stopBatch")}
             </Button>

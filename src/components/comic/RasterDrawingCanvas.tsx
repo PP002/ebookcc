@@ -1,11 +1,14 @@
 import React, { useRef, useEffect, useState, useLayoutEffect, useCallback, useMemo } from 'react';
+import { getStroke } from 'perfect-freehand';
+import { Copy, Scissors, Clipboard, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Point, Stroke } from '../ComicCanvas';
 import { ComicLayer, ComicLayerGroup } from './drawingTypes';
 import { recognizeSmartShape, checkIsClosedBubblePath, detectMultiStrokeIntersectionPolygon } from './smartShapeRecognizer';
 
 export const PRECISE_CROSSHAIR_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='21' height='21' viewBox='0 0 21 21'%3E%3Ccircle cx='10.5' cy='10.5' r='1.5' fill='%23000000'/%3E%3Cpath d='M10.5 1v6M10.5 14v6M1 10.5h6M14 10.5h6' stroke='%23ffffff' stroke-width='3' stroke-linecap='square'/%3E%3Cpath d='M10.5 1v6M10.5 14v6M1 10.5h6M14 10.5h6' stroke='%23000000' stroke-width='1.2' stroke-linecap='square'/%3E%3C/svg%3E") 10 10, crosshair`;
 
-export const FILL_BUCKET_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z' fill='white'/%3E%3Cpath d='m5 2 5 5'/%3E%3Cpath d='M2 13h15'/%3E%3Cpath d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z' fill='black'/%3E%3C/svg%3E") 3 21, crosshair`;
+export const FILL_BUCKET_CURSOR = PRECISE_CROSSHAIR_CURSOR;
 
 interface RasterDrawingCanvasProps {
   drawings: Stroke[];
@@ -60,6 +63,8 @@ function createBuffer(width: number, height: number): CanvasBuffer {
  */
 const globalImageCache = new Map<string, HTMLImageElement>();
 
+
+let globalStrokeClipboard: Stroke[] = [];
 
 function getSelectionBounds(strokes: Stroke[], selectedIds: Set<string>, width: number, height: number) {
   let minX = 1000, minY = 1000, maxX = -1000, maxY = -1000;
@@ -152,6 +157,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
   // Active stroke state
   const activeStrokeRef = useRef<Stroke | null>(null);
   const isPointerDownRef = useRef<boolean>(false);
+  const lastErasePtRef = useRef<Point | null>(null);
   const lastPenTimeRef = useRef<number>(0);
   const rafIdRef = useRef<number | null>(null);
 
@@ -253,10 +259,16 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
 
     const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-    const pressure =
-      e.pointerType === 'pen' && e.pressure && e.pressure > 0
-        ? e.pressure
-        : 0.5;
+    
+    // Check real hardware pressure from stylus/pen (Wacom, Apple Pencil, Surface Pen)
+    const isPen = e.pointerType === 'pen';
+    let pressure: number | undefined = undefined;
+
+    if (typeof e.pressure === 'number' && e.pressure > 0) {
+      pressure = e.pressure;
+    } else if (isPen) {
+      pressure = 0.5;
+    }
 
     return {
       x,
@@ -564,7 +576,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     }
   }, [layers, layerGroups, backgroundColor, requestRender]);
 
-  // Render a stroke with exact 1:1 cursor alignment and smooth rounded joints
+  // Render a stroke with exact 1:1 cursor alignment and pen pressure sensitivity
   const renderStrokeToCtx = (
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     points: Point[],
@@ -588,29 +600,8 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       ctx.strokeStyle = color;
     }
 
-    // Diameter of stroke in buffer pixels
+    // Base diameter of stroke in buffer pixels
     const pixelDiameter = Math.max(1, (radius / 100) * bufW);
-
-    if (points.length === 1) {
-      const p = points[0];
-      const px = (p.x / 100) * bufW;
-      const py = (p.y / 100) * bufH;
-      ctx.beginPath();
-      ctx.arc(px, py, Math.max(0.5, pixelDiameter / 2), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      return;
-    }
-
-    ctx.lineWidth = pixelDiameter;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-
-    const p0 = points[0];
-    const px0 = (p0.x / 100) * bufW;
-    const py0 = (p0.y / 100) * bufH;
-    ctx.moveTo(px0, py0);
 
     const isStraightOrSampledShape = smartShapeType && (
       smartShapeType === 'line' ||
@@ -622,11 +613,111 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       smartShapeType === 'ellipse'
     );
 
-    if (points.length === 2 || isStraightOrSampledShape) {
+    // Single point / dot tap
+    if (points.length === 1) {
+      const p = points[0];
+      const px = (p.x / 100) * bufW;
+      const py = (p.y / 100) * bufH;
+      const pr = p.pressure !== undefined && p.pressure > 0 ? p.pressure : 0.5;
+      const r = Math.max(0.5, (pixelDiameter / 2) * (0.35 + pr * 0.65));
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    // If recognized as a geometric smart shape, render clean uniform stroke outline
+    if (isStraightOrSampledShape) {
+      ctx.lineWidth = pixelDiameter;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const p0 = points[0];
+      ctx.moveTo((p0.x / 100) * bufW, (p0.y / 100) * bufH);
       for (let i = 1; i < points.length; i++) {
         ctx.lineTo((points[i].x / 100) * bufW, (points[i].y / 100) * bufH);
       }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // Freehand / Stylus / Pressure-Sensitive Brush Stroke
+    const hasRealPressure = points.some((p) => p.pressure !== undefined && p.pressure > 0 && p.pressure !== 0.5);
+    const isPen = points.some((p) => p.pointerType === 'pen') || hasRealPressure;
+
+    // Smooth pressure array across stroke to eliminate starting spikes and jitter
+    const smoothedPressures: number[] = [];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      let pr = p.pressure !== undefined && p.pressure > 0 ? p.pressure : 0.5;
+      if (isPen) {
+        if (p.tiltX !== undefined && p.tiltY !== undefined) {
+          const maxTilt = Math.max(Math.abs(p.tiltX), Math.abs(p.tiltY));
+          if (maxTilt > 0) {
+            pr = Math.min(1.0, pr * (1 + (maxTilt / 90) * 0.3));
+          }
+        }
+        if (i === 0) {
+          const nextPr = points[1]?.pressure && points[1].pressure > 0 ? points[1].pressure : pr;
+          pr = Math.min(pr, nextPr);
+        } else if (i === 1 && points.length > 2) {
+          pr = (smoothedPressures[0] + pr + (points[2]?.pressure ?? pr)) / 3;
+        } else {
+          const prev = smoothedPressures[i - 1];
+          pr = prev * 0.3 + pr * 0.7;
+        }
+      }
+      smoothedPressures.push(pr);
+    }
+
+    const strokeInput: [number, number, number | undefined][] = points.map((p, i) => [
+      (p.x / 100) * bufW,
+      (p.y / 100) * bufH,
+      isPen ? smoothedPressures[i] : (p.pressure !== undefined && p.pressure > 0 ? p.pressure : undefined),
+    ]);
+
+    const strokePoints = getStroke(strokeInput, {
+      size: pixelDiameter,
+      thinning: 0.6,
+      smoothing: 0.6,
+      streamline: 0.5,
+      simulatePressure: !isPen,
+      start: {
+        taper: isPen ? Math.min(pixelDiameter * 0.3, 8) : Math.min(pixelDiameter * 0.6, 14),
+        easing: (t) => t * (2 - t),
+        cap: true,
+      },
+      end: {
+        taper: isPen ? Math.min(pixelDiameter * 0.25, 6) : Math.min(pixelDiameter * 0.5, 10),
+        easing: (t) => t * (2 - t),
+        cap: true,
+      },
+    });
+
+    if (strokePoints.length > 0) {
+      ctx.beginPath();
+      ctx.moveTo(strokePoints[0][0], strokePoints[0][1]);
+      for (let i = 1; i < strokePoints.length - 1; i++) {
+        const p0 = strokePoints[i];
+        const p1 = strokePoints[i + 1];
+        const midX = (p0[0] + p1[0]) / 2;
+        const midY = (p0[1] + p1[1]) / 2;
+        ctx.quadraticCurveTo(p0[0], p0[1], midX, midY);
+      }
+      const lastP = strokePoints[strokePoints.length - 1];
+      ctx.lineTo(lastP[0], lastP[1]);
+      ctx.closePath();
+      ctx.fill();
     } else {
+      // Fallback smooth spline
+      ctx.lineWidth = pixelDiameter;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const p0 = points[0];
+      ctx.moveTo((p0.x / 100) * bufW, (p0.y / 100) * bufH);
       for (let i = 1; i < points.length - 1; i++) {
         const pi = points[i];
         const piNext = points[i + 1];
@@ -640,9 +731,9 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       }
       const pLast = points[points.length - 1];
       ctx.lineTo((pLast.x / 100) * bufW, (pLast.y / 100) * bufH);
+      ctx.stroke();
     }
 
-    ctx.stroke();
     ctx.restore();
   };
 
@@ -928,13 +1019,21 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       drawMainFrame();
     } else if (drawTool === 'erase') {
       const rad = getActualRadius();
+      lastErasePtRef.current = pt;
       if (eraserType === 'stroke') {
-        const remaining = drawings.filter((s) => {
+        const currentDrawings = lastDrawingsRef.current || drawings;
+        const remaining = currentDrawings.filter((s) => {
           // Only erase on active layer if layerId is specified
           if (s.layerId && s.layerId !== activeLayerId) return true;
-          return !strokeIntersects(s, pt, rad * 0.75);
+          return !strokeIntersects(s, pt, Math.max(1, rad * 0.75));
         });
-        if (remaining.length !== drawings.length) {
+        if (remaining.length !== currentDrawings.length) {
+          lastDrawingsRef.current = remaining;
+          const layer = layerBufferRef.current;
+          if (layer) {
+            bakeAllDrawings(remaining, layer.ctx, layer.canvas.width, layer.canvas.height);
+          }
+          requestRender();
           onChange(remaining);
         }
       } else {
@@ -1040,8 +1139,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         else if (mode === 't' || mode === 'b') cursor = 'ns-resize';
         if (containerRef.current) containerRef.current.style.cursor = cursor;
       } else {
-        const cursor = drawTool === 'fill' ? FILL_BUCKET_CURSOR : PRECISE_CROSSHAIR_CURSOR;
-        if (containerRef.current) containerRef.current.style.cursor = isDrawingMode ? cursor : 'default';
+        if (containerRef.current) containerRef.current.style.cursor = isDrawingMode ? PRECISE_CROSSHAIR_CURSOR : 'default';
       }
       return;
     }
@@ -1120,7 +1218,6 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       return;
     }
 
-
     if (e.pointerType === 'pen') {
       lastPenTimeRef.current = Date.now();
     }
@@ -1129,13 +1226,27 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       if (touchOff || Date.now() - lastPenTimeRef.current < 2000) return;
     }
 
+    // Process coalesced events for smooth high-frequency stylus/Apple Pencil sampling
+    const nativeEv = e.nativeEvent as PointerEvent;
+    const rawEvents: (PointerEvent | React.PointerEvent)[] = 
+      (typeof nativeEv?.getCoalescedEvents === 'function' && nativeEv.getCoalescedEvents().length > 0)
+        ? nativeEv.getCoalescedEvents()
+        : [e];
+
     if (drawTool === 'pen' && activeStrokeRef.current) {
       const pts = activeStrokeRef.current.points;
-      const last = pts[pts.length - 1];
+      let hasAdded = false;
 
-      // Smooth sampling
-      if (Math.hypot(pt.x - last.x, pt.y - last.y) > 0.02) {
-        pts.push(pt);
+      for (const ev of rawEvents) {
+        const samplePt = getPt(ev);
+        const last = pts[pts.length - 1];
+        if (Math.hypot(samplePt.x - last.x, samplePt.y - last.y) > 0.01) {
+          pts.push(samplePt);
+          hasAdded = true;
+        }
+      }
+
+      if (hasAdded) {
         const temp = tempBufferRef.current;
         if (temp) {
           temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
@@ -1154,24 +1265,42 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     } else if (drawTool === 'erase') {
       const rad = getActualRadius();
       if (eraserType === 'stroke') {
-        const remaining = drawings.filter((s) => {
+        const lastPt = lastErasePtRef.current || pt;
+        lastErasePtRef.current = pt;
+        const currentDrawings = lastDrawingsRef.current || drawings;
+        const remaining = currentDrawings.filter((s) => {
           if (s.layerId && s.layerId !== activeLayerId) return true;
-          return !strokeIntersects(s, pt, rad * 0.75);
+          return !strokeIntersectsSegment(s, lastPt, pt, Math.max(1, rad * 0.75));
         });
-        if (remaining.length !== drawings.length) {
+        if (remaining.length !== currentDrawings.length) {
+          lastDrawingsRef.current = remaining;
+          const layer = layerBufferRef.current;
+          if (layer) {
+            bakeAllDrawings(remaining, layer.ctx, layer.canvas.width, layer.canvas.height);
+          }
+          requestRender();
           onChange(remaining);
         }
       } else if (activeStrokeRef.current) {
         // PIXEL ERASER (by brush size)
         const pts = activeStrokeRef.current.points;
-        const last = pts[pts.length - 1];
-        if (Math.hypot(pt.x - last.x, pt.y - last.y) > 0.02) {
-          pts.push(pt);
+        let hasAdded = false;
+
+        for (const ev of rawEvents) {
+          const samplePt = getPt(ev);
+          const last = pts[pts.length - 1];
+          if (Math.hypot(samplePt.x - last.x, samplePt.y - last.y) > 0.01) {
+            pts.push(samplePt);
+            hasAdded = true;
+          }
+        }
+
+        if (hasAdded) {
           const layer = layerBufferRef.current;
           if (layer) {
             renderStrokeToCtx(
               layer.ctx,
-              [last, pt],
+              pts,
               activeStrokeRef.current.brushRadius,
               '#000000',
               true,
@@ -1202,6 +1331,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
 
     if (!isPointerDownRef.current) return;
     isPointerDownRef.current = false;
+    lastErasePtRef.current = null;
 
     if (transformStateRef.current?.active) {
       const state = transformStateRef.current;
@@ -1412,26 +1542,159 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         }
       }
       if (containerRef.current) {
-        const cursor = drawTool === 'fill' ? FILL_BUCKET_CURSOR : PRECISE_CROSSHAIR_CURSOR;
-        containerRef.current.style.cursor = isDrawingMode ? cursor : 'default';
+        containerRef.current.style.cursor = isDrawingMode ? PRECISE_CROSSHAIR_CURSOR : 'default';
       }
       requestRender();
     }
   }, [drawTool, isDrawingMode, requestRender, setLassoPath, selectedIds.size]);
 
-  // Keyboard shortcut: Delete or Escape selected strokes
+  const handleLassoCopy = useCallback(() => {
+    if (selectedIds.size === 0) {
+      toast.info("Select strokes first to copy");
+      return;
+    }
+    const currentDrawings = lastDrawingsRef.current || drawings;
+    const selected = currentDrawings.filter((s) => selectedIds.has(s.id));
+    if (selected.length > 0) {
+      globalStrokeClipboard = JSON.parse(JSON.stringify(selected));
+      toast.success(selected.length === 1 ? "1 stroke copied" : `${selected.length} strokes copied`);
+    }
+  }, [drawings, selectedIds]);
+
+  const handleLassoCut = useCallback(() => {
+    if (selectedIds.size === 0) {
+      toast.info("Select strokes first to cut");
+      return;
+    }
+    const currentDrawings = lastDrawingsRef.current || drawings;
+    const selected = currentDrawings.filter((s) => selectedIds.has(s.id));
+    if (selected.length > 0) {
+      globalStrokeClipboard = JSON.parse(JSON.stringify(selected));
+      const remaining = currentDrawings.filter((s) => !selectedIds.has(s.id));
+      lastDrawingsRef.current = remaining;
+      setSelectedIds(new Set());
+      transformStateRef.current = null;
+      const layer = layerBufferRef.current;
+      const temp = tempBufferRef.current;
+      if (temp) temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+      if (layer) bakeAllDrawings(remaining, layer.ctx, layer.canvas.width, layer.canvas.height);
+      requestRender();
+      onChange(remaining);
+      toast.success(selected.length === 1 ? "1 stroke cut" : `${selected.length} strokes cut`);
+    }
+  }, [drawings, selectedIds, bakeAllDrawings, onChange, requestRender]);
+
+  const handleLassoPaste = useCallback(() => {
+    if (!globalStrokeClipboard || globalStrokeClipboard.length === 0) {
+      toast.info("Clipboard is empty. Copy strokes first.");
+      return;
+    }
+    const currentDrawings = lastDrawingsRef.current || drawings;
+    const pastedStrokes: Stroke[] = globalStrokeClipboard.map((s) => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      if (s.type === 'fill' && s.bounds) {
+        return {
+          ...s,
+          id: newId,
+          layerId: activeLayerId,
+          bounds: {
+            ...s.bounds,
+            x: Math.min(95, Math.max(0, s.bounds.x + 3)),
+            y: Math.min(95, Math.max(0, s.bounds.y + 3)),
+          },
+        };
+      }
+      return {
+        ...s,
+        id: newId,
+        layerId: activeLayerId,
+        points: (s.points || []).map((p) => ({
+          ...p,
+          x: Math.min(100, Math.max(0, p.x + 3)),
+          y: Math.min(100, Math.max(0, p.y + 3)),
+        })),
+      };
+    });
+
+    // Update clipboard positions slightly for consecutive pastes
+    globalStrokeClipboard = JSON.parse(JSON.stringify(pastedStrokes));
+
+    const nextDrawings = [...currentDrawings, ...pastedStrokes];
+    lastDrawingsRef.current = nextDrawings;
+    setSelectedIds(new Set(pastedStrokes.map((s) => s.id)));
+
+    const layer = layerBufferRef.current;
+    const temp = tempBufferRef.current;
+    if (temp) {
+      temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+    }
+    if (layer) {
+      bakeAllDrawings(nextDrawings, layer.ctx, layer.canvas.width, layer.canvas.height);
+    }
+    requestRender();
+    onChange(nextDrawings);
+    toast.success(pastedStrokes.length === 1 ? "1 stroke pasted" : `${pastedStrokes.length} strokes pasted`);
+  }, [drawings, activeLayerId, bakeAllDrawings, onChange, requestRender]);
+
+  const handleLassoDelete = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const currentDrawings = lastDrawingsRef.current || drawings;
+    const selectedCount = currentDrawings.filter((s) => selectedIds.has(s.id)).length;
+    const remaining = currentDrawings.filter((s) => !selectedIds.has(s.id));
+    lastDrawingsRef.current = remaining;
+    setSelectedIds(new Set());
+    transformStateRef.current = null;
+    const layer = layerBufferRef.current;
+    const temp = tempBufferRef.current;
+    if (temp) temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
+    if (layer) bakeAllDrawings(remaining, layer.ctx, layer.canvas.width, layer.canvas.height);
+    requestRender();
+    onChange(remaining);
+    toast.success(selectedCount === 1 ? "Deleted selected stroke" : `Deleted ${selectedCount} selected strokes`);
+  }, [drawings, selectedIds, bakeAllDrawings, onChange, requestRender]);
+
+  // Listen for toolbar lasso action events (Copy, Cut, Paste, Delete)
+  useEffect(() => {
+    const handleLassoEvent = (e: any) => {
+      if (!isDrawingMode || drawTool !== 'select') return;
+      const action = e.detail?.action;
+      if (action === 'copy') handleLassoCopy();
+      else if (action === 'cut') handleLassoCut();
+      else if (action === 'paste') handleLassoPaste();
+      else if (action === 'delete') handleLassoDelete();
+    };
+    window.addEventListener('comic-lasso-action', handleLassoEvent);
+    return () => window.removeEventListener('comic-lasso-action', handleLassoEvent);
+  }, [isDrawingMode, drawTool, handleLassoCopy, handleLassoCut, handleLassoPaste, handleLassoDelete]);
+
+  // Keyboard shortcuts: Delete, Escape, Copy (Ctrl+C), Cut (Ctrl+X), Paste (Ctrl+V)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Do not intercept shortcuts when typing in standard inputs, textareas, or contenteditables
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      // 1. Delete or Backspace -> Delete ONLY selected strokes
       if (
         (e.key === 'Delete' || e.key === 'Backspace') &&
         selectedIds.size > 0 &&
         isDrawingMode &&
         drawTool === 'select'
       ) {
-        const remaining = drawings.filter((s) => !selectedIds.has(s.id));
-        onChange(remaining);
-        setSelectedIds(new Set());
-      } else if (
+        handleLassoDelete();
+        e.preventDefault();
+        return;
+      }
+
+      // 2. Escape
+      if (
         e.key === 'Escape' &&
         selectedIds.size > 0 &&
         isDrawingMode &&
@@ -1440,13 +1703,71 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         setSelectedIds(new Set());
         setLassoPath(null);
         requestRender();
+        e.preventDefault();
+        return;
+      }
+
+      // 3. CTRL+C / CMD+C (Copy selected strokes)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === 'c' &&
+        selectedIds.size > 0 &&
+        isDrawingMode &&
+        drawTool === 'select'
+      ) {
+        handleLassoCopy();
+        e.preventDefault();
+        return;
+      }
+
+      // 4. CTRL+X / CMD+X (Cut selected strokes)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === 'x' &&
+        selectedIds.size > 0 &&
+        isDrawingMode &&
+        drawTool === 'select'
+      ) {
+        handleLassoCut();
+        e.preventDefault();
+        return;
+      }
+
+      // 5. CTRL+V / CMD+V (Paste copied strokes)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === 'v' &&
+        isDrawingMode &&
+        (drawTool === 'select' || drawTool === 'pen') &&
+        globalStrokeClipboard.length > 0
+      ) {
+        handleLassoPaste();
+        e.preventDefault();
+        return;
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [drawings, selectedIds, isDrawingMode, drawTool, onChange, requestRender]);
+  }, [
+    selectedIds,
+    isDrawingMode,
+    drawTool,
+    handleLassoCopy,
+    handleLassoCut,
+    handleLassoPaste,
+    handleLassoDelete,
+    requestRender,
+    setLassoPath,
+  ]);
 
   const brushCssDiameter = Math.max(2, (currentRadiusInPanel / 100) * dimensions.width);
+
+  const activeSelectionBounds = useMemo(() => {
+    if (selectedIds.size === 0 || !isDrawingMode || drawTool !== 'select') return null;
+    return transformStateRef.current
+      ? transformStateRef.current.currentBounds
+      : getSelectionBounds(drawings, selectedIds, dimensions.width, dimensions.height);
+  }, [selectedIds, isDrawingMode, drawTool, drawings, dimensions]);
 
   return (
     <div
@@ -1493,8 +1814,71 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         style={{ width: '100%', height: '100%' }}
       />
 
+      {/* Floating Sub-Toolbar directly attached to Selected Strokes in Lasso mode */}
+      {activeSelectionBounds && isDrawingMode && drawTool === 'select' && (
+        <div
+          data-export-ignore="true"
+          className="absolute z-40 flex items-center gap-1 p-1 bg-background/95 backdrop-blur-md border border-border shadow-xl rounded-xl -translate-x-1/2 pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150"
+          style={{
+            left: `${Math.max(12, Math.min(88, activeSelectionBounds.x + activeSelectionBounds.w / 2))}%`,
+            top: `${activeSelectionBounds.y > 18 ? activeSelectionBounds.y - 3 : activeSelectionBounds.y + activeSelectionBounds.h + 3}%`,
+            transform: activeSelectionBounds.y > 18 ? 'translate(-50%, -100%)' : 'translate(-50%, 0%)',
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={handleLassoCopy}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+            title="Copy selected stroke(s) (Ctrl+C)"
+          >
+            <Copy className="w-3 h-3 text-primary" />
+            <span>Copy</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleLassoCut}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+            title="Cut selected stroke(s) (Ctrl+X)"
+          >
+            <Scissors className="w-3 h-3 text-amber-500" />
+            <span>Cut</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleLassoPaste}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+            title="Paste stroke(s) (Ctrl+V)"
+          >
+            <Clipboard className="w-3 h-3 text-emerald-500" />
+            <span>Paste</span>
+          </button>
+          <div className="w-px h-3.5 bg-border mx-0.5" />
+          <button
+            type="button"
+            onClick={handleLassoDelete}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 rounded-lg transition-colors cursor-pointer"
+            title="Delete selected stroke(s) only (Del / Backspace)"
+          >
+            <Trash2 className="w-3 h-3 text-destructive" />
+            <span>Delete</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedIds(new Set());
+              requestRender();
+            }}
+            className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors cursor-pointer ml-0.5"
+            title="Deselect (Esc)"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* Live Brush Hover/Drawing Indicator Circle */}
-      {hoverPt && isDrawingMode && (drawTool === 'pen' || drawTool === 'erase') && (
+      {hoverPt && isDrawingMode && (drawTool === 'pen' || drawTool === 'erase' || drawTool === 'fill') && (
         <div
           className="pointer-events-none absolute rounded-full border border-black/80 dark:border-white/80 -translate-x-1/2 -translate-y-1/2 z-30 transition-none"
           style={{
@@ -1536,6 +1920,23 @@ function strokeIntersects(s: Stroke, pt: Point, r: number): boolean {
       if (i > 0) {
         if (distToSegment(pt, s.points[i - 1], p) <= r) return true;
       }
+    }
+  }
+  return false;
+}
+
+function strokeIntersectsSegment(s: Stroke, p1: Point, p2: Point, r: number): boolean {
+  if (strokeIntersects(s, p1, r) || strokeIntersects(s, p2, r)) return true;
+  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  if (dist > 0.2) {
+    const steps = Math.min(25, Math.max(2, Math.ceil(dist / (r * 0.5 || 0.5))));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const midPt: Point = {
+        x: p1.x + (p2.x - p1.x) * t,
+        y: p1.y + (p2.y - p1.y) * t,
+      };
+      if (strokeIntersects(s, midPt, r)) return true;
     }
   }
   return false;

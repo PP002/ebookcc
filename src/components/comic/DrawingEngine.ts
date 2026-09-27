@@ -512,21 +512,24 @@ export class DrawingEngine {
       return;
     }
 
+    const hasRealPressure = points.some((p) => p.pressure !== undefined && p.pressure > 0 && p.pressure !== 0.5);
+    const isPen = points.some((p) => p.pointerType === 'pen') || hasRealPressure;
+
     // Convert points from [0..100] percentage coordinates to pixel coordinates
     const input: [number, number, number | undefined][] = points.map((p) => [
       (p.x / 100) * this.width,
       (p.y / 100) * this.height,
-      p.pressure !== undefined && p.pressure > 0 ? p.pressure : 0.5,
+      p.pressure !== undefined && p.pressure > 0 ? p.pressure : (isPen ? 0.5 : undefined),
     ]);
 
     const pixelRadius = Math.max(1, (brushRadius / 100) * this.width);
 
     const outline = getStroke(input, {
       size: pixelRadius,
-      thinning: 0.5,
-      smoothing: 0.65,
-      streamline: 0.6,
-      simulatePressure: true,
+      thinning: 0.6,
+      smoothing: 0.6,
+      streamline: 0.5,
+      simulatePressure: !isPen,
       last: true,
     });
 

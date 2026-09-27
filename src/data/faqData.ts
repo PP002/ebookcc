@@ -733,6 +733,28 @@ const EN_FAQ_ITEMS: FAQItem[] = [
     answer: "EBookCC integrates computer vision models (including YOLO-based panel detection) that scan comic pages to automatically separate rectangular panels, locate speech bubbles, and extract text coordinates without manual cropping.",
     keywords: ["yolo detect", "panel detection", "ai ocr", "automatic cropping", "speech bubbles"],
     links: [{ text: "Try YOLO & OCR Detection", view: "convert", description: "Batch detect panels and extract text" }]
+  },
+  {
+    id: "faq-16",
+    category: "ebooks",
+    question: "How do I browse, manage, and read books from the Library / Bookshelf?",
+    answer: "In the Web Reader, open your Bookshelf to organize your personal reading library. You can upload local e-books and comic archives (EPUB, PDF, CBZ, CBR, TXT, MOBI), categorize them, search titles, track reading progress, bookmark favorite pages, and read community-published works directly in the browser with full offline support.",
+    keywords: ["library", "bookshelf", "reading library", "read books", "bookmarks", "offline reading", "ebook library"],
+    links: [
+      { text: "Open Reading Library", view: "read", description: "Browse your bookshelf and read e-books" },
+      { text: "Create & Publish Books", view: "create", description: "Write and publish stories to the bookshelf" }
+    ]
+  },
+  {
+    id: "faq-17",
+    category: "general",
+    question: "How do I connect and sync reading materials with Google Drive?",
+    answer: "EBookCC offers seamless Google Drive cloud integration. You can import e-books, comic archives (CBZ/CBR), and PDF documents directly from your Google Drive storage into the Web Reader. In addition, you can save converted files and exported comics back to your Google Drive for instant cross-device access and secure cloud backups.",
+    keywords: ["google drive", "cloud sync", "backup", "import google drive", "cloud storage", "google drive support"],
+    links: [
+      { text: "Access Web Reader & Drive", view: "read", description: "Import books and comics from Google Drive" },
+      { text: "Convert & Save to Drive", view: "convert", description: "Batch convert files with cloud storage support" }
+    ]
   }
 ];
 
@@ -877,6 +899,28 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           answer: "EBookCC utilise la vision par ordinateur (dont des modèles de détection YOLO) pour analyser automatiquement les pages de BD, isoler les cases rectangulaires, repérer les bulles et extraire leurs coordonnées pour un OCR et une traduction propres.",
           keywords: ["yolo", "détection cases", "ocr ia", "bulles de texte"],
           links: [{ text: "Tester la Détection YOLO & OCR", view: "convert", description: "Détecter automatiquement les cases et le texte" }]
+        },
+        {
+          id: "faq-16",
+          category: "ebooks",
+          question: "Comment parcourir, gérer et lire des livres depuis la Bibliothèque / l'Étagère ?",
+          answer: "Dans le Lecteur Web, ouvrez votre Étagère pour organiser votre bibliothèque de lecture personnelle. Vous pouvez importer des e-books et archives de BD (EPUB, PDF, CBZ, CBR, TXT, MOBI), les catégoriser, rechercher des titres, suivre votre progression de lecture, ajouter des favoris et lire des œuvres de la communauté directement dans le navigateur avec prise en charge hors ligne complète.",
+          keywords: ["bibliothèque", "étagère", "lire des livres", "lecture bibliothèque", "marques-pages", "lecture hors ligne"],
+          links: [
+            { text: "Ouvrir la Bibliothèque", view: "read", description: "Parcourir l'étagère et lire des e-books" },
+            { text: "Créer et Publier", view: "create", description: "Écrire et publier des histoires sur l'étagère" }
+          ]
+        },
+        {
+          id: "faq-17",
+          category: "general",
+          question: "Comment connecter et synchroniser mes lectures avec Google Drive ?",
+          answer: "EBookCC propose une intégration fluide avec Google Drive. Vous pouvez importer des e-books, archives de bandes dessinées (CBZ/CBR) et PDF directement depuis votre Google Drive dans le Lecteur Web. Vous pouvez également enregistrer les fichiers convertis et les BD exportées sur votre Google Drive pour une sauvegarde cloud sécurisée.",
+          keywords: ["google drive", "synchronisation cloud", "sauvegarde", "importer google drive", "stockage cloud", "google drive support"],
+          links: [
+            { text: "Accéder au Lecteur & Drive", view: "read", description: "Importer des livres depuis Google Drive" },
+            { text: "Convertir & Sauvegarder sur Drive", view: "convert", description: "Conversion avec prise en charge Google Drive" }
+          ]
         }
       ];
 
@@ -1016,6 +1060,28 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           answer: "EBookCCはYOLOベースの物体検出AIを統合しており、マンガページをスキャンして矩形コマの分離、吹き出しの検出、テキスト位置の特定を自動で行います。手動でのトリミングは不要です。",
           keywords: ["yolo検出", "コマ検出", "ai ocr", "吹き出し検出"],
           links: [{ text: "YOLO & OCR検出を試す", view: "convert", description: "コマとテキストの自動一括検出" }]
+        },
+        {
+          id: "faq-16",
+          category: "ebooks",
+          question: "ライブラリや本棚から本を閲覧・管理・読書するにはどうすればよいですか？",
+          answer: "Webリーダーで本棚を開き、自分専用の読書ライブラリを整理できます。ローカルの電子書籍やマンガアーカイブ（EPUB、PDF、CBZ、CBR、TXT、MOBI）を読み込み、カテゴリ分類、タイトル検索、読書進捗の記録、お気に入りブックマーク、コミュニティ公開作品の閲覧などを完全オフライン対応でブラウザ上で行えます。",
+          keywords: ["ライブラリ", "本棚", "電子書籍ライブラリ", "読書", "ブックマーク", "オフライン読書"],
+          links: [
+            { text: "読書ライブラリを開く", view: "read", description: "本棚を閲覧して電子書籍を読む" },
+            { text: "作品を作成・公開", view: "create", description: "ストーリーを執筆して本棚に公開" }
+          ]
+        },
+        {
+          id: "faq-17",
+          category: "general",
+          question: "Google ドライブと連携して読書資料を同期・インポートするには？",
+          answer: "EBookCCはGoogle ドライブのクラウド連携に対応しています。Google ドライブから直接電子書籍、マンガファイル（CBZ/CBR）、PDFドキュメントをWebリーダーにインポートできます。また、変換後のファイルや制作したマンガをGoogle ドライブに保存してデバイス間同期やバックアップが可能です。",
+          keywords: ["google ドライブ", "クラウド同期", "バックアップ", "google ドライブ インポート", "クラウドストレージ"],
+          links: [
+            { text: "Webリーダーとドライブを開く", view: "read", description: "Google ドライブから本やマンガをインポート" },
+            { text: "変換してドライブに保存", view: "convert", description: "クラウド保存対応の一括変換" }
+          ]
         }
       ];
 
@@ -1157,6 +1223,28 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           answer: isHant ? "EBookCC 整合電腦視覺模型（包括基於 YOLO 的分鏡檢測），能自動掃描漫畫頁面、分離矩形分鏡、定位對話框並提取文字座標，無需手動裁切。" : "EBookCC 整合计算机视觉模型（包括基于 YOLO 的分镜检测），能自动扫描漫画页面、分离矩形分镜、定位对话框并提取文本坐标，无需手动裁切。",
           keywords: ["yolo detect", "panel detection", "ai ocr", "automatic cropping"],
           links: [{ text: isHant ? "嘗試 YOLO 與 AI 檢測" : "尝试 YOLO 与 AI 检测", view: "convert", description: isHant ? "批量自動檢測分鏡與提取文字" : "批量自动检测分镜与提取文本" }]
+        },
+        {
+          id: "faq-16",
+          category: "ebooks",
+          question: isHant ? "如何從圖書庫/書架瀏覽、管理與閱讀書籍和漫畫？" : "如何从图书库/书架浏览、管理与阅读书籍和漫画？",
+          answer: isHant ? "在線上閱讀器中，打開您的個人書架即可管理專屬圖書庫。您可以匯入本機電子書和漫畫壓縮包（EPUB、PDF、CBZ、CBR、TXT、MOBI），自訂分類標籤、搜尋書名、追蹤閱讀進度、儲存書籤，並直接在瀏覽器中閱讀社群發布的各類作品，支援完全離線閱讀。" : "在在线阅读器中，打开您的个人书架即可管理专属图书库。您可以导入本地电子书和漫画压缩包（EPUB、PDF、CBZ、CBR、TXT、MOBI），自定义分类标签、搜索书名、跟踪阅读进度、保存书签，并直接在浏览器中阅读社区发布的各类作品，支持完全离线阅读。",
+          keywords: ["library", "bookshelf", "reading library", "read books", "bookmarks", "offline reading", "ebook library"],
+          links: [
+            { text: isHant ? "開啟閱讀圖書庫" : "打开阅读图书库", view: "read", description: isHant ? "瀏覽書架並閱讀電子書" : "浏览书架并阅读电子书" },
+            { text: isHant ? "創作與發布作品" : "创作与发布作品", view: "create", description: isHant ? "撰寫故事並發布至書架" : "撰写故事并发布至书架" }
+          ]
+        },
+        {
+          id: "faq-17",
+          category: "general",
+          question: isHant ? "如何連接 Google 雲端硬碟並同步閱讀資源？" : "如何连接 Google 云端硬盘并同步阅读资源？",
+          answer: isHant ? "EBookCC 提供強大的 Google 雲端硬碟 (Google Drive) 整合功能。您可以直接從雲端硬碟將電子書、漫畫檔案 (CBZ/CBR) 和 PDF 匯入到線上閱讀器。此外，您還可以將轉換後的檔案與導出的漫畫保存回 Google 雲端硬碟，實現跨裝置同步與安全雲端備份。" : "EBookCC 提供强大的 Google 云端硬盘 (Google Drive) 整合功能。您可以直接从云端硬盘将电子书、漫画文件 (CBZ/CBR) 和 PDF 导入到在线阅读器。此外，您还可以将转换后的文件与导出的漫画保存回 Google 云端硬盘，实现跨设备同步与安全云端备份。",
+          keywords: ["google drive", "cloud sync", "backup", "import google drive", "cloud storage", "google drive support"],
+          links: [
+            { text: isHant ? "開啟閱讀器與雲端硬碟" : "打开阅读器与云端硬盘", view: "read", description: isHant ? "從 Google 雲端硬碟匯入書籍與漫畫" : "从 Google 云端硬盘导入书籍与漫画" },
+            { text: isHant ? "轉換並保存到雲端硬碟" : "转换并保存到云端硬盘", view: "convert", description: isHant ? "批量轉換並備份至雲端儲存" : "批量转换并备份至云端存储" }
+          ]
         }
       ];
     }
@@ -1294,6 +1382,28 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           answer: "EBookCC integra modelos de visión computacional YOLO que escanean páginas para separar viñetas rectangulares y localizar bocadillos automáticamente.",
           keywords: ["yolo", "deteccion viñetas", "ia ocr"],
           links: [{ text: "Probar Detección YOLO", view: "convert", description: "Detectar viñetas y texto" }]
+        },
+        {
+          id: "faq-16",
+          category: "ebooks",
+          question: "¿Cómo explorar, gestionar y leer libros desde la Biblioteca / Estantería?",
+          answer: "En el Lector Web, abre tu Estantería para organizar tu biblioteca personal. Puedes importar libros electrónicos y cómics locales (EPUB, PDF, CBZ, CBR, TXT, MOBI), organizarlos por categorías, buscar títulos, seguir el progreso de lectura, marcar páginas favoritas y leer obras de la comunidad directamente en el navegador con soporte sin conexión completo.",
+          keywords: ["biblioteca", "estantería", "leer libros", "marcadores", "lectura offline", "biblioteca de lectura"],
+          links: [
+            { text: "Abrir Biblioteca de Lectura", view: "read", description: "Explorar la estantería y leer e-books" },
+            { text: "Crear y Publicar", view: "create", description: "Escribir y publicar historias en la estantería" }
+          ]
+        },
+        {
+          id: "faq-17",
+          category: "general",
+          question: "¿Cómo conectar y sincronizar lecturas con Google Drive?",
+          answer: "EBookCC ofrece integración directa con Google Drive. Puedes importar e-books, archivos de cómics (CBZ/CBR) y PDFs desde tu almacenamiento de Google Drive al Lector Web. También puedes guardar archivos convertidos y cómics en tu Google Drive para respaldos seguros en la nube y acceso multidispositivo.",
+          keywords: ["google drive", "sincronizacion nube", "copia de seguridad", "importar google drive", "almacenamiento en la nube", "google drive support"],
+          links: [
+            { text: "Acceder a Lector y Drive", view: "read", description: "Importar libros y cómics desde Google Drive" },
+            { text: "Convertir y Guardar en Drive", view: "convert", description: "Conversión de archivos con soporte en la nube" }
+          ]
         }
       ];
 

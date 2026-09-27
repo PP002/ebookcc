@@ -43,6 +43,10 @@ import {
   User,
   Lock,
   Shapes,
+  Undo2,
+  Redo2,
+  Copy,
+  Clipboard,
 } from "lucide-react";
 import {
   Dialog,
@@ -1475,7 +1479,8 @@ export const Create: React.FC<CreateProps> = ({
     "pen",
   );
   const [drawColor, setDrawColor] = useState("#000000");
-  const [drawRadius, setDrawRadius] = useState(2);
+  const [drawRadius, setDrawRadius] = useState(1);
+  const [brushSizeInput, setBrushSizeInput] = useState<string>("1");
   const [drawToolbarPos, setDrawToolbarPos] = useState({
     x: window.innerWidth / 2 - 120,
     y: 16,
@@ -1489,11 +1494,44 @@ export const Create: React.FC<CreateProps> = ({
   const [isEraserMenuOpen, setIsEraserMenuOpen] = useState(false);
   const [penMode, setPenMode] = useState<PenMode>("normal");
   const [isPenMenuOpen, setIsPenMenuOpen] = useState(false);
+  const [isLassoMenuOpen, setIsLassoMenuOpen] = useState(false);
   const brushSizePickerRef = useRef<HTMLDivElement>(null);
   const drawColorInputRef = useRef<HTMLInputElement>(null);
   const layerPanelRef = useRef<HTMLDivElement>(null);
   const eraserMenuRef = useRef<HTMLDivElement>(null);
   const penMenuRef = useRef<HTMLDivElement>(null);
+  const lassoMenuRef = useRef<HTMLDivElement>(null);
+
+  // Portrait mode detection
+  const [isPortrait, setIsPortrait] = useState(() => {
+    if (typeof window !== "undefined") {
+      return (
+        window.matchMedia("(orientation: portrait)").matches ||
+        window.innerHeight > window.innerWidth
+      );
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      const portrait =
+        window.matchMedia("(orientation: portrait)").matches ||
+        window.innerHeight > window.innerWidth;
+      setIsPortrait(portrait);
+    };
+    checkOrientation();
+
+    const mediaQuery = window.matchMedia("(orientation: portrait)");
+    mediaQuery.addEventListener?.("change", checkOrientation);
+    window.addEventListener("resize", checkOrientation);
+    window.addEventListener("orientationchange", checkOrientation);
+    return () => {
+      mediaQuery.removeEventListener?.("change", checkOrientation);
+      window.removeEventListener("resize", checkOrientation);
+      window.removeEventListener("orientationchange", checkOrientation);
+    };
+  }, []);
 
   // Layers state
   const [comicLayers, setComicLayers] = useState<ComicLayer[]>([
@@ -1522,7 +1560,8 @@ export const Create: React.FC<CreateProps> = ({
     setIsDrawingMode(false);
     setDrawTool("pen");
     setDrawColor("#000000");
-    setDrawRadius(2);
+    setDrawRadius(1);
+    setBrushSizeInput("1");
     setTouchOff(false);
     setComicBackgroundColor("#ffffff");
     setComicLayers([
@@ -1547,14 +1586,23 @@ export const Create: React.FC<CreateProps> = ({
     lastSelectedLayerIdRef.current = "layer-1";
     setEraserType("pixel");
     setIsEraserMenuOpen(false);
+    setIsPenMenuOpen(false);
+    setIsLassoMenuOpen(false);
     setIsBrushSizePickerOpen(false);
     setIsLayerPanelOpen(false);
     setIsComicPanelExpanded(false);
   }, []);
 
-  // Auto fold brush size picker, layers panel, eraser menu, and pen menu when tapping outside
+  // Auto fold brush size picker, layers panel, eraser menu, lasso menu, and pen menu when tapping outside
   useEffect(() => {
-    if (!isBrushSizePickerOpen && !isLayerPanelOpen && !isEraserMenuOpen && !isPenMenuOpen) return;
+    if (
+      !isBrushSizePickerOpen &&
+      !isLayerPanelOpen &&
+      !isEraserMenuOpen &&
+      !isPenMenuOpen &&
+      !isLassoMenuOpen
+    )
+      return;
 
     const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
       const target = e.target as Node;
@@ -1571,6 +1619,13 @@ export const Create: React.FC<CreateProps> = ({
         !eraserMenuRef.current.contains(target)
       ) {
         setIsEraserMenuOpen(false);
+      }
+      if (
+        isLassoMenuOpen &&
+        lassoMenuRef.current &&
+        !lassoMenuRef.current.contains(target)
+      ) {
+        setIsLassoMenuOpen(false);
       }
       if (
         isBrushSizePickerOpen &&
@@ -1592,7 +1647,13 @@ export const Create: React.FC<CreateProps> = ({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDownOutside, true);
     };
-  }, [isBrushSizePickerOpen, isLayerPanelOpen, isEraserMenuOpen, isPenMenuOpen]);
+  }, [
+    isBrushSizePickerOpen,
+    isLayerPanelOpen,
+    isEraserMenuOpen,
+    isPenMenuOpen,
+    isLassoMenuOpen,
+  ]);
 
   // Close menus when exiting drawing mode or switching away
   useEffect(() => {
@@ -1601,6 +1662,9 @@ export const Create: React.FC<CreateProps> = ({
     }
     if (!isDrawingMode || drawTool !== "pen") {
       setIsPenMenuOpen(false);
+    }
+    if (!isDrawingMode || drawTool !== "select") {
+      setIsLassoMenuOpen(false);
     }
   }, [isDrawingMode, drawTool]);
 
@@ -1960,14 +2024,21 @@ export const Create: React.FC<CreateProps> = ({
 
   const historyRef = useRef<ComicPage[][]>([]);
   const historyIndexRef = useRef<number>(-1);
+  const [canUndoComic, setCanUndoComic] = useState(false);
+  const [canRedoComic, setCanRedoComic] = useState(false);
+
+  const syncUndoRedoState = useCallback(() => {
+    setCanUndoComic(historyIndexRef.current > 0);
+    setCanRedoComic(historyIndexRef.current < historyRef.current.length - 1);
+  }, []);
 
   // Initialize history sync eagerly
   if (historyRef.current.length === 0) {
-    historyRef.current = [comicPages];
+    historyRef.current = [JSON.parse(JSON.stringify(comicPages))];
     historyIndexRef.current = 0;
   }
 
-  const setComicPages = (
+  const setComicPages = useCallback((
     newPagesOrUpdater: ComicPage[] | ((prev: ComicPage[]) => ComicPage[]),
   ) => {
     isPublishedComicRef.current = false;
@@ -1976,15 +2047,41 @@ export const Create: React.FC<CreateProps> = ({
         typeof newPagesOrUpdater === "function"
           ? newPagesOrUpdater(prev)
           : newPagesOrUpdater;
+      
+      const clonedSnapshot = JSON.parse(JSON.stringify(nextPages));
       const nextIndex = historyIndexRef.current + 1;
       const newHistory = historyRef.current.slice(0, nextIndex);
-      newHistory.push(nextPages);
+      newHistory.push(clonedSnapshot);
       if (newHistory.length > 50) newHistory.shift();
       historyRef.current = newHistory;
       historyIndexRef.current = newHistory.length - 1;
+      setCanUndoComic(historyIndexRef.current > 0);
+      setCanRedoComic(false);
       return nextPages;
     });
-  };
+  }, []);
+
+  const handleUndoComic = useCallback(() => {
+    if (historyIndexRef.current > 0) {
+      historyIndexRef.current -= 1;
+      const target = historyRef.current[historyIndexRef.current];
+      if (target) {
+        setComicPagesState(JSON.parse(JSON.stringify(target)));
+        syncUndoRedoState();
+      }
+    }
+  }, [syncUndoRedoState]);
+
+  const handleRedoComic = useCallback(() => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyIndexRef.current += 1;
+      const target = historyRef.current[historyIndexRef.current];
+      if (target) {
+        setComicPagesState(JSON.parse(JSON.stringify(target)));
+        syncUndoRedoState();
+      }
+    }
+  }, [syncUndoRedoState]);
 
   const activePage = comicPages[activePageIndex] || comicPages[0];
   const comicTree = activePage.tree;
@@ -2376,6 +2473,26 @@ export const Create: React.FC<CreateProps> = ({
       }
 
       if (createMode === "comic") {
+        // Comic Undo (Ctrl+Z / Cmd+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z)
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          e.key.toLowerCase() === "z" &&
+          !e.shiftKey
+        ) {
+          e.preventDefault();
+          handleUndoComic();
+          return;
+        }
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          ((e.key.toLowerCase() === "z" && e.shiftKey) ||
+            e.key.toLowerCase() === "y")
+        ) {
+          e.preventDefault();
+          handleRedoComic();
+          return;
+        }
+
         // Single key shortcuts when not in dialogs/inputs
         if (
           !isAIGeneratorOpen &&
@@ -2387,18 +2504,6 @@ export const Create: React.FC<CreateProps> = ({
           if (e.key.toLowerCase() === "n") {
             e.preventDefault();
             handleAddNewPage();
-            return;
-          }
-
-          // 'DELETE' / 'Backspace' shortcut to delete current page
-          if (
-            e.key === "Delete" ||
-            e.key === "Backspace" ||
-            e.code === "Delete" ||
-            e.code === "Backspace"
-          ) {
-            e.preventDefault();
-            handleDeleteCurrentPage();
             return;
           }
 
@@ -3695,12 +3800,56 @@ export const Create: React.FC<CreateProps> = ({
     );
   };
 
-  const updateToc = () => {
+  const scrollToCaret = useCallback(() => {
     if (!editorRef.current) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const editor = editorRef.current;
+    const editorRect = editor.getBoundingClientRect();
+
+    const rects = range.getClientRects();
+    if (rects.length > 0) {
+      const caretRect = rects[0];
+      const bottomPadding = 56;
+      const topPadding = 24;
+
+      if (caretRect.bottom + bottomPadding > editorRect.bottom) {
+        const scrollDiff = caretRect.bottom + bottomPadding - editorRect.bottom;
+        editor.scrollTop += scrollDiff;
+      } else if (caretRect.top - topPadding < editorRect.top) {
+        const scrollDiff = editorRect.top - (caretRect.top - topPadding);
+        editor.scrollTop -= scrollDiff;
+      }
+    } else {
+      let node: Node | null = range.startContainer;
+      let element: HTMLElement | null =
+        node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+      if (element && editor.contains(element) && element !== editor) {
+        const elemRect = element.getBoundingClientRect();
+        if (elemRect.bottom + 48 > editorRect.bottom) {
+          editor.scrollTop += elemRect.bottom + 48 - editorRect.bottom;
+        } else if (elemRect.top - 24 < editorRect.top) {
+          editor.scrollTop -= editorRect.top - (elemRect.top - 24);
+        }
+      }
+    }
+  }, []);
+
+  const updateToc = useCallback(() => {
+    if (!editorRef.current) return;
+
+    // Check if document is genuinely empty (no text entered)
+    const text = editorRef.current.innerText || editorRef.current.textContent || "";
+    const cleanText = text.replace(/[\n\r\s\t]/g, "").trim();
+    const hasImages = editorRef.current.querySelectorAll("img").length > 0;
+    const isDocEmpty = cleanText.length === 0 && !hasImages;
+    editorRef.current.setAttribute("data-is-empty", isDocEmpty ? "true" : "false");
+
     const headings = editorRef.current.querySelectorAll("h1, h2");
     const seenIds = new Set<string>();
 
-    const items = Array.from(headings).map((h: Element, index) => {
+    const items = Array.from(headings).map((h: Element) => {
       const htmlEl = h as HTMLElement;
 
       // Generate a new ID if it doesn't have one, or if we've already seen this ID (e.g. from copy-pasting nodes)
@@ -3718,22 +3867,23 @@ export const Create: React.FC<CreateProps> = ({
       };
     });
     setTocItems(items);
-  };
+  }, [t]);
 
   const execDocCommand = (command: string, value?: string) => {
     document.execCommand(command, false, value);
     editorRef.current?.focus();
     updateToc();
+    scrollToCaret();
   };
 
   useEffect(() => {
     if (createMode === "document" && editorRef.current) {
       if (editorRef.current.innerHTML.trim() === "") {
         editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
-        updateToc();
       }
+      updateToc();
     }
-  }, [createMode]);
+  }, [createMode, updateToc]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -3756,7 +3906,10 @@ export const Create: React.FC<CreateProps> = ({
         }
 
         setImageMenuProps((prev) => ({ ...prev, visible: false }));
-        setTimeout(() => updateToc(), 0);
+        setTimeout(() => {
+          updateToc();
+          scrollToCaret();
+        }, 0);
         return;
       }
 
@@ -3782,9 +3935,15 @@ export const Create: React.FC<CreateProps> = ({
         e.preventDefault();
         document.execCommand("insertParagraph", false);
       }
-      setTimeout(() => updateToc(), 0);
+      setTimeout(() => {
+        updateToc();
+        scrollToCaret();
+      }, 0);
     } else {
-      setTimeout(() => updateToc(), 0);
+      setTimeout(() => {
+        updateToc();
+        scrollToCaret();
+      }, 0);
     }
   };
 
@@ -5877,7 +6036,13 @@ export const Create: React.FC<CreateProps> = ({
               suppressContentEditableWarning
               data-placeholder={t("startWritingYourStory")}
               style={{ emptyCells: "show" }}
-              onInput={updateToc}
+              onInput={() => {
+                updateToc();
+                scrollToCaret();
+              }}
+              onKeyUp={() => {
+                scrollToCaret();
+              }}
             ></div>
           </div>
           <style
@@ -5890,9 +6055,17 @@ export const Create: React.FC<CreateProps> = ({
             .editor-doc p { cursor: text; outline: none; }
             .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: '${t("title").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
             .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: '${t("subtitle").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc:empty:before, .editor-doc:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc p:empty:before, .editor-doc p:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
-            .editor-doc div:empty:before, .editor-doc div:has(> br:only-child):before { content: '${t("startWritingYourStory").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .editor-doc[data-is-empty="true"] p:first-of-type:empty:before,
+            .editor-doc[data-is-empty="true"] p:first-of-type:has(> br:only-child):before,
+            .editor-doc[data-is-empty="true"]:empty:before {
+              content: '${t("startWritingYourStory").replace(/'/g, "\\'")}';
+              color: #4b5563;
+              pointer-events: none;
+              opacity: 0.5;
+              position: absolute;
+              top: 0;
+              left: 0;
+            }
          `,
             }}
           />
@@ -5901,6 +6074,741 @@ export const Create: React.FC<CreateProps> = ({
       </div>
     );
   }
+
+  const renderDrawingToolbar = (isVertical: boolean = false) => {
+    return (
+      <div
+        data-draw-toolbar="true"
+        className={cn(
+          "shrink-0",
+          isVertical
+            ? "w-9 p-1 flex flex-col items-center justify-center gap-1 bg-background/95 backdrop-blur-md border border-border/80 shadow-2xl rounded-2xl z-[45]"
+            : "flex items-center justify-center gap-0.5 max-h-[34px]"
+        )}
+      >
+        {/* Collapsible Pen Tool with Normal Pen, Smart Shape, and Freehand Bubble Modes */}
+        <div ref={penMenuRef} className="relative flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-7 h-7 rounded-full relative transition-all",
+              isPenMenuOpen && "ring-2 ring-primary/40"
+            )}
+            onClick={() => {
+              setDrawTool("pen");
+              setIsPenMenuOpen((prev) => !prev);
+            }}
+            title={
+              penMode === "smartShape"
+                ? `${t("penTooltip") || "Pen"}: ${t("smartShape") || "Smart Shape"} - ${t("smartShapeDesc") || "Auto-snaps lines, circles, boxes, triangles"}`
+                : penMode === "freehandBubble"
+                ? `${t("penTooltip") || "Pen"}: ${t("freehandBubble") || "Freehand Speech Bubble"} - ${t("freehandBubbleDesc") || "Converts closed loop into editable bubble"}`
+                : `${t("penTooltip") || "Pen"}: ${t("normalPen") || "Normal Pen"} - ${t("normalPenDesc") || "Standard freehand stroke"}`
+            }
+          >
+            {penMode === "smartShape" ? (
+              <Shapes className="w-3.5 h-3.5 text-indigo-500" />
+            ) : penMode === "freehandBubble" ? (
+              <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+            ) : (
+              <PenTool className="w-3.5 h-3.5" />
+            )}
+            {drawTool === "pen" && (
+              <span
+                className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-background shadow-xs pointer-events-none"
+                title="Active Tool"
+              />
+            )}
+          </Button>
+
+          {/* Sub-menu displaying the 3 Pen Modes */}
+          {isPenMenuOpen && (
+            <div
+              className={cn(
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[210px] duration-150 z-[110]",
+                isVertical
+                  ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
+                  : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
+              )}
+            >
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
+                <span>{t("penMode") || "Pen Mode"}</span>
+                <span className="text-[9px] font-normal lowercase opacity-70">{t("tapToSelect") || "tap to select"}</span>
+              </div>
+
+              {/* Mode 1: Normal Pen */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPenMode("normal");
+                  setDrawTool("pen");
+                  setIsPenMenuOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                  penMode === "normal"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    penMode === "normal"
+                      ? "bg-primary/15 border-primary/30 text-primary"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  )}
+                >
+                  <PenTool className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("normalPen") || "Normal Pen"}</span>
+                    {penMode === "normal" && (
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("normalPenDesc") || "Standard freehand stroke"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Mode 2: Smart Shape */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPenMode("smartShape");
+                  setDrawTool("pen");
+                  setIsPenMenuOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                  penMode === "smartShape"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    penMode === "smartShape"
+                      ? "bg-primary/15 border-primary/30 text-indigo-500"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  )}
+                >
+                  <Shapes className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("smartShape") || "Smart Shape"}</span>
+                    {penMode === "smartShape" && (
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("smartShapeDesc") || "Auto-snaps lines, circles, boxes, triangles"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Mode 3: Freehand Speech Bubble */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPenMode("freehandBubble");
+                  setDrawTool("pen");
+                  setIsPenMenuOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                  penMode === "freehandBubble"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    penMode === "freehandBubble"
+                      ? "bg-primary/15 border-primary/30 text-amber-500"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  )}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("freehandBubble") || "Freehand Bubble"}</span>
+                    {penMode === "freehandBubble" && (
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("freehandBubbleDesc") || "Converts closed loop into editable bubble"}
+                  </span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Foldable Eraser Tool with Stroke and Pixel Options */}
+        <div ref={eraserMenuRef} className="relative flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-7 h-7 rounded-full relative transition-all",
+              isEraserMenuOpen && "ring-2 ring-primary/40"
+            )}
+            onClick={() => {
+              setDrawTool("erase");
+              setIsEraserMenuOpen((prev) => !prev);
+            }}
+            title={
+              eraserType === "pixel"
+                ? `${t("eraseTooltip") || "Eraser"}: ${t("pixelEraser") || "Pixel"} (${drawRadius}px)`
+                : `${t("eraseTooltip") || "Eraser"}: ${t("strokeEraser") || "Stroke"}`
+            }
+          >
+            <Eraser className="w-3.5 h-3.5" />
+            {drawTool === "erase" && (
+              <span
+                className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-background shadow-xs pointer-events-none"
+                title="Active Tool"
+              />
+            )}
+          </Button>
+
+          {/* Foldable eraser mode dropdown menu */}
+          {isEraserMenuOpen && (
+            <div
+              className={cn(
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[190px] duration-150 z-[110]",
+                isVertical
+                  ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
+                  : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
+              )}
+            >
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
+                <span>{t("eraserMode") || "Eraser Mode"}</span>
+                <span className="text-[9px] font-normal lowercase opacity-70">{t("tapToChoose") || "tap to choose"}</span>
+              </div>
+
+              {/* Option 1: Pixel Eraser (by brush size) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setEraserType("pixel");
+                  setDrawTool("erase");
+                  setIsEraserMenuOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                  eraserType === "pixel"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    eraserType === "pixel"
+                      ? "bg-primary/15 border-primary/30 text-primary"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  )}
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("pixelEraser") || "Pixel"}</span>
+                    {eraserType === "pixel" && (
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("pixelEraserDesc", { size: drawRadius }) || `By brush size (${drawRadius}px)`}
+                  </span>
+                </div>
+              </button>
+
+              {/* Option 2: Stroke Eraser */}
+              <button
+                type="button"
+                onClick={() => {
+                  setEraserType("stroke");
+                  setDrawTool("erase");
+                  setIsEraserMenuOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                  eraserType === "stroke"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    eraserType === "stroke"
+                      ? "bg-primary/15 border-primary/30 text-primary"
+                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                  )}
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("strokeEraser") || "Stroke"}</span>
+                    {eraserType === "stroke" && (
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("strokeEraserDesc") || "Erase whole line / object"}
+                  </span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Fill Tool */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="w-7 h-7 rounded-full relative transition-all"
+          onClick={() => setDrawTool("fill")}
+          title={t("fillTooltip") || "Fill (F)"}
+        >
+          <PaintBucket className="w-3.5 h-3.5" />
+          {drawTool === "fill" && (
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-background shadow-xs pointer-events-none"
+              title="Active Tool"
+            />
+          )}
+        </Button>
+
+        {/* Foldable Lasso Tool with Copy, Cut, Paste, Delete Actions placed underneath like pen and eraser tool */}
+        <div ref={lassoMenuRef} className="relative flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "w-7 h-7 rounded-full relative transition-all",
+              isLassoMenuOpen && "ring-2 ring-primary/40"
+            )}
+            onClick={() => {
+              setDrawTool("select");
+              setIsLassoMenuOpen((prev) => !prev);
+            }}
+            title={t("lassoTooltip") || "Lasso (L)"}
+          >
+            <LassoSelect className="w-3.5 h-3.5" />
+            {drawTool === "select" && (
+              <span
+                className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-background shadow-xs pointer-events-none"
+                title="Active Tool"
+              />
+            )}
+          </Button>
+
+          {/* Foldable lasso action dropdown menu underneath */}
+          {isLassoMenuOpen && (
+            <div
+              className={cn(
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[200px] duration-150 z-[110]",
+                isVertical
+                  ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
+                  : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
+              )}
+            >
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
+                <span>{t("lassoActions") || "Lasso Actions"}</span>
+                <span className="text-[9px] font-normal lowercase opacity-70">{t("tapAction") || "tap action"}</span>
+              </div>
+
+              {/* Action 1: Copy */}
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent("comic-lasso-action", {
+                      detail: { action: "copy" },
+                    })
+                  );
+                  setIsLassoMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs hover:bg-muted text-foreground transition-colors cursor-pointer"
+              >
+                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 border bg-muted/50 border-border/50 text-primary">
+                  <Copy className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("copy") || "Copy"}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">Ctrl+C</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("copyStrokes") || "Copy selected strokes"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Action 2: Cut */}
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent("comic-lasso-action", {
+                      detail: { action: "cut" },
+                    })
+                  );
+                  setIsLassoMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs hover:bg-muted text-foreground transition-colors cursor-pointer"
+              >
+                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 border bg-muted/50 border-border/50 text-amber-500">
+                  <Scissors className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("cut") || "Cut"}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">Ctrl+X</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("cutStrokes") || "Cut selected strokes"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Action 3: Paste */}
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent("comic-lasso-action", {
+                      detail: { action: "paste" },
+                    })
+                  );
+                  setIsLassoMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs hover:bg-muted text-foreground transition-colors cursor-pointer"
+              >
+                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 border bg-muted/50 border-border/50 text-emerald-500">
+                  <Clipboard className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none">{t("paste") || "Paste"}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">Ctrl+V</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                    {t("pasteStrokes") || "Paste strokes into panel"}
+                  </span>
+                </div>
+              </button>
+
+              {/* Action 4: Delete */}
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent("comic-lasso-action", {
+                      detail: { action: "delete" },
+                    })
+                  );
+                  setIsLassoMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs hover:bg-destructive/10 text-destructive transition-colors cursor-pointer"
+              >
+                <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 border bg-destructive/10 border-destructive/20 text-destructive">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs leading-none text-destructive">{t("delete") || "Delete"}</span>
+                    <span className="text-[9px] font-mono text-destructive/70">Del / Backspace</span>
+                  </div>
+                  <span className="text-[10px] text-destructive/70 mt-0.5 leading-tight">
+                    {t("deleteStrokesOnly") || "Delete selected stroke(s) only"}
+                  </span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isVertical ? (
+          <div className="w-5 h-px bg-border my-0.5" />
+        ) : (
+          <div className="w-px h-4 bg-border mx-1 shrink-0" />
+        )}
+
+        {/* Touch Off toggle */}
+        <Button
+          variant={touchOff ? "secondary" : "ghost"}
+          size="icon"
+          className={cn(
+            "w-7 h-7 rounded-full transition-all",
+            touchOff &&
+              "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+          )}
+          onClick={() => setTouchOff(!touchOff)}
+          title={touchOff ? (t("touchOffTooltip") || "Touch Off (Pen only, Palm rejection active)") : (t("touchOnTooltip") || "Touch On (Finger drawing enabled)")}
+        >
+          <Hand className="w-3.5 h-3.5" />
+        </Button>
+
+        {isVertical ? (
+          <div className="w-5 h-px bg-border my-0.5" />
+        ) : (
+          <div className="w-px h-4 bg-border mx-1 shrink-0" />
+        )}
+
+        {/* Color Picker */}
+        <div className="w-7 h-7 relative flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => drawColorInputRef.current?.click()}
+            className="w-5 h-5 rounded-full color-circle-button cursor-pointer shadow-xs hover:scale-105 transition-transform shrink-0 border border-black/50 dark:border-white/50"
+            style={{ backgroundColor: drawColor, borderRadius: "9999px" }}
+            title={t("colorTooltip") || "Color"}
+          />
+          <input
+            ref={drawColorInputRef}
+            type="color"
+            value={drawColor}
+            onChange={(e) => setDrawColor(e.target.value)}
+            className="sr-only pointer-events-none"
+            tabIndex={-1}
+          />
+        </div>
+
+        {isVertical ? (
+          <div className="w-5 h-px bg-border my-0.5" />
+        ) : (
+          <div className="w-px h-4 bg-border mx-1 shrink-0" />
+        )}
+
+        {/* Foldable Brush Size Input with Downward Arrow Beside and Dropdown */}
+        <div ref={brushSizePickerRef} className="relative flex items-center justify-center">
+          {isVertical ? (
+            <button
+              type="button"
+              onClick={() => setIsBrushSizePickerOpen((prev) => !prev)}
+              className={cn(
+                "w-7 h-7 rounded-full border border-border/60 bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center text-xs font-mono font-bold transition-colors cursor-pointer",
+                isBrushSizePickerOpen && "bg-muted text-foreground ring-1 ring-primary/60"
+              )}
+              title={`${t("brushSizeTooltip") || "Brush Size"}: ${drawRadius}px`}
+            >
+              <span className="text-[10px] font-mono leading-none">{drawRadius}</span>
+            </button>
+          ) : (
+            <>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={brushSizeInput}
+                onChange={(e) => {
+                  const valStr = e.target.value;
+                  if (valStr === "" || /^[0-9]*\.?[0-9]*$/.test(valStr)) {
+                    setBrushSizeInput(valStr);
+                    const num = parseFloat(valStr);
+                    if (!isNaN(num) && num > 0) {
+                      setDrawRadius(num);
+                    }
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.currentTarget.blur();
+                    setIsBrushSizePickerOpen(false);
+                  }
+                }}
+                onBlur={() => {
+                  const num = parseFloat(brushSizeInput);
+                  if (!isNaN(num) && num >= 0.1) {
+                    setDrawRadius(num);
+                    setBrushSizeInput(String(num));
+                  } else {
+                    setDrawRadius(1);
+                    setBrushSizeInput("1");
+                  }
+                }}
+                className="w-10 h-6 text-xs text-center border border-border/60 rounded-l bg-background focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono font-medium px-0.5"
+                title={t("brushSizeTooltip") || "Brush Size"}
+                placeholder="px"
+              />
+              <button
+                type="button"
+                onClick={() => setIsBrushSizePickerOpen((prev) => !prev)}
+                className={cn(
+                  "h-6 px-1 border border-l-0 border-border/60 rounded-r bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer",
+                  isBrushSizePickerOpen && "bg-muted text-foreground"
+                )}
+                title={t("toggleSizePresets") || "Toggle brush size presets"}
+              >
+                <ChevronDown
+                  className={cn(
+                    "w-3 h-3 transition-transform duration-200",
+                    isBrushSizePickerOpen && "rotate-180"
+                  )}
+                />
+              </button>
+            </>
+          )}
+
+          {/* Foldable brush size picker */}
+          {isBrushSizePickerOpen && (
+            <div
+              className={cn(
+                "p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] duration-150 z-[100]",
+                isVertical
+                  ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
+                  : "absolute top-full left-0 mt-2 animate-in fade-in slide-in-from-top-2"
+              )}
+            >
+              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-1">
+                {t("sizePresets") || "Size Presets"}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { size: 0.5, px: 2 },
+                  { size: 1, px: 3 },
+                  { size: 1.8, px: 5 },
+                  { size: 2.8, px: 7 },
+                  { size: 4, px: 9 },
+                  { size: 5.5, px: 11 },
+                  { size: 7, px: 13 },
+                  { size: 10, px: 15 },
+                  { size: 15, px: 17 },
+                ].map(({ size, px }) => {
+                  const isSelected = drawRadius === size;
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => {
+                        setDrawRadius(size);
+                        setBrushSizeInput(String(size));
+                        setIsBrushSizePickerOpen(false);
+                      }}
+                      title={`${size}px`}
+                      className={cn(
+                        "h-10 rounded flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
+                        isSelected
+                          ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30 font-bold"
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <div className="w-5 h-5 flex items-center justify-center">
+                        <span
+                          className={cn(
+                            "rounded-full brush-circle-dot transition-transform shrink-0",
+                            isSelected ? "bg-primary scale-110" : "bg-foreground"
+                          )}
+                          style={{
+                            width: `${px}px`,
+                            height: `${px}px`,
+                            borderRadius: "9999px",
+                          }}
+                        />
+                      </div>
+                      <span className="text-[9px] font-mono leading-none">{size}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {isVertical ? (
+          <div className="w-5 h-px bg-border my-0.5" />
+        ) : (
+          <div className="w-px h-4 bg-border mx-1 shrink-0" />
+        )}
+
+        {/* Foldable Layer Button on Drawing Toolbar */}
+        <div ref={layerPanelRef} className="relative flex items-center justify-center">
+          {isVertical ? (
+            <button
+              type="button"
+              onClick={() => setIsLayerPanelOpen((prev) => !prev)}
+              className={cn(
+                "w-7 h-7 rounded-full border border-border/60 bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer",
+                isLayerPanelOpen && "bg-muted text-foreground ring-1 ring-primary/60"
+              )}
+              title={t("layersTooltip") || "Layers"}
+            >
+              <Layers className="w-3.5 h-3.5 text-foreground" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsLayerPanelOpen((prev) => !prev)}
+              className={cn(
+                "h-6 px-2 border border-border/60 rounded bg-background flex items-center gap-1.5 text-xs font-mono font-medium transition-colors cursor-pointer",
+                isLayerPanelOpen
+                  ? "bg-muted text-foreground ring-1 ring-primary/60"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+              )}
+              title={t("layersTooltip") || "Layers (Ctrl+J: New, Ctrl+E: Combine, Ctrl+G: Group)"}
+            >
+              <Layers className="w-3.5 h-3.5 text-foreground" />
+              <span className="text-xs font-mono leading-none text-foreground">
+                {comicLayers.filter((l) => !l.isBackground).length}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "w-3 h-3 text-muted-foreground transition-transform duration-200",
+                  isLayerPanelOpen && "rotate-180 text-foreground"
+                )}
+              />
+            </button>
+          )}
+
+          {/* Foldable Layers Panel Dropdown */}
+          {isLayerPanelOpen && (
+            <div
+              className={cn(
+                "z-[100]",
+                isVertical
+                  ? "absolute left-full top-0 ml-2"
+                  : "absolute top-full left-0 sm:left-auto sm:right-0 mt-2"
+              )}
+            >
+              <LayerManagerUI
+                layers={comicLayers}
+                activeLayerId={activeLayerId}
+                selectedLayerIds={selectedLayerIds}
+                layerGroups={layerGroups}
+                isOpen={isLayerPanelOpen}
+                onClose={() => setIsLayerPanelOpen(false)}
+                onSelectLayer={handleSelectLayer}
+                onAddLayer={handleAddLayer}
+                onCombineLayers={handleCombineLayers}
+                onGroupLayers={handleGroupLayers}
+                onDeleteLayer={handleDeleteLayer}
+                onToggleVisibility={handleToggleLayerVisibility}
+                onToggleGroupVisibility={handleToggleGroupVisibility}
+                onToggleGroupCollapse={handleToggleGroupCollapse}
+                onUpdateLayer={handleUpdateLayer}
+                onUpdateGroup={handleUpdateGroup}
+                onReorderLayers={handleReorderLayers}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
@@ -5913,7 +6821,7 @@ export const Create: React.FC<CreateProps> = ({
               size="icon"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="w-8 h-8 shrink-0"
-              title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
+              title={isSidebarOpen ? (t("hideSidebar") || "Hide Sidebar") : (t("showSidebar") || "Show Sidebar")}
             >
               {isSidebarOpen ? (
                 <PanelLeftClose className="w-4 h-4" />
@@ -5924,13 +6832,37 @@ export const Create: React.FC<CreateProps> = ({
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={() => setCreateMode("select")}
-              className="gap-1 text-xs font-semibold px-2 shrink-0"
+              className="w-8 h-8 shrink-0"
+              title={t("back") || "Back"}
             >
-              <ChevronLeft className="w-3.5 h-3.5" />{" "}
-              <span className="hidden sm:inline">{t("back")}</span>
+              <ChevronLeft className="w-4 h-4" />
             </Button>
+            {createMode === "comic" && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleUndoComic}
+                  disabled={!canUndoComic}
+                  className="w-8 h-8 shrink-0 disabled:opacity-35"
+                  title={t("undo") || "Undo (Ctrl+Z)"}
+                >
+                  <Undo2 className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleRedoComic}
+                  disabled={!canRedoComic}
+                  className="w-8 h-8 shrink-0 disabled:opacity-35"
+                  title={t("redo") || "Redo (Ctrl+Y / Ctrl+Shift+Z)"}
+                >
+                  <Redo2 className="w-4 h-4" />
+                </Button>
+              </>
+            )}
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
               <Button
@@ -5942,509 +6874,18 @@ export const Create: React.FC<CreateProps> = ({
                   if (val) setDrawTool("pen");
                 }}
                 className={`gap-1 px-2 text-xs font-semibold ${isDrawingMode ? "bg-primary/20 text-primary hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
-                title={t("drawModeTooltip")}
+                title={t("drawModeTooltip") || "Draw Mode (Hotkey: D)"}
               >
                 <PenTool className="w-4 h-4" />{" "}
-                <span className="hidden sm:inline">{t("draw")}</span>
+                <span className="hidden sm:inline">{t("draw") || "Draw"}</span>
               </Button>
             </div>
 
-            {isDrawingMode && (
+            {/* In Landscape mode, render drawing toolbar in header */}
+            {isDrawingMode && !isPortrait && (
               <>
                 <div className="w-px h-5 bg-border mx-1 shrink-0" />
-                <div
-                  data-draw-toolbar="true"
-                  className="flex items-center justify-center gap-0.5 max-h-[34px] shrink-0"
-                >
-                  {/* Collapsible Pen Tool with Normal Pen, Smart Shape, and Freehand Bubble Modes */}
-                  <div ref={penMenuRef} className="relative flex items-center">
-                    <Button
-                      variant={drawTool === "pen" ? "secondary" : "ghost"}
-                      size="icon"
-                      className={cn(
-                        "w-7 h-7 rounded-full relative transition-all",
-                        drawTool === "pen" && "bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/50",
-                        isPenMenuOpen && "ring-2 ring-primary/40"
-                      )}
-                      onClick={() => {
-                        setDrawTool("pen");
-                        setIsPenMenuOpen((prev) => !prev);
-                      }}
-                      title={
-                        penMode === "smartShape"
-                          ? "Pen: Smart Shape (Auto-snaps lines, circles, boxes, triangles) - Click to change mode"
-                          : penMode === "freehandBubble"
-                          ? "Pen: Freehand Speech Bubble (Draw closed loops to create bubbles) - Click to change mode"
-                          : "Pen: Normal Pen (Standard freehand stroke) - Click to change mode"
-                      }
-                    >
-                      {penMode === "smartShape" ? (
-                        <Shapes className="w-3.5 h-3.5 text-indigo-500" />
-                      ) : penMode === "freehandBubble" ? (
-                        <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
-                      ) : (
-                        <PenTool className="w-3.5 h-3.5" />
-                      )}
-                      <span
-                        className={cn(
-                          "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background shadow-xs",
-                          penMode === "smartShape"
-                            ? "bg-indigo-500"
-                            : penMode === "freehandBubble"
-                            ? "bg-amber-500"
-                            : "bg-emerald-500"
-                        )}
-                        title={
-                          penMode === "smartShape"
-                            ? "Smart Shape Mode"
-                            : penMode === "freehandBubble"
-                            ? "Freehand Bubble Mode"
-                            : "Normal Pen Mode"
-                        }
-                      />
-                    </Button>
-
-                    {/* Downward sub-menu displaying the 3 Pen Modes */}
-                    {isPenMenuOpen && (
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[210px] animate-in fade-in slide-in-from-top-2 duration-150 z-[110]">
-                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
-                          <span>Pen Mode</span>
-                          <span className="text-[9px] font-normal lowercase opacity-70">tap to select</span>
-                        </div>
-
-                        {/* Mode 1: Normal Pen */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPenMode("normal");
-                            setDrawTool("pen");
-                            setIsPenMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                            penMode === "normal"
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted text-foreground"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
-                              penMode === "normal"
-                                ? "bg-primary/15 border-primary/30 text-primary"
-                                : "bg-muted/50 border-border/50 text-muted-foreground"
-                            )}
-                          >
-                            <PenTool className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-xs leading-none">Normal Pen</span>
-                              {penMode === "normal" && (
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              Standard freehand stroke
-                            </span>
-                          </div>
-                        </button>
-
-                        {/* Mode 2: Smart Shape */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPenMode("smartShape");
-                            setDrawTool("pen");
-                            setIsPenMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                            penMode === "smartShape"
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted text-foreground"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
-                              penMode === "smartShape"
-                                ? "bg-primary/15 border-primary/30 text-indigo-500"
-                                : "bg-muted/50 border-border/50 text-muted-foreground"
-                            )}
-                          >
-                            <Shapes className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-xs leading-none">Smart Shape</span>
-                              {penMode === "smartShape" && (
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              Auto-snaps lines, circles, boxes, triangles
-                            </span>
-                          </div>
-                        </button>
-
-                        {/* Mode 3: Freehand Speech Bubble */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPenMode("freehandBubble");
-                            setDrawTool("pen");
-                            setIsPenMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                            penMode === "freehandBubble"
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted text-foreground"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
-                              penMode === "freehandBubble"
-                                ? "bg-primary/15 border-primary/30 text-amber-500"
-                                : "bg-muted/50 border-border/50 text-muted-foreground"
-                            )}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-xs leading-none">Freehand Bubble</span>
-                              {penMode === "freehandBubble" && (
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              Converts closed loop into editable bubble
-                            </span>
-                          </div>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {/* Foldable Eraser Tool with Stroke and Pixel Options */}
-                  <div ref={eraserMenuRef} className="relative flex items-center">
-                    <Button
-                      variant={drawTool === "erase" ? "secondary" : "ghost"}
-                      size="icon"
-                      className={cn(
-                        "w-7 h-7 rounded-full relative transition-all",
-                        drawTool === "erase" && "bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/50",
-                        isEraserMenuOpen && "ring-2 ring-primary/40"
-                      )}
-                      onClick={() => {
-                        setDrawTool("erase");
-                        setIsEraserMenuOpen((prev) => !prev);
-                      }}
-                      title={
-                        eraserType === "pixel"
-                          ? `Eraser: Pixel Mode (${drawRadius}px) - Tap to change`
-                          : "Eraser: Stroke Mode (Whole Line) - Tap to change"
-                      }
-                    >
-                      <Eraser className="w-3.5 h-3.5" />
-                      <span
-                        className={cn(
-                          "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background shadow-xs",
-                          eraserType === "pixel" ? "bg-blue-500" : "bg-purple-500"
-                        )}
-                        title={eraserType === "pixel" ? "Pixel Eraser" : "Stroke Eraser"}
-                      />
-                    </Button>
-
-                    {/* Foldable eraser mode dropdown menu */}
-                    {isEraserMenuOpen && (
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[190px] animate-in fade-in slide-in-from-top-2 duration-150 z-[110]">
-                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-2 py-1 flex items-center justify-between border-b border-border/40 pb-1">
-                          <span>Eraser Mode</span>
-                          <span className="text-[9px] font-normal lowercase opacity-70">tap to choose</span>
-                        </div>
-
-                        {/* Option 1: Pixel Eraser (by brush size) */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEraserType("pixel");
-                            setDrawTool("erase");
-                            setIsEraserMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                            eraserType === "pixel"
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted text-foreground"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
-                              eraserType === "pixel"
-                                ? "bg-primary/15 border-primary/30 text-primary"
-                                : "bg-muted/50 border-border/50 text-muted-foreground"
-                            )}
-                          >
-                            <Eraser className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-xs leading-none">Pixel</span>
-                              {eraserType === "pixel" && (
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              By brush size ({drawRadius}px)
-                            </span>
-                          </div>
-                        </button>
-
-                        {/* Option 2: Stroke Eraser */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEraserType("stroke");
-                            setDrawTool("erase");
-                            setIsEraserMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                            eraserType === "stroke"
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted text-foreground"
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
-                              eraserType === "stroke"
-                                ? "bg-primary/15 border-primary/30 text-primary"
-                                : "bg-muted/50 border-border/50 text-muted-foreground"
-                            )}
-                          >
-                            <Scissors className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-xs leading-none">Stroke</span>
-                              {eraserType === "stroke" && (
-                                <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              Erase whole line / object
-                            </span>
-                          </div>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    variant={drawTool === "fill" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="w-7 h-7 rounded-full"
-                    onClick={() => setDrawTool("fill")}
-                    title={t("fillTooltip")}
-                  >
-                    <PaintBucket className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant={drawTool === "select" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="w-7 h-7 rounded-full"
-                    onClick={() => setDrawTool("select")}
-                    title={t("lassoTooltip")}
-                  >
-                    <LassoSelect className="w-3.5 h-3.5" />
-                  </Button>
-                  <div className="w-px h-4 bg-border mx-1" />
-                  <Button
-                    variant={touchOff ? "secondary" : "ghost"}
-                    size="icon"
-                    className={cn(
-                      "w-7 h-7 rounded-full transition-all",
-                      touchOff && "bg-amber-100 text-amber-800 hover:bg-amber-200 hover:text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                    )}
-                    onClick={() => setTouchOff(!touchOff)}
-                    title={touchOff ? t("touchOffTooltip") : t("touchOnTooltip")}
-                  >
-                    <Hand className="w-3.5 h-3.5" />
-                  </Button>
-                  <div className="w-px h-4 bg-border mx-1" />
-                  <div className="relative flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={() => drawColorInputRef.current?.click()}
-                      className="w-5 h-5 rounded-full color-circle-button cursor-pointer shadow-xs hover:scale-105 transition-transform shrink-0 border border-black/50 dark:border-white/50"
-                      style={{ backgroundColor: drawColor, borderRadius: "9999px" }}
-                      title={t("colorTooltip")}
-                    />
-                    <input
-                      ref={drawColorInputRef}
-                      type="color"
-                      value={drawColor}
-                      onChange={(e) => setDrawColor(e.target.value)}
-                      className="sr-only pointer-events-none"
-                      tabIndex={-1}
-                    />
-                  </div>
-                  <div className="w-px h-4 bg-border mx-1" />
-                  {/* Foldable Brush Size Input with Downward Arrow Beside and Dropdown Below */}
-                  <div ref={brushSizePickerRef} className="relative flex items-center">
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="any"
-                      value={drawRadius === 0 ? "" : drawRadius}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (!isNaN(val) && val > 0) {
-                          setDrawRadius(val);
-                        } else if (e.target.value === "") {
-                          setDrawRadius(0);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (!drawRadius || drawRadius <= 0) {
-                          setDrawRadius(2);
-                        }
-                      }}
-                      className="w-10 h-6 text-xs text-center border border-border/60 rounded-l bg-background focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono font-medium px-0.5"
-                      title={t("brushSizeTooltip")}
-                      placeholder="px"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setIsBrushSizePickerOpen((prev) => !prev)}
-                      className={cn(
-                        "h-6 px-1 border border-l-0 border-border/60 rounded-r bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer",
-                        isBrushSizePickerOpen && "bg-muted text-foreground"
-                      )}
-                      title="Toggle brush size presets"
-                    >
-                      <ChevronDown
-                        className={cn(
-                          "w-3 h-3 transition-transform duration-200",
-                          isBrushSizePickerOpen && "rotate-180"
-                        )}
-                      />
-                    </button>
-
-                    {/* Foldable brush size picker below the manually input box */}
-                    {isBrushSizePickerOpen && (
-                      <div className="absolute top-full left-0 mt-2 p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] animate-in fade-in slide-in-from-top-2 duration-150 z-[100]">
-                        <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-1">
-                          Size Presets
-                        </div>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {[
-                            { size: 1, px: 3 },
-                            { size: 1.8, px: 5 },
-                            { size: 2.8, px: 7 },
-                            { size: 4, px: 9 },
-                            { size: 5.5, px: 11 },
-                            { size: 7, px: 13 },
-                            { size: 10, px: 15 },
-                            { size: 15, px: 17 },
-                            { size: 20, px: 19 },
-                          ].map(({ size, px }) => {
-                            const isSelected = drawRadius === size;
-                            return (
-                              <button
-                                key={size}
-                                type="button"
-                                onClick={() => {
-                                  setDrawRadius(size);
-                                  setIsBrushSizePickerOpen(false);
-                                }}
-                                title={`${size}px`}
-                                className={cn(
-                                  "h-10 rounded flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
-                                  isSelected
-                                    ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30 font-bold"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                <div className="w-5 h-5 flex items-center justify-center">
-                                  <span
-                                    className={cn(
-                                      "rounded-full brush-circle-dot transition-transform shrink-0",
-                                      isSelected ? "bg-primary scale-110" : "bg-foreground"
-                                    )}
-                                    style={{
-                                      width: `${px}px`,
-                                      height: `${px}px`,
-                                      borderRadius: "9999px",
-                                    }}
-                                  />
-                                </div>
-                                <span className="text-[9px] font-mono leading-none">{size}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="w-px h-4 bg-border mx-1" />
-
-                  {/* Foldable Layer Button on Drawing Toolbar */}
-                  <div ref={layerPanelRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsLayerPanelOpen((prev) => !prev)}
-                      className={cn(
-                        "h-6 px-2 border border-border/60 rounded bg-background flex items-center gap-1.5 text-xs font-mono font-medium transition-colors cursor-pointer",
-                        isLayerPanelOpen
-                          ? "bg-muted text-foreground ring-1 ring-primary/60"
-                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                      )}
-                      title="Layers (Ctrl+J: New, Ctrl+E: Combine, Ctrl+G: Group)"
-                    >
-                      <Layers className="w-3.5 h-3.5 text-foreground" />
-                      <span className="text-xs font-mono leading-none text-foreground">
-                        {comicLayers.filter((l) => !l.isBackground).length}
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          "w-3 h-3 text-muted-foreground transition-transform duration-200",
-                          isLayerPanelOpen && "rotate-180 text-foreground"
-                        )}
-                      />
-                    </button>
-
-                    {/* Foldable Layers Panel Dropdown */}
-                    {isLayerPanelOpen && (
-                      <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-2 z-[100]">
-                        <LayerManagerUI
-                          layers={comicLayers}
-                          activeLayerId={activeLayerId}
-                          selectedLayerIds={selectedLayerIds}
-                          layerGroups={layerGroups}
-                          isOpen={isLayerPanelOpen}
-                          onClose={() => setIsLayerPanelOpen(false)}
-                          onSelectLayer={handleSelectLayer}
-                          onAddLayer={handleAddLayer}
-                          onCombineLayers={handleCombineLayers}
-                          onGroupLayers={handleGroupLayers}
-                          onDeleteLayer={handleDeleteLayer}
-                          onToggleVisibility={handleToggleLayerVisibility}
-                          onToggleGroupVisibility={handleToggleGroupVisibility}
-                          onToggleGroupCollapse={handleToggleGroupCollapse}
-                          onUpdateLayer={handleUpdateLayer}
-                          onUpdateGroup={handleUpdateGroup}
-                          onReorderLayers={handleReorderLayers}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {renderDrawingToolbar(false)}
               </>
             )}
           </div>
@@ -6457,15 +6898,30 @@ export const Create: React.FC<CreateProps> = ({
               size="sm"
               onClick={() => setIsBubbleSidebarOpen(!isBubbleSidebarOpen)}
               className="gap-2 shrink-0 h-8 text-xs font-semibold"
+              title={t("bubbles") || "Bubbles"}
             >
               <MessageSquare className="w-3.5 h-3.5" />{" "}
-              <span className="hidden sm:inline">{t("bubbles")}</span>
+              <span className="hidden sm:inline">{t("bubbles") || "Bubbles"}</span>
             </Button>
           </div>
         </div>
       </header>
 
       <main className="flex-1 relative w-full overflow-hidden flex bg-background">
+        {/* In Portrait mode, all drawing tools are placed vertically in the left sidebar; if the page thumbnail sidebar expands, the drawing sidebar is placed to its right */}
+        {isDrawingMode && createMode === "comic" && isPortrait && (
+          <div
+            data-portrait-drawing-sidebar="true"
+            className={cn(
+              "absolute top-3 z-[45] transition-all duration-300 ease-in-out pointer-events-auto",
+              isSidebarOpen
+                ? "left-[188px] sm:left-[208px]"
+                : "left-2 sm:left-3"
+            )}
+          >
+            {renderDrawingToolbar(true)}
+          </div>
+        )}
         <AIGeneratorDialog
           open={isAIGeneratorOpen}
           onOpenChange={setIsAIGeneratorOpen}

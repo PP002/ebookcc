@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppSettings, getSupabase } from '@/context/AppSettingsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { fetchPublishedWorksFromR2, deletePublishedWorkFromR2, safeSetPublishedCache } from '@/lib/r2Storage';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,7 @@ function MetroBookTile({
   isDefault?: boolean;
   isAuthor?: boolean;
 }) {
+  const { t } = useLanguage();
   const [slideIndex, setSlideIndex] = useState(0);
   const [imgError, setImgError] = useState(false);
 
@@ -340,15 +342,15 @@ function MetroBookTile({
                 ) : (
                   <div className="w-full h-full bg-card p-2 sm:p-3 flex flex-col justify-between text-left select-none overflow-hidden border border-border/40">
                     <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
-                      <span className="text-[7px] sm:text-[8px] font-mono uppercase font-bold text-muted-foreground">Page 1</span>
-                      <span className="text-[7px] sm:text-[8px] font-mono text-amber-500 font-bold uppercase">COMIC</span>
+                      <span className="text-[7px] sm:text-[8px] font-mono uppercase font-bold text-muted-foreground">{t("page") || "Page"} 1</span>
+                      <span className="text-[7px] sm:text-[8px] font-mono text-amber-500 font-bold uppercase">{t("comic") || "COMIC"}</span>
                     </div>
                     <div className="my-auto space-y-1 text-center py-1">
                       <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 mx-auto opacity-70 animate-pulse" />
-                      <span className="text-[9px] sm:text-xs font-bold text-foreground line-clamp-2">{book.title}</span>
+                      <span className="text-[9px] sm:text-xs font-bold text-foreground line-clamp-2">{book.title || t("untitledComic") || "Untitled Comic"}</span>
                     </div>
                     <div className="text-[6px] sm:text-[7px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center">
-                      Comic Creator Project
+                      {t("comicCreatorProject") || "Comic Creator Project"}
                     </div>
                   </div>
                 )}
@@ -383,7 +385,7 @@ function MetroBookTile({
                   </p>
                 </div>
                 <div className="relative z-10 pt-1 flex items-center justify-between text-[8px] sm:text-[9px] text-muted-foreground font-serif border-t border-border/30 mt-auto">
-                  <span className="truncate max-w-[80px] sm:max-w-[100px]">{book.title}</span>
+                  <span className="truncate max-w-[80px] sm:max-w-[100px]">{book.title || t("untitledStory") || "Untitled Story"}</span>
                   <span className="font-mono text-[7px] sm:text-[8px] opacity-70">p. {((slideIndex + tileSeed) % Math.max(1, novelSnippets.length)) + 1}</span>
                 </div>
               </motion.div>
@@ -400,7 +402,7 @@ function MetroBookTile({
                 : 'bg-blue-600'
             }`}
           >
-            {book.type}
+            {book.type === 'comic' ? (t("comic") || "COMIC") : (t("novel") || "NOVEL")}
           </span>
         </div>
 
@@ -429,7 +431,7 @@ function MetroBookTile({
       <div className="pt-1.5 px-0.5 flex flex-col w-full min-w-0">
         <div className="flex items-center justify-between gap-1 w-full min-w-0">
           <h4 className="text-xs font-bold text-card-foreground truncate group-hover:text-primary transition-colors tracking-tight font-sans flex-1" title={book.title}>
-            {book.title || "Untitled"}
+            {book.title || (book.type === 'comic' ? (t("untitledComic") || "Untitled Comic") : (t("untitledStory") || "Untitled Story"))}
           </h4>
           {isAuthor && onDelete && (
             <button
@@ -438,7 +440,7 @@ function MetroBookTile({
                 onDelete(e);
               }}
               className="p-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-              title="Delete Published Work"
+              title={t("delete") || "Delete"}
             >
               <Trash2 className="w-3 h-3" />
             </button>
@@ -448,7 +450,7 @@ function MetroBookTile({
         <div className="flex items-center justify-between text-[10px] text-muted-foreground font-medium mt-0.5">
           <span className="truncate flex items-center gap-1 flex-1" title={book.author}>
             <User className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
-            {book.author || "Author"}
+            {book.author || t("author") || "Author"}
           </span>
           {isAuthor && onEdit && (
             <button
@@ -457,10 +459,10 @@ function MetroBookTile({
                 onEdit(e);
               }}
               className="text-[9px] font-bold text-primary hover:underline uppercase flex items-center gap-0.5 shrink-0 ml-1"
-              title="Edit in Workspace"
+              title={t("edit") || "Edit"}
             >
               <PenTool className="w-2.5 h-2.5" />
-              <span>Edit</span>
+              <span>{t("edit") || "Edit"}</span>
             </button>
           )}
         </div>

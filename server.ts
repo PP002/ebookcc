@@ -362,6 +362,88 @@ async function startServer() {
     }
   }
 
+  // Worker AI fallback engine (no API key required)
+  async function callWorkerAI(messages: any[], systemInstruction?: string, isJson = false, retries = 3): Promise<string> {
+    let lastError = null;
+    const fallbackModels = ["qwen-coder", "openai", "llama", "mistral"];
+    
+    const formattedMessages: any[] = [];
+    if (systemInstruction) {
+      formattedMessages.push({ role: "system", content: systemInstruction });
+    }
+
+    for (const m of messages) {
+      let content = m.content;
+      if (Array.isArray(m.parts)) {
+        content = m.parts.map((p: any) => {
+          if (p.text) return p.text;
+          if (p.inlineData) {
+            return `[Image attached: data:${p.inlineData.mimeType};base64,${p.inlineData.data}]`;
+          }
+          return "";
+        }).join(" ");
+      } else if (typeof m.content === "object" && m.content) {
+        content = JSON.stringify(m.content);
+      }
+      formattedMessages.push({
+        role: m.role === "assistant" || m.role === "model" ? "assistant" : (m.role === "system" ? "system" : "user"),
+        content: content || ""
+      });
+    }
+
+    for (let i = 0; i < retries; i++) {
+      const model = fallbackModels[i % fallbackModels.length];
+      try {
+        const bodyObj: any = { messages: formattedMessages, model };
+        const polRes = await fetch("https://text.pollinations.ai/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+          },
+          body: JSON.stringify(bodyObj),
+          signal: AbortSignal.timeout(20000)
+        });
+
+        if (polRes.ok) {
+          const text = await polRes.text();
+          if (text && text.trim()) {
+            return text;
+          }
+        }
+        
+        if (polRes.status === 429) {
+          const lastUserMsg = [...formattedMessages].reverse().find((m: any) => m.role === 'user');
+          const promptText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : "process";
+          const sysMsg = formattedMessages.find((m: any) => m.role === 'system');
+          const sysText = typeof sysMsg?.content === 'string' ? sysMsg.content : "";
+          
+          try {
+            const query = sysText ? `${sysText} - ${promptText}` : promptText;
+            const getUrl = `https://text.pollinations.ai/${encodeURIComponent(query.slice(0, 400))}?model=${model}`;
+            const getRes = await fetch(getUrl, {
+              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" },
+              signal: AbortSignal.timeout(15000)
+            });
+            if (getRes.ok) {
+              const text = await getRes.text();
+              if (text && text.trim() && !text.includes('"status":429') && !text.includes('"error":')) {
+                return text;
+              }
+            }
+          } catch {}
+        }
+        throw new Error(`Worker AI status ${polRes.status}`);
+      } catch (e: any) {
+        lastError = e;
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+      }
+    }
+    throw lastError || new Error("Worker AI fetch failed");
+  }
+
   function handleGeminiError(e: any, res: express.Response) {
     let statusCode = 500;
     let errorPayload: any = e.message || String(e);
@@ -2393,16 +2475,20 @@ STRICT INSTRUCTIONS:
       const ai = getAIClient(customKey);
       const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
 
-      if (!ai) {
-        return res.status(400).json({ error: "Google Gemini API key is missing. Please check Settings." });
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: prompt,
+            config: { systemInstruction: sysPrompt }
+          });
+          return res.json({ text: response.text || "" });
+        } catch (gemErr: any) {
+          console.warn("[API generate-text] Gemini failed, using Worker AI fallback:", gemErr.message);
+        }
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: prompt,
-        config: { systemInstruction: sysPrompt }
-      });
-      const text = response.text || "";
+      const text = await callWorkerAI([{ role: "user", content: prompt }], sysPrompt);
       return res.json({ text });
     } catch (err: any) {
       console.log("[API generate-text] Error:", err.message);
@@ -2417,65 +2503,70 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-
-      if (!ai) {
-        return res.status(400).json({ error: "Google Gemini API key is missing. Please check Settings." });
-      }
-
       const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.`;
 
-      const parts: any[] = [];
-      if (imageBase64) {
-        let cleanBase64 = imageBase64;
-        let mimeType = "image/jpeg";
-        const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
-        if (mimeTypeMatch) {
-          mimeType = mimeTypeMatch[1];
-          cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
-        }
-        parts.push({
-          inlineData: { data: cleanBase64, mimeType }
-        });
-      }
-      parts.push({ text: userText });
+      if (ai) {
+        try {
+          const parts: any[] = [];
+          if (imageBase64) {
+            let cleanBase64 = imageBase64;
+            let mimeType = "image/jpeg";
+            const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
+            if (mimeTypeMatch) {
+              mimeType = mimeTypeMatch[1];
+              cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+            }
+            parts.push({
+              inlineData: { data: cleanBase64, mimeType }
+            });
+          }
+          parts.push({ text: userText });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: parts,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-               pages: {
-                 type: "ARRAY",
-                 items: {
-                   type: "OBJECT",
-                   properties: {
-                     panels: {
-                       type: "ARRAY",
-                       items: {
-                         type: "OBJECT",
-                         properties: {
-                           imagePrompt: { type: "STRING" },
-                           dialogue: { type: "STRING" }
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: parts,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "OBJECT",
+                properties: {
+                   pages: {
+                     type: "ARRAY",
+                     items: {
+                       type: "OBJECT",
+                       properties: {
+                         panels: {
+                           type: "ARRAY",
+                           items: {
+                             type: "OBJECT",
+                             properties: {
+                               imagePrompt: { type: "STRING" },
+                               dialogue: { type: "STRING" }
+                             }
+                           }
                          }
                        }
                      }
                    }
-                 }
-               }
+                }
+              }
             }
+          });
+          
+          const scriptText = response.text;
+          if (scriptText) {
+            const scriptData = JSON.parse(scriptText);
+            return res.json(scriptData);
           }
+        } catch (gemErr: any) {
+          console.warn("[API generate-comic-script] Gemini failed, using Worker AI fallback:", gemErr.message);
         }
-      });
-      
-      const scriptText = response.text;
-      if (scriptText) {
-        const scriptData = JSON.parse(scriptText);
-        return res.json(scriptData);
       }
-      return res.status(500).json({ error: "No script generated from Gemini." });
+
+      const sysInstruction = "You are an expert comic book script writer. Output only valid JSON with format: {\"pages\": [{\"panels\": [{\"imagePrompt\": \"...\", \"dialogue\": \"...\"}]}]}.";
+      const rawText = await callWorkerAI([{ role: "user", content: userText }], sysInstruction, true);
+      const parsed = parseJsonSafely(rawText, { pages: [] });
+      return res.json(parsed);
     } catch (err: any) {
       console.log("[API generate-comic-script] Error:", err.message);
       res.status(500).json({ error: err.message });
@@ -2489,26 +2580,30 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      
-      if (!ai) {
-        return res.status(400).json({ error: "Google Gemini API key is missing. Please provide your API key in Settings." });
+
+      if (ai) {
+        try {
+          const payload: any = {
+            model: "gemini-flash-latest",
+            contents: messages,
+          };
+          if (systemInstruction) {
+            payload.config = { systemInstruction };
+          }
+
+          const response = await ai.models.generateContent(payload);
+          return res.json({ text: response.text || "" });
+        } catch (geminiError: any) {
+          console.warn("[API agent-chat] Gemini failed, falling back to Worker AI:", geminiError.message);
+        }
       }
 
-      const payload: any = {
-        model: "gemini-flash-latest",
-        contents: messages,
-      };
-      
-      if (systemInstruction) {
-        payload.config = { systemInstruction };
-      }
-
-      const response = await ai.models.generateContent(payload);
-      const text = response.text || "";
+      // Fallback to Worker AI (No API key required)
+      const text = await callWorkerAI(messages, systemInstruction);
       return res.json({ text });
-    } catch (geminiError: any) {
-      console.error("[API agent-chat] Error:", geminiError.message);
-      return res.status(500).json({ error: geminiError.message });
+    } catch (err: any) {
+      console.error("[API agent-chat] Error:", err.message);
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -2524,23 +2619,29 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      if (!ai) {
-        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
+
+      if (ai) {
+        try {
+          const contents = messages.map((m: any) => ({
+            role: m.role === "assistant" || m.role === "model" ? "model" : "user",
+            parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+          }));
+          const config: any = {};
+          if (system) config.systemInstruction = system;
+
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents,
+            config,
+          });
+          return res.json({ success: true, response: response.text || "" });
+        } catch (e: any) {
+          console.warn("[Dev Server /api/ai/chat] Gemini failed, falling back to Worker AI...", e.message);
+        }
       }
 
-      const contents = messages.map((m: any) => ({
-        role: m.role === "assistant" || m.role === "model" ? "model" : "user",
-        parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
-      }));
-      const config: any = {};
-      if (system) config.systemInstruction = system;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents,
-        config,
-      });
-      return res.json({ success: true, response: response.text || "" });
+      const responseText = await callWorkerAI(messages, system);
+      return res.json({ success: true, response: responseText });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/chat Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -2565,23 +2666,29 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      if (!ai) {
-        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
+
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: prompt },
+                  { inlineData: { mimeType, data: cleanBase64 } }
+                ]
+              }
+            ]
+          });
+          return res.json({ success: true, text: response.text || "" });
+        } catch (e: any) {
+          console.warn("[Dev Server /api/ai/ocr] Gemini failed, falling back to Worker AI...", e.message);
+        }
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: cleanBase64 } }
-            ]
-          }
-        ]
-      });
-      return res.json({ success: true, text: response.text || "" });
+      const text = await callWorkerAI([{ role: "user", content: prompt }], "You are a precise OCR transcriber. Extract all text.");
+      return res.json({ success: true, text });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/ocr Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -2600,16 +2707,22 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      if (!ai) {
-        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
+
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: userPrompt,
+            config: { systemInstruction: systemPrompt }
+          });
+          return res.json({ success: true, translation: (response.text || "").trim() });
+        } catch (e: any) {
+          console.warn("[Dev Server /api/ai/translate] Gemini failed, falling back to Worker AI...", e.message);
+        }
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: userPrompt,
-        config: { systemInstruction: systemPrompt }
-      });
-      return res.json({ success: true, translation: (response.text || "").trim() });
+      const translation = await callWorkerAI([{ role: "user", content: userPrompt }], systemPrompt);
+      return res.json({ success: true, translation: translation.trim() });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/translate Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -2627,16 +2740,22 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      if (!ai) {
-        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
+
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: userPrompt,
+            config: { systemInstruction: systemPrompt }
+          });
+          return res.json({ success: true, text: (response.text || "").trim() });
+        } catch (e: any) {
+          console.warn("[Dev Server /api/ai/speech-bubble] Gemini failed, falling back to Worker AI...", e.message);
+        }
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: userPrompt,
-        config: { systemInstruction: systemPrompt }
-      });
-      return res.json({ success: true, text: (response.text || "").trim() });
+      const text = await callWorkerAI([{ role: "user", content: userPrompt }], systemPrompt);
+      return res.json({ success: true, text: text.trim() });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/speech-bubble Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -2654,16 +2773,22 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      if (!ai) {
-        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
+
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents: userPrompt,
+            config: { systemInstruction: systemPrompt }
+          });
+          return res.json({ success: true, content: response.text || "" });
+        } catch (e: any) {
+          console.warn("[Dev Server /api/ai/novel] Gemini failed, falling back to Worker AI...", e.message);
+        }
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: userPrompt,
-        config: { systemInstruction: systemPrompt }
-      });
-      return res.json({ success: true, content: response.text || "" });
+      const content = await callWorkerAI([{ role: "user", content: userPrompt }], systemPrompt);
+      return res.json({ success: true, content });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/novel Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });

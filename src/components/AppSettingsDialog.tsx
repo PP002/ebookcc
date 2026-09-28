@@ -129,6 +129,7 @@ export function AppSettingsDialog() {
                 }}
                 className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
               >
+                <option className="bg-background text-foreground" value="worker">Workers AI (Cloudflare / Server Default)</option>
                 <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
                 <option className="bg-background text-foreground" value="openai">OpenAI</option>
                 <option className="bg-background text-foreground" value="claude">Claude</option>
@@ -137,9 +138,16 @@ export function AppSettingsDialog() {
               </select>
             </div>
 
-
-
-            {localEngine === 'gemini' ? (
+            {localEngine === 'worker' ? (
+              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 p-3 bg-sky-500/10 border border-sky-500/20 rounded-md">
+                <div className="flex items-center gap-2 text-sm font-semibold text-sky-500">
+                  <Sparkles className="w-4 h-4" /> Workers AI (Default Provider)
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Uses native high-speed server AI models (Gemma, Llama 3, Flux) on Cloudflare Workers / Server infrastructure. No API key required. If unreachable, configured fallbacks (such as Google Gemini) will automatically take over.
+                </p>
+              </div>
+            ) : localEngine === 'gemini' ? (
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="flex items-center gap-2 text-sm font-semibold text-emerald-500 mb-1">
                   <Sparkles className="w-4 h-4" /> {t("geminiAiCloudEngine")}

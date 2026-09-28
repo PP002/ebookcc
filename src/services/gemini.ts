@@ -786,7 +786,7 @@ STRICT INSTRUCTIONS:
 }
 
 export interface LocalLlmConfig {
-  engine: 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
+  engine: 'worker' | 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
   url?: string;
   model?: string;
   apiKey?: string;

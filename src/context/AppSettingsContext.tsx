@@ -5,7 +5,7 @@ import { getApiUrl } from '@/lib/api';
 import { initGoogleDriveAuth, setDriveAccessToken } from '@/lib/googleDrive';
 
 
-export type LlmEngine = 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
+export type LlmEngine = 'worker' | 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
 
 export interface UserSession {
   email: string;
@@ -91,8 +91,8 @@ export function getSupabase(url: string, key: string): SupabaseClient | null {
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [llmEngine, setLlmEngine] = useState<LlmEngine>(() => {
     const saved = localStorage.getItem('llm_engine') as LlmEngine | null;
-    if (saved === ('pollinations' as any) || saved === ('puter' as any)) return 'gemini';
-    return saved || 'gemini';
+    if (saved === ('pollinations' as any) || saved === ('puter' as any)) return 'worker';
+    return saved || 'worker';
   });
   const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [stabilityApiKey, setStabilityApiKey] = useState(() => localStorage.getItem('stability_api_key') || "");

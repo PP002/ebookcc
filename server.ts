@@ -330,86 +330,6 @@ async function startServer() {
     }
   }
 
-  async function callPollinations(messages: any[], initialModel = "openai", jsonMode = true, retries = 3): Promise<string> {
-    let lastError = null;
-    const fallbackModels = ["openai", "openai-fast", "gpt-oss"];
-    
-    for (let i = 0; i < retries; i++) {
-      const model = fallbackModels[i % fallbackModels.length];
-      try {
-        console.log(`[Pollinations] Attempt ${i + 1} with model "${model}"`);
-        
-        // Strip heavy base64 images from text models for reliability
-        const sanitizedMessages = messages.map((m: any) => {
-          if (Array.isArray(m.content)) {
-            const textParts = m.content
-              .filter((p: any) => p.type === 'text')
-              .map((p: any) => p.text)
-              .join(' ');
-            const hasImages = m.content.some((p: any) => p.type === 'image_url');
-            return {
-              role: m.role,
-              content: hasImages ? `${textParts} [Image attached]`.trim() : textParts
-            };
-          }
-          return m;
-        });
-
-        const bodyObj: any = { messages: sanitizedMessages, model };
-        // Note: Do NOT set jsonMode: true on Pollinations anonymous tier as it triggers 402 Payment Required
-
-        const polRes = await fetch("https://text.pollinations.ai/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-          },
-          body: JSON.stringify(bodyObj),
-          signal: AbortSignal.timeout(20000)
-        });
-
-        if (polRes.ok) {
-          const text = await polRes.text();
-          if (text && text.trim()) {
-            return text;
-          }
-        }
-        
-        // If POST queue is full (429), try GET query
-        if (polRes.status === 429) {
-          const lastUserMsg = [...sanitizedMessages].reverse().find((m: any) => m.role === 'user');
-          const promptText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : "analyze";
-          const sysMsg = sanitizedMessages.find((m: any) => m.role === 'system');
-          const sysText = typeof sysMsg?.content === 'string' ? sysMsg.content : "";
-          
-          try {
-            const query = sysText ? `${sysText} - ${promptText}` : promptText;
-            const getUrl = `https://text.pollinations.ai/${encodeURIComponent(query.slice(0, 400))}?model=openai`;
-            const getRes = await fetch(getUrl, {
-              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" },
-              signal: AbortSignal.timeout(15000)
-            });
-            if (getRes.ok) {
-              const text = await getRes.text();
-              if (text && text.trim() && !text.includes('"status":429') && !text.includes('"error":')) {
-                return text;
-              }
-            }
-          } catch {}
-        }
-        
-        throw new Error(`Status ${polRes.status}`);
-      } catch (e: any) {
-        lastError = e;
-        console.warn(`[Pollinations] Attempt ${i + 1} failed:`, e.message);
-        if (i < retries - 1) {
-          await new Promise(r => setTimeout(r, 1500 * (i + 1)));
-        }
-      }
-    }
-    throw lastError || new Error("Pollinations fetch failed");
-  }
-
   // Shared retry wrapper — eliminates the copy-pasted retry blocks
   async function callWithRetry<T>(
     fn: () => Promise<T>,
@@ -1781,14 +1701,12 @@ async function startServer() {
       const ai = getAIClient(customKey);
       const promptText = "Analyze this comic page. Identify every major art panel/frame. Return ONLY the structural bounding boxes of panels (framed rectangular sections containing art). Do NOT include characters or faces. Return a JSON list: [[ymin, xmin, ymax, xmax], ...] with coordinates 0–1000. Empty list if no panels found.";
       
-      // If ai is available, we prioritize Google Gemini (the official SDK) unless pollinations or puter is explicitly requested
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
       let panelsFound: any[] | null = null;
       let errorOccurred: any = null;
 
-      if (useGeminiFirst) {
+      if (ai) {
         try {
-          console.log(`[API detectPanels] Querying Google Gemini first (Official SDK, model: ${targetModel})...`);
+          console.log(`[API detectPanels] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
           const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
           let isCacheHit = false;
           const result = await callWithRetry(() => {
@@ -1816,83 +1734,12 @@ async function startServer() {
             let parsed = parseJsonSafely(result.text, []);
             if (parsed && Array.isArray(parsed)) {
               panelsFound = parsed;
-              console.log("[API detectPanels] Gemini successfully found panels first!");
+              console.log("[API detectPanels] Gemini successfully found panels!");
               if (isCacheHit) res.setHeader("x-gemini-cache-hit", "true");
             }
           }
         } catch (gemError: any) {
           console.log("[API detectPanels] Gemini attempt failed:", gemError.message);
-          errorOccurred = gemError;
-        }
-      }
-
-      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
-      if (!panelsFound && (engine === 'pollinations' || engine === 'puter')) {
-        try {
-          console.log("[API detectPanels] Trying Free AI (Pollinations)...");
-          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-          const openAiMessages = [
-            { role: "system", content: "You are an expert layout intelligence engine. Your single task is to find all comic panels in this image and return their bounding boxes." },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: promptText },
-                { type: "image_url", image_url: { url: fullBase64Url } }
-              ]
-            }
-          ];
-
-          const resText = await callPollinations(openAiMessages, "openai", true);
-          const parsed = parseJsonSafely(resText, []);
-          if (parsed && Array.isArray(parsed)) {
-            panelsFound = parsed;
-            console.log("[API detectPanels] Free AI successfully found panels!");
-          } else {
-            throw new Error("Unable to parse JSON panels from Pollinations");
-          }
-        } catch (pollError: any) {
-          errorOccurred = pollError;
-          console.log("[API detectPanels] Free AI failed...", pollError.message);
-        }
-      }
-
-      // Secondary fallback to Gemini ONLY if Gemini was NOT tried first, and we still have no panels
-      if (!panelsFound && ai && !useGeminiFirst) {
-        try {
-          console.log(`[API detectPanels] Querying Google Gemini (Secondary Fallback, model: ${targetModel})...`);
-          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
-          let isCacheHit = false;
-          const result = await callWithRetry(() => {
-            const payload: any = {
-              model: targetModel,
-              contents: [{
-                parts: [
-                  { text: promptText },
-                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
-                ]
-              }],
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: Type.ARRAY,
-                  items: { type: Type.ARRAY, items: { type: Type.NUMBER } }
-                }
-              }
-            };
-            if (cacheName) { payload.config.cachedContent = cacheName; isCacheHit = true; }
-            return ai.models.generateContent(payload);
-          }, res, "detectPanels");
-
-          if (result) {
-            let parsed = parseJsonSafely(result.text, []);
-            if (parsed && Array.isArray(parsed)) {
-              panelsFound = parsed;
-              console.log("[API detectPanels] Gemini successfully found panels on secondary fallback!");
-              if (isCacheHit) res.setHeader("x-gemini-cache-hit", "true");
-            }
-          }
-        } catch (gemError: any) {
-          console.log("[API detectPanels] Gemini secondary fallback failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -1919,7 +1766,9 @@ async function startServer() {
         return res.status(400).json({ error: "pieces array is required" });
       }
 
-      console.log(`[API transcribePieces] Transcribing ${pieces.length} text pieces via Pollinations/Free AI...`);
+      console.log(`[API transcribePieces] Transcribing ${pieces.length} text pieces via Gemini...`);
+      const customKey = req.headers["x-gemini-api-key"] as string;
+      const ai = getAIClient(customKey);
 
       const results = [];
       for (let index = 0; index < pieces.length; index++) {
@@ -1930,27 +1779,23 @@ async function startServer() {
         }
         try {
           const rawBase64 = pieceBase64.includes(',') ? pieceBase64.split(',')[1] : pieceBase64;
-          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-          const messages = [
-            {
-              role: "system",
-              content: "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string."
-            },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: fullBase64Url } }
+          let text = "";
+          if (ai) {
+            const response = await ai.models.generateContent({
+              model: "gemini-flash-latest",
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    { text: "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string." },
+                    { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                  ]
+                }
               ]
-            }
-          ];
-
-          // Use up to 3 retries and process sequentially with a small delay
-          const text = await callPollinations(messages, "openai", false, 3);
-          results.push({ text: text ? text.trim() : "", index });
-
-          if (index < pieces.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5s delay to avoid 429 rate limits
+            });
+            text = response.text || "";
           }
+          results.push({ text: text ? text.trim() : "", index });
         } catch (err: any) {
           console.warn(`[API transcribePieces] Piece ${index} transcription failed:`, err.message);
           results.push({ text: "", index });
@@ -2053,42 +1898,6 @@ Return a JSON object:
           }
         } catch (geminiErr: any) {
           console.warn("[API detect-reading-direction] Gemini attempt failed:", geminiErr.message);
-        }
-      }
-
-      if (detectedLanguage === "other" && extractedTexts.length === 0) {
-        try {
-          const sampleImg = samples[0];
-          const fullBase64Url = sampleImg.startsWith("data:") ? sampleImg : `data:image/jpeg;base64,${sampleImg}`;
-          const openAiMessages = [
-            { role: "system", content: "You are a comic OCR language detector. Transcribe dialogue and detect language." },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: promptText },
-                { type: "image_url", image_url: { url: fullBase64Url } }
-              ]
-            }
-          ];
-          const pollText = await callPollinations(openAiMessages, "openai", true);
-          const parsed = parseJsonSafely(pollText, null);
-          if (parsed && (parsed.language || parsed.transcribedText)) {
-            const textSample = parsed.transcribedText || "";
-            extractedTexts.push(textSample);
-            const scriptCheck = classifyText(textSample);
-            const parsedLang = (parsed.language || "").toLowerCase();
-            if (scriptCheck.lang === 'korean' || parsedLang.includes('korean') || parsedLang === 'ko' || parsedLang === 'kr') {
-              detectedLanguage = 'korean';
-            } else if (scriptCheck.lang === 'japanese' || parsedLang.includes('japan') || parsedLang === 'ja' || parsedLang === 'jp') {
-              detectedLanguage = 'japanese';
-            } else if (scriptCheck.lang === 'chinese' || parsedLang.includes('chinese') || parsedLang === 'zh' || parsedLang === 'cn') {
-              detectedLanguage = 'chinese';
-            } else {
-              detectedLanguage = 'other';
-            }
-          }
-        } catch (pollErr: any) {
-          console.warn("[API detect-reading-direction] Pollinations attempt failed:", pollErr.message);
         }
       }
 
@@ -2245,94 +2054,6 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
-      if (!textFound && (engine === 'pollinations' || engine === 'puter')) {
-        try {
-          console.log("[API detectText] Trying Free AI (Pollinations)...");
-          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-          const openAiMessages = [
-            { role: "system", content: "You are a precise OCR and text extraction engine. Your sole task is to extract all text blocks and return them in JSON format with their bounding boxes." },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: finalPrompt },
-                { type: "image_url", image_url: { url: fullBase64Url } }
-              ]
-            }
-          ];
-
-          const resText = await callPollinations(openAiMessages, "openai", true);
-          const parsed = parseJsonSafely(resText, []);
-          if (parsed && Array.isArray(parsed)) {
-            textFound = parsed;
-            console.log("[API detectText] Free AI successfully found text!");
-          } else {
-            throw new Error("Unable to parse JSON text blocks from Pollinations");
-          }
-        } catch (pollError: any) {
-          errorOccurred = pollError;
-          console.log("[API detectText] Free AI failed...", pollError.message);
-        }
-      }
-
-      // Secondary fallback to Gemini ONLY if Gemini was NOT tried first, and we still have no text
-      if (!textFound && ai && !useGeminiFirst) {
-        try {
-          console.log(`[API detectText] Querying Google Gemini (Secondary Fallback, model: ${targetModel})...`);
-          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
-          let isCacheHit = false;
-
-          const result = await callWithRetry(() => {
-            const payload: any = {
-              model: targetModel,
-              contents: [{
-                parts: [
-                  { text: finalPrompt },
-                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
-                ]
-              }],
-              config: {
-                responseMimeType: "application/json",
-                maxOutputTokens: 8192,
-                responseSchema: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      text:   { type: Type.STRING },
-                      box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } }
-                    },
-                    required: ["text", "box_2d"]
-                  }
-                }
-              }
-            };
-
-            if (cacheName) {
-              payload.config.cachedContent = cacheName;
-              isCacheHit = true;
-            }
-
-            return ai.models.generateContent(payload);
-          }, res, "detectText");
-
-          if (result) {
-            textResultText = result.text;
-            let parsed = parseJsonSafely(textResultText, []);
-            if (parsed && Array.isArray(parsed)) {
-              textFound = parsed;
-              console.log("[API detectText] Gemini successfully detected text on secondary fallback!");
-              if (isCacheHit) {
-                res.setHeader("x-gemini-cache-hit", "true");
-              }
-            }
-          }
-        } catch (gemError: any) {
-          console.log("[API detectText] Gemini secondary fallback failed:", gemError.message);
-          errorOccurred = gemError;
-        }
-      }
-
       // If everything failed
       if (!textFound) {
         throw errorOccurred || new Error("All AI text detection systems failed.");
@@ -2372,11 +2093,7 @@ STRICT INSTRUCTIONS:
 
       let transcribedText = "";
 
-      // Prioritize Google Gemini (official SDK) first if available because it has native vision support,
-      // whereas Pollinations no longer supports vision modalities in its models.
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
-
-      if (useGeminiFirst && ai) {
+      if (ai) {
         try {
           console.log(`[API readHandwriting] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
           const promptText = "You are an expert handwriting reader and transcriber. In this cropped section of a hand-drawn comic, there is some handwritten text. Please transcribe the handwritten text EXACTLY as written. Output ONLY the plain transcribed text with no markdown, no quotes, no explanations, and no extra conversation. If you don't find any text, return an empty string.";
@@ -2410,28 +2127,6 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      // If Gemini was not available or failed, fallback to Pollinations as last resort
-      if (!transcribedText) {
-        try {
-          console.log("[API readHandwriting] Trying Pollinations fallback...");
-          const fullBase64Url = `data:image/jpeg;base64,${rawBase64}`;
-          const openAiMessages = [
-            { role: "system", content: "You are a precise handwriting transcriber. Transcribe all text visible in this image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting." },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: fullBase64Url } }
-              ]
-            }
-          ];
-          const resText = await callPollinations(openAiMessages, "openai", false, 3);
-          transcribedText = resText ? resText.trim() : "";
-          console.log("[API readHandwriting] Pollinations fallback read handwriting successfully:", transcribedText);
-        } catch (pollError: any) {
-          console.log("[API readHandwriting] Pollinations fallback failed:", pollError.message);
-        }
-      }
-
       // If we got here, always return a successful 200 response with whatever transcribed text (or empty) we have.
       // This prevents the frontend from erroring and breaking the smooth vector outline generation.
       return res.json({ text: transcribedText });
@@ -2459,15 +2154,13 @@ STRICT INSTRUCTIONS:
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
 
-      // If ai is available, we prioritize Google Gemini (the official SDK) unless pollinations or puter is explicitly requested
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
       let rawResultText = "";
       let translationResult: string[] | null = null;
       let errorOccurred: any = null;
 
-      if (useGeminiFirst) {
+      if (ai) {
         try {
-          console.log(`[API translate] Querying Google Gemini first (Official SDK, model: ${targetModel})...`);
+          console.log(`[API translate] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
           const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
           let isCacheHit = false;
 
@@ -2499,7 +2192,7 @@ STRICT INSTRUCTIONS:
             let parsed = parseJsonSafely(rawResultText, []);
             if (parsed && Array.isArray(parsed)) {
               translationResult = parsed;
-              console.log("[API translate] Gemini successfully translated text first!");
+              console.log("[API translate] Gemini successfully translated text!");
               if (isCacheHit) {
                 res.setHeader("x-gemini-cache-hit", "true");
               }
@@ -2507,86 +2200,6 @@ STRICT INSTRUCTIONS:
           }
         } catch (gemError: any) {
           console.log("[API translate] Gemini attempt failed:", gemError.message);
-          errorOccurred = gemError;
-        }
-      }
-
-      // Try Free AI (Pollinations) ONLY if explicitly selected by the user
-      if (!translationResult && (engine === 'pollinations' || engine === 'puter')) {
-        try {
-          console.log("[API translate] Trying Free AI (Pollinations)...");
-          const openAiMessages = [
-            { role: "system", content: generateBaseGlossary() },
-            { role: "user", content: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.\n\n${JSON.stringify(texts)}` }
-          ];
-
-          const models = ["llama", "openai", "mistral"];
-          for (let i = 0; i < models.length; i++) {
-            try {
-              const model = models[i];
-              const textResult = await callPollinations(openAiMessages, model, true, 1);
-              const parsed = parseJsonSafely(textResult, null);
-              if (parsed && Array.isArray(parsed)) {
-                translationResult = parsed;
-                console.log(`[API translate] Free AI successfully translated via "${model}"!`);
-                break;
-              }
-            } catch (err: any) {
-              console.warn(`[API translate] Free AI attempt via model "${models[i]}" failed:`, err.message);
-            }
-          }
-          if (!translationResult) {
-            throw new Error("Unable to parse translated array from Pollinations fallback models");
-          }
-        } catch (pollError: any) {
-          errorOccurred = pollError;
-          console.log("[API translate] Free AI failed...", pollError.message);
-        }
-      }
-
-      // Secondary fallback to Gemini ONLY if Gemini was NOT tried first, and we still have no translation
-      if (!translationResult && ai && !useGeminiFirst) {
-        try {
-          console.log(`[API translate] Querying Google Gemini (Secondary Fallback, model: ${targetModel})...`);
-          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
-          let isCacheHit = false;
-
-          const result = await callWithRetry(() => {
-            const payload: any = {
-              model: targetModel,
-              contents: [{
-                parts: [
-                  { text: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.` },
-                  { text: JSON.stringify(texts) }
-                ]
-              }],
-              config: {
-                responseMimeType: "application/json",
-                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
-              }
-            };
-
-            if (cacheName) {
-              payload.config.cachedContent = cacheName;
-              isCacheHit = true;
-            }
-
-            return ai.models.generateContent(payload);
-          }, res, "translate");
-
-          if (result) {
-            rawResultText = result.text;
-            let parsed = parseJsonSafely(rawResultText, []);
-            if (parsed && Array.isArray(parsed)) {
-              translationResult = parsed;
-              console.log("[API translate] Gemini successfully translated text on secondary fallback!");
-              if (isCacheHit) {
-                res.setHeader("x-gemini-cache-hit-true", "true");
-              }
-            }
-          }
-        } catch (gemError: any) {
-          console.log("[API translate] Gemini secondary fallback failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
@@ -2773,41 +2386,24 @@ STRICT INSTRUCTIONS:
 
   app.post("/api/generate-text", async (req, res): Promise<any> => {
     try {
-      const { prompt, engine } = req.body;
+      const { prompt } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
       const sysPrompt = "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
-      let geminiFailed = false;
 
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
-
-      if (useGeminiFirst) {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: prompt,
-            config: { systemInstruction: sysPrompt }
-          });
-          const text = response.text || "";
-          return res.json({ text });
-        } catch (e: any) {
-          console.log("[API generate-text] Gemini failed, falling back to Pollinations...", e.message);
-          geminiFailed = true;
-        }
+      if (!ai) {
+        return res.status(400).json({ error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!ai || geminiFailed) {
-        console.log("[API generate-text] Using Pollinations AI fallback");
-        const openAiMessages = [
-          { role: "system", content: sysPrompt },
-          { role: "user", content: prompt }
-        ];
-        
-        const text = await callPollinations(openAiMessages, "openai", false, 3);
-        return res.json({ text });
-      }
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: prompt,
+        config: { systemInstruction: sysPrompt }
+      });
+      const text = response.text || "";
+      return res.json({ text });
     } catch (err: any) {
       console.log("[API generate-text] Error:", err.message);
       res.status(500).json({ error: err.message });
@@ -2816,127 +2412,70 @@ STRICT INSTRUCTIONS:
 
   app.post("/api/generate-comic-script", async (req, res): Promise<any> => {
     try {
-      const { prompt, imageBase64, pagesCount = 1, engine } = req.body;
+      const { prompt, imageBase64, pagesCount = 1 } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let geminiFailed = false;
+
+      if (!ai) {
+        return res.status(400).json({ error: "Google Gemini API key is missing. Please check Settings." });
+      }
 
       const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.`;
 
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
-
-      if (useGeminiFirst) {
-        const parts: any[] = [];
-        if (imageBase64) {
-          let cleanBase64 = imageBase64;
-          let mimeType = "image/jpeg";
-          const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
-          if (mimeTypeMatch) {
-            mimeType = mimeTypeMatch[1];
-            cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
-          }
-          parts.push({
-            inlineData: { data: cleanBase64, mimeType }
-          });
+      const parts: any[] = [];
+      if (imageBase64) {
+        let cleanBase64 = imageBase64;
+        let mimeType = "image/jpeg";
+        const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
+        if (mimeTypeMatch) {
+          mimeType = mimeTypeMatch[1];
+          cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
         }
-        parts.push({ text: userText });
+        parts.push({
+          inlineData: { data: cleanBase64, mimeType }
+        });
+      }
+      parts.push({ text: userText });
 
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: parts,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: "OBJECT",
-                properties: {
-                   pages: {
-                     type: "ARRAY",
-                     items: {
-                       type: "OBJECT",
-                       properties: {
-                         panels: {
-                           type: "ARRAY",
-                           items: {
-                             type: "OBJECT",
-                             properties: {
-                               imagePrompt: { type: "STRING" },
-                               dialogue: { type: "STRING" }
-                             }
-                           }
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: parts,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+               pages: {
+                 type: "ARRAY",
+                 items: {
+                   type: "OBJECT",
+                   properties: {
+                     panels: {
+                       type: "ARRAY",
+                       items: {
+                         type: "OBJECT",
+                         properties: {
+                           imagePrompt: { type: "STRING" },
+                           dialogue: { type: "STRING" }
                          }
                        }
                      }
                    }
-                }
-              }
+                 }
+               }
             }
-          });
-          
-          const scriptText = response.text;
-          if (scriptText) {
-            const scriptData = JSON.parse(scriptText);
-            return res.json(scriptData);
           }
-        } catch (geminiError: any) {
-          console.log("[API generate-comic-script] Gemini failed, falling back to Pollinations...", geminiError.message);
-          geminiFailed = true;
         }
+      });
+      
+      const scriptText = response.text;
+      if (scriptText) {
+        const scriptData = JSON.parse(scriptText);
+        return res.json(scriptData);
       }
-
-      if (!ai || geminiFailed) {
-        console.log("[API generate-comic-script] Using Pollinations AI fallback");
-        const openAiMessages = [
-          { role: "system", content: "You are an expert comic book script writer. Output only valid JSON with the format: {\"pages\": [{\"panels\": [{\"imagePrompt\": \"...\", \"dialogue\": \"...\"}]}]}." }
-        ];
-        
-        let content: any = userText;
-        if (imageBase64) {
-          let cleanBase64 = imageBase64;
-          let mimeType = "image/jpeg";
-          const mimeTypeMatch = imageBase64.match(/^data:(image\/[a-zA-Z]+);base64,/);
-          if (mimeTypeMatch) {
-            mimeType = mimeTypeMatch[1];
-            cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
-          }
-          content = [
-            { type: "text", text: userText },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${cleanBase64}` } }
-          ];
-        }
-        openAiMessages.push({ role: "user", content });
-
-        let lastError = null;
-        const models = ["openai", "openai-fast", "gpt-oss"];
-        for (let i = 0; i < models.length; i++) {
-          try {
-            const polRes = await fetch("https://text.pollinations.ai/", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-              },
-              body: JSON.stringify({ messages: openAiMessages, model: models[i] }),
-              signal: AbortSignal.timeout(18000)
-            });
-            if (polRes.ok) {
-              const text = await polRes.text();
-              const parsed = parseJsonSafely(text, { pages: [] });
-              return res.json(parsed);
-            } else if (polRes.status === 429) {
-              lastError = new Error("Too Many Requests");
-              await new Promise(r => setTimeout(r, 1500 * (i + 1))); // Backoff
-            } else {
-              lastError = new Error(`Pollinations API Error: ${polRes.status}`);
-            }
-          } catch (e: any) {
-            lastError = e;
-          }
-        }
-        throw lastError || new Error("Failed to generate response from Pollinations");
-      }
+      return res.status(500).json({ error: "No script generated from Gemini." });
     } catch (err: any) {
       console.log("[API generate-comic-script] Error:", err.message);
       res.status(500).json({ error: err.message });
@@ -2945,139 +2484,31 @@ STRICT INSTRUCTIONS:
 
   app.post("/api/agent-chat", async (req, res): Promise<any> => {
     try {
-      const { messages, systemInstruction, engine } = req.body;
+      const { messages, systemInstruction } = req.body;
       if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array is required" });
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
       
-      let agentChatResponse: string | null = null;
-      let lastError = null;
-
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
-
-      // If ai is available, we prioritize Google Gemini (the official SDK) unless pollinations or puter is requested
-      if (useGeminiFirst) {
-        try {
-          console.log("[API agent-chat] Querying Google Gemini first (Official SDK)...");
-          const payload: any = {
-            model: "gemini-flash-latest",
-            contents: messages,
-          };
-          
-          if (systemInstruction) {
-            payload.config = { systemInstruction };
-          }
-
-          const response = await ai.models.generateContent(payload);
-          const text = response.text || "";
-          if (text) {
-            agentChatResponse = text;
-            console.log("[API agent-chat] Gemini successfully answered agent chat first!");
-          }
-        } catch (geminiError: any) {
-          console.log("[API agent-chat] Google Gemini first-attempt failed, falling back to Pollinations...", geminiError.message);
-          lastError = geminiError;
-        }
+      if (!ai) {
+        return res.status(400).json({ error: "Google Gemini API key is missing. Please provide your API key in Settings." });
       }
 
-      // Fallback or if ai is not available
-      if (!agentChatResponse) {
-        console.log("[API agent-chat] Trying Pollinations AI...");
-        const openAiMessages: any[] = [];
-        if (systemInstruction) {
-          openAiMessages.push({ role: "system", content: systemInstruction });
-        }
-        
-        messages.forEach((m: any) => {
-          const role = m.role === 'model' ? 'assistant' : 'user';
-          const parts = m.parts || [];
-          const content = parts.map((p: any) => {
-            if (p.text) return { type: 'text', text: p.text };
-            if (p.inlineData) {
-              return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-            }
-            return { type: 'text', text: '' };
-          });
-          openAiMessages.push({
-            role,
-            content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
-          });
-        });
-
-        const models = ["qwen-coder", "openai", "llama", "mistral"];
-        for (let i = 0; i < 4; i++) {
-          try {
-            const model = models[i % models.length];
-            let polRes = await fetch("https://text.pollinations.ai/", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ messages: openAiMessages, model })
-            });
-
-            if (!polRes.ok && (polRes.status === 502 || polRes.status === 413 || polRes.status === 400)) {
-              console.log(`[API agent-chat] Pollinations failed with ${polRes.status}, retrying without images...`);
-              const textOnlyMessages = openAiMessages.map(m => {
-                if (Array.isArray(m.content)) {
-                   return { ...m, content: m.content.map((c: any) => c.text || '').filter(Boolean).join(" ") };
-                }
-                return m;
-              });
-              polRes = await fetch("https://text.pollinations.ai/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: textOnlyMessages, model })
-              });
-            }
-
-            if (polRes.ok) {
-              const text = await polRes.text();
-              agentChatResponse = text;
-              break;
-            } else if (polRes.status === 429) {
-              lastError = new Error("Too Many Requests");
-              await new Promise(r => setTimeout(r, 2000 * (i + 1))); 
-            } else {
-              lastError = new Error(`Pollinations API Error: ${polRes.status}`);
-            }
-          } catch (e: any) {
-            lastError = e;
-          }
-        }
+      const payload: any = {
+        model: "gemini-flash-latest",
+        contents: messages,
+      };
+      
+      if (systemInstruction) {
+        payload.config = { systemInstruction };
       }
 
-      // Secondary fallback to Gemini ONLY if Gemini was NOT tried first, and we still have no answer
-      if (!agentChatResponse && ai && !lastError) {
-        try {
-          console.log("[API agent-chat] Querying Google Gemini (Secondary Fallback)...");
-          const payload: any = {
-            model: "gemini-flash-latest",
-            contents: messages,
-          };
-          
-          if (systemInstruction) {
-            payload.config = { systemInstruction };
-          }
-
-          const response = await ai.models.generateContent(payload);
-          const text = response.text || "";
-          if (text) {
-            agentChatResponse = text;
-          }
-        } catch (geminiError: any) {
-          console.log("[API agent-chat] Gemini secondary fallback failed:", geminiError.message);
-          throw geminiError;
-        }
-      }
-
-      if (!agentChatResponse) {
-        throw lastError || new Error("Failed to generate response from any AI engine");
-      }
-
-      return res.json({ text: agentChatResponse });
-    } catch (err: any) {
-      console.log("[API agent-chat] Error:", err.message);
-      res.status(500).json({ error: err.message });
+      const response = await ai.models.generateContent(payload);
+      const text = response.text || "";
+      return res.json({ text });
+    } catch (geminiError: any) {
+      console.error("[API agent-chat] Error:", geminiError.message);
+      return res.status(500).json({ error: geminiError.message });
     }
   });
 
@@ -3093,40 +2524,23 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let responseText = "";
-
-      if (ai) {
-        try {
-          const contents = messages.map((m: any) => ({
-            role: m.role === "assistant" || m.role === "model" ? "model" : "user",
-            parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
-          }));
-          const config: any = {};
-          if (system) config.systemInstruction = system;
-
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents,
-            config,
-          });
-          responseText = response.text || "";
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/chat] Gemini failed, falling back to Pollinations...", e.message);
-        }
+      if (!ai) {
+        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!responseText) {
-        const openAiMessages = messages.map((m: any) => ({
-          role: m.role === "assistant" || m.role === "model" ? "assistant" : "user",
-          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
-        }));
-        if (system) {
-          openAiMessages.unshift({ role: "system", content: system });
-        }
-        responseText = await callPollinations(openAiMessages, "openai", false, 2);
-      }
+      const contents = messages.map((m: any) => ({
+        role: m.role === "assistant" || m.role === "model" ? "model" : "user",
+        parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+      }));
+      const config: any = {};
+      if (system) config.systemInstruction = system;
 
-      return res.json({ success: true, response: responseText });
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents,
+        config,
+      });
+      return res.json({ success: true, response: response.text || "" });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/chat Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -3151,42 +2565,23 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let text = "";
-
-      if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType, data: cleanBase64 } }
-                ]
-              }
-            ]
-          });
-          text = response.text || "";
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/ocr] Gemini OCR failed, trying Pollinations vision...", e.message);
-        }
+      if (!ai) {
+        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!text) {
-        const messages = [
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: [
           {
             role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: `data:${mimeType};base64,${cleanBase64}` } }
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType, data: cleanBase64 } }
             ]
           }
-        ];
-        text = await callPollinations(messages, "openai", true, 2);
-      }
-
-      return res.json({ success: true, text });
+        ]
+      });
+      return res.json({ success: true, text: response.text || "" });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/ocr Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -3205,30 +2600,16 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let translation = "";
-
-      if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: userPrompt,
-            config: { systemInstruction: systemPrompt }
-          });
-          translation = response.text || "";
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/translate] Gemini translate failed, using Pollinations...", e.message);
-        }
+      if (!ai) {
+        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!translation) {
-        const messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ];
-        translation = await callPollinations(messages, "openai", false, 2);
-      }
-
-      return res.json({ success: true, translation: translation.trim() });
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: userPrompt,
+        config: { systemInstruction: systemPrompt }
+      });
+      return res.json({ success: true, translation: (response.text || "").trim() });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/translate Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -3246,30 +2627,16 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let text = "";
-
-      if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: userPrompt,
-            config: { systemInstruction: systemPrompt }
-          });
-          text = response.text || "";
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/speech-bubble] Gemini failed, using Pollinations...", e.message);
-        }
+      if (!ai) {
+        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!text) {
-        const messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ];
-        text = await callPollinations(messages, "openai", false, 2);
-      }
-
-      return res.json({ success: true, text: text.trim() });
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: userPrompt,
+        config: { systemInstruction: systemPrompt }
+      });
+      return res.json({ success: true, text: (response.text || "").trim() });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/speech-bubble Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
@@ -3287,30 +2654,16 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      let content = "";
-
-      if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: "gemini-flash-latest",
-            contents: userPrompt,
-            config: { systemInstruction: systemPrompt }
-          });
-          content = response.text || "";
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/novel] Gemini failed, using Pollinations...", e.message);
-        }
+      if (!ai) {
+        return res.status(400).json({ success: false, error: "Google Gemini API key is missing. Please check Settings." });
       }
 
-      if (!content) {
-        const messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ];
-        content = await callPollinations(messages, "openai", false, 2);
-      }
-
-      return res.json({ success: true, content });
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: userPrompt,
+        config: { systemInstruction: systemPrompt }
+      });
+      return res.json({ success: true, content: response.text || "" });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/novel Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });

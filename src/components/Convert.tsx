@@ -2090,7 +2090,7 @@ const ImageItem = ({
                      try {
                         const prompt = decodeURIComponent(match[1]);
                         const newSeed = Math.floor(Math.random() * 100000000);
-                        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&safe=nsfw&seed=${newSeed}&model=flux`;
+                        const url = `${getApiUrl()}/api/ai/generate-image?prompt=${encodeURIComponent(prompt)}&seed=${newSeed}`;
                         updateImage({ url });
                      } catch(e) {}
                   }

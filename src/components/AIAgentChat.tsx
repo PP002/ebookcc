@@ -326,14 +326,14 @@ PROFESSIONAL COMIC CREATION GUIDELINES:
 IMAGE GENERATION INSTRUCTIONS:
 If the user asks to generate images for specific panels on their canvas, you can directly place them in the canvas without showing them in the chat. 
 To do this, use the following exact markdown format:
-[Fill Panel {PANEL_ID}](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&safe=nsfw&model={MODEL}&seed={SEED})
+[Fill Panel {PANEL_ID}](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
 
 Make sure to replace {PANEL_ID} with the ID of the panel from the context provided.
 When you use this command, do not use the ![Alt](URL) image format for that image. Just use the [Fill Panel ...] link format. 
 The system will automatically intercept it and place it directly on the user's canvas.
 
 If the user is NOT asking to fill specific panels, use this exact format to show images in chat:
-![Option 1](https://image.pollinations.ai/prompt/{URL_ENCODED_DETAILED_PROMPT}?width=1024&height=1024&nologo=true&safe=nsfw&model={MODEL}&seed={SEED})
+![Option 1](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
 
 Where {MODEL} is one of: flux, flux-anime, flux-3d, any-dark, turbo. Provide a very detailed prompt for {URL_ENCODED_DETAILED_PROMPT}. Ensure {SEED} is a consistent number if preserving character continuity, or different seeds for variations.
 
@@ -596,7 +596,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                                 );
                               }
                               
-                              if (href?.startsWith("https://image.pollinations.ai") && children?.toString().startsWith("Fill Panel ")) {
+                              if ((href?.includes("generate-image") || href?.includes("image")) && children?.toString().startsWith("Fill Panel ")) {
                                 const panelId = children.toString().replace("Fill Panel ", "").trim();
                                 return <AutoFillPanel panelId={panelId} href={href} />;
                               }

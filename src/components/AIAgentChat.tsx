@@ -20,7 +20,6 @@ import { toast } from "sonner";
 import { useAppSettings } from "@/context/AppSettingsContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getApiUrl } from '@/lib/api';
-import { loadPuterScript } from "@/lib/puterLoader";
 
 
 interface ChatMessage {
@@ -385,149 +384,30 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
 
       let resultText = "";
 
-      // 1. If Puter.js is selected in settings, run directly in browser
-      if (llmEngine === "puter") {
-        try {
-          const loaded = await loadPuterScript();
-          if (loaded && (window as any).puter?.ai?.chat) {
-            const historyPrompt = messages
-              .slice(-4)
-              .map((m) => `${m.role === "agent" ? "Assistant" : "User"}: ${m.text}`)
-              .join("\n");
-            const fullPrompt = `${systemInstruction ? `[Instructions: ${systemInstruction}]\n\n` : ""}${historyPrompt ? `${historyPrompt}\n` : ""}User: ${combinedText}`;
-            const puterRes = await (window as any).puter.ai.chat(fullPrompt, { model: "gpt-4o-mini" });
-            const pText = typeof puterRes === "string" ? puterRes : puterRes?.message?.content || puterRes?.text || "";
-            if (pText && pText.trim()) {
-              resultText = pText.trim();
-            }
-          }
-        } catch (puterErr) {
-          console.warn("[AIAgentChat] Direct Puter attempt failed:", puterErr);
+      try {
+        const headers: any = { "Content-Type": "application/json" };
+        if (geminiApiKey) {
+          headers["x-gemini-api-key"] = geminiApiKey;
         }
+        const res = await fetch(`${getApiUrl()}/api/agent-chat`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ messages: geminiMessages, systemInstruction, engine: llmEngine }),
+        });
+
+        if (res.ok) {
+          const text = await res.text();
+          if (text.trim().startsWith("{")) {
+            const data = JSON.parse(text);
+            resultText = data.text || "";
+          }
+        }
+      } catch (err: any) {
+        console.error("[AIAgentChat] Backend /api/agent-chat failed:", err);
       }
 
-      // 2. Primary call to backend API route (/api/agent-chat)
       if (!resultText) {
-        try {
-          const headers: any = { "Content-Type": "application/json" };
-          if (geminiApiKey) {
-            headers["x-gemini-api-key"] = geminiApiKey;
-          }
-          const res = await fetch(`${getApiUrl()}/api/agent-chat`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ messages: geminiMessages, systemInstruction, engine: llmEngine }),
-          });
-
-          if (res.ok) {
-            const text = await res.text();
-            if (text.trim().startsWith("{")) {
-              const data = JSON.parse(text);
-              resultText = data.text || "";
-            }
-          } else {
-            console.warn(`[AIAgentChat] Backend returned status ${res.status}, activating client-side AI fallback...`);
-          }
-        } catch (err: any) {
-          console.warn(
-            "[AIAgentChat] Backend /api/agent-chat failed, activating client-side AI fallback:",
-            err,
-          );
-        }
-      }
-
-      // 3. Fallback Tier 1: Puter.js (Client-side free browser AI, unaffected by server IP limits)
-      if (!resultText) {
-        try {
-          const loaded = await loadPuterScript();
-          if (loaded && (window as any).puter?.ai?.chat) {
-            console.log("[AIAgentChat] Connecting to Puter.js browser AI fallback...");
-            const historyPrompt = messages
-              .slice(-4)
-              .map((m) => `${m.role === "agent" ? "Assistant" : "User"}: ${m.text}`)
-              .join("\n");
-            const fullPrompt = `${systemInstruction ? `[Instructions: ${systemInstruction}]\n\n` : ""}${historyPrompt ? `${historyPrompt}\n` : ""}User: ${combinedText}`;
-            const puterRes = await (window as any).puter.ai.chat(fullPrompt, { model: "gpt-4o-mini" });
-            const pText = typeof puterRes === "string" ? puterRes : puterRes?.message?.content || puterRes?.text || "";
-            if (pText && pText.trim()) {
-              resultText = pText.trim();
-            }
-          }
-        } catch (puterErr) {
-          console.warn("[AIAgentChat] Puter fallback error:", puterErr);
-        }
-      }
-
-      // 4. Fallback Tier 2: Pollinations directly from client browser
-      if (!resultText) {
-        console.log("[AIAgentChat] Trying Pollinations client-side fallback...");
-        const openAiMessages: { role: string; content: string }[] = [];
-        if (systemInstruction) {
-          openAiMessages.push({ role: "system", content: systemInstruction });
-        }
-
-        // Convert existing conversation history (text-only for maximum reliability)
-        for (const m of messages.slice(-6)) {
-          if (m.text) {
-            openAiMessages.push({
-              role: m.role === "agent" ? "assistant" : "user",
-              content: m.text,
-            });
-          }
-        }
-
-        const userContent = finalImageUrl
-          ? `${combinedText} [User attached a comic sketch/canvas image]`
-          : combinedText || " ";
-        openAiMessages.push({ role: "user", content: userContent });
-
-        const models = ["openai", "openai-fast", "gpt-oss"];
-        for (let i = 0; i < models.length; i++) {
-          try {
-            const polRes = await fetch("https://text.pollinations.ai/", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messages: openAiMessages,
-                model: models[i],
-              }),
-              signal: AbortSignal.timeout(12000),
-            });
-            if (polRes.ok) {
-              const pText = await polRes.text();
-              if (pText && pText.trim() && !pText.includes('"status":402') && !pText.includes('"status":429')) {
-                resultText = pText.trim();
-                break;
-              }
-            }
-          } catch (e) {
-            console.warn(`[Fallback] Pollinations model ${models[i]} failed client-side:`, e);
-          }
-        }
-
-        // Fast GET query fallback
-        if (!resultText && combinedText) {
-          try {
-            const getUrl = `https://text.pollinations.ai/${encodeURIComponent(combinedText.slice(0, 500))}?model=openai`;
-            const getRes = await fetch(getUrl, { signal: AbortSignal.timeout(10000) });
-            if (getRes.ok) {
-              const pText = await getRes.text();
-              if (pText && pText.trim() && !pText.includes('"status":402') && !pText.includes('"status":429')) {
-                resultText = pText.trim();
-              }
-            }
-          } catch {}
-        }
-      }
-
-      // 5. Fallback Tier 3: Helpful Assistant Guidance (Never leave user stranded!)
-      if (!resultText) {
-        resultText = "I'm having trouble connecting to the free public AI services right now due to high server traffic or queue limits.\n\n" +
-          "💡 **How to enable lightning-fast, uninterrupted AI responses:**\n" +
-          "- **Connect your free Gemini API Key:** You can get a 100% free Google Gemini API key and add it in [Settings](#action:open-settings).\n" +
-          "- **Switch AI Engine:** In Settings, you can switch to **Puter.js** or a **Local LLM** (such as Ollama or LM Studio).\n" +
-          "- Or simply wait a few moments and try sending your message again.";
-        toast.info("Public AI servers busy. You can configure your free API key in Settings.", { duration: 5000 });
+        resultText = "I'm having trouble connecting to the AI backend right now. Please check your API key in Settings or try again shortly.";
       }
 
       setMessages((prev) => [

@@ -83,9 +83,8 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
         else if (aspectRatio === "9:16") { width = 576; height = 1024; }
         else if (aspectRatio === "3:2" || aspectRatio === "4:3") { width = 1024; height = 768; }
 
-        const seed = Math.floor(Math.random() * 100000000);
         const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
-        imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&safe=nsfw&seed=${seed}&model=flux`;
+        imageUrl = `https://picsum.photos/seed/${encodedPrompt}/${width}/${height}`;
       }
 
       if (!imageUrl) throw new Error("Failed to generate image from any source.");
@@ -94,7 +93,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
       if (onGeneratorSuccess) onGeneratorSuccess(imageUrl);
       setSketch(null);
     } catch (err: any) {
-      if (!handleApiError(err, setShowSettingsDialog, llmEngine)) {
+      if (!handleApiError(err, setShowSettingsDialog)) {
         setError(err.message || "An unexpected error occurred.");
       }
     } finally {

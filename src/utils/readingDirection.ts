@@ -368,7 +368,7 @@ export async function runOcrFallback(
         const textRes = await fetch(`${getApiUrl()}/api/detectText`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Image: pageSrc, suggestedCount: 5, engine: 'pollinations' })
+          body: JSON.stringify({ base64Image: pageSrc, suggestedCount: 5, engine: 'gemini' })
         });
         if (textRes.ok) {
           const items = await textRes.json();

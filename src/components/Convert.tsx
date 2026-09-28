@@ -27,7 +27,6 @@ import {
 } from '@/lib/historyCache';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from './GoogleDriveDialog';
-import { loadPuterScript } from '@/lib/puterLoader';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -775,7 +774,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
   }
 
   // Ensure image is not too large for external YOLO API endpoints
-  const engineConfig = { engine: 'pollinations', url: 'http://localhost:11434/v1', model: 'llama3', apiKey: '' };
+  const engineConfig = { engine: 'gemini', url: 'http://localhost:11434/v1', model: 'llama3', apiKey: '' };
   let aiBase64 = base64Data;
   try {
      const maxDim = 800;
@@ -1438,53 +1437,13 @@ export async function transcribeTextsViaPieces(
     
     let resultText = "";
     
-    if (engine === 'pollinations') {
-      // Attempt 1: Tesseract.js (Pollinations default)
-      console.log(`[Frontend] Using Tesseract.js for piece ${i}`);
-      try {
-          const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
-          if (result && result.data && result.data.text) {
-              resultText = result.data.text.trim();
-          }
-      } catch (err) {
-          console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
-      }
-    } else if (engine === 'puter') {
-      // Attempt: Puter.js with mistral/pixtral
-      await loadPuterScript();
-      if (typeof window !== 'undefined' && (window as any).puter?.ai?.chat) {
-          try {
-              console.log(`[Frontend] Trying Puter.js OCR for piece ${i}`);
-              const prompt = "You are a precise comic book text OCR transcriber. Transcribe all text visible in this single speech bubble or text box image. Output ONLY the transcribed text in the original language, with absolutely no surrounding conversation, no explanations, and no markdown formatting. If the image is blank, contains no legible text, or contains only noise/lines/art, respond with an empty string.";
-              const res = await (window as any).puter.ai.chat(
-                  [{
-                      role: 'user',
-                      content: [
-                          { type: 'text', text: prompt },
-                          { type: 'image_url', image_url: { url: pieceBase64 } }
-                      ]
-                  }]
-              );
-              
-              if (res && res.message && typeof res.message.content === 'string') {
-                 resultText = res.message.content.trim();
-              } else if (res && typeof res === 'string') {
-                 resultText = res.trim();
-              }
-          } catch (err) {
-              console.warn(`[Frontend] Puter.js OCR failed for piece ${i}:`, err);
-          }
-      } else {
-        console.warn(`[Frontend] Puter.js not available, falling back to Tesseract`);
-        try {
-            const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
-            if (result && result.data && result.data.text) {
-                resultText = result.data.text.trim();
-            }
-        } catch (err) {
-            console.error(`[Frontend] Tesseract.js fallback failed for piece ${i}:`, err);
+    try {
+        const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
+        if (result && result.data && result.data.text) {
+            resultText = result.data.text.trim();
         }
-      }
+    } catch (err) {
+        console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
     }
     
     ocrResults.push({ text: resultText, index: i });
@@ -3584,11 +3543,11 @@ export default function Convert({
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
-      const maxDim = (llmEngine === 'pollinations' || llmEngine === 'puter') ? 800 : 1600;
+      const maxDim = 1600;
       const aiBase64 = await resizeImageForAI(workingImageSrc, maxDim);
 
       // 1. Initial Layout Detection (YOLO / Predict API)
-      const needYolo = runLayout || ((llmEngine === 'pollinations' || llmEngine === 'puter') && runOcr);
+      const needYolo = runLayout || runOcr;
       if (needYolo && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
@@ -3608,16 +3567,6 @@ export default function Convert({
 
       const hasLayoutPanels = localPanels && localPanels.length > 0;
 
-      let pollinationsOcrTexts: ComicText[] = [];
-      if ((llmEngine === 'pollinations' || llmEngine === 'puter') && runOcr && localTexts && localTexts.length > 0) {
-        try {
-          toast.info(`Extracting ${localTexts.length} text blocks using Free AI pieces...`);
-          pollinationsOcrTexts = await transcribeTextsViaPieces(fullImg, localTexts, llmEngine);
-        } catch (pollErr) {
-          console.error("Pollinations piece-transcription failed:", pollErr);
-        }
-      }
-
       // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
       if (splitDuringBatch && hasLayoutPanels) {
         toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
@@ -3635,24 +3584,6 @@ export default function Convert({
         const finalResults: ComicText[] = [];
         
         if (runOcr) {
-          if ((llmEngine === 'pollinations' || llmEngine === 'puter') && pollinationsOcrTexts.length > 0) {
-            localPanels.forEach((panel, pIdx) => {
-              const pBox = panel.box_2d || panel;
-              pollinationsOcrTexts.forEach(pt => {
-                const box = pt.box_2d;
-                const tXCenter = (box[1] + box[3]) / 2;
-                const tYCenter = (box[0] + box[2]) / 2;
-                const isInside = tXCenter >= pBox[1] - 5 && tXCenter <= pBox[3] + 5 &&
-                                tYCenter >= pBox[0] - 5 && tYCenter <= pBox[2] + 5;
-                if (isInside) {
-                  finalResults.push({
-                    ...pt,
-                    panelIdx: pIdx
-                  });
-                }
-              });
-            });
-          } else {
             for (let i = 0; i < sortedPanels.length; i++) {
               const panel = sortedPanels[i];
               const box = panel.box_2d || panel;
@@ -3778,56 +3709,30 @@ export default function Convert({
                 });
               }
             }
-          }
           result = finalResults;
         } else {
           result = page.detectedTexts || [];
         }
-      } 
-      // Branch B: No Panels detected or split disabled -> Regular Book Mode
-      else {
+      } else {
         if (runOcr) {
-          if (llmEngine === 'pollinations' || llmEngine === 'puter') {
-            if (pollinationsOcrTexts.length > 0) {
-              result = sortTextsReadingOrder(pollinationsOcrTexts, undefined, readingDirection);
-            } else {
-              toast.info("No YOLO texts detected; trying Free AI context-OCR fallback...");
-              const rawResult = await detectComicText(
-                aiBase64,
-                customApiKey,
-                0,
-                'gemini',
-                undefined,
-                {
-                  engine: llmEngine,
-                  url: localLlmUrl,
-                  model: localLlmModel,
-                  apiKey: localLlmApiKey
-                },
-                []
-              );
-              result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
-            }
-          } else {
-            toast.info("Analyzing layout and extracting text...");
-            // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
-            const rawResult = await detectComicText(
-              aiBase64,
-              customApiKey,
-              localTexts?.length || 0,
-              'gemini',
-              undefined,
-              {
-                engine: llmEngine,
-                url: localLlmUrl,
-                model: localLlmModel,
-                apiKey: localLlmApiKey
-              },
-              localTexts
-            );
-            // Canonical sort for the book page
-            result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
-          }
+          toast.info("Analyzing layout and extracting text...");
+          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
+          const rawResult = await detectComicText(
+            aiBase64,
+            customApiKey,
+            localTexts?.length || 0,
+            'gemini',
+            undefined,
+            {
+              engine: llmEngine,
+              url: localLlmUrl,
+              model: localLlmModel,
+              apiKey: localLlmApiKey
+            },
+            localTexts
+          );
+          // Canonical sort for the book page
+          result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
         } else {
           result = page.detectedTexts || []; // Keep existing if no OCR requested
         }
@@ -3982,7 +3887,7 @@ export default function Convert({
         }
       } catch(e) {}
 
-      if (handleApiError(errorMsg, setShowApiKeyModal, llmEngine) || (error?.status === 429)) {
+      if (handleApiError(errorMsg, setShowApiKeyModal) || (error?.status === 429)) {
         setIsBatchProcessing(false);
         throw error;
       } else if (errorMsg.toLowerCase().includes("api key missing") || errorMsg.toLowerCase().includes("server missing gemini api key")) {

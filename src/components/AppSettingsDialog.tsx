@@ -129,8 +129,6 @@ export function AppSettingsDialog() {
                 }}
                 className="w-full text-sm p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-primary shadow-sm h-10"
               >
-                <option className="bg-background text-foreground" value="pollinations">{t("freeAiDefault")}</option>
-                <option className="bg-background text-foreground" value="puter">{t("puterJs")}</option>
                 <option className="bg-background text-foreground" value="gemini">Google Gemini</option>
                 <option className="bg-background text-foreground" value="openai">OpenAI</option>
                 <option className="bg-background text-foreground" value="claude">Claude</option>
@@ -174,28 +172,6 @@ export function AppSettingsDialog() {
                     <option className="bg-background text-foreground" value="gemini-2.5-pro">gemini-2.5-pro (Complex Tasks)</option>
                     <option className="bg-background text-foreground" value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Experimental Light)</option>
                   </select>
-                </div>
-              </div>
-            ) : localEngine === 'puter' ? (
-              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="p-3 bg-muted/60 border rounded-md">
-                  <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                    <Sparkles className="w-3.5 h-3.5" /> Puter.js
-                  </h4>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                    {t("puterDesc")}
-                  </p>
-                </div>
-              </div>
-            ) : localEngine === 'pollinations' ? (
-              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="p-3 bg-muted/60 border rounded-md">
-                  <h4 className="text-xs font-bold mb-1 flex items-center gap-1.5 capitalize text-primary">
-                    <Sparkles className="w-3.5 h-3.5" /> {t("quickAiGenTitle")}
-                  </h4>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-                    {t("quickAiGenDesc")}
-                  </p>
                 </div>
               </div>
             ) : (

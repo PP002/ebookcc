@@ -102,7 +102,6 @@ import { AIFullComicDialog } from "./AIFullComicDialog";
 import { AIFullStoryDialog } from "./AIFullStoryDialog";
 import { useAppSettings } from "@/context/AppSettingsContext";
 import { getApiUrl } from '@/lib/api';
-import { loadPuterScript } from "@/lib/puterLoader";
 import { GoogleDriveDialog, GoogleDriveIcon } from "./GoogleDriveDialog";
 import {
   processFreehandBubblePoints,
@@ -3014,7 +3013,7 @@ export const Create: React.FC<CreateProps> = ({
                 prompt: prompt + (sketch ? " consistent with sketch" : ""),
                 aspectRatio: "1:1",
                 imageBase64: sketch,
-                engine: "pollinations", // Force fast generator
+                engine: llmEngine,
                 seed: sharedConsistencySeed,
               }),
             });
@@ -3033,7 +3032,7 @@ export const Create: React.FC<CreateProps> = ({
             const encodedPrompt = encodeURIComponent(
               prompt + (sketch ? " consistent with sketch" : ""),
             );
-            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&safe=nsfw&seed=${sharedConsistencySeed}&model=flux`;
+            imageUrl = `https://picsum.photos/seed/${encodedPrompt}/1024/1024`;
           }
 
           if (imageUrl) {
@@ -3707,58 +3706,6 @@ export const Create: React.FC<CreateProps> = ({
         );
         const sysPrompt =
           "You are a comic book script writer. Given a scenario, generate a short, punchy single speech bubble line of dialogue (or sound effect). Maximum 10-15 words. ONLY return the text that goes in the bubble, nothing else.";
-
-        // Try Puter first
-        try {
-          const loaded = await loadPuterScript();
-          if (loaded && (window as any).puter?.ai?.chat) {
-            const puterRes = await (window as any).puter.ai.chat(`${sysPrompt}\n\nScenario: ${aiPrompt}`, { model: "gpt-4o-mini" });
-            const pText = typeof puterRes === 'string' ? puterRes : puterRes?.message?.content || puterRes?.text || "";
-            if (pText && pText.trim()) {
-              generatedText = pText.trim().replace(/^["']|["']$/g, '');
-            }
-          }
-        } catch {}
-
-        // If still empty, try Pollinations
-        if (!generatedText) {
-          const openAiMessages = [
-            { role: "system", content: sysPrompt },
-            { role: "user", content: aiPrompt },
-          ];
-          const models = ["openai", "openai-fast", "gpt-oss"];
-          for (const model of models) {
-            try {
-              const polRes = await fetch("https://text.pollinations.ai/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: openAiMessages, model }),
-                signal: AbortSignal.timeout(12000),
-              });
-              if (polRes.ok) {
-                const t = await polRes.text();
-                if (t && t.trim() && !t.includes('"status":402') && !t.includes('"status":429')) {
-                  generatedText = t.trim().replace(/^["']|["']$/g, '');
-                  break;
-                }
-              }
-            } catch {}
-          }
-        }
-
-        // Fast GET query fallback
-        if (!generatedText) {
-          try {
-            const getUrl = `https://text.pollinations.ai/${encodeURIComponent(aiPrompt.slice(0, 300))}?model=openai`;
-            const getRes = await fetch(getUrl, { signal: AbortSignal.timeout(10000) });
-            if (getRes.ok) {
-              const t = await getRes.text();
-              if (t && t.trim() && !t.includes('"status":402') && !t.includes('"status":429')) {
-                generatedText = t.trim().replace(/^["']|["']$/g, '');
-              }
-            }
-          } catch {}
-        }
 
         if (!generatedText) {
           throw new Error("Unable to reach AI services right now. Please check your network or enter a free Gemini key in Settings.");
@@ -5845,17 +5792,10 @@ export const Create: React.FC<CreateProps> = ({
                   }}
                   onRegenerate={() => {
                     if (!imageMenuProps.imgElement) return;
-                    const match =
-                      imageMenuProps.imgElement.src.match(/prompt\/([^?]+)/);
-                    if (match) {
-                      try {
-                        const prompt = decodeURIComponent(match[1]);
-                        const newSeed = Math.floor(Math.random() * 100000000);
-                        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&safe=nsfw&seed=${newSeed}&model=flux`;
-                        imageMenuProps.imgElement.src = url;
-                        updateToc();
-                      } catch (e) {}
-                    }
+                    const promptText = imageMenuProps.imgElement.alt || "comic image";
+                    const url = `https://picsum.photos/seed/${encodeURIComponent(promptText)}/1024/1024`;
+                    imageMenuProps.imgElement.src = url;
+                    updateToc();
                     setImageMenuProps((prev) => ({ ...prev, visible: false }));
                   }}
                   onDelete={() => {

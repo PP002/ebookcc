@@ -5,7 +5,7 @@ import { getApiUrl } from '@/lib/api';
 import { initGoogleDriveAuth, setDriveAccessToken } from '@/lib/googleDrive';
 
 
-export type LlmEngine = 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen' | 'puter';
+export type LlmEngine = 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
 
 export interface UserSession {
   email: string;
@@ -89,7 +89,11 @@ export function getSupabase(url: string, key: string): SupabaseClient | null {
 }
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
-  const [llmEngine, setLlmEngine] = useState<LlmEngine>(() => (localStorage.getItem('llm_engine') || 'pollinations') as LlmEngine);
+  const [llmEngine, setLlmEngine] = useState<LlmEngine>(() => {
+    const saved = localStorage.getItem('llm_engine') as LlmEngine | null;
+    if (saved === ('pollinations' as any) || saved === ('puter' as any)) return 'gemini';
+    return saved || 'gemini';
+  });
   const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
   const [stabilityApiKey, setStabilityApiKey] = useState(() => localStorage.getItem('stability_api_key') || "");
   const [localLlmUrl, setLocalLlmUrl] = useState(() => localStorage.getItem('local_llm_url') || "http://localhost:11434/v1");
@@ -462,7 +466,7 @@ export function useAppSettings() {
   return context;
 }
 
-export function handleApiError(err: any, setShowSettingsDialog: (val: boolean) => void, engine?: string) {
+export function handleApiError(err: any, setShowSettingsDialog: (val: boolean) => void) {
   const errorMsg = typeof err === 'string' ? err : (err.message || "");
   if (
     errorMsg.includes("429") || 
@@ -472,15 +476,10 @@ export function handleApiError(err: any, setShowSettingsDialog: (val: boolean) =
     errorMsg.toLowerCase().includes("user free tier expire") ||
     errorMsg.toLowerCase().includes("api key expired") ||
     errorMsg.toLowerCase().includes("api key not valid") ||
-    errorMsg.toLowerCase().includes("api key missing") ||
-    (engine === 'pollinations' && (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch") || errorMsg.includes("502") || errorMsg.includes("503") || errorMsg.includes("timeout")))
+    errorMsg.toLowerCase().includes("api key missing")
   ) {
     setShowSettingsDialog(true);
-    if (engine === 'pollinations') {
-      toast.error("Pollinations API is overloaded. Please switch to Gemini or another provider in App Settings.");
-    } else {
-      toast.error("API Key issue or Quota Exceeded. Please check App Settings.");
-    }
+    toast.error("API Key issue or Quota Exceeded. Please check App Settings.");
     return true; 
   }
   return false;

@@ -1,7 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { uploadMediaToR2 } from "../lib/r2Storage";
 import { getApiUrl } from '@/lib/api';
-import { loadPuterScript } from '../lib/puterLoader';
 
 
 export interface ComicText {
@@ -383,18 +382,6 @@ async function runVisionModelDirect(
     return data?.content?.[0]?.text || "";
   }
 
-  // Puter.js
-  if (engine === 'puter') {
-    await loadPuterScript();
-    if (typeof (window as any).puter?.ai?.chat === 'function') {
-      const resp = await (window as any).puter.ai.chat(promptText, {
-        model: model || "gpt-4o",
-        image: fullBase64Url
-      });
-      return typeof resp === 'string' ? resp : resp?.message?.content || "";
-    }
-  }
-
   // OpenAI / Qwen / Local LLM (OpenAI-compatible)
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
@@ -473,15 +460,6 @@ async function runTextModelDirect(
     if (!res.ok) throw new Error(`Claude API error (${res.status}): ${await res.text()}`);
     const data = await res.json();
     return data?.content?.[0]?.text || "";
-  }
-
-  // Puter.js
-  if (engine === 'puter') {
-    await loadPuterScript();
-    if (typeof (window as any).puter?.ai?.chat === 'function') {
-      const resp = await (window as any).puter.ai.chat(promptText, { model: model || "gpt-4o" });
-      return typeof resp === 'string' ? resp : resp?.message?.content || "";
-    }
   }
 
   // OpenAI / Qwen / Local LLM
@@ -808,7 +786,7 @@ STRICT INSTRUCTIONS:
 }
 
 export interface LocalLlmConfig {
-  engine: 'gemini' | 'local' | 'pollinations' | 'openai' | 'claude' | 'qwen' | 'puter';
+  engine: 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
   url?: string;
   model?: string;
   apiKey?: string;

@@ -65,164 +65,31 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
 
     try {
       let scriptData;
-      
-      if (llmEngine === 'pollinations' && !geminiApiKey) {
-        let textResult = "";
-        
-        if (sketch) {
-          // If sketch is provided, we must use POST because GET url would be too long
-          const messages: any[] = [];
-          const content: any[] = [];
-          content.push({ type: "text", text: `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}` });
+      const res = await fetch(`${getApiUrl()}/api/generate-comic-script`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          ...(geminiApiKey ? { "x-gemini-api-key": geminiApiKey } : {})
+        },
+        body: JSON.stringify({
+          prompt,
+          pagesCount: parseInt(pagesCount) || 1,
+          imageBase64: sketch,
+          engine: llmEngine
+        })
+      });
 
-          content.push({
-            type: "image_url",
-            image_url: { url: sketch.startsWith("data:") ? sketch : `data:image/jpeg;base64,${sketch}` }
-          });
-          
-          messages.push({ role: "user", content });
-          const models = ["openai", "openai-fast", "gpt-oss"];
-          
-          for (let i = 0; i < models.length; i++) {
-            try {
-              const pollRes = await fetch("https://text.pollinations.ai/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  messages,
-                  model: models[i],
-                  seed: Math.floor(Math.random() * 100000)
-                }),
-                signal: AbortSignal.timeout(18000)
-              });
-
-              if (pollRes.ok) {
-                textResult = await pollRes.text();
-                break;
-              } else if (pollRes.status === 429 && i < models.length - 1) {
-                await new Promise(r => setTimeout(r, 1500 * (i + 1))); 
-              } else if (i === models.length - 1) {
-                throw new Error("Pollinations API rate limit reached. Please wait a few moments and try again, or use a custom API key in Settings.");
-              }
-            } catch (err: any) {
-              if (i === models.length - 1) throw err;
-            }
-          }
-        } else {
-          // For text only, use GET to bypass Pollinations strict POST rate limits
-          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
-          const models = ["openai", "openai-fast", "gpt-oss"];
-          
-          for (let i = 0; i < models.length; i++) {
-            try {
-              const seed = Math.floor(Math.random() * 100000);
-              const pollRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent(textPrompt)}?model=${models[i]}&seed=${seed}`, {
-                signal: AbortSignal.timeout(15000)
-              });
-              
-              if (pollRes.ok) {
-                textResult = await pollRes.text();
-                break;
-              } else if (pollRes.status === 429 && i < models.length - 1) {
-                 await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-              } else if (i === models.length - 1) {
-                throw new Error("Pollinations API rate limit reached. Please wait a few moments and try again, or use a custom API key in Settings.");
-              }
-            } catch(err: any) {
-              if (i === models.length - 1) throw err;
-            }
-          }
-        }
-        
-        textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-        scriptData = JSON.parse(textResult);
-      } else {
-        try {
-          const res = await fetch(`${getApiUrl()}/api/generate-comic-script`, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              ...(geminiApiKey ? { "x-gemini-api-key": geminiApiKey } : {})
-            },
-            body: JSON.stringify({
-              prompt,
-              pagesCount: parseInt(pagesCount) || 1,
-              imageBase64: sketch,
-              engine: llmEngine
-            })
-          });
-
-          if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || "Backend returned failure status code");
-          }
-          const data = await res.json();
-          scriptData = data;
-        } catch (fetchErr: any) {
-          console.warn("Backend /api/generate-comic-script failed. Falling back to free client-side Pollinations generator...", fetchErr);
-          
-          let textResult = "";
-          const textPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount || 1} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.\n\nReturn ONLY a JSON object in this exact format: {"pages":[{"panels":[{"imagePrompt":"...","dialogue":"..."}]}]}`;
-          const models = ["openai", "qwen-coder", "llama", "mistral"];
-          
-          let lastErr = null;
-          for (let i = 0; i < 4; i++) {
-            try {
-              const seed = Math.floor(Math.random() * 100000);
-              const pollRes = await fetch(`https://text.pollinations.ai/${encodeURIComponent(textPrompt)}?json=true&model=${models[i % models.length]}&seed=${seed}`);
-              
-              if (pollRes.ok) {
-                textResult = await pollRes.text();
-                break;
-              } else if (pollRes.status === 429 && i < 3) {
-                 await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-              } else if (i === 3) {
-                 throw new Error("Free public LLM tier is temporarily busy. Try adding a custom Gemini key in settings.");
-              }
-            } catch(e: any) {
-              lastErr = e;
-              if (i === 3) throw e;
-            }
-          }
-          
-          let parsed;
-          try {
-            textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-            // Handle cases where the text starts before the JSON or has extra trailing text
-            const firstBrace = textResult.indexOf('{');
-            const firstBracket = textResult.indexOf('[');
-            if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-               textResult = textResult.slice(firstBrace, textResult.lastIndexOf('}') + 1);
-            } else if (firstBracket !== -1) {
-               textResult = textResult.slice(firstBracket, textResult.lastIndexOf(']') + 1);
-            }
-            parsed = JSON.parse(textResult);
-            
-            if (Array.isArray(parsed)) {
-               if (parsed[0]?.panels) { scriptData = { pages: parsed }; }
-               else if (parsed[0]?.imagePrompt) { scriptData = { pages: [{ panels: parsed }] }; }
-               else { scriptData = { pages: [{ panels: [] }] }; }
-            } else if (parsed?.pages) {
-               scriptData = parsed;
-            } else if (parsed?.panels) {
-               scriptData = { pages: [parsed] };
-            } else if (parsed?.imagePrompt) {
-               scriptData = { pages: [{ panels: [parsed] }] };
-            } else {
-               throw new Error("Invalid structure");
-            }
-          } catch (jsonErr) {
-            console.error("AI response:", textResult);
-            throw new Error(`Failed to parse AI response. Try again, or specify your own key in settings.`);
-          }
-        }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || "Backend returned failure status code");
       }
+      scriptData = await res.json();
 
       onOpenChange(false);
       onComicGenerated(scriptData, sketch);
       toast.success("Comic script generated! Now drawing panels...");
     } catch (err: any) {
-      if (!handleApiError(err, setShowSettingsDialog, llmEngine)) {
+      if (!handleApiError(err, setShowSettingsDialog)) {
         setError(err.message || "An unexpected error occurred.");
       }
     } finally {

@@ -489,10 +489,9 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                   {t("aiAgentGreeting")}
                 </span>
                 <div className="flex flex-col w-full gap-2 mt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-xs text-left text-muted-foreground hover:text-foreground"
+                  <button
+                    type="button"
+                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
                     onClick={() => {
                       setIsOpen(true);
                       setInput("I want to create a comic book about...");
@@ -504,11 +503,10 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     }}
                   >
                     🎨 {t("createComicCardTitle")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-xs text-left text-muted-foreground hover:text-foreground"
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
                     onClick={() => {
                       setIsOpen(true);
                       setInput("I want to write a story about...");
@@ -520,11 +518,10 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     }}
                   >
                     ✒️ {t("writeAStory")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-xs text-left text-muted-foreground hover:text-foreground"
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
                     onClick={() => {
                       setIsOpen(true);
                       setInput("I want to convert an ebook...");
@@ -536,7 +533,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                     }}
                   >
                     📚 {t("convertCardTitle")}
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
@@ -571,10 +568,9 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                             a: ({ node, href, children, ...props }) => {
                               if (href?.startsWith("#action:")) {
                                 return (
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    className="my-1 w-full flex items-center justify-center gap-1"
+                                  <button
+                                    type="button"
+                                    className="my-1 py-0.5 text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/70 hover:decoration-primary font-semibold text-xs sm:text-sm bg-transparent hover:bg-transparent border-0 p-0 inline-flex items-center gap-1 cursor-pointer transition-colors"
                                     onClick={(e) => {
                                       e.preventDefault();
                                       const event = new CustomEvent(
@@ -592,7 +588,7 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                                     }}
                                   >
                                     {children}
-                                  </Button>
+                                  </button>
                                 );
                               }
                               

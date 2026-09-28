@@ -373,6 +373,56 @@ function jsonResponse(data: any, status = 200, customHeaders: Record<string, str
   });
 }
 
+function extractTextFromAIResult(aiResult: any): string {
+  if (!aiResult) return "";
+  if (typeof aiResult === "string") {
+    const trimmed = aiResult.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const extracted = extractTextFromAIResult(parsed);
+        if (extracted) return extracted;
+      } catch {}
+    }
+    return aiResult;
+  }
+
+  if (typeof aiResult.response === "string") return aiResult.response;
+  if (typeof aiResult.text === "string") return aiResult.text;
+  if (typeof aiResult.result?.response === "string") return aiResult.result.response;
+  if (typeof aiResult.result?.text === "string") return aiResult.result.text;
+
+  const choices = aiResult.choices || aiResult.result?.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const choice = choices[0];
+    if (typeof choice?.message?.content === "string") {
+      return choice.message.content;
+    }
+    if (Array.isArray(choice?.message?.content)) {
+      return choice.message.content.map((p: any) => (typeof p === "string" ? p : p.text || "")).join(" ");
+    }
+    if (typeof choice?.text === "string") {
+      return choice.text;
+    }
+  }
+
+  const candidates = aiResult.candidates || aiResult.result?.candidates;
+  if (Array.isArray(candidates) && candidates.length > 0) {
+    const candidate = candidates[0];
+    if (Array.isArray(candidate?.content?.parts)) {
+      return candidate.content.parts.map((p: any) => p.text || "").join(" ");
+    }
+    if (typeof candidate?.text === "string") {
+      return candidate.text;
+    }
+  }
+
+  if (typeof aiResult.output === "string") return aiResult.output;
+  if (typeof aiResult.result === "string") return aiResult.result;
+
+  return "";
+}
+
 function makeGeminiCandidatesResponse(text: string) {
   return {
     candidates: [
@@ -1342,14 +1392,7 @@ export default {
         }
 
         const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", { messages });
-        const responseText =
-          typeof aiResult?.response === "string"
-            ? aiResult.response
-            : typeof aiResult?.text === "string"
-            ? aiResult.text
-            : typeof aiResult === "string"
-            ? aiResult
-            : JSON.stringify(aiResult ?? "");
+        const responseText = extractTextFromAIResult(aiResult);
 
         if (isStreaming) {
           return makeSSEResponse(responseText);
@@ -1414,14 +1457,7 @@ export default {
           ],
         });
 
-        const extractedText =
-          typeof aiResult?.response === "string"
-            ? aiResult.response
-            : typeof aiResult?.text === "string"
-            ? aiResult.text
-            : typeof aiResult === "string"
-            ? aiResult
-            : "";
+        const extractedText = extractTextFromAIResult(aiResult);
 
         return jsonResponse(makeGeminiCandidatesResponse(extractedText));
       } catch (err: any) {
@@ -1458,14 +1494,7 @@ export default {
           ],
         });
 
-        const translation =
-          typeof aiResult?.response === "string"
-            ? aiResult.response
-            : typeof aiResult?.text === "string"
-            ? aiResult.text
-            : typeof aiResult === "string"
-            ? aiResult
-            : "";
+        const translation = extractTextFromAIResult(aiResult);
 
         return jsonResponse({
           ...makeGeminiCandidatesResponse(translation.trim()),
@@ -1505,14 +1534,7 @@ export default {
           ],
         });
 
-        const bubbleText =
-          typeof aiResult?.response === "string"
-            ? aiResult.response
-            : typeof aiResult?.text === "string"
-            ? aiResult.text
-            : typeof aiResult === "string"
-            ? aiResult
-            : "";
+        const bubbleText = extractTextFromAIResult(aiResult);
 
         return jsonResponse(makeGeminiCandidatesResponse(bubbleText.trim()));
       } catch (err: any) {
@@ -1554,14 +1576,7 @@ export default {
           max_tokens: maxTokens,
         });
 
-        const content =
-          typeof aiResult?.response === "string"
-            ? aiResult.response
-            : typeof aiResult?.text === "string"
-            ? aiResult.text
-            : typeof aiResult === "string"
-            ? aiResult
-            : "";
+        const content = extractTextFromAIResult(aiResult);
 
         return jsonResponse({
           ...makeGeminiCandidatesResponse(content),

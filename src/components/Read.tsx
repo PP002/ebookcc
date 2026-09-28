@@ -22,7 +22,7 @@ import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
 import { fetchPublishedWorksFromR2, fetchSinglePublishedWork } from '@/lib/r2Storage';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from '@/components/GoogleDriveDialog';
-import { getLibraryProxyUrl, getArchivePageImageUrl } from '@/lib/publicLibrary';
+import { getLibraryProxyUrl, getArchivePageImageUrl, getCachedCoverUrl, setCachedCoverUrl } from '@/lib/publicLibrary';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -439,6 +439,7 @@ interface RecentBookCardProps {
 
 const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete, t }) => {
   const [imgError, setImgError] = useState(false);
+  const [fallbackAttempt, setFallbackAttempt] = useState(0);
 
   const cleanArchiveId = book.id?.startsWith('archive-')
     ? book.id.replace(/^archive-/, '')
@@ -450,11 +451,27 @@ const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete,
     !rawCover.includes('placehold.co') &&
     !rawCover.includes('archive.org/services/img');
 
-  const effectiveRecentCover = hasValidCover
-    ? rawCover
-    : (!imgError && cleanArchiveId)
-    ? `https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`
-    : null;
+  const cachedCover = React.useMemo(() => {
+    return (book.id ? getCachedCoverUrl(book.id) : null) || (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null);
+  }, [book.id, cleanArchiveId]);
+
+  const effectiveRecentCover = React.useMemo(() => {
+    if (imgError) return null;
+    if (cachedCover) return cachedCover;
+    if (fallbackAttempt === 0 && hasValidCover) return rawCover;
+    if (cleanArchiveId) {
+      if (fallbackAttempt === 0 || fallbackAttempt === 1) {
+        return `https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`;
+      } else if (fallbackAttempt === 2) {
+        return `https://archive.org/services/img/${cleanArchiveId}`;
+      } else if (fallbackAttempt === 3) {
+        return `https://archive.org/download/${cleanArchiveId}/page/n0.jpg`;
+      } else if (fallbackAttempt === 4) {
+        return `/api/library/proxy?fileUrl=${encodeURIComponent(`https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`)}`;
+      }
+    }
+    return hasValidCover ? rawCover : null;
+  }, [cachedCover, hasValidCover, rawCover, cleanArchiveId, fallbackAttempt, imgError]);
 
   return (
     <div 
@@ -467,7 +484,21 @@ const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete,
           <img 
             src={effectiveRecentCover} 
             alt={book.title}
-            onError={() => setImgError(true)}
+            loading="lazy"
+            decoding="async"
+            onLoad={() => {
+              if (effectiveRecentCover) {
+                if (book.id) setCachedCoverUrl(book.id, effectiveRecentCover);
+                if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveRecentCover);
+              }
+            }}
+            onError={() => {
+              if (cleanArchiveId && fallbackAttempt < 4) {
+                setFallbackAttempt(prev => prev + 1);
+              } else {
+                setImgError(true);
+              }
+            }}
             className="w-full h-auto block m-0 p-0 object-cover transition-transform duration-300 group-hover:scale-105"
             referrerPolicy="no-referrer"
           />

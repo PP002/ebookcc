@@ -659,9 +659,9 @@ const EN_FAQ_ITEMS: FAQItem[] = [
   {
     id: "faq-7",
     category: "ai",
-    question: "Which AI models can I use for translation, OCR, and comic creation?",
-    answer: "EBookCC supports multiple AI providers: Google Gemini, OpenAI, Anthropic Claude, Qwen, and local LLMs via Ollama or LM Studio for complete offline privacy.",
-    keywords: ["ai models", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api keys", "configure ai"],
+    question: "Which AI models are available, and is there free AI for translation, OCR, and comic creation?",
+    answer: "Yes! EBookCC includes free built-in Cloudflare Workers AI powered by Google Gemma (Gemma 4) for high-speed chat, OCR speech-bubble translation, and story/novel scripting, alongside FLUX.1 schnell for fast text-to-image panel generation — with zero API key or setup required. If you prefer to use other models, you can also connect your own API keys for Google Gemini, OpenAI (GPT-4o), Anthropic Claude, Qwen, or local offline LLMs (Ollama / LM Studio) in App Settings.",
+    keywords: ["free ai", "gemma", "flux", "flux schnell", "cloudflare workers ai", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api keys", "configure ai"],
     links: [{ text: "Configure AI & API Keys", action: "settings", description: "Set up Gemini, OpenAI, Anthropic Claude, Qwen, or local AI models in app settings" }]
   },
   {
@@ -825,9 +825,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "Quels modèles d'IA puis-je utiliser pour la traduction, l'OCR et la création ?",
-          answer: "EBookCC prend en charge plusieurs fournisseurs d'IA : Google Gemini, OpenAI, Anthropic Claude, Qwen, ainsi que des modèles LLM locaux comme Ollama ou LM Studio pour une confidentialité totale hors ligne.",
-          keywords: ["ia", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api"],
+          question: "Quels modèles d'IA sont disponibles, et y a-t-il une IA gratuite pour la traduction, l'OCR et la création ?",
+          answer: "Oui ! EBookCC intègre gratuitement Cloudflare Workers AI avec Google Gemma (Gemma 4) pour le chat textuel, l'OCR, la traduction de mangas et l'écriture d'histoires, ainsi que FLUX.1 schnell pour la génération rapide d'images et de cases — sans aucune clé API ni configuration requise. Vous pouvez aussi connecter vos clés personnelles (Google Gemini, OpenAI, Claude, Qwen, Ollama) dans les Paramètres.",
+          keywords: ["ia gratuite", "gemma", "flux", "flux schnell", "cloudflare workers ai", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api"],
           links: [{ text: "Configurer les Clés d'IA & API", action: "settings", description: "Régler Gemini, OpenAI, Claude, Qwen ou vos LLM locaux" }]
         },
         {
@@ -986,9 +986,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "翻訳、OCR、コミック作成に使用できるAIモデルは何ですか？",
-          answer: "EBookCCは複数のAIプロバイダーに対応しています：Google Gemini、OpenAI、Anthropic Claude、Qwen、さらにOllamaやLM StudioなどのローカルLLMに対応しており、オフラインで完全にプライベートな環境で利用可能です。",
-          keywords: ["aiモデル", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "apiキー"],
+          question: "利用できるAIモデルと、無料で使えるAI機能はありますか？",
+          answer: "はい！EBookCCはCloudflare Workers AIによるGoogle Gemma (Gemma 4) を標準搭載しており、APIキー不要・完全無料で高速テキストチャット、OCR吹き出し翻訳、小説ストーリー執筆が利用できます。さらにFLUX.1 schnellによるコマ絵画像生成も無料対応しています。必要に応じてGoogle Gemini、OpenAI (GPT-4o)、Claude、Qwen、ローカルLLM (Ollama / LM Studio) のAPIキーを設定して切り替えることも可能です。",
+          keywords: ["無料ai", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "apiキー"],
           links: [{ text: "AI & APIキーの設定", action: "settings", description: "Gemini、OpenAI、Claude、QwenやローカルLLMを設定" }]
         },
         {
@@ -1149,9 +1149,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: isHant ? "我可以使用哪些 AI 模型進行翻譯、OCR 文字識別和漫畫創作？" : "我可以使用哪些 AI 模型进行翻译、OCR 文字识别和漫画创作？",
-          answer: isHant ? "EBookCC 支援多個 AI 提供商：Google Gemini、OpenAI、Anthropic Claude、Qwen，以及本機運行的 Ollama 或 LM Studio 等本地 LLM 模型，提供完全離線的隱私保護。" : "EBookCC 支持多个 AI 提供商：Google Gemini、OpenAI、Anthropic Claude、Qwen，以及本地运行的 Ollama 或 LM Studio 等本地 LLM 模型，提供完全离线的隐私保护。",
-          keywords: ["ai models", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api keys"],
+          question: isHant ? "有哪些可用的 AI 模型？是否有免費的 AI 支援翻譯、OCR 與漫畫創作？" : "有哪些可用的 AI 模型？是否有免费的 AI 支持翻译、OCR 与漫画创作？",
+          answer: isHant ? "是的！EBookCC 內建免費 Cloudflare Workers AI，搭載 Google Gemma (Gemma 4) 支援高速對話、OCR 對話框翻譯與小說編劇，並整合 FLUX.1 schnell 進行快速文生圖分鏡繪製 — 完全無需 API 金鑰或任何設定！若您想使用其他頂級模型，亦可在應用設定中綁定 Google Gemini、OpenAI (GPT-4o)、Claude、Qwen 或本機 Ollama / LM Studio。" : "是的！EBookCC 内置免费 Cloudflare Workers AI，搭载 Google Gemma (Gemma 4) 支持高速对话、OCR 对话框翻译与小说编剧，并整合 FLUX.1 schnell 进行快速文生图分镜绘制 — 完全无需 API 密钥或任何配置！若您想使用其他顶级模型，亦可在应用设置中绑定 Google Gemini、OpenAI (GPT-4o)、Claude、Qwen 或本地 Ollama / LM Studio。",
+          keywords: ["free ai", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "api keys"],
           links: [{ text: isHant ? "配置 AI 與 API 金鑰" : "配置 AI 与 API 密钥", action: "settings", description: isHant ? "在應用設定中設定 Gemini、OpenAI、Claude、Qwen 或本機 AI" : "在应用设置中设置 Gemini、OpenAI、Claude、Qwen 或本地 AI" }]
         },
         {
@@ -1311,9 +1311,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "¿Qué modelos de IA puedo utilizar para traducción, OCR y creación?",
-          answer: "EBookCC admite múltiples proveedores de IA: Google Gemini, OpenAI, Anthropic Claude, Qwen y LLMs locales mediante Ollama o LM Studio para una privacidad totalmente sin conexión.",
-          keywords: ["modelos ia", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "claves api"],
+          question: "¿Qué modelos de IA están disponibles y hay IA gratuita para traducción, OCR y cómics?",
+          answer: "¡Sí! EBookCC incluye Cloudflare Workers AI gratuito integrado con Google Gemma (Gemma 4) para chat, OCR, traducción y guiones, junto con FLUX.1 schnell para generación de imágenes de viñetas — ¡sin requerir clave API! También puedes vincular tus propias claves de Google Gemini, OpenAI, Claude, Qwen o modelos locales en Configuración.",
+          keywords: ["ia gratis", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "claves api"],
           links: [{ text: "Configurar Claves de IA y API", action: "settings", description: "Configurar Gemini, OpenAI, Claude, Qwen o modelos locales" }]
         },
         {
@@ -1428,9 +1428,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "Quais modelos de IA posso usar para tradução, OCR e criação?",
-          answer: "O EBookCC suporta múltiplos provedores de IA: Google Gemini, OpenAI, Anthropic Claude, Qwen e LLMs locais via Ollama ou LM Studio para privacidade total offline.",
-          keywords: ["modelos ia", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "chaves api"],
+          question: "Quais modelos de IA estão disponíveis e há IA gratuita para tradução, OCR e quadrinhos?",
+          answer: "Sim! O EBookCC inclui o Cloudflare Workers AI gratuito integrado com Google Gemma (Gemma 4) para chat, OCR, tradução de mangás e roteiros, além do FLUX.1 schnell para geração rápida de imagens de quadros — sem necessidade de chave de API! Você também pode conectar suas próprias chaves de API (Google Gemini, OpenAI, Claude, Qwen, Ollama) nas Configurações.",
+          keywords: ["ia gratuita", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "chaves api"],
           links: [{ text: "Configurar IA e Chaves de API", action: "settings", description: "Configure Gemini, OpenAI, Claude, Qwen ou LLMs locais" }]
         },
         {
@@ -1476,9 +1476,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "번역, OCR 및 만화 제작에 어떤 AI 모델을 사용할 수 있나요?",
-          answer: "EBookCC는 다양한 AI 제공업체를 지원합니다: Google Gemini, OpenAI, Anthropic Claude, Qwen, 그리고 완전한 오프라인 개인정보 보호를 위한 Ollama 또는 LM Studio 기반 로컬 LLM.",
-          keywords: ["ai 모델", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api 키"],
+          question: "사용 가능한 AI 모델과 무료로 이용할 수 있는 AI 기능이 있나요?",
+          answer: "네! EBookCC는 Cloudflare Workers AI 기반 Google Gemma (Gemma 4)를 내장하여 API 키 없이도 초고속 텍스트 챗, OCR 말풍선 번역, 소설/만화 스토리 작성이 완전 무료로 제공됩니다. 또한 FLUX.1 schnell을 통한 만화 컷 이미지 생성도 무료로 지원합니다. 필요 시 앱 설정에서 Google Gemini, OpenAI (GPT-4o), Claude, Qwen 또는 로컬 LLM (Ollama / LM Studio) API 키를 연결하여 사용할 수도 있습니다.",
+          keywords: ["무료 ai", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "api 키"],
           links: [{ text: "AI 및 API 키 설정", action: "settings", description: "Gemini, OpenAI, Claude, Qwen 또는 로컬 AI 모델 설정" }]
         },
         {
@@ -1524,9 +1524,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "Welche KI-Modelle kann ich für Übersetzung, OCR und Comic-Erstellung nutzen?",
-          answer: "EBookCC unterstützt mehrere KI-Anbieter: Google Gemini, OpenAI, Anthropic Claude, Qwen und lokale LLMs über Ollama oder LM Studio für vollständige Offline-Privatsphäre.",
-          keywords: ["ki modelle", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api schlüssel"],
+          question: "Welche KI-Modelle stehen zur Verfügung und gibt es kostenlose KI für Übersetzung, OCR und Comics?",
+          answer: "Ja! EBookCC enthält integrierte, kostenlose Cloudflare Workers AI mit Google Gemma (Gemma 4) für Chats, OCR-Sprechblasen-Übersetzungen und Story-Skripte sowie FLUX.1 schnell für blitzschnelle Panel-Bilderzeugung — ohne API-Schlüssel! Optional können Sie auch eigene API-Schlüssel (Google Gemini, OpenAI, Claude, Qwen, Ollama) in den Einstellungen hinterlegen.",
+          keywords: ["kostenlose ki", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "api schlüssel"],
           links: [{ text: "KI & API-Schlüssel konfigurieren", action: "settings", description: "Gemini, OpenAI, Claude, Qwen oder lokale KI-Modelle konfigurieren" }]
         },
         {
@@ -1572,9 +1572,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "ما هي نماذج الذكاء الاصطناعي التي يمكنني استخدامها للترجمة واستخراج النصوص OCR وإنشاء الكوميكس؟",
-          answer: "يدعم EBookCC العديد من موفري الذكاء الاصطناعي: Google Gemini و OpenAI و Anthropic Claude و Qwen بالإضافة إلى نماذج LLM المحلية عبر Ollama أو LM Studio لخصوصية تامة دون اتصال بالإنترنت.",
-          keywords: ["نماذج الذكاء الاصطناعي", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "مفاتيح api"],
+          question: "ما هي نماذج الذكاء الاصطناعي المتاحة وهل يتوفر ذكاء اصطناعي مجاني للترجمة واستخراج النصوص والقصص المصورة؟",
+          answer: "نعم! يتضمن EBookCC خدمة Cloudflare Workers AI المجانية والمدمجة والمدعومة بنموذج Google Gemma (Gemma 4) للمحادثة الفائقة السرعة واستخراج نصوص OCR وترجمة المانغا وكتابة الروايات، بالإضافة إلى FLUX.1 schnell لتوليد رسومات الإطارات بسرعة — دون الحاجة لمفتاح API! يمكنك أيضاً ربط مفاتيحك الخاصة (Google Gemini أو OpenAI أو Claude أو Qwen أو Ollama) في الإعدادات.",
+          keywords: ["ذكاء اصطناعي مجاني", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "مفاتيح api"],
           links: [{ text: "تهيئة مفاتيح الذكاء الاصطناعي و API", action: "settings", description: "إعداد Gemini أو OpenAI أو Claude أو Qwen أو النماذج المحلية" }]
         },
         {
@@ -1620,9 +1620,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "Какие модели ИИ можно использовать для перевода, OCR и создания комиксов?",
-          answer: "EBookCC поддерживает множество поставщиков ИИ: Google Gemini, OpenAI, Anthropic Claude, Qwen и локальные LLM через Ollama или LM Studio для полной автономной конфиденциальности.",
-          keywords: ["модели ии", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "ключи api"],
+          question: "Какие модели ИИ доступны и есть ли бесплатный ИИ для перевода, OCR и создания комиксов?",
+          answer: "Да! В EBookCC встроен бесплатный Cloudflare Workers AI на базе Google Gemma (Gemma 4) для быстрого чата, OCR-перевода речевых облаков и написания сценариев, а также FLUX.1 schnell для быстрой генерации иллюстраций и кадров — без ключа API! Также вы можете подключить собственные ключи API (Google Gemini, OpenAI, Claude, Qwen, Ollama) в Настройках.",
+          keywords: ["бесплатный ии", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "ключи api"],
           links: [{ text: "Настроить ИИ и ключи API", action: "settings", description: "Настройка Gemini, OpenAI, Claude, Qwen или локальных LLM" }]
         },
         {
@@ -1668,9 +1668,9 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
         {
           id: "faq-7",
           category: "ai",
-          question: "Quali modelli di IA posso utilizzare per traduzione, OCR e creazione?",
-          answer: "EBookCC supporta molteplici provider di intelligenza artificiale: Google Gemini, OpenAI, Anthropic Claude, Qwen e LLM locali tramite Ollama o LM Studio per una privacy offline completa.",
-          keywords: ["modelli ia", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "chiavi api"],
+          question: "Quali modelli di IA sono disponibili ed esiste un'IA gratuita per traduzione, OCR e creazione?",
+          answer: "Sì! EBookCC include gratuitamente Cloudflare Workers AI con Google Gemma (Gemma 4) per chat, OCR, traduzione di manga e sceneggiature, oltre a FLUX.1 schnell per la generazione rapida di immagini delle vignette — senza richiedere alcuna chiave API! Puoi anche collegare le tue chiavi API personali (Google Gemini, OpenAI, Claude, Qwen, Ollama) nelle Impostazioni.",
+          keywords: ["ia gratuita", "gemma", "flux", "flux schnell", "workers ai", "gemini", "openai", "claude", "qwen", "ollama", "chiavi api"],
           links: [{ text: "Configura IA e Chiavi API", action: "settings", description: "Imposta Gemini, OpenAI, Claude, Qwen o modelli locali" }]
         },
         {

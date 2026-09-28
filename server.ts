@@ -362,6 +362,56 @@ async function startServer() {
     }
   }
 
+  function extractTextFromAIResult(aiResult: any): string {
+    if (!aiResult) return "";
+    if (typeof aiResult === "string") {
+      const trimmed = aiResult.trim();
+      if (trimmed.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          const extracted = extractTextFromAIResult(parsed);
+          if (extracted) return extracted;
+        } catch {}
+      }
+      return aiResult;
+    }
+
+    if (typeof aiResult.response === "string") return aiResult.response;
+    if (typeof aiResult.text === "string") return aiResult.text;
+    if (typeof aiResult.result?.response === "string") return aiResult.result.response;
+    if (typeof aiResult.result?.text === "string") return aiResult.result.text;
+
+    const choices = aiResult.choices || aiResult.result?.choices;
+    if (Array.isArray(choices) && choices.length > 0) {
+      const choice = choices[0];
+      if (typeof choice?.message?.content === "string") {
+        return choice.message.content;
+      }
+      if (Array.isArray(choice?.message?.content)) {
+        return choice.message.content.map((p: any) => (typeof p === "string" ? p : p.text || "")).join(" ");
+      }
+      if (typeof choice?.text === "string") {
+        return choice.text;
+      }
+    }
+
+    const candidates = aiResult.candidates || aiResult.result?.candidates;
+    if (Array.isArray(candidates) && candidates.length > 0) {
+      const candidate = candidates[0];
+      if (Array.isArray(candidate?.content?.parts)) {
+        return candidate.content.parts.map((p: any) => p.text || "").join(" ");
+      }
+      if (typeof candidate?.text === "string") {
+        return candidate.text;
+      }
+    }
+
+    if (typeof aiResult.output === "string") return aiResult.output;
+    if (typeof aiResult.result === "string") return aiResult.result;
+
+    return "";
+  }
+
   function makeGeminiCandidatesResponse(text: string) {
     return {
       candidates: [
@@ -525,7 +575,7 @@ async function startServer() {
         if (polRes.ok) {
           const text = await polRes.text();
           if (text && text.trim()) {
-            return text;
+            return extractTextFromAIResult(text);
           }
         }
         
@@ -545,7 +595,7 @@ async function startServer() {
             if (getRes.ok) {
               const text = await getRes.text();
               if (text && text.trim() && !text.includes('"status":429') && !text.includes('"error":')) {
-                return text;
+                return extractTextFromAIResult(text);
               }
             }
           } catch {}

@@ -25,6 +25,46 @@ export function getLibraryProxyUrl(targetUrl: string): string {
   return `${basePath}?fileUrl=${encodeURIComponent(targetUrl)}`;
 }
 
+// ─────────────────────────────────────────────
+// Persistent Cover Image Cache (Avoids re-downloading on subpage navigation)
+// ─────────────────────────────────────────────
+const resolvedCoverCache = new Map<string, string>();
+
+if (typeof window !== 'undefined') {
+  try {
+    const stored = sessionStorage.getItem('ebookcc_resolved_cover_cache');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (typeof v === 'string' && v) resolvedCoverCache.set(k, v);
+      });
+    }
+  } catch (_) {}
+}
+
+export function getCachedCoverUrl(idOrKey: string): string | null {
+  if (!idOrKey) return null;
+  return resolvedCoverCache.get(idOrKey) || null;
+}
+
+export function setCachedCoverUrl(idOrKey: string, url: string): void {
+  if (!idOrKey || !url) return;
+  resolvedCoverCache.set(idOrKey, url);
+  if (typeof window !== 'undefined') {
+    try {
+      const obj: Record<string, string> = {};
+      let count = 0;
+      resolvedCoverCache.forEach((v, k) => {
+        if (count < 200) {
+          obj[k] = v;
+          count++;
+        }
+      });
+      sessionStorage.setItem('ebookcc_resolved_cover_cache', JSON.stringify(obj));
+    } catch (_) {}
+  }
+}
+
 // Generate direct streaming page image URL for Internet Archive items
 export function getArchivePageImageUrl(identifier: string, pageIndex: number, size: 'medium' | 'thumb' | 'large' = 'medium'): string {
   if (!identifier) return '';
@@ -133,11 +173,10 @@ export async function searchArchiveComics(query: string = '', page: number = 1):
 }> {
   const cleanQuery = query.trim();
 
-  // Primary search: collection:(comicbooks) as specified in the prompt
-  // Fallback includes collection:(comics) which contains 80,000+ public domain scanned comics
+  // Active public domain comic search query across archive.org collections and text mediatypes
   const primarySearchQuery = cleanQuery
-    ? `collection:(comicbooks)+AND+mediatype:(texts)+AND+${encodeURIComponent(cleanQuery)}`
-    : `collection:(comicbooks)+AND+mediatype:(texts)`;
+    ? `(collection:(comics)+OR+collection:(comicbooksandmagazines)+OR+subject:comic)+AND+mediatype:(texts)+AND+(${encodeURIComponent(cleanQuery)})`
+    : `(collection:(comics)+OR+collection:(comicbooksandmagazines)+OR+subject:comic)+AND+mediatype:(texts)`;
 
   const endpoint = `https://archive.org/advancedsearch.php?q=${primarySearchQuery}&fl[]=identifier,title,publicdate,creator,imagecount,downloads,description&sort[]=downloads+desc&rows=24&page=${page}&output=json`;
 
@@ -146,11 +185,11 @@ export async function searchArchiveComics(query: string = '', page: number = 1):
     let data: any = res.ok ? await res.json() : null;
     let docs: ArchiveSearchDoc[] = data?.response?.docs || [];
 
-    // If exact collection:(comicbooks) yielded 0 items, broaden to the active archive comics collection
+    // Fallback if zero items returned
     if (!docs || docs.length === 0) {
       const broadQuery = cleanQuery
-        ? `(collection:(comicbooks)+OR+collection:(comics))+AND+mediatype:(texts)+AND+(${encodeURIComponent(cleanQuery)})`
-        : `(collection:(comicbooks)+OR+collection:(comics))+AND+mediatype:(texts)`;
+        ? `(subject:comics+OR+title:comic)+AND+mediatype:(texts)+AND+(${encodeURIComponent(cleanQuery)})`
+        : `(subject:comics+OR+title:comic)+AND+mediatype:(texts)`;
       const broadEndpoint = `https://archive.org/advancedsearch.php?q=${broadQuery}&fl[]=identifier,title,publicdate,creator,imagecount,downloads,description&sort[]=downloads+desc&rows=24&page=${page}&output=json`;
       const fallbackRes = await fetch(broadEndpoint);
       if (fallbackRes.ok) {
@@ -358,7 +397,98 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     download_count: 31800,
   },
 
-  // Vintage Comics (Internet Archive - First page as cover)
+  // Vintage Comics & Graphic Novels (Internet Archive - Active Verified Items)
+  {
+    id: 'archive-01TintinInTheLandOfTheSoviets',
+    identifier: '01TintinInTheLandOfTheSoviets',
+    title: 'Tintin Collection',
+    author: 'Hergé',
+    cover_url: 'https://archive.org/download/01TintinInTheLandOfTheSoviets/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/01TintinInTheLandOfTheSoviets/page/n0.jpg',
+    total_pages: 138,
+    description: 'Classic graphic novel and adventure comic series created by Hergé.',
+    source: 'archive',
+    download_count: 482722,
+  },
+  {
+    id: 'archive-invincible-compendiums',
+    identifier: 'invincible-compendiums',
+    title: 'Invincible [Compendiums]',
+    author: 'Robert Kirkman',
+    cover_url: 'https://archive.org/download/invincible-compendiums/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/invincible-compendiums/page/n0.jpg',
+    total_pages: 144,
+    description: 'Mark Grayson is an average teenager who develops incredible superpowers in a universe of heroes and villains.',
+    source: 'archive',
+    download_count: 1448309,
+  },
+  {
+    id: 'archive-139085831eleternautaparte01pdf',
+    identifier: '139085831eleternautaparte01pdf',
+    title: 'El Eternauta Parte 01',
+    author: 'Héctor Germán Oesterheld',
+    cover_url: 'https://archive.org/download/139085831eleternautaparte01pdf/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/139085831eleternautaparte01pdf/page/n0.jpg',
+    total_pages: 68,
+    description: 'The legendary sci-fi graphic novel of a deadly alien snowfall and resistance in Buenos Aires.',
+    source: 'archive',
+    download_count: 418726,
+  },
+  {
+    id: 'archive-Color_and_Light_James_Gurney_English',
+    identifier: 'Color_and_Light_James_Gurney_English',
+    title: 'Color and Light',
+    author: 'James Gurney',
+    cover_url: 'https://archive.org/download/Color_and_Light_James_Gurney_English/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/Color_and_Light_James_Gurney_English/page/n0.jpg',
+    total_pages: 227,
+    description: 'Essential visual guide on light, color, and illustration art techniques for comic creators.',
+    source: 'archive',
+    download_count: 392960,
+  },
+  {
+    id: 'archive-i-have-no-mouth-and-i-must-scream_202202',
+    identifier: 'i-have-no-mouth-and-i-must-scream_202202',
+    title: 'I Have No Mouth And I Must Scream',
+    author: 'Harlan Ellison & John Byrne',
+    cover_url: 'https://archive.org/download/i-have-no-mouth-and-i-must-scream_202202/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/i-have-no-mouth-and-i-must-scream_202202/page/n0.jpg',
+    total_pages: 48,
+    description: 'Classic graphic novel adaptation of the famous sci-fi story illustrated by John Byrne.',
+    source: 'archive',
+    download_count: 376855,
+  },
+  {
+    id: 'archive-manga_Berserk',
+    identifier: 'manga_Berserk',
+    title: 'Berserk (Dark Fantasy Manga)',
+    author: 'Kentarou Miura',
+    cover_url: 'https://archive.org/download/manga_Berserk/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/manga_Berserk/page/n0.jpg',
+    total_pages: 220,
+    description: 'The epic dark fantasy manga series following Guts, the Black Swordsman.',
+    source: 'archive',
+    download_count: 444202,
+  },
+  {
+    id: 'archive-eFilingComics',
+    identifier: 'eFilingComics',
+    title: 'Classic Comics Anthology',
+    author: 'Public Domain Comic Artists',
+    cover_url: 'https://archive.org/download/eFilingComics/page/n0_medium.jpg',
+    content_type: 'comic',
+    resource_url: 'https://archive.org/download/eFilingComics/page/n0.jpg',
+    total_pages: 64,
+    description: 'Collection of popular public domain comic issues and illustrated stories.',
+    source: 'archive',
+    download_count: 886986,
+  },
   {
     id: 'archive-WaltDisneysComicsandStories-193-Vol17No01-Oct1956',
     identifier: 'WaltDisneysComicsandStories-193-Vol17No01-Oct1956',
@@ -371,97 +501,6 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     description: 'Vintage golden-age comic magazine with classic Donald Duck and Mickey Mouse stories.',
     source: 'archive',
     download_count: 2450,
-  },
-  {
-    id: 'archive-planet-comics-71',
-    identifier: 'planet-comics-71',
-    title: 'Planet Comics #71',
-    author: 'Fiction House Publishing',
-    cover_url: 'https://archive.org/download/planet-comics-71/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/planet-comics-71/page/n0.jpg',
-    total_pages: 36,
-    description: 'Iconic pulp science fiction adventure comic from the Golden Age with spaceships and alien worlds.',
-    source: 'archive',
-    download_count: 3100,
-  },
-  {
-    id: 'archive-Famous_Funnies_001',
-    identifier: 'Famous_Funnies_001',
-    title: 'Famous Funnies #1',
-    author: 'Eastern Color Printing',
-    cover_url: 'https://archive.org/download/Famous_Funnies_001/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Famous_Funnies_001/page/n0.jpg',
-    total_pages: 68,
-    description: 'Recognized by historians as the first true American comic book sold on newsstands in 1934.',
-    source: 'archive',
-    download_count: 4200,
-  },
-  {
-    id: 'archive-Captain_Marvel_Adventures_001',
-    identifier: 'Captain_Marvel_Adventures_001',
-    title: 'Captain Marvel Adventures #1',
-    author: 'Fawcett Publications',
-    cover_url: 'https://archive.org/download/Captain_Marvel_Adventures_001/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Captain_Marvel_Adventures_001/page/n0.jpg',
-    total_pages: 68,
-    description: 'The Golden Age premiere issue featuring Billy Batson and Shazam!',
-    source: 'archive',
-    download_count: 3950,
-  },
-  {
-    id: 'archive-Phantom_Lady_17',
-    identifier: 'Phantom_Lady_17',
-    title: 'Phantom Lady #17',
-    author: 'Matt Baker & Fox Feature',
-    cover_url: 'https://archive.org/download/Phantom_Lady_17/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Phantom_Lady_17/page/n0.jpg',
-    total_pages: 36,
-    description: 'Famous good girl art era superhero mystery comic illustrated by comic legend Matt Baker.',
-    source: 'archive',
-    download_count: 2800,
-  },
-  {
-    id: 'archive-Space_Adventures_10',
-    identifier: 'Space_Adventures_10',
-    title: 'Space Adventures #10',
-    author: 'Charlton Comics',
-    cover_url: 'https://archive.org/download/Space_Adventures_10/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Space_Adventures_10/page/n0.jpg',
-    total_pages: 36,
-    description: 'Classic 1950s atomic age interstellar exploration and mystery alien encounters.',
-    source: 'archive',
-    download_count: 2100,
-  },
-  {
-    id: 'archive-Blue_Beetle_01',
-    identifier: 'Blue_Beetle_01',
-    title: 'Blue Beetle #1',
-    author: 'Fox Publications',
-    cover_url: 'https://archive.org/download/Blue_Beetle_01/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Blue_Beetle_01/page/n0.jpg',
-    total_pages: 68,
-    description: 'The original 1939 Golden Age debut of Dan Garret as the crimefighting Blue Beetle.',
-    source: 'archive',
-    download_count: 2650,
-  },
-  {
-    id: 'archive-Captain_Science_01',
-    identifier: 'Captain_Science_01',
-    title: 'Captain Science #1',
-    author: 'Youthful Magazines',
-    cover_url: 'https://archive.org/download/Captain_Science_01/page/n0_medium.jpg',
-    content_type: 'comic',
-    resource_url: 'https://archive.org/download/Captain_Science_01/page/n0.jpg',
-    total_pages: 36,
-    description: 'Thrilling science fantasy comic where brilliant human science battles invading alien saucers.',
-    source: 'archive',
-    download_count: 1980,
   }
 ];
 

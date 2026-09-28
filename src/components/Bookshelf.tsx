@@ -21,7 +21,9 @@ import {
   FEATURED_PUBLIC_DOMAIN_ITEMS, 
   getRandomLibrarySelection,
   getLibraryProxyUrl,
-  getArchivePageImageUrl
+  getArchivePageImageUrl,
+  getCachedCoverUrl,
+  setCachedCoverUrl
 } from '@/lib/publicLibrary';
 
 export interface PublishedItem {
@@ -92,8 +94,14 @@ function MetroBookTile({
 
   const [archiveImgAttempt, setArchiveImgAttempt] = useState(0);
 
+  const cachedCover = React.useMemo(() => {
+    return (book.id ? getCachedCoverUrl(book.id) : null) || (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null);
+  }, [book.id, cleanArchiveId]);
+
   // Determine fallback first page image if cover is missing or is generic archive logo
   const effectiveCover = React.useMemo(() => {
+    if (cachedCover) return cachedCover;
+
     const rawCover = book.cover || book.cover_url || '';
     const isGenericArchiveLogo = rawCover.includes('archive.org/services/img');
 
@@ -102,17 +110,19 @@ function MetroBookTile({
         if (rawCover && !isGenericArchiveLogo) return rawCover;
         return `https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`;
       } else if (archiveImgAttempt === 1) {
-        return `https://archive.org/download/${cleanArchiveId}/page/n0.jpg`;
+        return `https://archive.org/services/img/${cleanArchiveId}`;
       } else if (archiveImgAttempt === 2) {
-        return `https://archive.org/download/${cleanArchiveId}/page/n1_medium.jpg`;
+        return `https://archive.org/download/${cleanArchiveId}/page/n0.jpg`;
       } else if (archiveImgAttempt === 3) {
-        return `https://archive.org/download/${cleanArchiveId}/page/n1.jpg`;
+        return `/api/library/proxy?fileUrl=${encodeURIComponent(`https://archive.org/download/${cleanArchiveId}/page/n0_medium.jpg`)}`;
+      } else if (archiveImgAttempt === 4) {
+        return `https://archive.org/download/${cleanArchiveId}/page/n1_medium.jpg`;
       }
     }
 
     if (rawCover && !isGenericArchiveLogo) return rawCover;
     return '';
-  }, [book.cover, book.cover_url, cleanArchiveId, archiveImgAttempt]);
+  }, [cachedCover, book.cover, book.cover_url, cleanArchiveId, archiveImgAttempt]);
 
   // Unique hash seed per tile to shuffle sliding timers and starting phases
   const tileSeed = React.useMemo(() => {
@@ -282,8 +292,16 @@ function MetroBookTile({
                 key={`archive-cov-${effectiveCover}`}
                 src={effectiveCover}
                 alt={book.title}
+                loading="lazy"
+                decoding="async"
+                onLoad={() => {
+                  if (effectiveCover) {
+                    if (book.id) setCachedCoverUrl(book.id, effectiveCover);
+                    if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveCover);
+                  }
+                }}
                 onError={() => {
-                  if (cleanArchiveId && archiveImgAttempt < 3) {
+                  if (cleanArchiveId && archiveImgAttempt < 4) {
                     setArchiveImgAttempt(prev => prev + 1);
                   } else {
                     setImgError(true);
@@ -472,6 +490,14 @@ function MetroBookTile({
 }
 
 let globalRandomSeedItems: PublishedItem[] | null = null;
+if (typeof window !== 'undefined') {
+  try {
+    const saved = sessionStorage.getItem('ebookcc_bookshelf_library_pool');
+    if (saved) {
+      globalRandomSeedItems = JSON.parse(saved);
+    }
+  } catch (_) {}
+}
 
 export function Bookshelf({ 
   onOpenInWorkspace,
@@ -677,6 +703,11 @@ export function Bookshelf({
         download_count: item.download_count,
         timestamp: Date.now() - (idx + 1) * 3600000,
       })) as PublishedItem[];
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('ebookcc_bookshelf_library_pool', JSON.stringify(globalRandomSeedItems));
+        } catch (_) {}
+      }
     }
     const randomSeedItems = globalRandomSeedItems;
 

@@ -15,3 +15,7 @@ bucket_name = "ebookcc-media"
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "ebookcc-media"
+
+[ai]
+binding = "AI"
+

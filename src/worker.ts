@@ -68,6 +68,9 @@ export interface R2Bucket {
 }
 
 export interface Env {
+  AI?: {
+    run: (model: string, inputs: any) => Promise<any>;
+  };
   MEDIA_BUCKET?: R2Bucket;
   MEDIA?: R2Bucket;
   ASSETS?: {
@@ -394,6 +397,17 @@ function parseBase64(base64Image: string) {
     buffer[i] = raw.charCodeAt(i);
   }
   return { buffer, mimeType: "image/png", ext: "png" };
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunkSize = 8192;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
 }
 
 export default {
@@ -1153,6 +1167,379 @@ export default {
           texts: [],
           boxes: []
         }, 200);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Cloudflare Workers AI Routes (Default AI Agent)
+    // ─────────────────────────────────────────────
+
+    // 1. POST /api/ai/chat — Chat / Ask AI Brain
+    if (url.pathname === "/api/ai/chat" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+        const messages: Array<{ role: string; content: any }> = [];
+
+        if (body.system && typeof body.system === "string" && body.system.trim()) {
+          messages.push({ role: "system", content: body.system.trim() });
+        }
+
+        for (const m of rawMessages) {
+          if (m && m.role && m.content !== undefined) {
+            messages.push({
+              role: m.role === "assistant" || m.role === "model" ? "assistant" : (m.role === "system" ? "system" : "user"),
+              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+            });
+          }
+        }
+
+        if (messages.length === 0) {
+          return jsonResponse({ error: "No messages provided in request" }, 400);
+        }
+
+        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+          messages,
+        });
+
+        const responseText =
+          typeof aiResult?.response === "string"
+            ? aiResult.response
+            : typeof aiResult?.text === "string"
+            ? aiResult.text
+            : typeof aiResult === "string"
+            ? aiResult
+            : JSON.stringify(aiResult ?? "");
+
+        return jsonResponse({ success: true, response: responseText });
+      } catch (err: any) {
+        console.error("[Workers AI Chat Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed processing chat request" }, 500);
+      }
+    }
+
+    // 2. POST /api/ai/ocr — OCR (Image to Text)
+    if (url.pathname === "/api/ai/ocr" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const contentType = request.headers.get("content-type") || "";
+        let prompt = "Extract all text from this image.";
+        let imageUrl = "";
+
+        if (contentType.includes("multipart/form-data")) {
+          const formData = await request.formData();
+          const file = (formData.get("file") || formData.get("image")) as File | null;
+          if (!file) {
+            return jsonResponse({ error: "Missing file field in multipart request" }, 400);
+          }
+          const customPrompt = formData.get("prompt") as string | null;
+          if (customPrompt && customPrompt.trim()) {
+            prompt = customPrompt.trim();
+          }
+          const mimeType = file.type || "image/jpeg";
+          const fileBuf = new Uint8Array(await file.arrayBuffer());
+          imageUrl = `data:${mimeType};base64,${uint8ArrayToBase64(fileBuf)}`;
+        } else {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (body.prompt && typeof body.prompt === "string" && body.prompt.trim()) {
+            prompt = body.prompt.trim();
+          }
+          const rawImage = body.image || body.base64Image || body.imageBase64 || "";
+          if (!rawImage) {
+            return jsonResponse({ error: "Missing image in request body (expected base64 string)" }, 400);
+          }
+          if (typeof rawImage === "string" && rawImage.startsWith("data:")) {
+            imageUrl = rawImage;
+          } else {
+            imageUrl = `data:image/jpeg;base64,${rawImage}`;
+          }
+        }
+
+        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: imageUrl } },
+              ],
+            },
+          ],
+        });
+
+        const extractedText =
+          typeof aiResult?.response === "string"
+            ? aiResult.response
+            : typeof aiResult?.text === "string"
+            ? aiResult.text
+            : typeof aiResult === "string"
+            ? aiResult
+            : "";
+
+        return jsonResponse({ success: true, text: extractedText });
+      } catch (err: any) {
+        console.error("[Workers AI OCR Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed processing OCR request" }, 500);
+      }
+    }
+
+    // 3. POST /api/ai/translate — Translation (CONVERT feature)
+    if (url.pathname === "/api/ai/translate" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const text = body.text;
+        const targetLang = (body.targetLang || "zh").trim();
+        const sourceLang = body.sourceLang ? body.sourceLang.trim() : undefined;
+
+        if (!text || typeof text !== "string" || !text.trim()) {
+          return jsonResponse({ error: "Text is required for translation" }, 400);
+        }
+
+        const systemPrompt = `You are a translator. Translate the following text to ${targetLang}. Only output the translation, nothing else.`;
+        const userPrompt = sourceLang
+          ? `Source Language: ${sourceLang}\nTarget Language: ${targetLang}\nText to translate:\n${text}`
+          : text;
+
+        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        });
+
+        const translation =
+          typeof aiResult?.response === "string"
+            ? aiResult.response
+            : typeof aiResult?.text === "string"
+            ? aiResult.text
+            : typeof aiResult === "string"
+            ? aiResult
+            : "";
+
+        return jsonResponse({ success: true, translation: translation.trim() });
+      } catch (err: any) {
+        console.error("[Workers AI Translate Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed processing translation" }, 500);
+      }
+    }
+
+    // 4. POST /api/ai/speech-bubble — Speech Bubble Text (Comic Creator)
+    if (url.pathname === "/api/ai/speech-bubble" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const panelDescription = body.panelDescription || "";
+        const context = body.context || "";
+        const style = body.style || "";
+
+        let userPrompt = `Panel Description: ${panelDescription}`;
+        if (context) userPrompt += `\nStory Context: ${context}`;
+        if (style) userPrompt += `\nTone/Style: ${style}`;
+        userPrompt += `\nGenerate speech bubble text for this panel. Keep it short (1-3 sentences).`;
+
+        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a comic dialogue writer. Generate speech bubble text for the described panel. Keep it short (1-3 sentences).",
+            },
+            { role: "user", content: userPrompt },
+          ],
+        });
+
+        const bubbleText =
+          typeof aiResult?.response === "string"
+            ? aiResult.response
+            : typeof aiResult?.text === "string"
+            ? aiResult.text
+            : typeof aiResult === "string"
+            ? aiResult
+            : "";
+
+        return jsonResponse({ success: true, text: bubbleText.trim() });
+      } catch (err: any) {
+        console.error("[Workers AI Speech Bubble Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed generating speech bubble" }, 500);
+      }
+    }
+
+    // 5. POST /api/ai/novel — Novel Generation (Rich Text Editor)
+    if (url.pathname === "/api/ai/novel" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const prompt = body.prompt || "";
+        const context = body.context || "";
+        const maxTokens = typeof body.maxTokens === "number" ? body.maxTokens : 2000;
+
+        if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+          return jsonResponse({ error: "Prompt is required for novel generation" }, 400);
+        }
+
+        let userPrompt = prompt;
+        if (context) {
+          userPrompt = `Context:\n${context}\n\nTask:\n${prompt}`;
+        }
+
+        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are an author and creative novelist. Generate engaging, atmospheric, high-quality narrative prose matching the context and instructions.",
+            },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: maxTokens,
+        });
+
+        const content =
+          typeof aiResult?.response === "string"
+            ? aiResult.response
+            : typeof aiResult?.text === "string"
+            ? aiResult.text
+            : typeof aiResult === "string"
+            ? aiResult
+            : "";
+
+        return jsonResponse({ success: true, content });
+      } catch (err: any) {
+        console.error("[Workers AI Novel Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed generating novel text" }, 500);
+      }
+    }
+
+    // 6. POST /api/ai/generate-image — Image Generation (Comic Creator)
+    if (url.pathname === "/api/ai/generate-image" && request.method === "POST") {
+      try {
+        if (!env.AI) {
+          return jsonResponse({ error: "Cloudflare Workers AI binding (env.AI) is not configured" }, 500);
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const prompt = body.prompt;
+        if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+          return jsonResponse({ error: "Prompt is required for image generation" }, 400);
+        }
+
+        const numSteps = Math.min(8, Math.max(1, body.numSteps || 4));
+        const aiParams: any = {
+          prompt: prompt.trim(),
+          num_steps: numSteps,
+        };
+        if (body.width && typeof body.width === "number") aiParams.width = body.width;
+        if (body.height && typeof body.height === "number") aiParams.height = body.height;
+
+        const aiResult = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", aiParams);
+
+        let imageBuffer: any = aiResult;
+        if (aiResult instanceof Response) {
+          imageBuffer = await aiResult.arrayBuffer();
+        } else if (aiResult?.image && typeof aiResult.image === "string") {
+          const parsed = parseBase64(aiResult.image);
+          imageBuffer = parsed.buffer;
+        }
+
+        return new Response(imageBuffer, {
+          headers: {
+            "Content-Type": "image/png",
+            "Cache-Control": "public, max-age=31536000, immutable",
+            ...corsHeaders,
+          },
+        });
+      } catch (err: any) {
+        console.error("[Workers AI Generate Image Error]:", err);
+        return jsonResponse({ success: false, error: err.message || "Failed generating image" }, 500);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Legacy API Route Overrides (Powered by Workers AI when env.AI exists)
+    // ─────────────────────────────────────────────
+    if (url.pathname === "/api/generate-image" && request.method === "POST" && env.AI) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const prompt = body.prompt;
+        if (prompt && typeof prompt === "string" && prompt.trim()) {
+          const aiResult = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
+            prompt: prompt.trim(),
+            num_steps: 4,
+          });
+          let buffer: Uint8Array;
+          if (aiResult instanceof Uint8Array) {
+            buffer = aiResult;
+          } else if (aiResult instanceof ArrayBuffer) {
+            buffer = new Uint8Array(aiResult);
+          } else if (aiResult instanceof Response) {
+            buffer = new Uint8Array(await aiResult.arrayBuffer());
+          } else if (aiResult?.image && typeof aiResult.image === "string") {
+            buffer = parseBase64(aiResult.image).buffer;
+          } else {
+            buffer = new Uint8Array(aiResult);
+          }
+          const base64Str = uint8ArrayToBase64(buffer);
+          const dataUrl = `data:image/png;base64,${base64Str}`;
+          return jsonResponse({ success: true, imageUrl: dataUrl });
+        }
+      } catch (err: any) {
+        console.warn("[Workers AI generate-image legacy override]:", err.message);
+      }
+    }
+
+    if (url.pathname === "/api/agent-chat" && request.method === "POST" && env.AI) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+        const messages: Array<{ role: string; content: any }> = [];
+        if (body.systemInstruction) {
+          messages.push({ role: "system", content: body.systemInstruction });
+        }
+        for (const m of rawMessages) {
+          if (m && m.parts) {
+            const textPart = m.parts.map((p: any) => p.text || "").join(" ");
+            messages.push({
+              role: m.role === "model" ? "assistant" : "user",
+              content: textPart,
+            });
+          } else if (m && m.content) {
+            messages.push({
+              role: m.role === "assistant" || m.role === "model" ? "assistant" : "user",
+              content: m.content,
+            });
+          }
+        }
+        if (messages.length > 0) {
+          const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", { messages });
+          const text =
+            typeof aiResult?.response === "string"
+              ? aiResult.response
+              : typeof aiResult?.text === "string"
+              ? aiResult.text
+              : typeof aiResult === "string"
+              ? aiResult
+              : "";
+          return jsonResponse({ success: true, text });
+        }
+      } catch (err: any) {
+        console.warn("[Workers AI agent-chat legacy override]:", err.message);
       }
     }
 

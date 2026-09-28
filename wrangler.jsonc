@@ -18,5 +18,8 @@
       "binding": "MEDIA",
       "bucket_name": "ebookcc-media"
     }
-  ]
+  ],
+  "ai": {
+    "binding": "AI"
+  }
 }

@@ -305,17 +305,20 @@ const CanvasResizeOverlay = ({
   useEffect(() => {
     const iv = setInterval(() => {
       const newRect = imgElement.getBoundingClientRect();
-      if (
-        newRect.width !== rect.width ||
-        newRect.height !== rect.height ||
-        newRect.top !== rect.top ||
-        newRect.left !== rect.left
-      ) {
-        setRect(newRect);
-      }
+      setRect((prev) => {
+        if (
+          Math.abs(newRect.width - prev.width) > 0.5 ||
+          Math.abs(newRect.height - prev.height) > 0.5 ||
+          Math.abs(newRect.top - prev.top) > 0.5 ||
+          Math.abs(newRect.left - prev.left) > 0.5
+        ) {
+          return newRect;
+        }
+        return prev;
+      });
     }, 30);
     return () => clearInterval(iv);
-  }, [imgElement, rect]);
+  }, [imgElement]);
 
   const handleResizeStart = (e: React.PointerEvent, handle: string) => {
     e.stopPropagation();
@@ -411,10 +414,20 @@ const CanvasCropOverlay = ({
   }, [imgElement]);
 
   useEffect(() => {
-    const iv = setInterval(
-      () => setRect(imgElement.getBoundingClientRect()),
-      50,
-    );
+    const iv = setInterval(() => {
+      const newRect = imgElement.getBoundingClientRect();
+      setRect((prev) => {
+        if (
+          Math.abs(newRect.width - prev.width) > 0.5 ||
+          Math.abs(newRect.height - prev.height) > 0.5 ||
+          Math.abs(newRect.top - prev.top) > 0.5 ||
+          Math.abs(newRect.left - prev.left) > 0.5
+        ) {
+          return newRect;
+        }
+        return prev;
+      });
+    }, 50);
     return () => clearInterval(iv);
   }, [imgElement]);
 
@@ -656,7 +669,11 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        setDimensions({ w: rect.width, h: rect.height });
+        setDimensions((prev) =>
+          Math.abs(prev.w - rect.width) < 0.5 && Math.abs(prev.h - rect.height) < 0.5
+            ? prev
+            : { w: rect.width, h: rect.height }
+        );
       }
     }
   }, [bubble.text]);
@@ -672,8 +689,14 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         const style = window.getComputedStyle(el);
         const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
         const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const newW = width + padX;
+        const newH = height + padY;
         if (width > 0 && height > 0) {
-          setDimensions({ w: width + padX, h: height + padY });
+          setDimensions((prev) =>
+            Math.abs(prev.w - newW) < 0.5 && Math.abs(prev.h - newH) < 0.5
+              ? prev
+              : { w: newW, h: newH }
+          );
         }
       }
     });
@@ -3866,7 +3889,20 @@ export const Create: React.FC<CreateProps> = ({
         level: htmlEl.tagName === "H1" ? 1 : 2,
       };
     });
-    setTocItems(items);
+    setTocItems((prev) => {
+      if (
+        prev.length === items.length &&
+        prev.every(
+          (item, idx) =>
+            item.id === items[idx]?.id &&
+            item.text === items[idx]?.text &&
+            item.level === items[idx]?.level
+        )
+      ) {
+        return prev;
+      }
+      return items;
+    });
   }, [t]);
 
   const execDocCommand = (command: string, value?: string) => {

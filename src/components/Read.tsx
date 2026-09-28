@@ -1440,7 +1440,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      setContainerSize({ width, height });
+      setContainerSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();

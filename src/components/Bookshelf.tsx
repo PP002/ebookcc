@@ -517,8 +517,23 @@ export function Bookshelf({
       return { isOverflowing, canScrollLeft, canScrollRight };
     };
 
-    setShelf1Overflow(checkEl(shelf1Ref.current));
-    setShelf2Overflow(checkEl(shelf2Ref.current));
+    const next1 = checkEl(shelf1Ref.current);
+    setShelf1Overflow((prev) => (
+      prev.isOverflowing === next1.isOverflowing &&
+      prev.canScrollLeft === next1.canScrollLeft &&
+      prev.canScrollRight === next1.canScrollRight
+        ? prev
+        : next1
+    ));
+
+    const next2 = checkEl(shelf2Ref.current);
+    setShelf2Overflow((prev) => (
+      prev.isOverflowing === next2.isOverflowing &&
+      prev.canScrollLeft === next2.canScrollLeft &&
+      prev.canScrollRight === next2.canScrollRight
+        ? prev
+        : next2
+    ));
   }, []);
 
   const calculateNovelAbsoluteAnchor = (container: HTMLElement): number => {

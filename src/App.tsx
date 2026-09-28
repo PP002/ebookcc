@@ -13,7 +13,7 @@ import { AIAgentChat } from "./components/AIAgentChat";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "next-themes";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   BookOpen,
   PenTool,
@@ -246,15 +246,18 @@ function AppContent() {
     return () => window.removeEventListener("app-navigation", handleNav);
   }, []);
 
-  const navigate = (
-    view: "home" | "read" | "create" | "convert" | "faq",
-    query?: string,
-  ) => {
-    const path = buildPath(view) + (query || "");
-    window.history.pushState(null, "", path);
-    setCurrentPath(view);
-    setHeaderHidden(false);
-  };
+  const navigate = useCallback(
+    (
+      view: "home" | "read" | "create" | "convert" | "faq",
+      query?: string,
+    ) => {
+      const path = buildPath(view) + (query || "");
+      window.history.pushState(null, "", path);
+      setCurrentPath(view);
+      setHeaderHidden(false);
+    },
+    [buildPath]
+  );
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground selection:bg-primary/30 flex flex-col">

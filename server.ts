@@ -362,6 +362,123 @@ async function startServer() {
     }
   }
 
+  function makeGeminiCandidatesResponse(text: string) {
+    return {
+      candidates: [
+        {
+          content: {
+            parts: [{ text }],
+            role: "model"
+          },
+          finishReason: "STOP"
+        }
+      ],
+      text,
+      response: text,
+      success: true
+    };
+  }
+
+  function makeGeminiImageCandidatesResponse(rawBase64: string, mimeType = "image/png") {
+    const cleanBase64 = rawBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+    return {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: cleanBase64
+                }
+              }
+            ],
+            role: "model"
+          },
+          finishReason: "STOP"
+        }
+      ],
+      success: true,
+      imageUrl: `data:${mimeType};base64,${cleanBase64}`
+    };
+  }
+
+  function makeGeminiErrorFormat(message: string, code = 500) {
+    return {
+      error: {
+        code,
+        message
+      }
+    };
+  }
+
+  function parseGeminiOrCustomChatRequest(body: any): {
+    messages: Array<{ role: string; content: any }>;
+    systemInstruction?: string;
+  } {
+    const messages: Array<{ role: string; content: any }> = [];
+    let systemInstruction = "";
+
+    if (body.systemInstruction) {
+      if (typeof body.systemInstruction === "string") {
+        systemInstruction = body.systemInstruction;
+      } else if (body.systemInstruction?.parts) {
+        systemInstruction = body.systemInstruction.parts.map((p: any) => p.text || "").join(" ");
+      }
+    } else if (body.system && typeof body.system === "string") {
+      systemInstruction = body.system;
+    }
+
+    if (systemInstruction.trim()) {
+      messages.push({ role: "system", content: systemInstruction.trim() });
+    }
+
+    if (Array.isArray(body.contents)) {
+      for (const c of body.contents) {
+        const role = c.role === "model" || c.role === "assistant" ? "assistant" : (c.role === "system" ? "system" : "user");
+        let contentStr = "";
+        if (Array.isArray(c.parts)) {
+          contentStr = c.parts.map((p: any) => {
+            if (p.text) return p.text;
+            if (p.inlineData) return `[Image: data:${p.inlineData.mimeType};base64,${p.inlineData.data}]`;
+            return "";
+          }).join(" ");
+        } else if (typeof c.content === "string") {
+          contentStr = c.content;
+        }
+        if (contentStr || role === "system") {
+          messages.push({ role, content: contentStr });
+        }
+      }
+    } else if (Array.isArray(body.messages)) {
+      for (const m of body.messages) {
+        const role = m.role === "assistant" || m.role === "model" ? "assistant" : (m.role === "system" ? "system" : "user");
+        let contentStr = "";
+        if (typeof m.content === "string") {
+          contentStr = m.content;
+        } else if (Array.isArray(m.content)) {
+          contentStr = m.content.map((p: any) => {
+            if (typeof p === "string") return p;
+            if (p.text) return p.text;
+            if (p.image_url?.url) return `[Image: ${p.image_url.url}]`;
+            return "";
+          }).join(" ");
+        } else if (Array.isArray(m.parts)) {
+          contentStr = m.parts.map((p: any) => p.text || "").join(" ");
+        } else {
+          contentStr = JSON.stringify(m.content ?? "");
+        }
+        if (contentStr || role === "system") {
+          messages.push({ role, content: contentStr });
+        }
+      }
+    } else if (body.prompt && typeof body.prompt === "string") {
+      messages.push({ role: "user", content: body.prompt });
+    }
+
+    return { messages, systemInstruction };
+  }
+
   // Worker AI fallback engine (no API key required)
   async function callWorkerAI(messages: any[], systemInstruction?: string, isJson = false, retries = 3): Promise<string> {
     let lastError = null;
@@ -2437,14 +2554,20 @@ STRICT INSTRUCTIONS:
     }
   });
 
-  app.post("/api/generate-image", async (req, res): Promise<any> => {
+  app.all(["/api/generate-image", "/api/ai/generate-image"], async (req, res): Promise<any> => {
     try {
-      const { prompt, aspectRatio, seed: clientSeed } = req.body;
-      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+      let prompt = req.body?.prompt || req.query?.prompt;
+      if (!prompt && Array.isArray(req.body?.contents)) {
+        prompt = req.body.contents?.[0]?.parts?.[0]?.text;
+      }
+      if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+        return res.status(400).json(makeGeminiErrorFormat("prompt is required", 400));
+      }
 
-      let width = 1024;
-      let height = 1024;
-      
+      const aspectRatio = req.body?.aspectRatio || req.query?.aspectRatio;
+      let width = req.body?.width || (req.query?.width ? parseInt(req.query.width as string) : 1024);
+      let height = req.body?.height || (req.query?.height ? parseInt(req.query.height as string) : 1024);
+
       if (aspectRatio === "3:4" || aspectRatio === "4:5") {
         width = 768; height = 1024;
       } else if (aspectRatio === "16:9") {
@@ -2455,14 +2578,33 @@ STRICT INSTRUCTIONS:
         width = 1024; height = 768;
       }
 
+      const clientSeed = req.body?.seed || req.query?.seed;
       const seed = clientSeed || Math.floor(Math.random() * 100000000);
-      const encodedPrompt = encodeURIComponent(prompt);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
-      
-      res.json({ imageUrl });
+      const encodedPrompt = encodeURIComponent(prompt.trim());
+      const pollUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
+
+      const acceptHeader = req.headers.accept || "";
+      const isRawImageRequest = req.method === "GET" || acceptHeader.includes("image/png") || acceptHeader.includes("image/*");
+
+      const imgRes = await fetch(pollUrl);
+      if (imgRes.ok) {
+        const arrayBuf = await imgRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
+
+        if (isRawImageRequest) {
+          res.setHeader("Content-Type", "image/png");
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          return res.send(buffer);
+        }
+
+        const rawBase64 = buffer.toString("base64");
+        return res.json(makeGeminiImageCandidatesResponse(rawBase64));
+      }
+
+      return res.status(500).json(makeGeminiErrorFormat("Failed to generate image", 500));
     } catch (err: any) {
       console.log("[API generate-image] Error:", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json(makeGeminiErrorFormat(err.message, 500));
     }
   });
 
@@ -2573,80 +2715,76 @@ STRICT INSTRUCTIONS:
     }
   });
 
-  app.post("/api/agent-chat", async (req, res): Promise<any> => {
+  const handleChatEndpoint = async (req: any, res: any): Promise<any> => {
     try {
-      const { messages, systemInstruction } = req.body;
-      if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array is required" });
+      const isStreaming =
+        req.query?.alt === "sse" ||
+        req.path?.endsWith(":streamGenerateContent") ||
+        req.body?.stream === true ||
+        req.query?.stream === "true";
 
-      const customKey = req.headers["x-gemini-api-key"] as string;
-      const ai = getAIClient(customKey);
+      const { messages, systemInstruction } = parseGeminiOrCustomChatRequest(req.body);
 
-      if (ai) {
-        try {
-          const payload: any = {
-            model: "gemini-flash-latest",
-            contents: messages,
-          };
-          if (systemInstruction) {
-            payload.config = { systemInstruction };
-          }
-
-          const response = await ai.models.generateContent(payload);
-          return res.json({ text: response.text || "" });
-        } catch (geminiError: any) {
-          console.warn("[API agent-chat] Gemini failed, falling back to Worker AI:", geminiError.message);
-        }
-      }
-
-      // Fallback to Worker AI (No API key required)
-      const text = await callWorkerAI(messages, systemInstruction);
-      return res.json({ text });
-    } catch (err: any) {
-      console.error("[API agent-chat] Error:", err.message);
-      return res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─────────────────────────────────────────────
-  // Cloudflare Workers AI Equivalent Endpoints in Dev Server
-  // ─────────────────────────────────────────────
-  app.post("/api/ai/chat", async (req, res): Promise<any> => {
-    try {
-      const { messages, system } = req.body;
-      if (!messages || !Array.isArray(messages)) {
-        return res.status(400).json({ error: "messages array is required" });
+      if (!messages || messages.length === 0) {
+        return res.status(400).json(makeGeminiErrorFormat("No valid messages or contents provided in request", 400));
       }
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
+      let responseText = "";
 
       if (ai) {
         try {
-          const contents = messages.map((m: any) => ({
-            role: m.role === "assistant" || m.role === "model" ? "model" : "user",
-            parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
-          }));
+          const contents = messages
+            .filter((m: any) => m.role !== "system")
+            .map((m: any) => ({
+              role: m.role === "assistant" || m.role === "model" ? "model" : "user",
+              parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+            }));
+
+          const sysInst = systemInstruction || messages.find((m: any) => m.role === "system")?.content;
           const config: any = {};
-          if (system) config.systemInstruction = system;
+          if (sysInst) config.systemInstruction = sysInst;
 
           const response = await ai.models.generateContent({
             model: "gemini-flash-latest",
             contents,
             config,
           });
-          return res.json({ success: true, response: response.text || "" });
-        } catch (e: any) {
-          console.warn("[Dev Server /api/ai/chat] Gemini failed, falling back to Worker AI...", e.message);
+          responseText = response.text || "";
+        } catch (geminiError: any) {
+          console.warn("[API agent-chat] Gemini failed, falling back to Worker AI:", geminiError.message);
         }
       }
 
-      const responseText = await callWorkerAI(messages, system);
-      return res.json({ success: true, response: responseText });
+      if (!responseText) {
+        responseText = await callWorkerAI(messages, systemInstruction);
+      }
+
+      if (isStreaming) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        const payload = makeGeminiCandidatesResponse(responseText);
+        res.write(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
+        return res.end();
+      }
+
+      return res.json(makeGeminiCandidatesResponse(responseText));
     } catch (err: any) {
-      console.error("[Dev Server /api/ai/chat Error]:", err.message);
-      return res.status(500).json({ success: false, error: err.message });
+      console.error("[API agent-chat] Error:", err.message);
+      return res.status(500).json(makeGeminiErrorFormat(err.message || "Failed processing request", 500));
     }
-  });
+  };
+
+  app.post([
+    "/api/agent-chat",
+    "/api/ai/chat",
+    "/v1beta/models/*:generateContent",
+    "/v1beta/models/*:streamGenerateContent",
+    "/v1/models/*:generateContent",
+    "/v1/models/*:streamGenerateContent"
+  ], handleChatEndpoint);
 
   app.post("/api/ai/ocr", async (req, res): Promise<any> => {
     try {

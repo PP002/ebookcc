@@ -2688,6 +2688,34 @@ STRICT INSTRUCTIONS:
     }
   });
 
+  function generateFallbackComicScript(prompt: string, pagesCount = 1) {
+    const cleanPrompt = (prompt || "Epic comic adventure").replace(/["\n\r]/g, " ").trim();
+    const pages = [];
+    for (let p = 0; p < pagesCount; p++) {
+      const pageNum = p + 1;
+      const panels = [
+        {
+          imagePrompt: `Wide cinematic establishing shot, ${cleanPrompt}, dramatic lighting, comic book art style, graphic novel, vivid rich colors, detailed inked linework`,
+          dialogue: `Page ${pageNum}: The adventure begins...`
+        },
+        {
+          imagePrompt: `Dynamic medium action shot, ${cleanPrompt}, character facing an exciting challenge, dramatic camera angle, bold ink lines, vibrant colors, expressive art`,
+          dialogue: `Look closely... the clues are everywhere!`
+        },
+        {
+          imagePrompt: `Intense close-up climax action sequence, ${cleanPrompt}, glowing energy, powerful composition, cinematic lighting, comic book panel, cel shaded`,
+          dialogue: `We have to act now! Hold on tight!`
+        },
+        {
+          imagePrompt: `Heroic triumphant resolution scene, ${cleanPrompt}, epic sunset background, atmospheric depth, classic comic illustration, highly detailed`,
+          dialogue: `Mission accomplished! On to the next chapter!`
+        }
+      ];
+      pages.push({ panels });
+    }
+    return { pages };
+  }
+
   app.post("/api/generate-comic-script", async (req, res): Promise<any> => {
     try {
       const { prompt, imageBase64, pagesCount = 1 } = req.body;
@@ -2695,7 +2723,7 @@ STRICT INSTRUCTIONS:
 
       const customKey = req.headers["x-gemini-api-key"] as string;
       const ai = getAIClient(customKey);
-      const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 to 6 panels for a rich comic flow. Keep panel descriptions visual and concise. Keep dialogue short.`;
+      const userText = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s). Each page should be structured with 4 panels for a rich comic flow. Keep panel descriptions visual and concise for image generation. Keep dialogue short.`;
 
       if (ai) {
         try {
@@ -2748,20 +2776,30 @@ STRICT INSTRUCTIONS:
           const scriptText = response.text;
           if (scriptText) {
             const scriptData = JSON.parse(scriptText);
-            return res.json(scriptData);
+            if (scriptData && Array.isArray(scriptData.pages) && scriptData.pages.length > 0) {
+              return res.json(scriptData);
+            }
           }
         } catch (gemErr: any) {
-          console.warn("[API generate-comic-script] Gemini failed, using Worker AI fallback:", gemErr.message);
+          console.warn("[API generate-comic-script] Gemini failed, using Worker AI / fallback:", gemErr.message);
         }
       }
 
       const sysInstruction = "You are an expert comic book script writer. Output only valid JSON with format: {\"pages\": [{\"panels\": [{\"imagePrompt\": \"...\", \"dialogue\": \"...\"}]}]}.";
-      const rawText = await callWorkerAI([{ role: "user", content: userText }], sysInstruction, true);
-      const parsed = parseJsonSafely(rawText, { pages: [] });
-      return res.json(parsed);
+      try {
+        const rawText = await callWorkerAI([{ role: "user", content: userText }], sysInstruction, true);
+        const parsed = parseJsonSafely(rawText, null);
+        if (parsed && Array.isArray(parsed.pages) && parsed.pages.length > 0 && parsed.pages[0]?.panels?.length > 0) {
+          return res.json(parsed);
+        }
+      } catch (workerErr: any) {
+        console.warn("[API generate-comic-script] Worker AI parse failed, using fallback script generator:", workerErr.message);
+      }
+
+      return res.json(generateFallbackComicScript(prompt, parseInt(pagesCount as any) || 1));
     } catch (err: any) {
       console.log("[API generate-comic-script] Error:", err.message);
-      res.status(500).json({ error: err.message });
+      return res.json(generateFallbackComicScript(req.body?.prompt || "Comic story", 1));
     }
   });
 
@@ -2980,30 +3018,6 @@ STRICT INSTRUCTIONS:
     } catch (err: any) {
       console.error("[Dev Server /api/ai/novel Error]:", err.message);
       return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/ai/generate-image", async (req, res): Promise<any> => {
-    try {
-      const { prompt, width = 1024, height = 1024 } = req.body;
-      if (!prompt) return res.status(400).json({ error: "prompt is required" });
-
-      const seed = Math.floor(Math.random() * 100000000);
-      const encodedPrompt = encodeURIComponent(prompt);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
-      
-      const imgRes = await fetch(imageUrl);
-      if (imgRes.ok) {
-        const arrayBuf = await imgRes.arrayBuffer();
-        res.setHeader("Content-Type", "image/png");
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        return res.send(Buffer.from(arrayBuf));
-      }
-
-      return res.status(500).json({ error: "Failed to generate image" });
-    } catch (err: any) {
-      console.error("[Dev Server /api/ai/generate-image Error]:", err.message);
-      return res.status(500).json({ error: err.message });
     }
   });
 

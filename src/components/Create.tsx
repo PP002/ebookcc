@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   PenTool,
@@ -47,6 +48,11 @@ import {
   Redo2,
   Copy,
   Clipboard,
+  Minimize,
+  Maximize,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from "lucide-react";
 import {
   Dialog,
@@ -93,6 +99,7 @@ import {
   updatePanelImage,
   TreeNode,
   Stroke,
+  PanelNode,
 } from "./ComicCanvas";
 import { LayerManagerUI } from "./comic/LayerManagerUI";
 import { ComicLayer, ComicLayerGroup } from "./comic/drawingTypes";
@@ -293,37 +300,59 @@ const computePanels = (
 };
 
 const CanvasResizeOverlay = ({
-  imgElement,
+  targetElement,
+  onResize,
+  onPositionChange,
   updateToc,
 }: {
-  imgElement: HTMLImageElement;
+  targetElement: HTMLElement;
+  onResize?: (widthPercent: number) => void;
+  onPositionChange?: (rect: DOMRect) => void;
   updateToc: () => void;
 }) => {
-  const [rect, setRect] = useState(imgElement.getBoundingClientRect());
+  const [rect, setRect] = useState(() => targetElement.getBoundingClientRect());
+  const prevRectRef = useRef<DOMRect>(targetElement.getBoundingClientRect());
+  const onPositionChangeRef = useRef(onPositionChange);
+  onPositionChangeRef.current = onPositionChange;
+  const onResizeRef = useRef(onResize);
+  onResizeRef.current = onResize;
+  const updateTocRef = useRef(updateToc);
+  updateTocRef.current = updateToc;
 
   useEffect(() => {
-    const iv = setInterval(() => {
-      const newRect = imgElement.getBoundingClientRect();
-      setRect((prev) => {
-        if (
-          Math.abs(newRect.width - prev.width) > 0.5 ||
-          Math.abs(newRect.height - prev.height) > 0.5 ||
-          Math.abs(newRect.top - prev.top) > 0.5 ||
-          Math.abs(newRect.left - prev.left) > 0.5
-        ) {
-          return newRect;
-        }
-        return prev;
-      });
-    }, 30);
-    return () => clearInterval(iv);
-  }, [imgElement]);
+    let animFrame: number;
+    const checkRect = () => {
+      const newRect = targetElement.getBoundingClientRect();
+      const prev = prevRectRef.current;
+      if (
+        Math.abs(newRect.width - prev.width) > 0.5 ||
+        Math.abs(newRect.height - prev.height) > 0.5 ||
+        Math.abs(newRect.top - prev.top) > 0.5 ||
+        Math.abs(newRect.left - prev.left) > 0.5
+      ) {
+        prevRectRef.current = newRect;
+        setRect(newRect);
+        onPositionChangeRef.current?.(newRect);
+      }
+    };
+
+    const iv = setInterval(checkRect, 100);
+    window.addEventListener("scroll", checkRect, true);
+    window.addEventListener("resize", checkRect);
+
+    return () => {
+      clearInterval(iv);
+      cancelAnimationFrame(animFrame);
+      window.removeEventListener("scroll", checkRect, true);
+      window.removeEventListener("resize", checkRect);
+    };
+  }, [targetElement]);
 
   const handleResizeStart = (e: React.PointerEvent, handle: string) => {
     e.stopPropagation();
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = imgElement.clientWidth;
+    const startWidth = targetElement.clientWidth;
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
 
@@ -336,18 +365,24 @@ const CanvasResizeOverlay = ({
 
       // Calculate percentage width to be responsive
       const parentWidth =
-        imgElement.parentElement?.clientWidth || window.innerWidth;
-      const percentageW = (Math.max(20, newWidth) / parentWidth) * 100;
-      imgElement.style.width = percentageW + "%";
-      imgElement.style.height = "auto";
-      setRect(imgElement.getBoundingClientRect());
-      updateToc();
+        targetElement.parentElement?.clientWidth || window.innerWidth;
+      const percentageW = Math.min(100, Math.max(20, (newWidth / parentWidth) * 100));
+      targetElement.style.width = percentageW + "%";
+      if (targetElement.tagName === "IMG") {
+        targetElement.style.height = "auto";
+      }
+      const updatedRect = targetElement.getBoundingClientRect();
+      prevRectRef.current = updatedRect;
+      setRect(updatedRect);
+      onResizeRef.current?.(percentageW);
+      onPositionChangeRef.current?.(updatedRect);
     };
 
     const onPointerUp = (evt: PointerEvent) => {
       target.releasePointerCapture(evt.pointerId);
       target.removeEventListener("pointermove", onPointerMove);
       target.removeEventListener("pointerup", onPointerUp);
+      updateTocRef.current?.();
     };
 
     target.addEventListener("pointermove", onPointerMove);
@@ -1016,7 +1051,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
           fontSize={bubble.style === "action" ? 13 : 12}
           fontWeight={bubble.style === "action" ? "800" : "600"}
           fontStyle={bubble.style === "freehand" ? "italic" : "normal"}
-          margin={bubble.style === "action" ? 8 : (bubble.style === "freehand" ? 8 : 5)}
+          margin={bubble.style === "action" ? 3 : (bubble.style === "freehand" ? 3 : 2)}
           color="#000000"
         />
       )}
@@ -1029,10 +1064,6 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         onClick={(e) => {
           e.stopPropagation();
           onActivate?.();
-        }}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          removeBubble();
         }}
         onFocus={() => {
           setIsEditing(true);
@@ -1073,16 +1104,15 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         onKeyDown={(e) => {
           e.stopPropagation();
         }}
-        className={`text-xs break-words text-center min-w-[120px] max-w-[240px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
+        className={`text-xs break-words text-center min-w-[100px] max-w-[240px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
           !isEditing ? "opacity-0" : "opacity-100"
         } ${
           bubble.style === "action"
-            ? "font-extrabold uppercase text-black py-4 px-6"
+            ? "font-extrabold uppercase text-black py-1.5 px-3"
             : bubble.style === "freehand"
-            ? "text-black py-4 px-6 italic font-sans leading-tight"
-            : "text-black py-2 px-3"
+            ? "text-black py-1.5 px-3 italic font-sans leading-tight"
+            : "text-black py-1 px-1.5"
         }`}
-        title={t("doubleClickDeleteBubble")}
       >
         {bubble.text}
       </div>
@@ -1707,6 +1737,263 @@ export const Create: React.FC<CreateProps> = ({
   }>({ visible: false, top: 0, left: 0, imgElement: null });
   const [isImageCropping, setIsImageCropping] = useState(false);
   const [isImageColorFolded, setIsImageColorFolded] = useState(true);
+  const [isTextPanelSelectMode, setIsTextPanelSelectMode] = useState(false);
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
+  const [inlineCanvases, setInlineCanvases] = useState<Record<string, { node: PanelNode; widthPercent: number }>>({});
+  const [activeCanvasElements, setActiveCanvasElements] = useState<{ id: string; element: HTMLElement; label?: string }[]>([]);
+  const [activeImageElements, setActiveImageElements] = useState<{ element: HTMLImageElement; label: string }[]>([]);
+  const [selectedCanvasElement, setSelectedCanvasElement] = useState<HTMLElement | null>(null);
+  const [, setScrollTick] = useState(0);
+
+  // History and cache states
+  const [unfinishedComics, setUnfinishedComics] = useState<UnfinishedComic[]>([]);
+  const [unfinishedStories, setUnfinishedStories] = useState<UnfinishedStory[]>([]);
+  const [currentComicId, setCurrentComicId] = useState<string | null>(null);
+  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
+  const [comicTitle, setComicTitle] = useState<string>("Untitled Comic");
+  const [storyTitle, setStoryTitle] = useState<string>("Untitled Story");
+  const [loadedHtmlContent, setLoadedHtmlContent] = useState<string | null>(null);
+
+  // Publication state guards to prevent unwanted auto-save after successful publishing
+  const isPublishedComicRef = useRef<boolean>(false);
+  const isPublishedStoryRef = useRef<boolean>(false);
+
+  const updateToc = useCallback(() => {
+    if (!editorRef.current) return;
+
+    // Check if document is genuinely empty (no text entered)
+    const text = editorRef.current.innerText || editorRef.current.textContent || "";
+    const cleanText = text.replace(/[\n\r\s\t]/g, "").trim();
+    const hasImages = editorRef.current.querySelectorAll("img").length > 0;
+    const hasCanvases = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder").length > 0;
+    const isDocEmpty = cleanText.length === 0 && !hasImages && !hasCanvases;
+    editorRef.current.setAttribute("data-is-empty", isDocEmpty ? "true" : "false");
+    editorRef.current.setAttribute("data-has-no-text", cleanText.length === 0 ? "true" : "false");
+
+    // Dynamic auto-labeling for images and drawing canvases (L1, L2, L3, ...) in document order
+    const illustrations = editorRef.current.querySelectorAll("img, .story-inline-canvas-placeholder");
+    const foundImages: { element: HTMLImageElement; label: string }[] = [];
+    illustrations.forEach((el, idx) => {
+      const label = `L${idx + 1}`;
+      el.setAttribute("data-label", label);
+      if (el.tagName === "IMG") {
+        foundImages.push({ element: el as HTMLImageElement, label });
+      }
+    });
+    setActiveImageElements(foundImages);
+
+    // Clean up any remaining data-label attributes on pure text blocks
+    const textBlocks = editorRef.current.querySelectorAll("h1, h2, p, blockquote");
+    textBlocks.forEach((block) => {
+      block.removeAttribute("data-label");
+    });
+
+    const headings = editorRef.current.querySelectorAll("h1, h2");
+    const seenIds = new Set<string>();
+
+    const items = Array.from(headings).map((h: Element) => {
+      const htmlEl = h as HTMLElement;
+
+      if (!htmlEl.id || seenIds.has(htmlEl.id)) {
+        htmlEl.id = "heading-" + Math.random().toString(36).substring(2, 9);
+      }
+      seenIds.add(htmlEl.id);
+
+      return {
+        id: htmlEl.id,
+        text:
+          htmlEl.textContent ||
+          (htmlEl.tagName === "H1" ? t("untitledTitle") : t("untitledSubtitle")),
+        level: htmlEl.tagName === "H1" ? 1 : 2,
+      };
+    });
+    setTocItems((prev) => {
+      if (
+        prev.length === items.length &&
+        prev.every(
+          (item, idx) =>
+            item.id === items[idx]?.id &&
+            item.text === items[idx]?.text &&
+            item.level === items[idx]?.level
+        )
+      ) {
+        return prev;
+      }
+      return items;
+    });
+  }, [t]);
+
+  const inlineCanvasesHistoryRef = useRef<Record<string, { node: PanelNode; widthPercent: number }>[]>([]);
+  const inlineCanvasesHistoryIndexRef = useRef<number>(-1);
+  const [canUndoInline, setCanUndoInline] = useState(false);
+  const [canRedoInline, setCanRedoInline] = useState(false);
+
+  // Unified Story Document History (HTML + Inline Canvases State)
+  const storyDocHistoryRef = useRef<{ html: string; canvases: Record<string, { node: PanelNode; widthPercent: number }> }[]>([]);
+  const storyDocHistoryIndexRef = useRef<number>(-1);
+  const [canUndoStoryDoc, setCanUndoStoryDoc] = useState(false);
+  const [canRedoStoryDoc, setCanRedoStoryDoc] = useState(false);
+
+  const getCleanStoryHtml = useCallback((): string => {
+    if (!editorRef.current) return "";
+
+    // Sync inlineCanvases state back to data-canvas-data on placeholders
+    Object.entries(inlineCanvases).forEach(([id, data]) => {
+      const el = editorRef.current?.querySelector(`[data-id="${id}"]`);
+      if (el) {
+        el.setAttribute("data-canvas-data", JSON.stringify(data));
+        if (data.widthPercent) {
+          (el as HTMLElement).style.width = `${data.widthPercent}%`;
+        }
+      }
+    });
+
+    const clone = editorRef.current.cloneNode(true) as HTMLElement;
+    const placeholders = clone.querySelectorAll(".story-inline-canvas-placeholder");
+    placeholders.forEach((el) => {
+      el.innerHTML = ""; // Strip portal DOM markup so store payload is clean
+    });
+
+    return clone.innerHTML;
+  }, [inlineCanvases]);
+
+  const pushStoryDocHistory = useCallback(() => {
+    if (!editorRef.current) return;
+    const cleanHtml = getCleanStoryHtml();
+    const snapshot = {
+      html: cleanHtml,
+      canvases: JSON.parse(JSON.stringify(inlineCanvases))
+    };
+
+    const nextIndex = storyDocHistoryIndexRef.current + 1;
+    const newHistory = storyDocHistoryRef.current.slice(0, nextIndex);
+
+    const last = newHistory[newHistory.length - 1];
+    if (last && last.html === snapshot.html && JSON.stringify(last.canvases) === JSON.stringify(snapshot.canvases)) {
+      return;
+    }
+
+    newHistory.push(snapshot);
+    if (newHistory.length > 50) newHistory.shift();
+    storyDocHistoryRef.current = newHistory;
+    storyDocHistoryIndexRef.current = newHistory.length - 1;
+    setCanUndoStoryDoc(storyDocHistoryIndexRef.current > 0);
+    setCanRedoStoryDoc(false);
+
+    // Auto-save clean html to persistent IndexedDB
+    if (!isPublishedStoryRef.current) {
+      const activeId = currentStoryId || "story-" + Date.now();
+      if (!currentStoryId) setCurrentStoryId(activeId);
+      if (hasStoryEditedContent(cleanHtml)) {
+        saveUnfinishedStory({
+          id: activeId,
+          title: storyTitle,
+          htmlContent: cleanHtml,
+        });
+      }
+    }
+  }, [getCleanStoryHtml, inlineCanvases, currentStoryId, storyTitle]);
+
+  const handleUndoStoryDoc = useCallback(() => {
+    if (storyDocHistoryIndexRef.current > 0) {
+      storyDocHistoryIndexRef.current -= 1;
+      const target = storyDocHistoryRef.current[storyDocHistoryIndexRef.current];
+      if (target && editorRef.current) {
+        editorRef.current.innerHTML = target.html;
+
+        const placeholders = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder");
+        placeholders.forEach((el) => {
+          el.innerHTML = "";
+        });
+
+        const clonedCanvases = JSON.parse(JSON.stringify(target.canvases));
+        setInlineCanvases(clonedCanvases);
+
+        setCanUndoStoryDoc(storyDocHistoryIndexRef.current > 0);
+        setCanRedoStoryDoc(storyDocHistoryIndexRef.current < storyDocHistoryRef.current.length - 1);
+        setTimeout(() => updateToc(), 50);
+        return true;
+      }
+    }
+    return false;
+  }, [updateToc]);
+
+  const handleRedoStoryDoc = useCallback(() => {
+    if (storyDocHistoryIndexRef.current < storyDocHistoryRef.current.length - 1) {
+      storyDocHistoryIndexRef.current += 1;
+      const target = storyDocHistoryRef.current[storyDocHistoryIndexRef.current];
+      if (target && editorRef.current) {
+        editorRef.current.innerHTML = target.html;
+
+        const placeholders = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder");
+        placeholders.forEach((el) => {
+          el.innerHTML = "";
+        });
+
+        const clonedCanvases = JSON.parse(JSON.stringify(target.canvases));
+        setInlineCanvases(clonedCanvases);
+
+        setCanUndoStoryDoc(storyDocHistoryIndexRef.current > 0);
+        setCanRedoStoryDoc(storyDocHistoryIndexRef.current < storyDocHistoryRef.current.length - 1);
+        setTimeout(() => updateToc(), 50);
+        return true;
+      }
+    }
+    return false;
+  }, [updateToc]);
+
+  const pushInlineCanvasesHistory = useCallback((newCanvases: Record<string, { node: PanelNode; widthPercent: number }>) => {
+    const nextIndex = inlineCanvasesHistoryIndexRef.current + 1;
+    const newHistory = inlineCanvasesHistoryRef.current.slice(0, nextIndex);
+    newHistory.push(JSON.parse(JSON.stringify(newCanvases)));
+    if (newHistory.length > 50) newHistory.shift();
+    inlineCanvasesHistoryRef.current = newHistory;
+    inlineCanvasesHistoryIndexRef.current = newHistory.length - 1;
+    setCanUndoInline(inlineCanvasesHistoryIndexRef.current > 0);
+    setCanRedoInline(false);
+  }, []);
+
+  const handleUndoInline = useCallback(() => {
+    if (inlineCanvasesHistoryIndexRef.current > 0) {
+      inlineCanvasesHistoryIndexRef.current -= 1;
+      const target = inlineCanvasesHistoryRef.current[inlineCanvasesHistoryIndexRef.current];
+      if (target) {
+        const cloned = JSON.parse(JSON.stringify(target));
+        setInlineCanvases(cloned);
+        Object.entries(cloned).forEach(([cid, data]: [string, any]) => {
+          const el = editorRef.current?.querySelector(`[data-id="${cid}"]`);
+          if (el) {
+            el.setAttribute("data-canvas-data", JSON.stringify(data));
+          }
+        });
+        setCanUndoInline(inlineCanvasesHistoryIndexRef.current > 0);
+        setCanRedoInline(inlineCanvasesHistoryIndexRef.current < inlineCanvasesHistoryRef.current.length - 1);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const handleRedoInline = useCallback(() => {
+    if (inlineCanvasesHistoryIndexRef.current < inlineCanvasesHistoryRef.current.length - 1) {
+      inlineCanvasesHistoryIndexRef.current += 1;
+      const target = inlineCanvasesHistoryRef.current[inlineCanvasesHistoryIndexRef.current];
+      if (target) {
+        const cloned = JSON.parse(JSON.stringify(target));
+        setInlineCanvases(cloned);
+        Object.entries(cloned).forEach(([cid, data]: [string, any]) => {
+          const el = editorRef.current?.querySelector(`[data-id="${cid}"]`);
+          if (el) {
+            el.setAttribute("data-canvas-data", JSON.stringify(data));
+          }
+        });
+        setCanUndoInline(inlineCanvasesHistoryIndexRef.current > 0);
+        setCanRedoInline(inlineCanvasesHistoryIndexRef.current < inlineCanvasesHistoryRef.current.length - 1);
+        return true;
+      }
+    }
+    return false;
+  }, []);
   const [comicPages, setComicPagesState] = useState<ComicPage[]>([
     {
       id: Date.now().toString(),
@@ -1724,19 +2011,6 @@ export const Create: React.FC<CreateProps> = ({
     },
   ]);
   const [activePageIndex, setActivePageIndex] = useState(0);
-
-  // History and cache states
-  const [unfinishedComics, setUnfinishedComics] = useState<UnfinishedComic[]>([]);
-  const [unfinishedStories, setUnfinishedStories] = useState<UnfinishedStory[]>([]);
-  const [currentComicId, setCurrentComicId] = useState<string | null>(null);
-  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
-  const [comicTitle, setComicTitle] = useState<string>("Untitled Comic");
-  const [storyTitle, setStoryTitle] = useState<string>("Untitled Story");
-  const [loadedHtmlContent, setLoadedHtmlContent] = useState<string | null>(null);
-
-  // Publication state guards to prevent unwanted auto-save after successful publishing
-  const isPublishedComicRef = useRef<boolean>(false);
-  const isPublishedStoryRef = useRef<boolean>(false);
 
   // Comic page flipping refs and gestures
   const comicPagesLengthRef = useRef(comicPages.length);
@@ -1777,7 +2051,14 @@ export const Create: React.FC<CreateProps> = ({
 
   const hasStoryEditedContent = (htmlContent: string): boolean => {
     if (!htmlContent) return false;
-    if (htmlContent.includes("<img") || htmlContent.includes("<IMG")) return true;
+    if (
+      htmlContent.includes("<img") || 
+      htmlContent.includes("<IMG") || 
+      htmlContent.includes("story-inline-canvas-placeholder") ||
+      htmlContent.includes("data-canvas-data")
+    ) {
+      return true;
+    }
     
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = htmlContent;
@@ -2421,6 +2702,38 @@ export const Create: React.FC<CreateProps> = ({
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
+
+      // In Document mode, handle Delete / Backspace when an illustration is selected
+      if (createMode === "document" && (e.key === "Delete" || e.key === "Backspace")) {
+        if (imageMenuProps.visible && imageMenuProps.imgElement) {
+          e.preventDefault();
+          const img = imageMenuProps.imgElement;
+          setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
+          img.remove();
+          updateToc();
+          toast.success("Image deleted");
+          return;
+        }
+        if (selectedCanvasElement) {
+          e.preventDefault();
+          const canvasEl = selectedCanvasElement;
+          const canvasId = canvasEl.getAttribute("data-id");
+          setSelectedCanvasElement(null);
+          canvasEl.remove();
+          if (canvasId) {
+            setInlineCanvases((prev) => {
+              const updated = { ...prev };
+              delete updated[canvasId];
+              pushInlineCanvasesHistory(updated);
+              return updated;
+            });
+          }
+          updateToc();
+          toast.success("Drawing canvas deleted");
+          return;
+        }
+      }
+
       if (
         ["INPUT", "TEXTAREA"].includes(target?.tagName || "") ||
         target?.isContentEditable ||
@@ -2429,6 +2742,29 @@ export const Create: React.FC<CreateProps> = ({
         return;
 
       if (e.ctrlKey || e.metaKey) {
+        if (createMode === "document") {
+          if (e.key.toLowerCase() === "z") {
+            e.preventDefault();
+            if (e.shiftKey) {
+              if (handleRedoStoryDoc()) return;
+              if (handleRedoInline()) return;
+              execDocCommand("redo");
+            } else {
+              if (handleUndoStoryDoc()) return;
+              if (handleUndoInline()) return;
+              execDocCommand("undo");
+            }
+            return;
+          }
+          if (e.key.toLowerCase() === "y") {
+            e.preventDefault();
+            if (handleRedoStoryDoc()) return;
+            if (handleRedoInline()) return;
+            execDocCommand("redo");
+            return;
+          }
+        }
+
         if (e.key.toLowerCase() === "z") {
           e.preventDefault();
           if (e.shiftKey) {
@@ -3026,13 +3362,13 @@ export const Create: React.FC<CreateProps> = ({
             }
           } catch (e: any) {
             console.warn(
-              "Falling back to client-side proxy-less generation...",
+              "Falling back to client-side FLUX generation...",
               e,
             );
             const encodedPrompt = encodeURIComponent(
               prompt + (sketch ? " consistent with sketch" : ""),
             );
-            imageUrl = `https://picsum.photos/seed/${encodedPrompt}/1024/1024`;
+            imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${sharedConsistencySeed}&nologo=true&model=flux`;
           }
 
           if (imageUrl) {
@@ -3208,15 +3544,150 @@ export const Create: React.FC<CreateProps> = ({
   // Populate rich text content on story mode mount, and auto-save on change
   useEffect(() => {
     if (createMode === "document" && editorRef.current) {
+      setIsDrawingMode(false);
       if (loadedHtmlContent !== null) {
         editorRef.current.innerHTML = loadedHtmlContent;
+
+        // Hydrate inline drawing canvases from loaded HTML content
+        const placeholders = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder");
+        const hydrated: Record<string, { node: PanelNode; widthPercent: number }> = {};
+        placeholders.forEach((el) => {
+          el.innerHTML = ""; // Clear residual portal DOM
+          let id = el.getAttribute("data-id");
+          if (!id) {
+            id = "inline-canvas-" + Math.random().toString(36).substring(2, 9);
+            el.setAttribute("data-id", id);
+          }
+          const canvasDataStr = el.getAttribute("data-canvas-data");
+          let parsedData: any = null;
+          if (canvasDataStr) {
+            try {
+              parsedData = JSON.parse(canvasDataStr);
+            } catch (e) {
+              console.error("Failed to parse canvas data string", e);
+            }
+          }
+
+          const node: PanelNode = parsedData?.node || {
+            id,
+            type: "panel",
+            drawings: [],
+            imageUrl: "",
+          };
+          const widthPercent = parsedData?.widthPercent || 66.6;
+
+          hydrated[id] = { node, widthPercent };
+
+          // Sync back clean json attribute and style width on element
+          const jsonStr = JSON.stringify({ node, widthPercent });
+          el.setAttribute("data-canvas-data", jsonStr);
+          (el as HTMLElement).style.width = `${widthPercent}%`;
+          (el as HTMLElement).style.aspectRatio = "4/3";
+          (el as HTMLElement).style.margin = "1.5rem auto";
+          (el as HTMLElement).style.display = "block";
+          (el as HTMLElement).style.position = "relative";
+        });
+
+        setInlineCanvases(hydrated);
+        storyDocHistoryRef.current = [];
+        storyDocHistoryIndexRef.current = -1;
         setLoadedHtmlContent(null);
+        setTimeout(() => {
+          pushStoryDocHistory();
+          updateToc();
+        }, 50);
       } else if (editorRef.current.innerHTML.trim() === "") {
         editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
+        storyDocHistoryRef.current = [];
+        storyDocHistoryIndexRef.current = -1;
+        setTimeout(() => {
+          pushStoryDocHistory();
+          updateToc();
+        }, 50);
       }
-      setTimeout(() => updateToc(), 100);
+      setTimeout(() => updateToc(), 50);
     }
-  }, [createMode, loadedHtmlContent]);
+  }, [createMode, loadedHtmlContent, pushStoryDocHistory, updateToc]);
+
+  // Sync inlineCanvases state back to DOM element data-canvas-data attributes and auto-save draft
+  useEffect(() => {
+    if (createMode === "document" && editorRef.current && !isPublishedStoryRef.current) {
+      let changed = false;
+      Object.entries(inlineCanvases).forEach(([id, data]) => {
+        const el = editorRef.current?.querySelector(`[data-id="${id}"]`);
+        if (el) {
+          const json = JSON.stringify(data);
+          if (el.getAttribute("data-canvas-data") !== json) {
+            el.setAttribute("data-canvas-data", json);
+            if (data.widthPercent) {
+              (el as HTMLElement).style.width = `${data.widthPercent}%`;
+            }
+            changed = true;
+          }
+        }
+      });
+      if (changed) {
+        pushStoryDocHistory();
+      }
+    }
+  }, [inlineCanvases, createMode, pushStoryDocHistory]);
+
+  // Use a MutationObserver to find and track placeholder divs and images for portal mounting and labels
+  useEffect(() => {
+    if (createMode === "document" && editorRef.current) {
+      const scan = () => {
+        if (!editorRef.current) return;
+        const allIllustrations = editorRef.current.querySelectorAll("img, .story-inline-canvas-placeholder");
+        const foundCanvases: { id: string; element: HTMLElement; label: string }[] = [];
+        const foundImages: { element: HTMLImageElement; label: string }[] = [];
+
+        allIllustrations.forEach((el, idx) => {
+          const label = `L${idx + 1}`;
+          el.setAttribute("data-label", label);
+          if (el.classList.contains("story-inline-canvas-placeholder")) {
+            const htmlEl = el as HTMLElement;
+            let id = htmlEl.getAttribute("data-id");
+            if (!id) {
+              id = "inline-canvas-" + Math.random().toString(36).substring(2, 9);
+              htmlEl.setAttribute("data-id", id);
+            }
+            foundCanvases.push({ id, element: htmlEl, label });
+          } else if (el.tagName === "IMG") {
+            foundImages.push({ element: el as HTMLImageElement, label });
+          }
+        });
+
+        setActiveCanvasElements((prev) => {
+          if (
+            prev.length === foundCanvases.length &&
+            prev.every((item, idx) => item.id === foundCanvases[idx].id && item.element === foundCanvases[idx].element && item.label === foundCanvases[idx].label)
+          ) {
+            return prev;
+          }
+          return foundCanvases;
+        });
+
+        setActiveImageElements((prev) => {
+          if (
+            prev.length === foundImages.length &&
+            prev.every((item, idx) => item.element === foundImages[idx].element && item.label === foundImages[idx].label)
+          ) {
+            return prev;
+          }
+          return foundImages;
+        });
+      };
+
+      scan();
+
+      const observer = new MutationObserver(scan);
+      observer.observe(editorRef.current, { childList: true, subtree: true });
+      return () => observer.disconnect();
+    } else {
+      setActiveCanvasElements([]);
+      setActiveImageElements([]);
+    }
+  }, [createMode, inlineCanvases]);
 
   // Periodic/title-triggered auto-save for story
   useEffect(() => {
@@ -3228,26 +3699,19 @@ export const Create: React.FC<CreateProps> = ({
       }
       const handleInput = () => {
         isPublishedStoryRef.current = false;
-        const html = editorRef.current?.innerHTML || "";
-        if (hasStoryEditedContent(html)) {
-          saveUnfinishedStory({
-            id: activeId,
-            title: storyTitle,
-            htmlContent: html,
-          });
-        }
+        pushStoryDocHistory();
       };
       
       const el = editorRef.current;
       el.addEventListener("input", handleInput);
       
-      // Also save when title changes
-      const html = el.innerHTML;
-      if (!isPublishedStoryRef.current && hasStoryEditedContent(html)) {
+      // Also save clean HTML when title changes
+      const cleanHtml = getCleanStoryHtml();
+      if (!isPublishedStoryRef.current && hasStoryEditedContent(cleanHtml)) {
         saveUnfinishedStory({
           id: activeId,
           title: storyTitle,
-          htmlContent: html,
+          htmlContent: cleanHtml,
         });
       }
 
@@ -3255,7 +3719,7 @@ export const Create: React.FC<CreateProps> = ({
         el.removeEventListener("input", handleInput);
       };
     }
-  }, [createMode, storyTitle, currentStoryId]);
+  }, [createMode, storyTitle, currentStoryId, pushStoryDocHistory, getCleanStoryHtml]);
   const comicRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -3806,52 +4270,6 @@ export const Create: React.FC<CreateProps> = ({
     }
   }, []);
 
-  const updateToc = useCallback(() => {
-    if (!editorRef.current) return;
-
-    // Check if document is genuinely empty (no text entered)
-    const text = editorRef.current.innerText || editorRef.current.textContent || "";
-    const cleanText = text.replace(/[\n\r\s\t]/g, "").trim();
-    const hasImages = editorRef.current.querySelectorAll("img").length > 0;
-    const isDocEmpty = cleanText.length === 0 && !hasImages;
-    editorRef.current.setAttribute("data-is-empty", isDocEmpty ? "true" : "false");
-
-    const headings = editorRef.current.querySelectorAll("h1, h2");
-    const seenIds = new Set<string>();
-
-    const items = Array.from(headings).map((h: Element) => {
-      const htmlEl = h as HTMLElement;
-
-      // Generate a new ID if it doesn't have one, or if we've already seen this ID (e.g. from copy-pasting nodes)
-      if (!htmlEl.id || seenIds.has(htmlEl.id)) {
-        htmlEl.id = "heading-" + Math.random().toString(36).substring(2, 9);
-      }
-      seenIds.add(htmlEl.id);
-
-      return {
-        id: htmlEl.id,
-        text:
-          htmlEl.textContent ||
-          (htmlEl.tagName === "H1" ? t("untitledTitle") : t("untitledSubtitle")),
-        level: htmlEl.tagName === "H1" ? 1 : 2,
-      };
-    });
-    setTocItems((prev) => {
-      if (
-        prev.length === items.length &&
-        prev.every(
-          (item, idx) =>
-            item.id === items[idx]?.id &&
-            item.text === items[idx]?.text &&
-            item.level === items[idx]?.level
-        )
-      ) {
-        return prev;
-      }
-      return items;
-    });
-  }, [t]);
-
   const execDocCommand = (command: string, value?: string) => {
     document.execCommand(command, false, value);
     editorRef.current?.focus();
@@ -3860,8 +4278,9 @@ export const Create: React.FC<CreateProps> = ({
   };
 
   useEffect(() => {
-    if (createMode === "document" && editorRef.current) {
-      if (editorRef.current.innerHTML.trim() === "") {
+    if (createMode === "document") {
+      setIsDrawingMode(false);
+      if (editorRef.current && editorRef.current.innerHTML.trim() === "") {
         editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
       }
       updateToc();
@@ -3869,6 +4288,99 @@ export const Create: React.FC<CreateProps> = ({
   }, [createMode, updateToc]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Delete or Backspace key to remove selected or preceding illustration (drawing canvas or inserted image)
+    if (e.key === "Delete" || e.key === "Backspace") {
+      // Case 1: Image is selected via toolbar
+      if (imageMenuProps.visible && imageMenuProps.imgElement) {
+        e.preventDefault();
+        const img = imageMenuProps.imgElement;
+        setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
+        img.remove();
+        updateToc();
+        toast.success("Image deleted");
+        return;
+      }
+
+      // Case 2: Drawing canvas is selected via click
+      if (selectedCanvasElement) {
+        e.preventDefault();
+        const canvasEl = selectedCanvasElement;
+        const canvasId = canvasEl.getAttribute("data-id");
+        setSelectedCanvasElement(null);
+        canvasEl.remove();
+        if (canvasId) {
+          setInlineCanvases((prev) => {
+            const updated = { ...prev };
+            delete updated[canvasId];
+            pushInlineCanvasesHistory(updated);
+            return updated;
+          });
+        }
+        updateToc();
+        toast.success("Drawing canvas deleted");
+        return;
+      }
+
+      // Case 3: Backspace key when caret/cursor is positioned immediately after an image or drawing canvas
+      if (e.key === "Backspace") {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          if (range.collapsed) {
+            let targetToDelete: HTMLElement | null = null;
+            const container = range.startContainer;
+            const offset = range.startOffset;
+
+            if (container.nodeType === Node.ELEMENT_NODE) {
+              const childBefore = container.childNodes[offset - 1] as HTMLElement;
+              if (
+                childBefore &&
+                (childBefore.tagName === "IMG" ||
+                  childBefore.classList?.contains("story-inline-canvas-placeholder"))
+              ) {
+                targetToDelete = childBefore;
+              }
+            } else if (container.nodeType === Node.TEXT_NODE && offset === 0) {
+              let prev = container.previousSibling as HTMLElement;
+              if (!prev && container.parentElement && container.parentElement !== editorRef.current) {
+                prev = container.parentElement.previousSibling as HTMLElement;
+              }
+              if (
+                prev &&
+                (prev.tagName === "IMG" ||
+                  prev.classList?.contains("story-inline-canvas-placeholder"))
+              ) {
+                targetToDelete = prev;
+              }
+            }
+
+            if (targetToDelete) {
+              e.preventDefault();
+              const canvasId = targetToDelete.getAttribute("data-id");
+              targetToDelete.remove();
+              if (canvasId) {
+                setInlineCanvases((prev) => {
+                  const updated = { ...prev };
+                  delete updated[canvasId];
+                  pushInlineCanvasesHistory(updated);
+                  return updated;
+                });
+              }
+              if (imageMenuProps.imgElement === targetToDelete) {
+                setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
+              }
+              if (selectedCanvasElement === targetToDelete) {
+                setSelectedCanvasElement(null);
+              }
+              updateToc();
+              toast.success("Illustration deleted");
+              return;
+            }
+          }
+        }
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       if (imageMenuProps.visible && imageMenuProps.imgElement) {
         e.preventDefault();
@@ -3943,7 +4455,10 @@ export const Create: React.FC<CreateProps> = ({
             editorRef.current.focus();
             const img = document.createElement("img");
             img.src = event.target?.result as string;
-            img.style.width = "33.33%";
+            img.style.width = "50%";
+            img.style.margin = "1.5rem auto";
+            img.style.display = "block";
+            img.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full";
 
             const sel = window.getSelection();
             if (sel && sel.rangeCount > 0) {
@@ -3956,12 +4471,135 @@ export const Create: React.FC<CreateProps> = ({
               editorRef.current.appendChild(img);
             }
             updateToc();
+            setTimeout(() => pushStoryDocHistory(), 50);
           }
         };
         reader.readAsDataURL(file);
       }
     };
     input.click();
+  };
+
+  const insertDrawingToDoc = (dataUrl: string) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.style.width = "50%";
+      img.style.margin = "1.5rem auto";
+      img.style.display = "block";
+      img.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full";
+      img.alt = "Drawing Illustration";
+
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        range.insertNode(img);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        editorRef.current.appendChild(img);
+      }
+      setIsDrawingModalOpen(false);
+      updateToc();
+      setTimeout(() => pushStoryDocHistory(), 50);
+    }
+  };
+
+  const handleInsertInlineCanvas = () => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+
+    setIsDrawingMode(true);
+    if (penMode === "freehandBubble") {
+      setPenMode("normal");
+    }
+
+    const canvasId = "inline-canvas-" + Math.random().toString(36).substring(2, 9);
+    const newNode: PanelNode = {
+      id: canvasId,
+      type: "panel",
+      drawings: [],
+      imageUrl: "",
+    };
+
+    setInlineCanvases((prev) => ({
+      ...prev,
+      [canvasId]: { node: newNode, widthPercent: 66.6 },
+    }));
+
+    const div = document.createElement("div");
+    div.className = "story-inline-canvas-placeholder select-none relative my-6 mx-auto border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 rounded-xs shadow-xs overflow-hidden";
+    div.setAttribute("data-id", canvasId);
+    div.setAttribute("contenteditable", "false");
+    div.style.width = "66.6%";
+    div.style.aspectRatio = "4/3";
+    div.style.margin = "1.5rem auto";
+    div.style.position = "relative";
+
+    // Set initial data attribute for serialization
+    div.setAttribute("data-canvas-data", JSON.stringify({ node: newNode, widthPercent: 66.6 }));
+
+    const afterP = document.createElement("p");
+    afterP.innerHTML = "<br>";
+
+    const sel = window.getSelection();
+    const cleanText = (editorRef.current.innerText || "").replace(/[\n\r\s\t]/g, "").trim();
+    const existingCanvases = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder").length;
+    const existingImages = editorRef.current.querySelectorAll("img").length;
+
+    if (cleanText.length === 0 && existingCanvases === 0 && existingImages === 0) {
+      // Clean document with initial Title/Subtitle placeholders
+      const h2 = editorRef.current.querySelector("h2");
+      const emptyP = editorRef.current.querySelector("p");
+      if (emptyP && (!emptyP.textContent || emptyP.textContent.trim() === "")) {
+        emptyP.remove();
+      }
+      if (h2 && h2.parentNode === editorRef.current) {
+        h2.parentNode.insertBefore(div, h2.nextSibling);
+        h2.parentNode.insertBefore(afterP, div.nextSibling);
+      } else {
+        editorRef.current.appendChild(div);
+        editorRef.current.appendChild(afterP);
+      }
+    } else if (sel && sel.rangeCount > 0 && editorRef.current.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      let targetNode: Node | null = sel.anchorNode;
+      while (targetNode && targetNode.parentElement && targetNode.parentElement !== editorRef.current) {
+        targetNode = targetNode.parentElement;
+      }
+      if (targetNode && targetNode.parentNode === editorRef.current) {
+        if (targetNode.nodeName === "P" && (!targetNode.textContent || targetNode.textContent.trim() === "")) {
+          targetNode.parentNode.insertBefore(div, targetNode);
+          targetNode.parentNode.insertBefore(afterP, targetNode.nextSibling);
+          targetNode.parentNode.removeChild(targetNode);
+        } else {
+          targetNode.parentNode.insertBefore(div, targetNode.nextSibling);
+          targetNode.parentNode.insertBefore(afterP, div.nextSibling);
+        }
+      } else {
+        range.insertNode(div);
+        range.collapse(false);
+        div.parentNode?.insertBefore(afterP, div.nextSibling);
+      }
+    } else {
+      editorRef.current.appendChild(div);
+      editorRef.current.appendChild(afterP);
+    }
+
+    if (sel) {
+      sel.removeAllRanges();
+      const newRange = document.createRange();
+      newRange.setStart(afterP, 0);
+      newRange.collapse(true);
+      sel.addRange(newRange);
+    }
+
+    setTimeout(() => {
+      updateToc();
+      pushStoryDocHistory();
+    }, 50);
   };
 
   const getBubbleStyleClass = (style: "classic" | "action" | "freehand", hasPoints?: boolean) => {
@@ -5185,7 +5823,11 @@ export const Create: React.FC<CreateProps> = ({
       if (typeof document === 'undefined') return '';
       const div = document.createElement('div');
       div.innerHTML = html;
-      return div.textContent || div.innerText || '';
+      const text = (div.textContent || div.innerText || '').trim();
+      if (text) return text;
+      if (html.includes('story-inline-canvas-placeholder')) return '[Contains drawing illustrations]';
+      if (html.includes('<img') || html.includes('<IMG')) return '[Contains inserted images]';
+      return '';
     };
 
     return (
@@ -5549,7 +6191,7 @@ export const Create: React.FC<CreateProps> = ({
   if (createMode === "document") {
     return (
       <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-        <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0 no-print">
+        <header className="sticky top-0 z-[150] w-full border-b bg-background/80 backdrop-blur-md shrink-0 no-print overflow-visible">
           <div className="w-full px-2 h-11 flex items-center justify-between gap-2">
             <div className="flex items-center gap-0.5 shrink-0">
               <Button
@@ -5568,26 +6210,84 @@ export const Create: React.FC<CreateProps> = ({
               <div className="w-px h-5 bg-border mx-1 shrink-0" />
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => setCreateMode("select")}
-                className="gap-2 text-xs font-semibold px-3 shrink-0"
+                className="w-8 h-8 shrink-0"
+                title={t("back") || "Back"}
               >
-                <ChevronLeft className="w-3.5 h-3.5" />{" "}
-                <span className="hidden sm:inline">{t("back")}</span>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (handleUndoStoryDoc()) return;
+                  if (isDrawingMode || selectedCanvasElement || canUndoInline) {
+                    if (handleUndoInline()) return;
+                  }
+                  execDocCommand("undo");
+                }}
+                className="w-8 h-8 shrink-0"
+                title={t("undo") || "Undo (Ctrl+Z)"}
+              >
+                <Undo2 className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (handleRedoStoryDoc()) return;
+                  if (isDrawingMode || selectedCanvasElement || canRedoInline) {
+                    if (handleRedoInline()) return;
+                  }
+                  execDocCommand("redo");
+                }}
+                className="w-8 h-8 shrink-0"
+                title={t("redo") || "Redo (Ctrl+Y / Ctrl+Shift+Z)"}
+              >
+                <Redo2 className="w-4 h-4" />
               </Button>
               <div className="w-px h-5 bg-border mx-1 shrink-0" />
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-2 shrink-0 h-8 text-xs font-semibold"
                   onClick={insertImageToDoc}
-                  title={t("insertImageTooltip")}
+                  className="gap-1.5 px-2.5 h-8 text-xs font-semibold cursor-pointer shrink-0 text-muted-foreground hover:text-foreground"
+                  title={t("insert") || "Insert"}
                 >
-                  <ImageIcon className="w-4 h-4" />{" "}
-                  <span className="hidden sm:inline">{t("image")}</span>
+                  <ImageIcon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{t("insert") || "Insert"}</span>
+                </Button>
+                <Button
+                  variant={isDrawingMode ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => {
+                    if (isDrawingMode) {
+                      setIsDrawingMode(false);
+                    } else {
+                      setIsDrawingMode(true);
+                      setDrawTool("pen");
+                      if (!selectedCanvasElement) {
+                        handleInsertInlineCanvas();
+                      }
+                    }
+                  }}
+                  className={`gap-1.5 px-2.5 h-8 text-xs font-semibold cursor-pointer shrink-0 ${isDrawingMode ? "bg-primary/20 text-primary hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
+                  title={t("drawModeTooltip") || "Draw Mode (Hotkey: D)"}
+                >
+                  <PenTool className="w-4 h-4" />
+                  <span className="hidden sm:inline">{t("draw") || "Draw"}</span>
                 </Button>
               </div>
+
+              {/* In Landscape mode, display the same drawing tools as COMIC CREATOR at toolbar, NOT in canvas */}
+              {isDrawingMode && !isPortrait && (
+                <>
+                  <div className="w-px h-5 bg-border mx-1 shrink-0" />
+                  {renderDrawingToolbar(false, true)}
+                </>
+              )}
             </div>
 
             <div className="flex-1 flex items-center justify-center mx-4">
@@ -5673,139 +6373,145 @@ export const Create: React.FC<CreateProps> = ({
         <main className="flex-1 relative w-full overflow-hidden flex min-h-0 bg-background print-wrapper">
           <AnimatePresence>
             {imageMenuProps.visible && imageMenuProps.imgElement && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.15 }}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => e.stopPropagation()}
-                className="fixed z-[100] pointer-events-auto"
+              <div
+                key="image-toolbar-positioner"
+                className="fixed z-[130] pointer-events-none"
                 style={{
                   top: imageMenuProps.top,
                   left: imageMenuProps.left,
-                  transform: "translate(-50%, -100%) translateY(-10px)",
+                  transform: "translate(-50%, -100%) translateY(-8px)",
                 }}
               >
-                <ImageToolbar
-                  color={
-                    imageMenuProps.imgElement?.style.borderColor || "#000000"
-                  }
-                  isHighContrast={
-                    !!imageMenuProps.imgElement?.style.filter.includes(
-                      "grayscale",
-                    )
-                  }
-                  hasOutline={!!imageMenuProps.imgElement?.style.border}
-                  onUpdate={(updates) => {
-                    if (!imageMenuProps.imgElement) return;
-                    if (
-                      updates.color !== undefined ||
-                      updates.hasOutline !== undefined
-                    ) {
-                      if (updates.hasOutline !== false) {
-                        imageMenuProps.imgElement.style.border = `2px solid ${updates.color || imageMenuProps.imgElement.style.borderColor || "#000000"}`;
-                        imageMenuProps.imgElement.style.boxSizing =
-                          "border-box";
-                      } else {
-                        imageMenuProps.imgElement.style.border = "";
+                <motion.div
+                  initial={{ opacity: 0, y: 4, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                  transition={{ duration: 0.12 }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => e.stopPropagation()}
+                  className="pointer-events-auto w-max"
+                >
+                  <ImageToolbar
+                    color={
+                      imageMenuProps.imgElement?.style.borderColor || "#000000"
+                    }
+                    isHighContrast={
+                      !!imageMenuProps.imgElement?.style.filter.includes(
+                        "grayscale",
+                      )
+                    }
+                    hasOutline={!!imageMenuProps.imgElement?.style.border}
+                    onUpdate={(updates) => {
+                      if (!imageMenuProps.imgElement) return;
+                      if (
+                        updates.color !== undefined ||
+                        updates.hasOutline !== undefined
+                      ) {
+                        if (updates.hasOutline !== false) {
+                          imageMenuProps.imgElement.style.border = `2px solid ${updates.color || imageMenuProps.imgElement.style.borderColor || "#000000"}`;
+                          imageMenuProps.imgElement.style.boxSizing =
+                            "border-box";
+                        } else {
+                          imageMenuProps.imgElement.style.border = "";
+                        }
                       }
-                    }
-                    if (updates.isHighContrast !== undefined) {
-                      imageMenuProps.imgElement.style.filter =
-                        updates.isHighContrast
-                          ? "grayscale(1) contrast(1.25)"
-                          : "";
-                    }
-                    if (updates.url !== undefined) {
-                      imageMenuProps.imgElement.src = updates.url;
-                    }
-                    updateToc();
-                    setImageMenuProps((prev) => ({ ...prev }));
-                  }}
-                  onMoveLayer={(dir) => {
-                    if (!imageMenuProps.imgElement) return;
-                    if (
-                      dir === "up" &&
-                      imageMenuProps.imgElement.previousElementSibling
-                    ) {
-                      imageMenuProps.imgElement.parentNode?.insertBefore(
+                      if (updates.isHighContrast !== undefined) {
+                        imageMenuProps.imgElement.style.filter =
+                          updates.isHighContrast
+                            ? "grayscale(1) contrast(1.25)"
+                            : "";
+                      }
+                      if (updates.url !== undefined) {
+                        imageMenuProps.imgElement.src = updates.url;
+                      }
+                      updateToc();
+                      setImageMenuProps((prev) => ({ ...prev }));
+                    }}
+                    onMoveLayer={(dir) => {
+                      if (!imageMenuProps.imgElement) return;
+                      if (
+                        dir === "up" &&
+                        imageMenuProps.imgElement.previousElementSibling
+                      ) {
+                        imageMenuProps.imgElement.parentNode?.insertBefore(
+                          imageMenuProps.imgElement,
+                          imageMenuProps.imgElement.previousElementSibling,
+                        );
+                      } else if (
+                        dir === "down" &&
+                        imageMenuProps.imgElement.nextElementSibling
+                      ) {
+                        imageMenuProps.imgElement.parentNode?.insertBefore(
+                          imageMenuProps.imgElement.nextElementSibling,
+                          imageMenuProps.imgElement,
+                        );
+                      }
+                      updateToc();
+                    }}
+                    onCropToggle={() => {
+                      setIsImageCropping(!isImageCropping);
+                    }}
+                    isCropping={isImageCropping}
+                    onDragStartMove={(e) => {
+                      if (!imageMenuProps.imgElement) return;
+                      e.dataTransfer.effectAllowed = "copyMove";
+
+                      const originalId =
+                        imageMenuProps.imgElement.id || "img-" + Date.now();
+                      imageMenuProps.imgElement.id = originalId;
+
+                      const clone = imageMenuProps.imgElement.cloneNode(
+                        true,
+                      ) as HTMLImageElement;
+                      clone.id = "";
+
+                      e.dataTransfer.setData("image-drag-id", originalId);
+                      e.dataTransfer.setData("text/html", clone.outerHTML);
+                      e.dataTransfer.setData("text/plain", " ");
+                      e.dataTransfer.setDragImage(
                         imageMenuProps.imgElement,
-                        imageMenuProps.imgElement.previousElementSibling,
+                        0,
+                        0,
                       );
-                    } else if (
-                      dir === "down" &&
-                      imageMenuProps.imgElement.nextElementSibling
-                    ) {
-                      imageMenuProps.imgElement.parentNode?.insertBefore(
-                        imageMenuProps.imgElement.nextElementSibling,
-                        imageMenuProps.imgElement,
+                      setTimeout(
+                        () =>
+                          setImageMenuProps((prev) => ({
+                            ...prev,
+                            visible: false,
+                          })),
+                        0,
                       );
-                    }
-                    updateToc();
-                  }}
-                  onCropToggle={() => {
-                    setIsImageCropping(!isImageCropping);
-                  }}
-                  isCropping={isImageCropping}
-                  onDragStartMove={(e) => {
-                    if (!imageMenuProps.imgElement) return;
-                    e.dataTransfer.effectAllowed = "copyMove";
-
-                    const originalId =
-                      imageMenuProps.imgElement.id || "img-" + Date.now();
-                    imageMenuProps.imgElement.id = originalId;
-
-                    const clone = imageMenuProps.imgElement.cloneNode(
-                      true,
-                    ) as HTMLImageElement;
-                    clone.id = "";
-
-                    e.dataTransfer.setData("image-drag-id", originalId);
-                    e.dataTransfer.setData("text/html", clone.outerHTML);
-                    e.dataTransfer.setData("text/plain", " ");
-                    e.dataTransfer.setDragImage(
-                      imageMenuProps.imgElement,
-                      0,
-                      0,
-                    );
-                    setTimeout(
-                      () =>
-                        setImageMenuProps((prev) => ({
-                          ...prev,
-                          visible: false,
-                        })),
-                      0,
-                    );
-                  }}
-                  onClickAskAI={() => {
-                    if (!imageMenuProps.imgElement) return;
-                    window.dispatchEvent(
-                      new CustomEvent("quote-to-agent", {
-                        detail: {
-                          type: "image",
-                          imageUrl: imageMenuProps.imgElement.src,
-                        },
-                      }),
-                    );
-                    setImageMenuProps((prev) => ({ ...prev, visible: false }));
-                  }}
-                  onRegenerate={() => {
-                    if (!imageMenuProps.imgElement) return;
-                    const promptText = imageMenuProps.imgElement.alt || "comic image";
-                    const url = `https://picsum.photos/seed/${encodeURIComponent(promptText)}/1024/1024`;
-                    imageMenuProps.imgElement.src = url;
-                    updateToc();
-                    setImageMenuProps((prev) => ({ ...prev, visible: false }));
-                  }}
-                  onDelete={() => {
-                    if (!imageMenuProps.imgElement) return;
-                    imageMenuProps.imgElement.remove();
-                    updateToc();
-                    setImageMenuProps((prev) => ({ ...prev, visible: false }));
-                  }}
-                />
-              </motion.div>
+                    }}
+                    onClickAskAI={() => {
+                      if (!imageMenuProps.imgElement) return;
+                      window.dispatchEvent(
+                        new CustomEvent("quote-to-agent", {
+                          detail: {
+                            type: "image",
+                            imageUrl: imageMenuProps.imgElement.src,
+                          },
+                        }),
+                      );
+                      setImageMenuProps((prev) => ({ ...prev, visible: false }));
+                    }}
+                    onRegenerate={() => {
+                      if (!imageMenuProps.imgElement) return;
+                      const promptText = imageMenuProps.imgElement.alt || "comic book illustration, vivid colors, graphic novel";
+                      const seed = Math.floor(Math.random() * 100000000);
+                      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+                      imageMenuProps.imgElement.src = url;
+                      updateToc();
+                      setImageMenuProps((prev) => ({ ...prev, visible: false }));
+                    }}
+                    onDelete={() => {
+                      if (!imageMenuProps.imgElement) return;
+                      imageMenuProps.imgElement.remove();
+                      updateToc();
+                      setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
+                    }}
+                  />
+                </motion.div>
+              </div>
             )}
           </AnimatePresence>
           {isImageCropping &&
@@ -5821,10 +6527,42 @@ export const Create: React.FC<CreateProps> = ({
             imageMenuProps.visible &&
             imageMenuProps.imgElement && (
               <CanvasResizeOverlay
-                imgElement={imageMenuProps.imgElement}
+                targetElement={imageMenuProps.imgElement}
+                onPositionChange={(newRect) => {
+                  setImageMenuProps((prev) => ({
+                    ...prev,
+                    top: newRect.top,
+                    left: newRect.left + newRect.width / 2,
+                  }));
+                }}
                 updateToc={updateToc}
               />
             )}
+          {!isDrawingMode && selectedCanvasElement && (
+            <CanvasResizeOverlay
+              targetElement={selectedCanvasElement}
+              onResize={(widthPercent) => {
+                const canvasId = selectedCanvasElement.getAttribute("data-id");
+                if (canvasId) {
+                  setInlineCanvases((prev) => {
+                    const current = prev[canvasId];
+                    if (!current) return prev;
+                    const updated = {
+                      ...prev,
+                      [canvasId]: { ...current, widthPercent },
+                    };
+                    selectedCanvasElement.setAttribute(
+                      "data-canvas-data",
+                      JSON.stringify(updated[canvasId])
+                    );
+                    pushInlineCanvasesHistory(updated);
+                    return updated;
+                  });
+                }
+              }}
+              updateToc={updateToc}
+            />
+          )}
           <AnimatePresence initial={false}>
             {isSidebarOpen && (
               <>
@@ -5840,7 +6578,7 @@ export const Create: React.FC<CreateProps> = ({
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: -180, opacity: 0 }}
                   transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                  className="absolute z-40 top-0 left-0 bottom-0 w-[140px] md:w-[180px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden no-print"
+                  className="absolute z-40 top-0 left-0 bottom-0 w-[140px] md:w-[180px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-visible no-print"
                 >
                   <div className="p-3 border-b shrink-0 flex items-center justify-between bg-muted/30">
                     <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
@@ -5878,6 +6616,16 @@ export const Create: React.FC<CreateProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {/* Vertical drawing toolbar positioned relative to the right side of the left sidebar */}
+                  {isDrawingMode && isPortrait && (
+                    <div
+                      data-portrait-drawing-sidebar="true"
+                      className="absolute top-3 left-full ml-2.5 z-50 pointer-events-auto shrink-0"
+                    >
+                      {renderDrawingToolbar(true, true)}
+                    </div>
+                  )}
                 </motion.aside>
               </>
             )}
@@ -5886,6 +6634,7 @@ export const Create: React.FC<CreateProps> = ({
             <div
               ref={editorRef}
               onScroll={() => {
+                setScrollTick((t) => (t + 1) % 1000);
                 if (floatingMenuProps.visible) {
                   const selection = window.getSelection();
                   if (selection && selection.rangeCount > 0) {
@@ -5920,7 +6669,10 @@ export const Create: React.FC<CreateProps> = ({
               onKeyDown={handleKeyDown}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
+                const canvasPlaceholder = target.closest(".story-inline-canvas-placeholder") as HTMLElement | null;
+
                 if (target.tagName === "IMG") {
+                  setSelectedCanvasElement(null);
                   const rect = target.getBoundingClientRect();
                   setImageMenuProps({
                     visible: true,
@@ -5928,7 +6680,13 @@ export const Create: React.FC<CreateProps> = ({
                     left: rect.left + rect.width / 2,
                     imgElement: target as HTMLImageElement,
                   });
+                } else if (!isDrawingMode && canvasPlaceholder) {
+                  setImageMenuProps((prev) => ({ ...prev, visible: false }));
+                  setSelectedCanvasElement(canvasPlaceholder);
                 } else {
+                  if (!canvasPlaceholder) {
+                    setSelectedCanvasElement(null);
+                  }
                   setImageMenuProps((prev) => ({ ...prev, visible: false }));
                   const sel = window.getSelection();
                   // Check if selection is collapsed, only force cursor to end if user just clicked blank space
@@ -6024,16 +6782,24 @@ export const Create: React.FC<CreateProps> = ({
           <style
             dangerouslySetInnerHTML={{
               __html: `
-            .editor-doc h1, .editor-doc h2, .editor-doc p, .editor-doc div { position: relative; min-height: 1.5em; }
-            .editor-doc h1 { border-bottom: 2px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 0.5rem; }
-            .editor-doc h2 { border-bottom: 1px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 1rem; }
-            .editor-doc img { page-break-inside: avoid; break-inside: avoid; }
-            .editor-doc p { cursor: text; outline: none; }
+            .editor-doc h1, .editor-doc h2, .editor-doc p { position: relative; min-height: 1.5em; }
+            .editor-doc > div:not(.story-inline-canvas-placeholder) { position: relative; min-height: 1.5em; }
+            .story-inline-canvas-placeholder, .story-inline-canvas-placeholder * { min-height: 0; box-sizing: border-box; }
+            .editor-doc h1 { border-bottom: 2px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 0.75rem; }
+            .editor-doc h2 { border-bottom: 1px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 1.25rem; }
+            .dark .editor-doc h1 { border-bottom-color: rgba(255, 255, 255, 0.2); }
+            .dark .editor-doc h2 { border-bottom-color: rgba(255, 255, 255, 0.15); }
+            .editor-doc img { page-break-inside: avoid; break-inside: avoid; display: block; margin-left: auto; margin-right: auto; max-width: 100%; }
+            .story-inline-canvas-placeholder { display: block; margin-left: auto; margin-right: auto; }
+            .editor-doc p { cursor: text; outline: none; margin-bottom: 1rem; }
             .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: '${t("title").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
             .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: '${t("subtitle").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
+            .dark .editor-doc h1:empty:before, .dark .editor-doc h1:has(> br:only-child):before,
+            .dark .editor-doc h2:empty:before, .dark .editor-doc h2:has(> br:only-child):before { color: #9ca3af; }
             .editor-doc[data-is-empty="true"] p:first-of-type:empty:before,
             .editor-doc[data-is-empty="true"] p:first-of-type:has(> br:only-child):before,
-            .editor-doc[data-is-empty="true"]:empty:before {
+            .editor-doc[data-has-no-text="true"] p:first-of-type:empty:before,
+            .editor-doc[data-has-no-text="true"] p:first-of-type:has(> br:only-child):before {
               content: '${t("startWritingYourStory").replace(/'/g, "\\'")}';
               color: #4b5563;
               pointer-events: none;
@@ -6042,16 +6808,133 @@ export const Create: React.FC<CreateProps> = ({
               top: 0;
               left: 0;
             }
+            .dark .editor-doc[data-is-empty="true"] p:first-of-type:empty:before,
+            .dark .editor-doc[data-is-empty="true"] p:first-of-type:has(> br:only-child):before,
+            .dark .editor-doc[data-has-no-text="true"] p:first-of-type:empty:before,
+            .dark .editor-doc[data-has-no-text="true"] p:first-of-type:has(> br:only-child):before {
+              color: #9ca3af;
+            }
          `,
             }}
           />
         </main>
         {renderGoogleDriveDialog()}
+
+        {/* In Portrait mode when sidebar is closed, render vertical drawing toolbar */}
+        {isDrawingMode && isPortrait && !isSidebarOpen && (
+          <div
+            data-portrait-drawing-sidebar="true"
+            className="absolute top-14 left-2 sm:left-3 z-[45] pointer-events-auto"
+          >
+            {renderDrawingToolbar(true, true)}
+          </div>
+        )}
+
+        {/* Inserted Image Label Badges in Story Mode */}
+        {activeImageElements.map(({ element, label }) => {
+          const rect = element.getBoundingClientRect();
+          const editorRect = editorRef.current?.getBoundingClientRect();
+          if (!editorRect || rect.width === 0 || rect.height === 0) return null;
+          if (rect.bottom < editorRect.top || rect.top > editorRect.bottom) return null;
+
+          return (
+            <div
+              key={`img-badge-${label}-${element.src}`}
+              style={{
+                position: "fixed",
+                top: Math.max(editorRect.top + 4, rect.top + 4),
+                left: rect.left + 4,
+                zIndex: 35,
+                pointerEvents: "none",
+              }}
+              className="select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 shrink-0 leading-none"
+            >
+              {label}
+            </div>
+          );
+        })}
+
+        {/* Inline Drawing Canvases Portals for Story Mode */}
+        {activeCanvasElements.map(({ id, element, label }, index) => {
+          const canvasData = inlineCanvases[id] || (() => {
+            const canvasDataStr = element.getAttribute("data-canvas-data");
+            if (canvasDataStr) {
+              try {
+                const parsed = JSON.parse(canvasDataStr);
+                if (parsed && parsed.node) return parsed;
+              } catch (e) {}
+            }
+            return { node: { id, type: "panel", drawings: [], imageUrl: "" }, widthPercent: 66.6 };
+          })();
+          const finalLabel = label || element.getAttribute("data-label") || `L${index + 1}`;
+          return createPortal(
+            <InlineStoryCanvas
+              key={id}
+              canvasId={id}
+              canvasIndex={index}
+              canvasLabel={finalLabel}
+              node={canvasData.node}
+              widthPercent={canvasData.widthPercent}
+              drawTool={drawTool}
+              penMode={penMode}
+              eraserType={eraserType}
+              drawColor={drawColor}
+              drawRadius={drawRadius}
+              touchOff={touchOff}
+              setTouchOff={setTouchOff}
+              isDrawingMode={isDrawingMode}
+              layers={comicLayers}
+              activeLayerId={activeLayerId}
+              layerGroups={layerGroups}
+              backgroundColor={comicBackgroundColor}
+              onSelectCanvas={() => {
+                setSelectedCanvasElement(element);
+              }}
+              onDeleteCanvas={() => {
+                element.remove();
+                setInlineCanvases((prev) => {
+                  const updated = { ...prev };
+                  delete updated[id];
+                  pushInlineCanvasesHistory(updated);
+                  return updated;
+                });
+                setSelectedCanvasElement(null);
+                setTimeout(updateToc, 50);
+                toast.success("Drawing canvas deleted");
+              }}
+              onChange={(updatedNode) => {
+                setInlineCanvases((prev) => {
+                  const updated = {
+                    ...prev,
+                    [id]: { ...prev[id], node: updatedNode }
+                  };
+                  element.setAttribute("data-canvas-data", JSON.stringify(updated[id]));
+                  pushInlineCanvasesHistory(updated);
+                  return updated;
+                });
+                setTimeout(updateToc, 50);
+              }}
+              onWidthChange={(newWidth) => {
+                setInlineCanvases((prev) => {
+                  const updated = {
+                    ...prev,
+                    [id]: { ...prev[id], widthPercent: newWidth }
+                  };
+                  element.setAttribute("data-canvas-data", JSON.stringify(updated[id]));
+                  element.style.width = `${newWidth}%`;
+                  pushInlineCanvasesHistory(updated);
+                  return updated;
+                });
+              }}
+            />,
+            element
+          );
+        })}
       </div>
     );
   }
 
-  const renderDrawingToolbar = (isVertical: boolean = false) => {
+  function renderDrawingToolbar(isVertical: boolean = false, disableBubblePen: boolean = false) {
     return (
       <div
         data-draw-toolbar="true"
@@ -6078,14 +6961,14 @@ export const Create: React.FC<CreateProps> = ({
             title={
               penMode === "smartShape"
                 ? `${t("penTooltip") || "Pen"}: ${t("smartShape") || "Smart Shape"} - ${t("smartShapeDesc") || "Auto-snaps lines, circles, boxes, triangles"}`
-                : penMode === "freehandBubble"
+                : penMode === "freehandBubble" && !disableBubblePen
                 ? `${t("penTooltip") || "Pen"}: ${t("freehandBubble") || "Freehand Speech Bubble"} - ${t("freehandBubbleDesc") || "Converts closed loop into editable bubble"}`
                 : `${t("penTooltip") || "Pen"}: ${t("normalPen") || "Normal Pen"} - ${t("normalPenDesc") || "Standard freehand stroke"}`
             }
           >
             {penMode === "smartShape" ? (
               <Shapes className="w-3.5 h-3.5 text-indigo-500" />
-            ) : penMode === "freehandBubble" ? (
+            ) : penMode === "freehandBubble" && !disableBubblePen ? (
               <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
             ) : (
               <PenTool className="w-3.5 h-3.5" />
@@ -6098,7 +6981,7 @@ export const Create: React.FC<CreateProps> = ({
             )}
           </Button>
 
-          {/* Sub-menu displaying the 3 Pen Modes */}
+          {/* Sub-menu displaying the Pen Modes */}
           {isPenMenuOpen && (
             <div
               className={cn(
@@ -6189,43 +7072,45 @@ export const Create: React.FC<CreateProps> = ({
                 </div>
               </button>
 
-              {/* Mode 3: Freehand Speech Bubble */}
-              <button
-                type="button"
-                onClick={() => {
-                  setPenMode("freehandBubble");
-                  setDrawTool("pen");
-                  setIsPenMenuOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                  penMode === "freehandBubble"
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "hover:bg-muted text-foreground"
-                )}
-              >
-                <div
+              {/* Mode 3: Freehand Speech Bubble (hidden when disableBubblePen is true) */}
+              {!disableBubblePen && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPenMode("freehandBubble");
+                    setDrawTool("pen");
+                    setIsPenMenuOpen(false);
+                  }}
                   className={cn(
-                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                    "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer",
                     penMode === "freehandBubble"
-                      ? "bg-primary/15 border-primary/30 text-amber-500"
-                      : "bg-muted/50 border-border/50 text-muted-foreground"
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-muted text-foreground"
                   )}
                 >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                </div>
-                <div className="flex flex-col flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-xs leading-none">{t("freehandBubble") || "Freehand Bubble"}</span>
-                    {penMode === "freehandBubble" && (
-                      <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                  <div
+                    className={cn(
+                      "w-6 h-6 rounded-md flex items-center justify-center shrink-0 border",
+                      penMode === "freehandBubble"
+                        ? "bg-primary/15 border-primary/30 text-amber-500"
+                        : "bg-muted/50 border-border/50 text-muted-foreground"
                     )}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                    {t("freehandBubbleDesc") || "Converts closed loop into editable bubble"}
-                  </span>
-                </div>
-              </button>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs leading-none">{t("freehandBubble") || "Freehand Bubble"}</span>
+                      {penMode === "freehandBubble" && (
+                        <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                      {t("freehandBubbleDesc") || "Converts closed loop into editable bubble"}
+                    </span>
+                  </div>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -6644,7 +7529,7 @@ export const Create: React.FC<CreateProps> = ({
           {isBrushSizePickerOpen && (
             <div
               className={cn(
-                "p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] duration-150 z-[100]",
+                "p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] duration-150 z-[99999]",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
                   : "absolute top-full left-0 mt-2 animate-in fade-in slide-in-from-top-2"
@@ -6754,7 +7639,7 @@ export const Create: React.FC<CreateProps> = ({
           {isLayerPanelOpen && (
             <div
               className={cn(
-                "z-[100]",
+                "z-[99999]",
                 isVertical
                   ? "absolute left-full top-0 ml-2"
                   : "absolute top-full left-0 sm:left-auto sm:right-0 mt-2"
@@ -6784,26 +7669,22 @@ export const Create: React.FC<CreateProps> = ({
         </div>
       </div>
     );
-  };
+  }
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0 overflow-visible">
+      <header className="sticky top-0 z-[150] w-full border-b bg-background/80 backdrop-blur-md shrink-0 overflow-visible">
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
           {/* Left Actions */}
           <div className="flex items-center gap-0.5 overflow-visible py-1 shrink-0 z-20 relative">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="w-8 h-8 shrink-0"
+              className="h-8 px-2 font-mono font-black text-xs bg-transparent text-primary border-none shadow-none hover:bg-transparent shrink-0 select-none hover:scale-105 active:scale-95 transition-all"
               title={isSidebarOpen ? (t("hideSidebar") || "Hide Sidebar") : (t("showSidebar") || "Show Sidebar")}
             >
-              {isSidebarOpen ? (
-                <PanelLeftClose className="w-4 h-4" />
-              ) : (
-                <PanelLeftOpen className="w-4 h-4" />
-              )}
+              P{activePageIndex + 1}
             </Button>
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <Button
@@ -6842,12 +7723,39 @@ export const Create: React.FC<CreateProps> = ({
             <div className="w-px h-5 bg-border mx-1 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
               <Button
+                variant={isTextPanelSelectMode ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  const val = !isTextPanelSelectMode;
+                  setIsTextPanelSelectMode(val);
+                  if (val) {
+                    setIsDrawingMode(false);
+                    toast.info("Click panel label to switch between Image and Text panel");
+                  }
+                }}
+                className={`gap-1 px-2 text-xs font-semibold ${isTextPanelSelectMode ? "bg-primary/20 text-primary hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
+                title="Toggle Text/Image Panel"
+              >
+                {isTextPanelSelectMode ? (
+                  <>
+                    <span className="w-4 h-4 inline-flex items-center justify-center font-bold text-sm">A</span>{" "}
+                    <span className="hidden sm:inline">Image Panel</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-4 h-4 inline-flex items-center justify-center font-bold text-sm">T</span>{" "}
+                    <span className="hidden sm:inline">Text Panel</span>
+                  </>
+                )}
+              </Button>
+              <Button
                 variant={isDrawingMode ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => {
                   const val = !isDrawingMode;
                   setIsDrawingMode(val);
                   if (val) setDrawTool("pen");
+                  setIsTextPanelSelectMode(false);
                 }}
                 className={`gap-1 px-2 text-xs font-semibold ${isDrawingMode ? "bg-primary/20 text-primary hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
                 title={t("drawModeTooltip") || "Draw Mode (Hotkey: D)"}
@@ -6884,16 +7792,11 @@ export const Create: React.FC<CreateProps> = ({
       </header>
 
       <main className="flex-1 relative w-full overflow-hidden flex bg-background">
-        {/* In Portrait mode, all drawing tools are placed vertically in the left sidebar; if the page thumbnail sidebar expands, the drawing sidebar is placed to its right */}
-        {isDrawingMode && createMode === "comic" && isPortrait && (
+        {/* In Portrait mode when sidebar is closed, render vertical drawing toolbar */}
+        {isDrawingMode && createMode === "comic" && isPortrait && !isSidebarOpen && (
           <div
             data-portrait-drawing-sidebar="true"
-            className={cn(
-              "absolute top-3 z-[45] transition-all duration-300 ease-in-out pointer-events-auto",
-              isSidebarOpen
-                ? "left-[188px] sm:left-[208px]"
-                : "left-2 sm:left-3"
-            )}
+            className="absolute top-3 left-2 sm:left-3 z-[45] pointer-events-auto"
           >
             {renderDrawingToolbar(true)}
           </div>
@@ -6948,7 +7851,7 @@ export const Create: React.FC<CreateProps> = ({
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -200, opacity: 0 }}
                 transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                className="absolute top-0 left-0 bottom-0 z-40 w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden shrink-0"
+                className="absolute top-0 left-0 bottom-0 z-40 w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-visible shrink-0"
               >
                 {/* Left Sidebar Header with Comic Title and Page Controls */}
                 <div className="p-2.5 border-b shrink-0 flex flex-col gap-2 bg-muted/20">
@@ -6998,12 +7901,12 @@ export const Create: React.FC<CreateProps> = ({
                       </div>
 
                       {/* Page Index Badge */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-1.5 pt-3 pointer-events-none flex items-center justify-between z-10">
-                        <span className="text-[9px] font-bold text-white shadow-xs">
-                          {t("page")} {idx + 1}
+                      <div className="absolute inset-x-0 bottom-0 p-1.5 pointer-events-none flex items-center justify-between z-10 bg-transparent">
+                        <span className="text-[10px] font-extrabold text-foreground dark:text-white drop-shadow-md font-mono bg-transparent">
+                          P{idx + 1}
                         </span>
                         {Array.isArray(page.bubbles) && page.bubbles.length > 0 && (
-                          <span className="text-[8px] bg-white/30 text-white px-1 py-0.2 rounded-full font-medium">
+                          <span className="text-[8px] bg-transparent text-foreground dark:text-white drop-shadow-sm px-1 py-0.2 font-medium">
                             {page.bubbles.length} 💬
                           </span>
                         )}
@@ -7035,6 +7938,16 @@ export const Create: React.FC<CreateProps> = ({
                     </div>
                   ))}
                 </div>
+
+                {/* Vertical drawing toolbar positioned relative to the right side of the left sidebar */}
+                {isDrawingMode && createMode === "comic" && isPortrait && (
+                  <div
+                    data-portrait-drawing-sidebar="true"
+                    className="absolute top-3 left-full ml-2.5 z-50 pointer-events-auto shrink-0"
+                  >
+                    {renderDrawingToolbar(true)}
+                  </div>
+                )}
               </motion.aside>
             </>
           )}
@@ -7091,6 +8004,7 @@ export const Create: React.FC<CreateProps> = ({
                   backgroundColor={comicBackgroundColor}
                   bubbles={bubbles}
                   onConvertFreehandBubble={handleConvertStrokeToBubble}
+                  isTextPanelSelectMode={isTextPanelSelectMode}
                 />
 
                 {/* Bubble overlays layer - ALWAYS on the top, regardless of whether draw is active or not */}
@@ -7099,71 +8013,18 @@ export const Create: React.FC<CreateProps> = ({
                     className="absolute inset-0 pointer-events-none z-[70] overflow-visible"
                     data-bubbles-layer="true"
                   >
-                    {bubbles.map((b) => (
+                    {bubbles.map((b, bIdx) => (
                       <div
                         key={b.id}
                         data-bubble-id={b.id}
                         style={{ left: `${b.x}%`, top: `${b.y}%` }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          removeBubble(b.id);
-                        }}
-                        onPointerDown={(e) => {
-                          // Ignore drag operations initiated inside the contenteditable text
-                          if (
-                            (e.target as HTMLElement).closest(
-                              '[contenteditable="true"]',
-                            )
-                          ) {
-                            setActiveBubbleId(b.id);
-                            setNewBubbleText(b.text);
-                            setBubbleStyle(b.style);
-                            return;
-                          }
+                        onClick={(e) => {
                           e.stopPropagation();
                           setActiveBubbleId(b.id);
                           setNewBubbleText(b.text);
                           setBubbleStyle(b.style);
-                          const target = e.currentTarget as HTMLElement;
-                          const parent = target.parentElement!;
-
-                          let initialX = e.clientX;
-                          let initialY = e.clientY;
-                          let startLeft = b.x;
-                          let startTop = b.y;
-
-                          const onPointerMove = (ev: PointerEvent) => {
-                            const rect = (parent.closest('[data-comic-container="true"]') || parent).getBoundingClientRect();
-                            const dX = ((ev.clientX - initialX) / rect.width) * 100;
-                            const dY =
-                              ((ev.clientY - initialY) / rect.height) * 100;
-                            updateActivePageBubbles(
-                              bubbles.map((bubble) =>
-                                bubble.id === b.id
-                                  ? {
-                                      ...bubble,
-                                      x: Math.max(0, Math.min(100, startLeft + dX)),
-                                      y: Math.max(0, Math.min(100, startTop + dY)),
-                                    }
-                                  : bubble,
-                              ),
-                            );
-                          };
-
-                          const onPointerUp = (ev: PointerEvent) => {
-                            target.releasePointerCapture(ev.pointerId);
-                            target.removeEventListener(
-                              "pointermove",
-                              onPointerMove,
-                            );
-                            target.removeEventListener("pointerup", onPointerUp);
-                          };
-
-                          target.setPointerCapture(e.pointerId);
-                          target.addEventListener("pointermove", onPointerMove);
-                          target.addEventListener("pointerup", onPointerUp);
                         }}
-                        className={`bubble-overlay pointer-events-auto absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none touch-none ${
+                        className={`bubble-overlay pointer-events-auto absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer select-none touch-none ${
                           activeBubbleId === b.id
                             ? b.style === "freehand"
                               ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-[80]"
@@ -7171,6 +8032,10 @@ export const Create: React.FC<CreateProps> = ({
                             : "z-[70]"
                         }`}
                       >
+                        {/* Speech Bubble Label B+number placed on left-top of bubble */}
+                        <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 z-[100] pointer-events-none select-none bg-blue-600 hover:bg-blue-700 text-white text-[9px] font-mono font-black px-1 py-0.2 rounded shadow-sm border border-white/30" title={`Bubble B${bIdx + 1}`}>
+                          B{bIdx + 1}
+                        </div>
                         <InteractiveBubble
                           bubble={b}
                           isActive={activeBubbleId === b.id}
@@ -7448,8 +8313,494 @@ export const Create: React.FC<CreateProps> = ({
             </div>
           </DialogContent>
         </Dialog>
+        {/* Story Illustration Drawing Canvas Dialog Modal */}
+        <Dialog open={isDrawingModalOpen} onOpenChange={setIsDrawingModalOpen}>
+          <DialogContent className="sm:max-w-[650px] bg-background border border-border text-foreground p-5 shadow-2xl rounded-none">
+            <DialogHeader className="space-y-1">
+              <DialogTitle className="text-base font-bold font-mono">DRAW ILLUSTRATION</DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Draw custom vector-like canvas shapes and lines, then insert them straight into your document.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="pt-2">
+              <StoryDrawingBoard 
+                onInsert={insertDrawingToDoc} 
+                onCancel={() => setIsDrawingModalOpen(false)} 
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {renderGoogleDriveDialog()}
       </main>
+    </div>
+  );
+};
+
+// Subcomponent: StoryDrawingBoard
+const StoryDrawingBoard: React.FC<{
+  onInsert: (dataUrl: string) => void;
+  onCancel: () => void;
+}> = ({ onInsert, onCancel }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [color, setColor] = useState("#000000");
+  const [size, setSize] = useState(4);
+  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const isDrawingRef = useRef(false);
+  const lastPosRef = useRef({ x: 0, y: 0 });
+  const [history, setHistory] = useState<string[]>([]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = 600;
+    canvas.height = 400;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    setHistory([canvas.toDataURL()]);
+  }, []);
+
+  const saveToHistory = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setHistory((prev) => [...prev, canvas.toDataURL()]);
+  };
+
+  const undo = () => {
+    if (history.length <= 1) return;
+    const newHistory = history.slice(0, -1);
+    setHistory(newHistory);
+    const lastState = newHistory[newHistory.length - 1];
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new Image();
+    img.onload = () => {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = lastState;
+  };
+
+  const getCoords = (e: any) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: ((clientX - rect.left) / rect.width) * canvas.width,
+      y: ((clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+
+  const startDrawing = (e: any) => {
+    if (e.touches) e.preventDefault();
+    isDrawingRef.current = true;
+    lastPosRef.current = getCoords(e);
+  };
+
+  const draw = (e: any) => {
+    if (!isDrawingRef.current) return;
+    if (e.touches) e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const currentPos = getCoords(e);
+
+    ctx.beginPath();
+    ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
+    ctx.lineTo(currentPos.x, currentPos.y);
+
+    ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color;
+    ctx.lineWidth = size;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    lastPosRef.current = currentPos;
+  };
+
+  const stopDrawing = () => {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      saveToHistory();
+    }
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    saveToHistory();
+  };
+
+  const colors = [
+    "#000000", "#ef4444", "#3b82f6", "#10b981", 
+    "#f59e0b", "#8b5cf6", "#ec4899", "#64748b"
+  ];
+
+  return (
+    <div className="flex flex-col gap-4 w-full">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 border-border/60">
+        <div className="flex items-center gap-1 bg-muted/20 p-1 border border-border/40">
+          <Button
+            variant={tool === "pen" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 gap-1.5 font-semibold text-xs px-3 rounded-none"
+            onClick={() => setTool("pen")}
+          >
+            <PenTool className="w-3.5 h-3.5 text-primary" />
+            Pen
+          </Button>
+          <Button
+            variant={tool === "eraser" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 gap-1.5 font-semibold text-xs px-3 rounded-none"
+            onClick={() => setTool("eraser")}
+          >
+            <Eraser className="w-3.5 h-3.5 text-primary" />
+            Eraser
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono font-bold text-muted-foreground">SIZE:</span>
+          <div className="flex items-center gap-1">
+            {[2, 4, 8, 16].map((sz) => (
+              <Button
+                key={sz}
+                variant={size === sz ? "secondary" : "ghost"}
+                size="icon"
+                className="w-7 h-7 font-mono font-bold text-xs rounded-none"
+                onClick={() => setSize(sz)}
+              >
+                {sz === 2 ? "XS" : sz === 4 ? "S" : sz === 8 ? "M" : "L"}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {tool === "pen" && (
+          <div className="flex items-center gap-1 bg-muted/10 p-1 border border-border/20">
+            {colors.map((c) => (
+              <button
+                key={c}
+                className="w-5 h-5 rounded-full border border-black/10 color-circle-button transition-transform active:scale-95 cursor-pointer"
+                style={{ 
+                  backgroundColor: c, 
+                  boxShadow: color === c ? "0 0 0 2px var(--color-primary)" : "none" 
+                }}
+                onClick={() => setColor(c)}
+              />
+            ))}
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-5 h-5 cursor-pointer bg-transparent border-none p-0 ml-1"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="relative border border-border bg-white overflow-hidden flex items-center justify-center p-0.5 shadow-sm">
+        <canvas
+          ref={canvasRef}
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
+          className="max-w-full h-auto cursor-crosshair block bg-white"
+          style={{ width: "100%", aspectRatio: "3/2", touchAction: "none" }}
+        />
+      </div>
+
+      <div className="flex justify-between items-center pt-2 border-t border-border/40">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={undo}
+            disabled={history.length <= 1}
+            className="text-xs font-semibold h-8 rounded-none"
+          >
+            Undo
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearCanvas}
+            className="text-xs font-semibold text-destructive border-destructive/20 hover:bg-destructive/10 h-8 rounded-none"
+          >
+            Clear
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCancel}
+            className="text-xs font-semibold h-8 rounded-none"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const canvas = canvasRef.current;
+              if (canvas) {
+                onInsert(canvas.toDataURL("image/png"));
+              }
+            }}
+            className="text-xs font-semibold h-8 gap-1.5 rounded-none font-mono"
+          >
+            <Check className="w-3.5 h-3.5" />
+            INSERT DRAWING
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Subcomponent: InlineStoryCanvas
+interface InlineStoryCanvasProps {
+  canvasId: string;
+  canvasIndex: number;
+  canvasLabel?: string;
+  node: PanelNode;
+  widthPercent: number;
+  drawTool?: 'pen'|'erase'|'select'|'fill';
+  penMode?: 'normal' | 'smartShape' | 'freehandBubble';
+  eraserType?: 'stroke' | 'pixel';
+  drawColor?: string;
+  drawRadius?: number;
+  touchOff?: boolean;
+  setTouchOff?: (val: boolean) => void;
+  isDrawingMode?: boolean;
+  layers?: ComicLayer[];
+  activeLayerId?: string;
+  layerGroups?: ComicLayerGroup[];
+  backgroundColor?: string;
+  onSelectCanvas?: () => void;
+  onDeleteCanvas?: () => void;
+  onChange: (updatedNode: PanelNode) => void;
+  onWidthChange: (newWidth: number) => void;
+}
+
+const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
+  canvasId,
+  canvasIndex,
+  canvasLabel,
+  node,
+  widthPercent,
+  drawTool = 'pen',
+  penMode = 'normal',
+  eraserType = 'pixel',
+  drawColor = '#000000',
+  drawRadius = 2,
+  touchOff = false,
+  setTouchOff,
+  isDrawingMode = true,
+  layers,
+  activeLayerId,
+  layerGroups,
+  backgroundColor,
+  onSelectCanvas,
+  onDeleteCanvas,
+  onChange,
+  onWidthChange,
+}) => {
+  const [isFullPanel, setIsFullPanel] = useState(false);
+  const [zoom, setZoom] = useState(100);
+
+  const displayLabel = canvasLabel || `L${canvasIndex + 1}`;
+
+  const handleCanvasDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isDrawingMode) {
+      if (window.confirm("Do you want to delete this drawing canvas?")) {
+        onDeleteCanvas?.();
+      }
+      return;
+    }
+    if (node.imageUrl) {
+      if (window.confirm("Do you want to delete the image from this canvas?")) {
+        onChange({
+          ...node,
+          imageUrl: "",
+        });
+      }
+    }
+  };
+
+  return (
+    <div 
+      onClick={() => {
+        if (!isDrawingMode) {
+          onSelectCanvas?.();
+        }
+      }}
+      className="w-full h-full relative select-none pointer-events-auto bg-transparent border-0 shadow-none group/canvas overflow-hidden"
+    >
+      {/* Main Canvas Area */}
+      <div 
+        onDoubleClick={handleCanvasDoubleClick}
+        className="w-full h-full relative overflow-hidden flex items-center justify-center"
+      >
+        <ComicCanvas
+          tree={node}
+          onChange={(newTree) => onChange(newTree as PanelNode)}
+          isDrawingMode={isDrawingMode}
+          drawTool={drawTool}
+          penMode={penMode}
+          eraserType={eraserType}
+          drawColor={drawColor}
+          drawRadius={drawRadius}
+          touchOff={touchOff}
+          setTouchOff={setTouchOff}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          layerGroups={layerGroups}
+          backgroundColor={backgroundColor}
+          disableTapToInsertImage={true}
+          hidePanelLabel={false}
+          hideExpandButton={true}
+          hideEdgeAddButtons={true}
+          customPanelLabel={displayLabel}
+          panelIndexOffset={canvasIndex}
+          noPadding={true}
+          onDeleteRootPanel={() => {
+            if (!isDrawingMode) {
+              if (window.confirm("Do you want to delete this drawing canvas?")) {
+                onDeleteCanvas?.();
+              }
+            }
+          }}
+        />
+
+        {/* Top-Right corner Full Panel toggle button only when draw button is active (hidden when folded) */}
+        {isDrawingMode && (
+          <div className="absolute top-1.5 right-1.5 z-30 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/canvas:opacity-100 transition-opacity">
+            <Button
+              size="icon"
+              variant="secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFullPanel(true);
+              }}
+              className="w-6 h-6 bg-card/95 border border-border hover:bg-muted text-foreground hover:scale-105 active:scale-95 rounded flex items-center justify-center shadow-xs cursor-pointer"
+              title="Full panel"
+            >
+              <Maximize className="w-3.5 h-3.5 stroke-[2.5]" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Full-panel overlay filling entire area except toolbar, preserving ratio and displaying Comic Creator zoom bar */}
+      {isFullPanel && createPortal(
+        <div className="fixed inset-0 top-11 z-[99] bg-background flex flex-col items-center justify-between p-4 sm:p-6 select-none pointer-events-auto overflow-hidden border-t border-border">
+          {/* Centered Canvas Container with exact aspect ratio and margin space matching Comic Creator */}
+          <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden relative p-2 sm:p-4">
+            <div 
+              style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}
+              className="relative max-h-full max-w-full aspect-[4/3] w-full max-w-4xl shadow-2xl ring-1 ring-border bg-card transition-transform duration-150 flex items-center justify-center"
+            >
+              <ComicCanvas
+                tree={node}
+                onChange={(newTree) => onChange(newTree as PanelNode)}
+                isDrawingMode={isDrawingMode}
+                drawTool={drawTool}
+                penMode={penMode}
+                eraserType={eraserType}
+                drawColor={drawColor}
+                drawRadius={drawRadius}
+                touchOff={touchOff}
+                setTouchOff={setTouchOff}
+                layers={layers}
+                activeLayerId={activeLayerId}
+                layerGroups={layerGroups}
+                backgroundColor={backgroundColor}
+                disableTapToInsertImage={true}
+                hidePanelLabel={false}
+                hideExpandButton={true}
+                hideEdgeAddButtons={true}
+                customPanelLabel={displayLabel}
+                panelIndexOffset={canvasIndex}
+                noPadding={true}
+              />
+            </div>
+          </div>
+
+          {/* Bottom Zoom & Action Bar following global colour */}
+          <div className="shrink-0 flex items-center justify-center pt-3 pb-1 z-50">
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-card/95 backdrop-blur-md border border-border shadow-md rounded-none text-xs font-mono text-foreground">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setZoom((z) => Math.max(50, z - 10))}
+                className="w-6 h-6 hover:bg-muted text-foreground"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </Button>
+              <span className="text-[11px] font-bold px-1 min-w-[42px] text-center select-none text-foreground">
+                {zoom}%
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setZoom((z) => Math.min(200, z + 10))}
+                className="w-6 h-6 hover:bg-muted text-foreground"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </Button>
+              <div className="w-px h-3.5 bg-border mx-1" />
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setZoom(100)}
+                className="w-6 h-6 hover:bg-muted text-foreground"
+                title="Reset Zoom (100%)"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </Button>
+              <div className="w-px h-3.5 bg-border mx-1" />
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setIsFullPanel(false)}
+                className="w-6 h-6 hover:bg-muted text-foreground"
+                title="Exit Full Panel"
+              >
+                <Minimize className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

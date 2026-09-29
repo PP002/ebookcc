@@ -1588,6 +1588,79 @@ export default {
       }
     }
 
+    // 5.5 Comic Script Generation Route (/api/generate-comic-script)
+    if (url.pathname === "/api/generate-comic-script" && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const prompt = body.prompt || "";
+        const pagesCount = parseInt(body.pagesCount || "1") || 1;
+
+        if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+          return jsonResponse(makeGeminiErrorFormat("Prompt is required for comic script generation", 400), 400);
+        }
+
+        const fallbackScript = (cleanPrompt: string, count: number) => {
+          const pages = [];
+          for (let p = 0; p < count; p++) {
+            const pageNum = p + 1;
+            pages.push({
+              panels: [
+                {
+                  imagePrompt: `Wide cinematic establishing shot, ${cleanPrompt}, dramatic lighting, comic book art style, graphic novel, vivid rich colors, detailed inked linework`,
+                  dialogue: `Page ${pageNum}: The story begins...`
+                },
+                {
+                  imagePrompt: `Dynamic medium action shot, ${cleanPrompt}, character facing an exciting challenge, dramatic camera angle, bold ink lines, vibrant colors`,
+                  dialogue: `Look over there! Something is happening...`
+                },
+                {
+                  imagePrompt: `Intense close-up climax action sequence, ${cleanPrompt}, glowing energy, powerful composition, cinematic lighting, comic book panel, cel shaded`,
+                  dialogue: `We have to act now! Hold on tight!`
+                },
+                {
+                  imagePrompt: `Heroic triumphant resolution scene, ${cleanPrompt}, epic sunset background, atmospheric depth, classic comic illustration, highly detailed`,
+                  dialogue: `Mission accomplished! On to the next chapter!`
+                }
+              ]
+            });
+          }
+          return { pages };
+        };
+
+        if (env.AI) {
+          try {
+            const sysPrompt = 'You are an expert comic book script writer. Output only valid JSON with format: {"pages": [{"panels": [{"imagePrompt": "...", "dialogue": "..."}]}]}.';
+            const userPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s) with 4 panels per page. Keep panel descriptions visual and detailed for FLUX image generator. Keep dialogue short.`;
+            
+            const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
+              messages: [
+                { role: "system", content: sysPrompt },
+                { role: "user", content: userPrompt }
+              ]
+            });
+            const rawText = extractTextFromAIResult(aiResult);
+            let parsed: any = null;
+            try {
+              const cleaned = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+              parsed = JSON.parse(cleaned);
+            } catch (e) {
+              parsed = null;
+            }
+            if (parsed && Array.isArray(parsed.pages) && parsed.pages.length > 0 && parsed.pages[0]?.panels?.length > 0) {
+              return jsonResponse(parsed);
+            }
+          } catch (aiErr) {
+            console.warn("[Workers AI Comic Script Error, using fallback]:", aiErr);
+          }
+        }
+
+        return jsonResponse(fallbackScript(prompt, pagesCount));
+      } catch (err: any) {
+        console.error("[Workers AI Comic Script Fatal Error]:", err);
+        return jsonResponse(makeGeminiErrorFormat(err.message || "Failed generating comic script", 500), 500);
+      }
+    }
+
     // 6. Image Generation Routes (/api/generate-image, /api/ai/generate-image)
     const isImageRoute =
       url.pathname === "/api/generate-image" ||
@@ -1595,18 +1668,15 @@ export default {
 
     if (isImageRoute && (request.method === "POST" || request.method === "GET")) {
       try {
-        if (!env.AI) {
-          return jsonResponse(makeGeminiErrorFormat("Cloudflare Workers AI binding (env.AI) is not configured", 500), 500);
-        }
-
         let body: any = {};
         if (request.method === "POST") {
           body = (await request.json().catch(() => ({}))) as any;
         } else {
           body = {
             prompt: url.searchParams.get("prompt"),
-            width: url.searchParams.get("width") ? parseInt(url.searchParams.get("width")!) : undefined,
-            height: url.searchParams.get("height") ? parseInt(url.searchParams.get("height")!) : undefined,
+            width: url.searchParams.get("width") ? parseInt(url.searchParams.get("width")!) : 1024,
+            height: url.searchParams.get("height") ? parseInt(url.searchParams.get("height")!) : 1024,
+            seed: url.searchParams.get("seed") ? parseInt(url.searchParams.get("seed")!) : undefined,
             numSteps: url.searchParams.get("numSteps") ? parseInt(url.searchParams.get("numSteps")!) : undefined,
           };
         }
@@ -1619,27 +1689,51 @@ export default {
           return jsonResponse(makeGeminiErrorFormat("Prompt is required for image generation", 400), 400);
         }
 
-        const numSteps = Math.min(8, Math.max(1, body.numSteps || 4));
-        const aiParams: any = {
-          prompt: prompt.trim(),
-          num_steps: numSteps,
-        };
-        if (body.width && typeof body.width === "number") aiParams.width = body.width;
-        if (body.height && typeof body.height === "number") aiParams.height = body.height;
+        const width = body.width || 1024;
+        const height = body.height || 1024;
+        const seed = body.seed || Math.floor(Math.random() * 100000000);
+        let buffer: Uint8Array | null = null;
 
-        const aiResult = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", aiParams);
+        if (env.AI) {
+          try {
+            const numSteps = Math.min(8, Math.max(1, body.numSteps || 4));
+            const aiParams: any = {
+              prompt: prompt.trim(),
+              num_steps: numSteps,
+            };
+            if (width) aiParams.width = width;
+            if (height) aiParams.height = height;
 
-        let buffer: Uint8Array;
-        if (aiResult instanceof Uint8Array) {
-          buffer = aiResult;
-        } else if (aiResult instanceof ArrayBuffer) {
-          buffer = new Uint8Array(aiResult);
-        } else if (aiResult instanceof Response) {
-          buffer = new Uint8Array(await aiResult.arrayBuffer());
-        } else if (aiResult?.image && typeof aiResult.image === "string") {
-          buffer = parseBase64(aiResult.image).buffer;
-        } else {
-          buffer = new Uint8Array(aiResult);
+            const aiResult = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", aiParams);
+
+            if (aiResult instanceof Uint8Array) {
+              buffer = aiResult;
+            } else if (aiResult instanceof ArrayBuffer) {
+              buffer = new Uint8Array(aiResult);
+            } else if (aiResult instanceof Response) {
+              buffer = new Uint8Array(await aiResult.arrayBuffer());
+            } else if (aiResult?.image && typeof aiResult.image === "string") {
+              buffer = parseBase64(aiResult.image).buffer;
+            } else if (aiResult) {
+              buffer = new Uint8Array(aiResult);
+            }
+          } catch (aiErr) {
+            console.warn("[Workers AI FLUX Notice, attempting fallback]:", aiErr);
+          }
+        }
+
+        // Fallback to high-speed FLUX endpoint
+        if (!buffer) {
+          const encoded = encodeURIComponent(prompt.trim());
+          const pollUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
+          const pollRes = await fetch(pollUrl);
+          if (pollRes.ok) {
+            buffer = new Uint8Array(await pollRes.arrayBuffer());
+          }
+        }
+
+        if (!buffer) {
+          return jsonResponse(makeGeminiErrorFormat("Failed generating image with FLUX", 500), 500);
         }
 
         const rawBase64 = uint8ArrayToBase64(buffer);

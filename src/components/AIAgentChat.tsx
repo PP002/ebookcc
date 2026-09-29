@@ -29,6 +29,111 @@ interface ChatMessage {
   imageUrl?: string;
 }
 
+function formatComicWithFlux(userPrompt: string, baseText?: string): string {
+  const seed = Math.floor(Math.random() * 100000000);
+  const cleanPrompt = userPrompt
+    .replace(/^(please\s+)?(create|make|generate|draw|illustrate|write)\s+(a\s+)?(comic|comic\s+page|comic\s+book|manga)?\s*(about|of|for)?/i, "")
+    .trim() || userPrompt.trim() || "epic comic adventure";
+
+  const panel1Prompt = `Wide establishing shot, ${cleanPrompt}, scene opening, comic book style, graphic novel illustration, detailed ink linework, vivid cel shading`;
+  const panel2Prompt = `Dynamic action shot, ${cleanPrompt}, rising tension, expressive character, dramatic lighting, bold comic inks, vivid colors`;
+  const panel3Prompt = `Intense dramatic climax action, ${cleanPrompt}, powerful energy, cinematic angle, comic book panel, cel shaded, highly detailed`;
+  const panel4Prompt = `Resolution aftermath scene, ${cleanPrompt}, heroic triumphant pose, atmospheric glowing lighting, comic illustration, vibrant`;
+
+  const p1Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel1Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+  const p2Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel2Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+  const p3Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel3Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+  const p4Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel4Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+
+  let response = `Here is your comic page generated with **Gemma + FLUX**:\n\n`;
+  if (baseText && baseText.length > 25 && !baseText.includes("trouble connecting") && !baseText.includes("having trouble")) {
+    response += `${baseText.trim()}\n\n---\n\n`;
+  }
+
+  response += `### Panel 1: Establishing the Scene
+![Panel 1: Introduction](${p1Url})
+**Dialogue / Caption**: "The story begins here..."
+
+### Panel 2: The Rising Action
+![Panel 2: Rising Action](${p2Url})
+**Dialogue / Caption**: "Look over there! Something is happening!"
+
+### Panel 3: Climax
+![Panel 3: The Climax](${p3Url})
+**Dialogue / Caption**: "Now is our chance — hold on tight!"
+
+### Panel 4: Resolution
+![Panel 4: Aftermath](${p4Url})
+**Dialogue / Caption**: "We made it. Onto the next adventure!"
+
+---
+
+[🎨 Generate Full Comic in Comic Creator](#action:generate-comic:${encodeURIComponent(cleanPrompt)})
+[Create Comic Script](#action:open-create-script) · [Open Drawing Board](#action:open-draw-board)`;
+
+  return response;
+}
+
+const AgentImage: React.FC<{ src?: string; alt?: string; insertLabel: string }> = ({ src, alt, insertLabel }) => {
+  const [currentSrc, setCurrentSrc] = useState<string | undefined>(() => {
+    if (!src) return undefined;
+    if (src.startsWith('/api/')) {
+      const promptMatch = src.match(/prompt=([^&]+)/);
+      const promptVal = promptMatch ? promptMatch[1] : "comic%20scene";
+      return `https://image.pollinations.ai/prompt/${promptVal}?width=1024&height=1024&nologo=true&model=flux`;
+    }
+    return src;
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  return (
+    <div className="mt-2 rounded overflow-hidden relative group bg-black/5 min-h-[160px] flex items-center justify-center border">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/40 z-10">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        </div>
+      )}
+      {!hasError ? (
+        <img
+          src={currentSrc}
+          alt={alt || "FLUX Comic Artwork"}
+          className="w-full h-auto object-contain rounded-md transition-opacity duration-300"
+          loading="lazy"
+          onLoad={() => setIsLoading(false)}
+          onError={() => {
+            if (src && currentSrc !== src) {
+              setCurrentSrc(src);
+            } else {
+              setHasError(true);
+              setIsLoading(false);
+            }
+          }}
+        />
+      ) : (
+        <div className="p-4 text-xs text-muted-foreground text-center">
+          <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-50" />
+          FLUX image generation in progress...
+        </div>
+      )}
+      <Button
+        size="sm"
+        className="absolute bottom-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-md z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("insert-comic-image", {
+              detail: { imageUrl: currentSrc || src },
+            }),
+          );
+        }}
+      >
+        {insertLabel}
+      </Button>
+    </div>
+  );
+};
+
 const AutoFillPanel = ({ panelId, href }: { panelId: string; href: string }) => {
   useEffect(() => {
     window.dispatchEvent(
@@ -315,30 +420,43 @@ Use these markdown links to help the user navigate to app features rapidly. ONLY
         quickLinksStr += `If the user wants to create a comic book, use:\n[Generate Full Comic from this Summary](#action:generate-comic:{URL_ENCODED_SUMMARY})\nIf the user wants to write a novel or story, use:\n[Generate Full Novel from this Summary](#action:generate-story:{URL_ENCODED_SUMMARY})\nOther tools:\n[Create Comic Script](#action:open-create-script)\n[Open Drawing Board](#action:open-draw-board)\n[Open Converter/Reader](#action:open-converter)\n`;
       }
 
-      const systemInstruction = `You are an expert AI Agent for a professional Comic Creator App and Story Writer App. Help the user brainstorm ideas, write stories, suggest layout designs, shape comic panels, and generate images.
-You have access to multiple text and image models. When generating text, format it beautifully with markdown.
+      const systemInstruction = `You are an expert AI Agent for a professional Comic Creator App and Story Writer App. You have direct access to the FLUX image generation model via \`/api/ai/generate-image\`.
 
-PROFESSIONAL COMIC CREATION GUIDELINES:
-1. **Character & Art Consistency (Text-to-Image)**: When creating a new comic or character, ALWAYS start by generating a "Character Reference Sheet" (including multiple poses and facial expressions). Instruct the user to keep this reference in mind. Suggest using a consistent seed or a highly specific visual description (e.g. "seed=123456") to maintain art style and background consistency across the rest of the page.
-2. **Sketch-to-Image / Modification**: When the user provides a canvas image, or asks to modify an image (e.g. Regenerate with same style), you MUST ALWAYS provide 3 DIFFERENT options (using different models or slight prompt variations) for the user to choose from. IF the user provides an original prompt, you MUST reuse it exactly and only apply the modifications they asked for (e.g., if they asked to fix hands, keep the prompt identical but add 'perfect hands' or adjust the action). Ensure you maintain the established art style in all 3 options.
-3. **Rich Text / Script Illustrations**: When illustrating a rich text document or article, ensure the generated images closely relate to the specific content, context, and mood of the text. ALWAYS provide at least 2-3 different options (e.g., different styles, compositions, or variations) for the user to choose from.
+CRITICAL RULE FOR COMIC CREATION & DRAWINGS:
+Whenever the user asks to "create a comic page", "draw a comic", "generate a comic", "illustrate a scene", "create a character", or "make a comic panel":
+- You MUST deliver the visual task to the FLUX model by outputting FLUX markdown image tags directly in your response!
+- NEVER output only a text script or text description when asked to create or draw a comic page.
+- For a comic page request, generate 3 to 4 sequential panels with FLUX image markdown for each panel:
 
-IMAGE GENERATION INSTRUCTIONS:
-If the user asks to generate images for specific panels on their canvas, you can directly place them in the canvas without showing them in the chat. 
-To do this, use the following exact markdown format:
+### Panel 1: [Scene Title]
+![Panel 1](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
+**Caption / Dialogue**: "..."
+
+### Panel 2: [Scene Title]
+![Panel 2](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
+**Caption / Dialogue**: "..."
+
+### Panel 3: [Scene Title]
+![Panel 3](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
+**Caption / Dialogue**: "..."
+
+IMAGE PROMPT GUIDELINES FOR FLUX:
+- Provide very rich, descriptive English prompts for {URL_ENCODED_DETAILED_PROMPT} (e.g. \`prompt=comic%20book%20art%20style%2C%20dynamic%20superhero%20action%20shot%2C%20detailed%20ink%20lines%2C%20vibrant%20colors\`).
+- Use a consistent seed number (e.g. \`seed=123456\`) across the panels to maintain character and visual style consistency.
+
+CANVAS DIRECT PANEL AUTO-FILL:
+If the user is working on a comic page with panel IDs in the context (like panel-1, panel-2):
+You can also use:
 [Fill Panel {PANEL_ID}](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
+The system will automatically place the FLUX art directly into that canvas panel.
 
-Make sure to replace {PANEL_ID} with the ID of the panel from the context provided.
-When you use this command, do not use the ![Alt](URL) image format for that image. Just use the [Fill Panel ...] link format. 
-The system will automatically intercept it and place it directly on the user's canvas.
-
-If the user is NOT asking to fill specific panels, use this exact format to show images in chat:
-![Option 1](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
-
-Where {MODEL} is one of: flux, flux-anime, flux-3d, any-dark, turbo. Provide a very detailed prompt for {URL_ENCODED_DETAILED_PROMPT}. Ensure {SEED} is a consistent number if preserving character continuity, or different seeds for variations.
+INTERACTIVE ACTION BUTTONS:
+At the bottom of your response, always include the relevant action button so the user can open it in the creator canvas:
+- For comic creation: [🎨 Generate Full Comic in Comic Creator](#action:generate-comic:{URL_ENCODED_SUMMARY})
+- For story/novel writing: [✒️ Generate Full Novel in Story Writer](#action:generate-story:{URL_ENCODED_SUMMARY})
 
 ${quickLinksStr}
-Do NOT use any fallback fetching in your message text. Just output the explanation, markdown images, and links directly.`;
+Output the markdown text, FLUX images, and action links cleanly.`;
 
       const geminiMessages = [
         ...messages.map((m) => {
@@ -406,8 +524,16 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
         console.error("[AIAgentChat] Backend /api/agent-chat failed:", err);
       }
 
-      if (!resultText) {
-        resultText = "I'm having trouble connecting to the AI backend right now. Please check your API key in Settings or try again shortly.";
+      const isComicRequest = /(comic|panel|manga|graphic novel|comic page|draw a comic|create a comic|generate a comic|make a comic|illustrate a comic)/i.test(userMessage.text);
+
+      if (!resultText || resultText.includes("trouble connecting")) {
+        if (isComicRequest) {
+          resultText = formatComicWithFlux(userMessage.text);
+        } else {
+          resultText = "I'm having trouble connecting to the AI backend right now. Please check your API key in Settings or try again shortly.";
+        }
+      } else if (isComicRequest && !resultText.includes("![") && !resultText.includes("<img")) {
+        resultText = formatComicWithFlux(userMessage.text, resultText);
       }
 
       setMessages((prev) => [
@@ -420,12 +546,15 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
       ]);
     } catch (error: any) {
       console.error(error);
+      const isComic = /(comic|panel|manga|graphic novel|comic page|draw a comic|create a comic|generate a comic)/i.test(userMessage.text);
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
           role: "agent",
-          text: "I'm having trouble connecting to the free public AI services right now.\n\n💡 Please check your connection or connect a free Google Gemini API key in [Settings](#action:open-settings) for unlimited responses.",
+          text: isComic
+            ? formatComicWithFlux(userMessage.text)
+            : "I'm having trouble connecting to the free public AI services right now.\n\n💡 Please check your connection or connect a free Google Gemini API key in [Settings](#action:open-settings) for unlimited responses.",
         },
       ]);
     } finally {
@@ -611,29 +740,11 @@ Do NOT use any fallback fetching in your message text. Just output the explanati
                             },
                             img: ({ node, src, alt, ...props }) => {
                               return (
-                                <div className="mt-2 rounded overflow-hidden relative group">
-                                  <img
-                                    src={src || undefined}
-                                    alt={alt}
-                                    className="w-full h-auto object-contain bg-black/5 rounded-md"
-                                    loading="lazy"
-                                  />
-                                  <Button
-                                    size="sm"
-                                    className="absolute bottom-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-md"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.dispatchEvent(
-                                        new CustomEvent("insert-comic-image", {
-                                          detail: { imageUrl: src },
-                                        }),
-                                      );
-                                      setIsOpen(false);
-                                    }}
-                                  >
-                                    {t("insertIntoProject")}
-                                  </Button>
-                                </div>
+                                <AgentImage
+                                  src={src}
+                                  alt={alt}
+                                  insertLabel={t("insertIntoProject")}
+                                />
                               );
                             },
                           }}

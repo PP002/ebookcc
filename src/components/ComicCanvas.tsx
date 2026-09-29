@@ -19,6 +19,38 @@ export type Point = {
   pointerType?: string;
 };
 
+export function isLightColor(colorStr?: string): boolean {
+  if (!colorStr) return true;
+  const clean = colorStr.replace(/\s/g, '').toLowerCase();
+  if (clean === 'white' || clean === '#fff' || clean === '#ffffff') return true;
+  if (clean === 'black' || clean === '#000' || clean === '#000000') return false;
+  if (clean === 'transparent') return true;
+  if (clean.startsWith('#')) {
+    const hex = clean.slice(1);
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16);
+      const g = parseInt(hex[1] + hex[1], 16);
+      const b = parseInt(hex[2] + hex[2], 16);
+      return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+    } else if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+    }
+  }
+  if (clean.startsWith('rgb')) {
+    const match = clean.match(/\d+/g);
+    if (match && match.length >= 3) {
+      const r = parseInt(match[0]);
+      const g = parseInt(match[1]);
+      const b = parseInt(match[2]);
+      return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+    }
+  }
+  return true;
+}
+
 const hitMapCache = new Map<string, { data: Uint8ClampedArray, width: number, height: number }>();
 
 export const HOLLOW_CROSS_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17' viewBox='0 0 17 17'%3E%3Cpath d='M8.5 1v5M8.5 11v5M1 8.5h5M11 8.5h5' stroke='white' stroke-width='3' stroke-linecap='square'/%3E%3Cpath d='M8.5 1v5M8.5 11v5M1 8.5h5M11 8.5h5' stroke='black' stroke-width='1.2' stroke-linecap='square'/%3E%3C/svg%3E") 8 8, crosshair`;
@@ -135,6 +167,11 @@ export type PanelNode = {
   isHighContrast?: boolean;
   hasOutline?: boolean;
   color?: string;
+  isTextPanel?: boolean;
+  textContent?: string;
+  textColor?: string;
+  textFontSize?: number;
+  textAlign?: 'left' | 'center' | 'right';
   layers?: ComicLayer[];
   layerGroups?: ComicLayerGroup[];
   activeLayerId?: string;
@@ -309,6 +346,39 @@ export function getLeafBoxes(node: TreeNode, x = 0, y = 0, w = 100, h = 100): Pa
       ...getLeafBoxes(node.c2, x, y + h1, w, h2),
     ];
   }
+}
+
+/**
+ * Calculates panel labels:
+ * - Panel: A+number (ascending order from left to right, then from top to bottom)
+ * - Text panel: T+number (place on left-top of text panel)
+ */
+export function getSortedPanelLabels(tree: TreeNode, indexOffset: number = 0): Map<string, string> {
+  const leafBoxes = getLeafBoxes(tree);
+  // Ascending order: left to right, then top to bottom (row bands with 2% tolerance)
+  const sorted = [...leafBoxes].sort((a, b) => {
+    if (Math.abs(a.y - b.y) > 2) {
+      return a.y - b.y;
+    }
+    return a.x - b.x;
+  });
+
+  const labelMap = new Map<string, string>();
+  let imagePanelCount = indexOffset;
+  let textPanelCount = 0;
+
+  sorted.forEach((box) => {
+    const pNode = box.node as PanelNode;
+    if (pNode.isTextPanel) {
+      textPanelCount++;
+      labelMap.set(box.id, `T${textPanelCount}`);
+    } else {
+      imagePanelCount++;
+      labelMap.set(box.id, `A${imagePanelCount}`);
+    }
+  });
+
+  return labelMap;
 }
 
 /**
@@ -1202,6 +1272,15 @@ interface ComicCanvasProps {
   backgroundColor?: string;
   bubbles?: BubbleData[];
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  isTextPanelSelectMode?: boolean;
+  disableTapToInsertImage?: boolean;
+  hidePanelLabel?: boolean;
+  hideEdgeAddButtons?: boolean;
+  hideExpandButton?: boolean;
+  panelIndexOffset?: number;
+  customPanelLabel?: string;
+  noPadding?: boolean;
+  onDeleteRootPanel?: () => void;
 }
 
 export const COMIC_PAGE_ASPECT = 3 / 4; // Height/Width = 4:3 page ratio (Width/Height = 3/4 = 0.75)
@@ -1225,6 +1304,15 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   backgroundColor,
   bubbles,
   onConvertFreehandBubble,
+  isTextPanelSelectMode = false,
+  disableTapToInsertImage = false,
+  hidePanelLabel = false,
+  hideEdgeAddButtons = false,
+  hideExpandButton = false,
+  panelIndexOffset = 0,
+  customPanelLabel,
+  noPadding = false,
+  onDeleteRootPanel,
 }) => {
   const { t } = useLanguage();
   const [expandedPanelPath, setExpandedPanelPath] = useState<number[] | null>(null);
@@ -1265,6 +1353,14 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   }, [tree, expandedPanelPath, expandedNode]);
 
   const leafBoxes = useMemo(() => getLeafBoxes(tree), [tree]);
+  const panelLabels = useMemo(() => {
+    if (customPanelLabel && tree.type === 'panel') {
+      const map = new Map<string, string>();
+      map.set(tree.id, customPanelLabel);
+      return map;
+    }
+    return getSortedPanelLabels(tree, panelIndexOffset);
+  }, [tree, panelIndexOffset, customPanelLabel]);
   const rightmostPanels = useMemo(() => {
     return leafBoxes.filter(b => b.x + b.w > 99.5).sort((a, b) => a.y - b.y);
   }, [leafBoxes]);
@@ -1425,30 +1521,41 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             layerGroups={layerGroups}
             backgroundColor={backgroundColor}
             onConvertFreehandBubble={onConvertFreehandBubble}
+            panelLabels={panelLabels}
+            isTextPanelSelectMode={isTextPanelSelectMode}
+            disableTapToInsertImage={disableTapToInsertImage}
+            hidePanelLabel={hidePanelLabel}
+            hideExpandButton={hideExpandButton}
+            noPadding={noPadding}
+            onDeleteRootPanel={onDeleteRootPanel}
           />
 
-          <SharedEdgesOverlay
-            tree={tree}
-            onChange={onChange}
-            containerRef={canvasContainerRef}
-            isDrawingMode={isDrawingMode}
-          />
+          {!hideEdgeAddButtons && (
+            <SharedEdgesOverlay
+              tree={tree}
+              onChange={onChange}
+              containerRef={canvasContainerRef}
+              isDrawingMode={isDrawingMode}
+            />
+          )}
 
           {/* Top Edge Plus Button */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity" data-export-ignore="true">
-            <Button 
-              size="icon" 
-              variant="secondary" 
-              className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
-              onClick={() => addAtEdge('top')}
-              title={t("addPanelTop")}
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            </Button>
-          </div>
+          {!hideEdgeAddButtons && (
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity" data-export-ignore="true">
+              <Button 
+                size="icon" 
+                variant="secondary" 
+                className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
+                onClick={() => addAtEdge('top')}
+                title={t("addPanelTop")}
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+              </Button>
+            </div>
+          )}
 
           {/* Bottom Edge Plus Buttons (Follows inner adding logic: splits individual bottommost panels) */}
-          {bottommostPanels.map((panel, idx) => {
+          {!hideEdgeAddButtons && bottommostPanels.map((panel, idx) => {
             const xCenter = panel.x + panel.w / 2;
             return (
               <div 
@@ -1471,20 +1578,22 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           })}
 
           {/* Left Edge Plus Button */}
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity" data-export-ignore="true">
-            <Button 
-              size="icon" 
-              variant="secondary" 
-              className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
-              onClick={() => addAtEdge('left')}
-              title={t("addPanelLeft")}
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            </Button>
-          </div>
+          {!hideEdgeAddButtons && (
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity" data-export-ignore="true">
+              <Button 
+                size="icon" 
+                variant="secondary" 
+                className="w-6 h-6 rounded-full border border-foreground shadow-md bg-white hover:bg-zinc-100 hover:scale-115 transition-all text-black p-0 flex items-center justify-center cursor-pointer"
+                onClick={() => addAtEdge('left')}
+                title={t("addPanelLeft")}
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+              </Button>
+            </div>
+          )}
 
           {/* Right Edge Plus Buttons (Follows inner adding logic: splits individual rightmost panels) */}
-          {rightmostPanels.map((panel, idx) => {
+          {!hideEdgeAddButtons && rightmostPanels.map((panel, idx) => {
             const yCenter = panel.y + panel.h / 2;
             return (
               <div 
@@ -1543,6 +1652,13 @@ const SplitView: React.FC<{
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  panelLabels?: Map<string, string>;
+  isTextPanelSelectMode?: boolean;
+  disableTapToInsertImage?: boolean;
+  hidePanelLabel?: boolean;
+  hideExpandButton?: boolean;
+  noPadding?: boolean;
+  onDeleteRootPanel?: () => void;
 }> = ({ 
   node, 
   path, 
@@ -1565,6 +1681,13 @@ const SplitView: React.FC<{
   layerGroups,
   backgroundColor,
   onConvertFreehandBubble,
+  panelLabels,
+  isTextPanelSelectMode,
+  disableTapToInsertImage = false,
+  hidePanelLabel = false,
+  hideExpandButton = false,
+  noPadding = false,
+  onDeleteRootPanel,
 }) => {
   const boxes = leafBoxes || useMemo(() => getLeafBoxes(rootTree), [rootTree]);
 
@@ -1594,6 +1717,13 @@ const SplitView: React.FC<{
         layerGroups={layerGroups}
         backgroundColor={backgroundColor}
         onConvertFreehandBubble={onConvertFreehandBubble}
+        panelLabels={panelLabels}
+        isTextPanelSelectMode={isTextPanelSelectMode}
+        disableTapToInsertImage={disableTapToInsertImage}
+        hidePanelLabel={hidePanelLabel}
+        hideExpandButton={hideExpandButton}
+        noPadding={noPadding}
+        onDeleteRootPanel={onDeleteRootPanel}
       />
     );
   }
@@ -1603,13 +1733,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
       </div>
       
       <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
 
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
       </div>
     </div>
   );
@@ -2134,6 +2264,12 @@ const PanelView: React.FC<{
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  panelLabels?: Map<string, string>;
+  isTextPanelSelectMode?: boolean;
+  disableTapToInsertImage?: boolean;
+  hidePanelLabel?: boolean;
+  noPadding?: boolean;
+  onDeleteRootPanel?: () => void;
 }> = ({ 
   node, 
   path, 
@@ -2146,7 +2282,7 @@ const PanelView: React.FC<{
   drawColor, 
   drawRadius, 
   touchOff, 
-  setTouchOff,
+  setTouchOff, 
   isExpanded = false,
   hideExpandButton = false,
   onExpandPanel,
@@ -2159,6 +2295,12 @@ const PanelView: React.FC<{
   layerGroups,
   backgroundColor,
   onConvertFreehandBubble,
+  panelLabels,
+  isTextPanelSelectMode,
+  disableTapToInsertImage = false,
+  hidePanelLabel = false,
+  noPadding = false,
+  onDeleteRootPanel,
 }) => {
   const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2170,6 +2312,27 @@ const PanelView: React.FC<{
     startDist: number;
     hasTriggered: boolean;
   } | null>(null);
+
+  const panelLabel = panelLabels?.get(node.id) || (node.isTextPanel ? 'T1' : 'A1');
+
+  // Shortcut key T for hovering panel & click T to toggle text-panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      if (e.key === 't' || e.key === 'T') {
+        const hoveredId = (window as any).hoveredComicPanelId;
+        if (hoveredId === node.id) {
+          e.preventDefault();
+          e.stopPropagation();
+          onChange(replaceNodeByPath(rootTree, path, { ...node, isTextPanel: !node.isTextPanel }));
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [node, path, rootTree, onChange]);
 
   const replaceNode = (newTree: TreeNode, currentPath: number[], replacement: TreeNode): TreeNode => {
     if (currentPath.length === 0) return replacement;
@@ -2201,7 +2364,7 @@ const PanelView: React.FC<{
   const clickTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const handleClick = (e: React.MouseEvent) => {
-    if (isDrawingMode) return;
+    if (isDrawingMode || disableTapToInsertImage) return;
     if (e.detail === 1) {
       clickTimeout.current = setTimeout(() => {
         if (!node.imageUrl) fileInputRef.current?.click();
@@ -2217,7 +2380,9 @@ const PanelView: React.FC<{
       return;
     }
     if (path.length === 0) {
-      // Cannot delete root panel if it's the only one
+      if (onDeleteRootPanel) {
+        onDeleteRootPanel();
+      }
       return;
     }
     const removeNode = (newTree: TreeNode, currentPath: number[]): TreeNode | null => {
@@ -2317,9 +2482,9 @@ const PanelView: React.FC<{
       ref={panelContainerRef}
       className={cn(
         "w-full h-full relative flex items-center justify-center overflow-hidden",
-        isExpanded ? "p-0" : "p-[3px]"
+        (isExpanded || noPadding) ? "p-0" : "p-[3px]"
       )}
-      style={{ backgroundColor: isExpanded ? (node.color || backgroundColor || '#ffffff') : 'transparent' }}
+      style={{ backgroundColor: (isExpanded || noPadding) ? (node.color || backgroundColor || '#ffffff') : 'transparent' }}
       onPointerDown={handlePointerDown}
     >
       <div 
@@ -2331,9 +2496,44 @@ const PanelView: React.FC<{
             : "border border-zinc-900 hover:border-primary/60 dark:hover:border-primary/80"
         )}
         style={{ backgroundColor: node.color || backgroundColor || '#ffffff' }}
-        onClick={handleClick}
+        onMouseEnter={() => {
+          (window as any).hoveredComicPanelId = node.id;
+          (window as any).hoveredComicPanelPath = path;
+        }}
+        onMouseLeave={() => {
+          if ((window as any).hoveredComicPanelId === node.id) {
+            (window as any).hoveredComicPanelId = null;
+          }
+        }}
+        onClick={(e) => {
+          if (isTextPanelSelectMode) {
+            return;
+          }
+          handleClick(e);
+        }}
         onDoubleClick={handleDoubleClick}
       >
+        {/* Panel Label Tag Badge (A1, A2... or T1, T2...) placed on top-left of panel */}
+        {!hidePanelLabel && (
+          <div 
+            className={cn(
+              "absolute top-1 left-1 z-30 select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 transition-all inline-flex items-center justify-center leading-none w-max max-w-fit min-h-0 shrink-0",
+              isTextPanelSelectMode 
+                ? "pointer-events-auto cursor-pointer ring-2 ring-primary ring-offset-1 hover:scale-110 active:scale-95 animate-pulse" 
+                : "pointer-events-none"
+            )}
+            onClick={(e) => {
+              if (isTextPanelSelectMode) {
+                e.stopPropagation();
+                onChange(replaceNodeByPath(rootTree, path, { ...node, isTextPanel: !node.isTextPanel }));
+              }
+            }}
+            title={isTextPanelSelectMode ? `Click label to switch panel mode` : `Panel ${panelLabel}`}
+          >
+            {panelLabel}
+          </div>
+        )}
+
         {/* Fullscreen / Expand button on right-top of panel */}
         {!hideExpandButton && (
           <div 
@@ -2369,83 +2569,108 @@ const PanelView: React.FC<{
           </div>
         )}
 
-        {node.imageUrl ? (
-            <div 
-              className={cn(
-                "w-full h-full relative overflow-hidden",
-                node.isHighContrast && "contrast-[1.25] grayscale"
-              )}
-              style={node.hasOutline ? { border: `2px solid ${node.color || '#000000'}`, boxSizing: 'border-box' } : undefined}
-            >
-              <img 
-                src={node.imageUrl || undefined} 
-                alt="Panel" 
-                className={cn("w-full h-full object-cover select-none pointer-events-auto", node.isHighContrast && "contrast-[1.25] grayscale")} 
-                onClick={handleImgClick} 
-                onDoubleClick={handleDoubleClick}
-              />
-            </div>
-        ) : !isDrawingMode && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-zinc-400 font-mono text-sm pointer-events-none p-2" data-export-ignore="true">
-                <span>{t("tapToInsertImage")}</span>
-                <span className="text-xs text-zinc-400/70 mt-1">{t("doubleTapToRemove")}</span>
-            </div>
+        {node.isTextPanel ? (
+          <div 
+            className="w-full h-full relative flex flex-col p-3 pt-7 overflow-hidden"
+            style={{ backgroundColor: node.color || backgroundColor || '#ffffff' }}
+          >
+            <textarea
+              value={node.textContent || ''}
+              onChange={(e) => {
+                onChange(replaceNodeByPath(rootTree, path, { ...node, textContent: e.target.value }));
+              }}
+              placeholder="Enter panel text..."
+              className="w-full h-full resize-none bg-transparent border-none outline-none font-sans text-sm sm:text-base font-semibold leading-relaxed placeholder:text-zinc-400 focus:ring-0 p-1"
+              style={{
+                color: isLightColor(backgroundColor || node.color || '#ffffff') ? '#000000' : '#ffffff',
+                fontSize: node.textFontSize ? `${node.textFontSize}px` : undefined,
+                textAlign: node.textAlign || 'left',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        ) : (
+          <>
+            {node.imageUrl ? (
+                <div 
+                  className={cn(
+                    "w-full h-full relative overflow-hidden",
+                    node.isHighContrast && "contrast-[1.25] grayscale"
+                  )}
+                  style={node.hasOutline ? { border: `2px solid ${node.color || '#000000'}`, boxSizing: 'border-box' } : undefined}
+                >
+                  <img 
+                    src={node.imageUrl || undefined} 
+                    alt="Panel" 
+                    className={cn("w-full h-full object-cover select-none pointer-events-auto", node.isHighContrast && "contrast-[1.25] grayscale")} 
+                    onClick={handleImgClick} 
+                    onDoubleClick={handleDoubleClick}
+                  />
+                </div>
+            ) : !isDrawingMode && !disableTapToInsertImage && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-zinc-400 font-mono text-sm pointer-events-none p-2" data-export-ignore="true">
+                    <span>{t("tapToInsertImage")}</span>
+                    <span className="text-xs text-zinc-400/70 mt-1">{t("doubleTapToRemove")}</span>
+                </div>
+            )}
+            {showAiIcon && node.imageUrl && (
+                <div className="absolute inset-0 flex items-start justify-center bg-black/40 z-[100] animate-in fade-in" data-export-ignore="true" onClick={(e) => { e.stopPropagation(); setShowAiIcon(false); }}>
+                    <ImageToolbar 
+                      color={node.color || '#000000'}
+                      isHighContrast={node.isHighContrast}
+                      hasOutline={node.hasOutline}
+                      onUpdate={(updates) => {
+                         onChange(replaceNode(rootTree, path, { ...node, ...updates }));
+                         if (updates.url) {
+                             onChange(replaceNode(rootTree, path, { ...node, imageUrl: updates.url }));
+                         }
+                      }}
+                      onMoveLayer={() => {}} // Layer up/down doesn't apply to grid panels
+                      onCropToggle={() => {}} // Crop not implemented here
+                      isCropping={false}
+                      onPointerDownMove={(e) => { e.stopPropagation(); }} // Move doesn't apply to grid panels
+                      onClickAskAI={() => {
+                          window.dispatchEvent(new CustomEvent('quote-to-agent', {
+                             detail: { type: 'image', imageUrl: node.imageUrl }
+                          }));
+                          setShowAiIcon(false);
+                      }}
+                      onRegenerate={() => {
+                          const promptText = node.imageUrl || "comic panel, vibrant colors, detailed line art";
+                          const seed = Math.floor(Math.random() * 100000000);
+                          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+                          onChange(replaceNode(rootTree, path, { ...node, imageUrl: url }));
+                          setShowAiIcon(false);
+                      }}
+                      onDelete={() => {
+                          onChange(replaceNode(rootTree, path, { ...node, imageUrl: undefined }));
+                          setShowAiIcon(false);
+                      }}
+                    />
+                </div>
+            )}
+            <RasterDrawingCanvas 
+              drawings={node.drawings || []} 
+              onChange={handleDrawingsChange} 
+              isDrawingMode={isDrawingMode} 
+              drawTool={drawTool} 
+              penMode={penMode}
+              eraserType={eraserType}
+              drawColor={drawColor} 
+              drawRadius={drawRadius} 
+              touchOff={touchOff} 
+              setTouchOff={setTouchOff} 
+              aspectRatio={aspectRatio}
+              panelBox={panelBox}
+              isExpanded={isExpanded}
+              layers={layers}
+              activeLayerId={activeLayerId}
+              layerGroups={layerGroups}
+              backgroundColor={backgroundColor}
+              onConvertFreehandBubble={onConvertFreehandBubble}
+            />
+          </>
         )}
-        {showAiIcon && node.imageUrl && (
-            <div className="absolute inset-0 flex items-start justify-center bg-black/40 z-[100] animate-in fade-in" data-export-ignore="true" onClick={(e) => { e.stopPropagation(); setShowAiIcon(false); }}>
-                <ImageToolbar 
-                  color={node.color || '#000000'}
-                  isHighContrast={node.isHighContrast}
-                  hasOutline={node.hasOutline}
-                  onUpdate={(updates) => {
-                     onChange(replaceNode(rootTree, path, { ...node, ...updates }));
-                     if (updates.url) {
-                         onChange(replaceNode(rootTree, path, { ...node, imageUrl: updates.url }));
-                     }
-                  }}
-                  onMoveLayer={() => {}} // Layer up/down doesn't apply to grid panels
-                  onCropToggle={() => {}} // Crop not implemented here
-                  isCropping={false}
-                  onPointerDownMove={(e) => { e.stopPropagation(); }} // Move doesn't apply to grid panels
-                  onClickAskAI={() => {
-                      window.dispatchEvent(new CustomEvent('quote-to-agent', {
-                         detail: { type: 'image', imageUrl: node.imageUrl }
-                      }));
-                      setShowAiIcon(false);
-                  }}
-                  onRegenerate={() => {
-                     const promptText = node.imageUrl || "comic panel";
-                     const url = `https://picsum.photos/seed/${encodeURIComponent(promptText)}/1024/1024`;
-                     onChange(replaceNode(rootTree, path, { ...node, imageUrl: url }));
-                     setShowAiIcon(false);
-                  }}
-                  onDelete={() => {
-                      onChange(replaceNode(rootTree, path, { ...node, imageUrl: undefined }));
-                      setShowAiIcon(false);
-                  }}
-                />
-            </div>
-        )}
-        <RasterDrawingCanvas 
-          drawings={node.drawings || []} 
-          onChange={handleDrawingsChange} 
-          isDrawingMode={isDrawingMode} 
-          drawTool={drawTool} 
-          penMode={penMode}
-          eraserType={eraserType}
-          drawColor={drawColor} 
-          drawRadius={drawRadius} 
-          touchOff={touchOff} 
-          setTouchOff={setTouchOff} 
-          aspectRatio={aspectRatio}
-          panelBox={panelBox}
-          isExpanded={isExpanded}
-          layers={layers}
-          activeLayerId={activeLayerId}
-          layerGroups={layerGroups}
-          backgroundColor={backgroundColor}
-          onConvertFreehandBubble={onConvertFreehandBubble}
-        />
         <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
       </div>
     </div>

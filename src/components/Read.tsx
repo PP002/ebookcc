@@ -2254,13 +2254,22 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             <div className="relative w-full px-2 h-11 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 shrink-0 z-10">
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="w-8 h-8 shrink-0"
+                  className={cn(
+                    "shrink-0 select-none hover:scale-105 active:scale-95 transition-all",
+                    (selectedBook?.fileType !== 'text' && selectedBook?.fileType !== 'pdf' && selectedBook?.fileType !== 'epub')
+                      ? "h-8 px-2 font-mono font-black text-xs bg-primary/10 text-primary border-primary/20"
+                      : "w-8 h-8 rounded-md p-0"
+                  )}
                   title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
-                  {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+                  {(selectedBook?.fileType !== 'text' && selectedBook?.fileType !== 'pdf' && selectedBook?.fileType !== 'epub') ? (
+                    `P${currentPage + 1}`
+                  ) : (
+                    isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />
+                  )}
                 </Button>
                 <div className="w-px h-5 bg-border mx-1 shrink-0" />
                 <Button variant="ghost" size="sm" onClick={() => setSelectedBook(null)} className="h-8 gap-2 text-xs font-semibold px-3 shrink-0 hover:bg-transparent hover:text-foreground">
@@ -2656,8 +2665,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                 {t("page")} {idx + 1}
                               </div>
                             )}
-                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 shadow-xs">
-                              {idx + 1}
+                            {/* Page Label Tag P1, P2... */}
+                            <div className="absolute top-1 left-1 text-foreground dark:text-white text-[9px] font-mono font-black drop-shadow-md z-10 select-none bg-transparent">
+                              P{idx + 1}
                             </div>
                             {panelsCache[idx] && (
                               <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center z-10" title={t("layoutDetectedInCache")}>

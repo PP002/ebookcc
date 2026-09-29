@@ -83,8 +83,9 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
         else if (aspectRatio === "9:16") { width = 576; height = 1024; }
         else if (aspectRatio === "3:2" || aspectRatio === "4:3") { width = 1024; height = 768; }
 
+        const seed = Math.floor(Math.random() * 100000000);
         const encodedPrompt = encodeURIComponent(prompt + (sketch ? " consistent with sketch" : ""));
-        imageUrl = `https://picsum.photos/seed/${encodedPrompt}/${width}/${height}`;
+        imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
       }
 
       if (!imageUrl) throw new Error("Failed to generate image from any source.");

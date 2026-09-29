@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect, useId } from 'react';
+import React, { useRef, useState, useEffect, useId, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { getSvgPathFromPoints, TreeNode, PanelNode, SplitNode, Stroke } from './ComicCanvas';
+import { getSvgPathFromPoints, TreeNode, PanelNode, SplitNode, Stroke, getSortedPanelLabels, isLightColor } from './ComicCanvas';
 import { generateBubbleSvgPath, detectCornersAndProtrusions } from './comic/bubbleContour';
 import { ShapeAwareTextLayout } from './comic/ShapeAwareTextLayout';
 
@@ -443,8 +443,10 @@ export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
  * Recursive renderer for Comic Tree Nodes (PanelNode and SplitNode)
  * Structurally and visually identical to ComicCanvas.tsx
  */
-export function ComicTreeNodeView({ node }: { node: TreeNode | any }) {
+export function ComicTreeNodeView({ node, panelLabels }: { node: TreeNode | any; panelLabels?: Map<string, string> }) {
   if (!node) return <div className="w-full h-full bg-white" />;
+
+  const panelLabel = panelLabels?.get(node.id) || '';
 
   if (node.type === 'panel') {
     let imgUrl = node.imageUrl || node.drawing || node.bgImageUrl || node.image;
@@ -456,7 +458,7 @@ export function ComicTreeNodeView({ node }: { node: TreeNode | any }) {
     const hasImage = !!(imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '');
     const hasDrawings = Array.isArray(node.drawings) && node.drawings.length > 0;
     const hasLegacyDrawing = !!(node.drawing && typeof node.drawing === 'string' && node.drawing.trim() !== '');
-    const hasContent = hasImage || hasDrawings || hasLegacyDrawing;
+    const hasContent = hasImage || hasDrawings || hasLegacyDrawing || node.isTextPanel;
 
     const isContrast = !!node.isHighContrast;
     const hasOutline = !!node.hasOutline;
@@ -472,39 +474,68 @@ export function ComicTreeNodeView({ node }: { node: TreeNode | any }) {
           )}
           style={{ backgroundColor: bgColor }}
         >
-          {imgUrl ? (
-            <div
-              className={cn(
-                "w-full h-full relative overflow-hidden",
-                isContrast && "contrast-[1.25] grayscale"
-              )}
-              style={hasOutline ? { border: `2px solid ${outlineColor}`, boxSizing: 'border-box' } : undefined}
+          {panelLabel && (
+            <div 
+              className="absolute top-1 left-1 z-30 pointer-events-none select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20"
+              title={`Panel ${panelLabel}`}
             >
-              <img
-                src={imgUrl}
-                alt="Comic Panel"
-                className={cn(
-                  "w-full h-full object-cover select-none pointer-events-none bg-white",
-                  isContrast && "contrast-[1.25] grayscale"
-                )}
-                referrerPolicy="no-referrer"
-              />
+              {panelLabel}
             </div>
-          ) : (
-            <div className="w-full h-full bg-white" />
           )}
 
-          {/* Freehand vector drawings layer */}
-          {hasDrawings && <ComicPanelDrawingLayer drawings={node.drawings} />}
+          {node.isTextPanel ? (
+            <div 
+              className="w-full h-full relative flex flex-col p-3 pt-6 overflow-hidden"
+              style={{ backgroundColor: node.color || '#ffffff' }}
+            >
+              <div 
+                className="w-full h-full bg-transparent font-sans text-xs sm:text-sm font-semibold leading-relaxed whitespace-pre-wrap overflow-y-auto"
+                style={{
+                  color: isLightColor(node.color || '#ffffff') ? '#000000' : '#ffffff',
+                  fontSize: node.textFontSize ? `${node.textFontSize}px` : undefined,
+                  textAlign: node.textAlign || 'left',
+                }}
+              >
+                {node.textContent || ''}
+              </div>
+            </div>
+          ) : (
+            <>
+              {imgUrl ? (
+                <div
+                  className={cn(
+                    "w-full h-full relative overflow-hidden",
+                    isContrast && "contrast-[1.25] grayscale"
+                  )}
+                  style={hasOutline ? { border: `2px solid ${outlineColor}`, boxSizing: 'border-box' } : undefined}
+                >
+                  <img
+                    src={imgUrl}
+                    alt="Comic Panel"
+                    className={cn(
+                      "w-full h-full object-cover select-none pointer-events-none bg-white",
+                      isContrast && "contrast-[1.25] grayscale"
+                    )}
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ) : (
+                <div className="w-full h-full bg-white" />
+              )}
 
-          {/* Legacy drawing overlay */}
-          {node.drawing && typeof node.drawing === 'string' && (
-            <img
-              src={node.drawing}
-              alt=""
-              className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none bg-transparent"
-              referrerPolicy="no-referrer"
-            />
+              {/* Freehand vector drawings layer */}
+              {hasDrawings && <ComicPanelDrawingLayer drawings={node.drawings} />}
+
+              {/* Legacy drawing overlay */}
+              {node.drawing && typeof node.drawing === 'string' && (
+                <img
+                  src={node.drawing}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none bg-transparent"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -520,10 +551,10 @@ export function ComicTreeNodeView({ node }: { node: TreeNode | any }) {
     return (
       <div className={cn("relative flex w-full h-full min-w-0 min-h-0 bg-white", isRow ? "flex-row" : "flex-col")}>
         <div style={{ [isRow ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden bg-white">
-          <ComicTreeNodeView node={c1} />
+          <ComicTreeNodeView node={c1} panelLabels={panelLabels} />
         </div>
         <div style={{ [isRow ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden bg-white">
-          <ComicTreeNodeView node={c2} />
+          <ComicTreeNodeView node={c2} panelLabels={panelLabels} />
         </div>
       </div>
     );
@@ -583,13 +614,20 @@ export const ComicPageRenderer: React.FC<{
     );
   }
 
+  const panelLabels = useMemo(() => {
+    if (page && typeof page !== 'string' && page.tree) {
+      return getSortedPanelLabels(page.tree);
+    }
+    return undefined;
+  }, [page]);
+
   return (
     <div className={cn("relative max-h-full max-w-full flex justify-center items-center h-full w-full pointer-events-auto", className)}>
       {/* Comic Page Canvas Root */}
       <div className={cn("relative w-full h-full bg-transparent overflow-hidden select-none flex items-center justify-center", showShadow && "shadow-2xl")}>
         {hasTree ? (
           <div className="w-full h-full bg-transparent relative select-none">
-            <ComicTreeNodeView node={page.tree} />
+            <ComicTreeNodeView node={page.tree} panelLabels={panelLabels} />
           </div>
         ) : flatCover ? (
           <img
@@ -620,6 +658,10 @@ export const ComicPageRenderer: React.FC<{
                   top: `${posY}%`,
                 }}
               >
+                {/* Speech Bubble Label Badge B1, B2... */}
+                <div className="absolute -top-2 -left-2 z-[80] pointer-events-none bg-amber-500 text-black text-[9px] font-mono font-black px-1 py-0.2 rounded shadow-xs">
+                  B{bIdx + 1}
+                </div>
                 <SpeechBubbleRenderer bubble={bubble} />
               </div>
             );

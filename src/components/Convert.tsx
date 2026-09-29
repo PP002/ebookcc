@@ -1633,6 +1633,7 @@ interface ImageItemProps {
   viewMode: 'edit' | 'preview';
   pageRatio: number;
   setIsAddingTextMode: (val: boolean) => void;
+  index: number;
 }
 
 const ImageItem = ({
@@ -1645,7 +1646,8 @@ const ImageItem = ({
   setPages,
   viewMode,
   pageRatio,
-  setIsAddingTextMode
+  setIsAddingTextMode,
+  index
 }: ImageItemProps) => {
   const dragControls = useDragControls();
   const itemRef = React.useRef<HTMLDivElement>(null);
@@ -1944,6 +1946,10 @@ const ImageItem = ({
         isSelected && !isCropping && "outline outline-2 outline-black",
         isSelected && isCropping && "outline outline-2 outline-black"
       )}>
+        {/* Illustration label (L+number) placed on top-left of manual image */}
+        <div className="absolute top-1 left-1 z-30 pointer-events-none select-none bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20" title={`Illustration L${index + 1}`}>
+          L{index + 1}
+        </div>
         {isSelected && isCropping && (
           <img 
             src={img.url || undefined} 
@@ -2119,6 +2125,7 @@ interface ManualTextItemProps {
   setPages: (pages: PageData[]) => void;
   manualTextRef: React.RefObject<HTMLDivElement>;
   setIsAddingTextMode: (val: boolean) => void;
+  index: number;
 }
 
 const ManualTextItem = ({
@@ -2134,7 +2141,8 @@ const ManualTextItem = ({
   pages,
   setPages,
   manualTextRef,
-  setIsAddingTextMode
+  setIsAddingTextMode,
+  index
 }: ManualTextItemProps) => {
   const { t } = useLanguage();
   const [isColorFolded, setIsColorFolded] = useState(true);
@@ -2301,6 +2309,10 @@ const ManualTextItem = ({
         }
       }}
     >
+      {/* Text label (T+number) placed on top-left of manual text box */}
+      <div className="absolute top-0 left-0 -translate-x-[4px] -translate-y-[4px] z-30 pointer-events-none select-none bg-teal-600 hover:bg-teal-700 text-white text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20" title={`Text Box T${index + 1}`}>
+        T{index + 1}
+      </div>
       <div 
         ref={isSelected ? manualTextRef : null}
         className="w-full h-full flex items-center justify-center p-2 outline-none min-w-[50px] min-h-[1em]"
@@ -5249,12 +5261,12 @@ ${navItems}    </ol>
               <div className="flex flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar py-1">
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="sm"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="w-8 h-8 shrink-0"
+                  className="h-8 px-2 font-mono font-black text-xs bg-transparent text-primary border-none shadow-none hover:bg-transparent shrink-0 select-none hover:scale-105 active:scale-95 transition-all"
                   title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
-                  {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+                  P{currentPageIndex + 1}
                 </Button>
                 <div className="w-px h-5 bg-border mx-0.5 shrink-0" />
                 
@@ -5704,6 +5716,10 @@ ${navItems}    </ol>
                         )}
                       >
                         <img src={page.originalImage || undefined} className="w-full h-full object-cover" alt={`Thumb ${idx}`} />
+                        {/* Page Label Tag P1, P2... */}
+                        <div className="absolute top-1 left-1 text-white font-mono font-bold text-[9px] drop-shadow-md z-10 bg-transparent select-none">
+                          P{idx + 1}
+                        </div>
                         <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center">
                           {idx + 1}
                         </div>
@@ -5983,11 +5999,11 @@ ${navItems}    </ol>
                                       </motion.div>
                                     );
                                   })}
-                                  {activePage.manualImages?.map((img) => (
-                                    <ImageItem key={img.id} img={img} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualImageId === img.id} setSelectedManualImageId={setSelectedManualImageId} pages={pages} setPages={setPages} viewMode={viewMode} pageRatio={activePage.width > 0 ? activePage.height / activePage.width : 1.5} setIsAddingTextMode={setIsAddingTextMode} />
+                                  {activePage.manualImages?.map((img, imgIdx) => (
+                                    <ImageItem key={img.id} img={img} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualImageId === img.id} setSelectedManualImageId={setSelectedManualImageId} pages={pages} setPages={setPages} viewMode={viewMode} pageRatio={activePage.width > 0 ? activePage.height / activePage.width : 1.5} setIsAddingTextMode={setIsAddingTextMode} index={imgIdx} />
                                   ))}
-                                  {activePage.manualTexts?.map((mt) => (
-                                    <ManualTextItem key={mt.id} mt={mt} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualTextId === mt.id} viewMode={viewMode} setSelectedManualTextId={setSelectedManualTextId} setSelectedManualImageId={setSelectedManualImageId} setOriginalTextBeforeEdit={setOriginalTextBeforeEdit} originalTextBeforeEdit={originalTextBeforeEdit} pages={pages} setPages={setPages} manualTextRef={manualTextRef} setIsAddingTextMode={setIsAddingTextMode} />
+                                  {activePage.manualTexts?.map((mt, mtIdx) => (
+                                    <ManualTextItem key={mt.id} mt={mt} activePage={activePage} currentPageIndex={currentPageIndex} isSelected={selectedManualTextId === mt.id} viewMode={viewMode} setSelectedManualTextId={setSelectedManualTextId} setSelectedManualImageId={setSelectedManualImageId} setOriginalTextBeforeEdit={setOriginalTextBeforeEdit} originalTextBeforeEdit={originalTextBeforeEdit} pages={pages} setPages={setPages} manualTextRef={manualTextRef} setIsAddingTextMode={setIsAddingTextMode} index={mtIdx} />
                                   ))}
                                 </AnimatePresence>
                               </>

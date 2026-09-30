@@ -22,7 +22,7 @@ import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
 import { fetchPublishedWorksFromR2, fetchSinglePublishedWork } from '@/lib/r2Storage';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from '@/components/GoogleDriveDialog';
-import { getLibraryProxyUrl, getArchivePageImageUrl, getCachedCoverUrl, setCachedCoverUrl } from '@/lib/publicLibrary';
+import { getLibraryProxyUrl, getArchivePageImageUrl, getCachedCoverUrl, setCachedCoverUrl, fetchArchiveComicPageCount } from '@/lib/publicLibrary';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -864,6 +864,33 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 book = pub.find((item: any) => item.id === triggerId);
               } catch (_) {}
             }
+
+            // Public domain direct fallback by ID
+            if (!book && triggerId) {
+              if (triggerId.startsWith('archive-')) {
+                const archiveId = triggerId.replace('archive-', '');
+                book = {
+                  id: triggerId,
+                  identifier: archiveId,
+                  title: archiveId.replace(/[-_]/g, ' '),
+                  author: 'Internet Archive Comics',
+                  content_type: 'comic',
+                  type: 'comic',
+                  source: 'archive',
+                };
+              } else if (triggerId.startsWith('gutenberg-')) {
+                const rawId = triggerId.replace('gutenberg-', '');
+                book = {
+                  id: triggerId,
+                  title: `Gutenberg Book #${rawId}`,
+                  author: 'Project Gutenberg',
+                  content_type: 'epub',
+                  type: 'novel',
+                  source: 'gutenberg',
+                  resource_url: `https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`,
+                };
+              }
+            }
           }
 
           if (book) {
@@ -892,13 +919,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             }
 
             // 2. PUBLIC DOMAIN COMIC (Internet Archive streaming pages)
-            const isArchiveComic = book.content_type === 'comic' && 
-              (book.source === 'archive' || book.identifier || book.id.startsWith('archive-'));
+            const isArchiveComic = 
+              (book.content_type === 'comic' || book.type === 'comic' || book.source === 'archive' || (typeof book.id === 'string' && book.id.startsWith('archive-'))) && 
+              (book.source === 'archive' || book.identifier || (typeof book.id === 'string' && book.id.startsWith('archive-')) || (book.resource_url && book.resource_url.includes('archive.org')));
 
             if (isArchiveComic) {
-              const archiveId = book.identifier || book.id.replace('archive-', '');
-              const totalPages = book.total_pages || (Array.isArray(book.pages) && book.pages.length > 0 ? book.pages.length : 50);
-              const streamPages = Array.from({ length: totalPages }, (_, i) => ({
+              const archiveId = book.identifier || (typeof book.id === 'string' ? book.id.replace(/^archive-/, '') : '');
+              const initialPagesCount = book.total_pages || (Array.isArray(book.pages) && book.pages.length > 0 ? book.pages.length : 40);
+              const streamPages = Array.from({ length: initialPagesCount }, (_, i) => ({
                 id: `archive-${archiveId}-p${i}`,
                 image: getArchivePageImageUrl(archiveId, i, 'large'),
                 cover: getArchivePageImageUrl(archiveId, i, 'medium'),
@@ -919,6 +947,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 isBookshelf: true,
               });
               setCurrentPage(0);
+
+              // Dynamically fetch exact page count from Internet Archive API in background
+              if (archiveId) {
+                fetchArchiveComicPageCount(archiveId).then(exactCount => {
+                  if (exactCount && exactCount > 0 && exactCount !== initialPagesCount) {
+                    const exactPages = Array.from({ length: exactCount }, (_, i) => ({
+                      id: `archive-${archiveId}-p${i}`,
+                      image: getArchivePageImageUrl(archiveId, i, 'large'),
+                      cover: getArchivePageImageUrl(archiveId, i, 'medium'),
+                      imageUrl: getArchivePageImageUrl(archiveId, i, 'large'),
+                      pageNumber: i + 1,
+                    }));
+                    setSelectedBook(prev => (prev && prev.archiveIdentifier === archiveId) ? {
+                      ...prev,
+                      pages: exactPages
+                    } : prev);
+                  }
+                }).catch(() => {});
+              }
               return;
             }
 
@@ -1925,6 +1972,20 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const lastTapRef = React.useRef<{ time: number; x: number; y: number } | null>(null);
   const isSwipingRef = React.useRef<boolean>(false);
   const lastToggleTimeRef = React.useRef<number>(0);
+  const lastKeyNavTimeRef = React.useRef<number>(0);
+
+  // Check if current device supports touch interaction
+  const isTouchDevice = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  }, []);
+
+  // Helper to check if text is currently selected by user
+  const hasTextSelection = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    const sel = window.getSelection();
+    return Boolean(sel && sel.toString().trim().length > 0);
+  }, []);
 
   const toggleFullscreenSafe = useCallback(() => {
     const now = Date.now();
@@ -1934,6 +1995,10 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    // Disable touch gesture handling on desktop/mouse
+    if (!isTouchDevice()) return;
+    if (hasTextSelection()) return;
+
     if (e.touches.length === 1) {
       touchStartRef.current = {
         x: e.touches[0].clientX,
@@ -1943,10 +2008,16 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     } else {
       touchStartRef.current = null;
     }
-  }, []);
+  }, [isTouchDevice, hasTextSelection]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent<HTMLDivElement>) => {
+      // Disable swipe/tap on desktop browser
+      if (!isTouchDevice()) return;
+      if (hasTextSelection()) {
+        touchStartRef.current = null;
+        return;
+      }
       if (!touchStartRef.current) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
@@ -1963,7 +2034,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
 
-      // 1. Finger slide / Horizontal swipe to flip page
+      // 1. Finger slide / Horizontal swipe to flip page (touch devices only)
       if (elapsed < 700 && absX > 40 && absX > absY * 1.2) {
         isSwipingRef.current = true;
         setTimeout(() => {
@@ -2011,50 +2082,74 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
       touchStartRef.current = null;
     },
-    [nextPage, prevPage, toggleFullscreenSafe, readingDirection]
+    [nextPage, prevPage, toggleFullscreenSafe, readingDirection, isTouchDevice, hasTextSelection]
   );
 
   const handleLeftClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (isSwipingRef.current) return;
+      // On desktop or when text is selected, do not flip page via side clicks
+      if (!isTouchDevice() || hasTextSelection() || isSwipingRef.current) return;
       if (readingDirection === 'rtl') {
         nextPage();
       } else {
         prevPage();
       }
     },
-    [prevPage, nextPage, readingDirection]
+    [prevPage, nextPage, readingDirection, isTouchDevice, hasTextSelection]
   );
 
   const handleRightClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (isSwipingRef.current) return;
+      // On desktop or when text is selected, do not flip page via side clicks
+      if (!isTouchDevice() || hasTextSelection() || isSwipingRef.current) return;
       if (readingDirection === 'rtl') {
         prevPage();
       } else {
         nextPage();
       }
     },
-    [nextPage, prevPage, readingDirection]
+    [nextPage, prevPage, readingDirection, isTouchDevice, hasTextSelection]
   );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't page if user is typing in an input or if note float window is active
       if (isNotesSidebarOpen) return;
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      if (readingDirection === 'rtl') {
-        if (e.key === 'ArrowRight') prevPage();
-        else if (e.key === 'ArrowLeft') nextPage();
-      } else {
-        if (e.key === 'ArrowRight') nextPage();
-        else if (e.key === 'ArrowLeft') prevPage();
+      const targetEl = (e.target || document.activeElement) as HTMLElement | null;
+      if (
+        targetEl?.tagName === 'INPUT' || 
+        targetEl?.tagName === 'TEXTAREA' || 
+        targetEl?.isContentEditable ||
+        targetEl?.getAttribute?.('contenteditable') === 'true'
+      ) {
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        const now = Date.now();
+        // Debounce to strictly prevent flipping two pages in one keypress
+        if (now - lastKeyNavTimeRef.current < 220) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        lastKeyNavTimeRef.current = now;
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (readingDirection === 'rtl') {
+          if (e.key === 'ArrowRight') prevPage();
+          else if (e.key === 'ArrowLeft') nextPage();
+        } else {
+          if (e.key === 'ArrowRight') nextPage();
+          else if (e.key === 'ArrowLeft') prevPage();
+        }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [nextPage, prevPage, isNotesSidebarOpen, readingDirection]);
 
   const loadFile = useCallback(async (file: File) => {
@@ -2346,28 +2441,24 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           {!isFullscreen && (
             <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
             <div className="relative w-full px-2 h-11 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 shrink-0 z-10">
+              <div className="flex items-center gap-0.5 shrink-0 z-10">
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className={cn(
-                    "shrink-0 select-none hover:scale-105 active:scale-95 transition-all",
-                    (selectedBook?.fileType !== 'text' && selectedBook?.fileType !== 'pdf' && selectedBook?.fileType !== 'epub')
-                      ? "h-8 px-2 font-mono font-black text-xs bg-primary/10 text-primary border-primary/20"
-                      : "w-8 h-8 rounded-md p-0"
-                  )}
+                  className="h-8 w-8 p-0 border-0 bg-transparent hover:bg-muted text-foreground shrink-0 select-none shadow-none focus-visible:ring-0 transition-all"
                   title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
-                  {(selectedBook?.fileType !== 'text' && selectedBook?.fileType !== 'pdf' && selectedBook?.fileType !== 'epub') ? (
-                    `P${currentPage + 1}`
-                  ) : (
-                    isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />
-                  )}
+                  {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
                 </Button>
-                <div className="w-px h-5 bg-border mx-1 shrink-0" />
-                <Button variant="ghost" size="sm" onClick={() => setSelectedBook(null)} className="h-8 gap-2 text-xs font-semibold px-3 shrink-0 hover:bg-transparent hover:text-foreground">
-                  <ChevronLeft className="w-3.5 h-3.5" /> {t("back")}
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setSelectedBook(null)} 
+                  className="h-8 w-8 p-0 hover:bg-muted text-foreground shrink-0"
+                  title={t("back") || "Back"}
+                >
+                  <ChevronLeft className="w-4 h-4" />
                 </Button>
               </div>
 
@@ -2611,6 +2702,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         <ChevronLeft className="w-3 h-3" />
                       </Button>
                       <div className="flex items-center gap-0.5">
+                        {(selectedBook.fileType === 'comic' || selectedBook.fileType === 'images' || selectedBook.fileType === 'pdf') && (
+                          <span className="text-[10px] font-mono font-bold text-foreground select-none mr-0.5">P</span>
+                        )}
                         <input
                           type="text"
                           value={pageInputValue || (currentPage + 1).toString()}
@@ -2669,8 +2763,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                 {t("page")} {idx + 1}
                               </span>
                             </div>
-                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10">
-                              {idx + 1}
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
+                              P{idx + 1}
                             </div>
                           </div>
                         ))}
@@ -2760,7 +2854,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               </div>
                             )}
                             {/* Page Label Tag P1, P2... */}
-                            <div className="absolute top-1 left-1 text-foreground dark:text-white text-[9px] font-mono font-black drop-shadow-md z-10 select-none bg-transparent">
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
                               P{idx + 1}
                             </div>
                             {panelsCache[idx] && (
@@ -2784,19 +2878,23 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               onDoubleClick={toggleFullscreenSafe}
               className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center bg-background"
             >
-              {/* Full-height click zones for previous / next page */}
-              <div 
-                className="absolute inset-y-0 left-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
-                onClick={handleLeftClick} 
-                onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
-                title={readingDirection === 'rtl' ? t("nextPage") : t("previousPage")} 
-              />
-              <div 
-                className="absolute inset-y-0 right-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
-                onClick={handleRightClick} 
-                onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
-                title={readingDirection === 'rtl' ? t("previousPage") : t("nextPage")} 
-              />
+              {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books) */}
+              {isTouchDevice() && !isReflowTextBook && (
+                <>
+                  <div 
+                    className="absolute inset-y-0 left-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                    onClick={handleLeftClick} 
+                    onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
+                    title={readingDirection === 'rtl' ? t("nextPage") : t("previousPage")} 
+                  />
+                  <div 
+                    className="absolute inset-y-0 right-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                    onClick={handleRightClick} 
+                    onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
+                    title={readingDirection === 'rtl' ? t("previousPage") : t("nextPage")} 
+                  />
+                </>
+              )}
 
               {/* Page View Frame: locked 3:4 (h/w=4/3) for DOCX and PDF, full container for EPUB, TXT, HTML, Comics */}
               <div
@@ -2947,11 +3045,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           });
                           
                           rendition.on('click', (e: any) => {
+                            // On desktop browsers or when selecting text, do not flip page
+                            if (!isTouchDevice() || hasTextSelection()) return;
                             const width = e.view ? e.view.innerWidth : window.innerWidth;
                             if (e.clientX > width / 2) {
-                              rendition.next();
+                              if (readingDirection === 'rtl') rendition.prev();
+                              else rendition.next();
                             } else {
-                              rendition.prev();
+                              if (readingDirection === 'rtl') rendition.next();
+                              else rendition.prev();
                             }
                           });
                         }}
@@ -3003,9 +3105,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         <div 
                           className="absolute inset-0 overflow-hidden bg-transparent text-foreground select-text reader-text-container cursor-default"
                           onClick={(e) => {
-                            // If user is selecting text, do not trigger page navigation
-                            const sel = window.getSelection();
-                            if (sel && sel.toString().trim().length > 0) return;
+                            // On desktop browsers or when selecting text, do not flip page via click
+                            if (!isTouchDevice() || hasTextSelection()) return;
                             const target = e.target as HTMLElement;
                             if (target.closest('a, button, input, textarea')) return;
                             const rect = e.currentTarget.getBoundingClientRect();

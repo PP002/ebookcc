@@ -299,6 +299,206 @@ const computePanels = (
   }
 };
 
+const generateClientDocx = async (html: string, title: string): Promise<Blob> => {
+  const zip = new JSZip();
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<!DOCTYPE html><html><body>${html}</body></html>`, "text/html");
+
+  const mediaFiles: { name: string; ext: string; b64: string; rId: string }[] = [];
+  const imgElements = doc.querySelectorAll("img");
+  let imgIndex = 1;
+
+  for (let i = 0; i < imgElements.length; i++) {
+    const img = imgElements[i] as HTMLImageElement;
+    const src = img.getAttribute("src") || "";
+    let b64 = "";
+    let ext = "png";
+
+    if (src.startsWith("data:image/")) {
+      const match = src.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+      if (match) {
+        ext = match[1].toLowerCase().includes("jpeg") ? "jpeg" : match[1].toLowerCase();
+        b64 = match[2];
+      }
+    } else if (src.startsWith("blob:")) {
+      try {
+        const resp = await fetch(src);
+        const b = await resp.blob();
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((res) => {
+          reader.onloadend = () => res(reader.result as string);
+          reader.readAsDataURL(b);
+        });
+        const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (match) {
+          ext = match[1].toLowerCase().includes("jpeg") ? "jpeg" : match[1].toLowerCase();
+          b64 = match[2];
+        }
+      } catch (e) {
+        console.warn("Failed to read blob image for docx", e);
+      }
+    }
+
+    if (b64) {
+      const rId = `rIdImg${imgIndex}`;
+      const fileName = `image${imgIndex}.${ext === "jpeg" ? "jpg" : ext}`;
+      imgIndex++;
+      mediaFiles.push({ name: fileName, ext, b64, rId });
+      img.setAttribute("data-docx-rid", rId);
+    }
+  }
+
+  let bodyXml = "";
+
+  const processNode = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const txt = (node.textContent || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      if (txt.trim()) {
+        bodyXml += `<w:p><w:r><w:t xml:space="preserve">${txt}</w:t></w:r></w:p>`;
+      }
+      return;
+    }
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+
+      if (tag === "h1") {
+        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:spacing w:before="240" w:after="120"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="44"/><w:szCs w:val="44"/><w:color w:val="0F172A"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
+      } else if (tag === "h2") {
+        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:spacing w:before="200" w:after="80"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="34"/><w:szCs w:val="34"/><w:color w:val="1E293B"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
+      } else if (tag === "h3") {
+        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading3"/><w:spacing w:before="160" w:after="60"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/><w:color w:val="334155"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
+      } else if (tag === "img") {
+        const rId = el.getAttribute("data-docx-rid");
+        if (rId) {
+          const cx = 4500000;
+          const cy = 3375000;
+          bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="180" w:after="180"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${imgIndex}" name="Picture"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:drawing></w:r></w:p>`;
+        }
+      } else if (tag === "p" || tag === "div") {
+        let pRuns = "";
+        el.childNodes.forEach((child) => {
+          if (child.nodeType === Node.TEXT_NODE) {
+            const txt = (child.textContent || "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;");
+            if (txt) {
+              pRuns += `<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
+            }
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            const childEl = child as HTMLElement;
+            const childTag = childEl.tagName.toLowerCase();
+            if (childTag === "br") {
+              pRuns += `<w:r><w:br/></w:r>`;
+            } else if (childTag === "img") {
+              const rId = childEl.getAttribute("data-docx-rid");
+              if (rId) {
+                const cx = 4500000;
+                const cy = 3375000;
+                bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="180" w:after="180"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${imgIndex}" name="Picture"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:drawing></w:r></w:p>`;
+              }
+            } else {
+              const isBold = childTag === "strong" || childTag === "b" || childEl.style.fontWeight === "bold";
+              const isItalic = childTag === "em" || childTag === "i" || childEl.style.fontStyle === "italic";
+              const txt = (childEl.textContent || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+              pRuns += `<w:r><w:rPr>${isBold ? "<w:b/>" : ""}${isItalic ? "<w:i/>" : ""}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
+            }
+          }
+        });
+        if (pRuns) {
+          bodyXml += `<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>${pRuns}</w:p>`;
+        }
+      } else if (tag === "hr") {
+        bodyXml += `<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E1"/></w:pPr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`;
+      } else {
+        el.childNodes.forEach(processNode);
+      }
+    }
+  };
+
+  doc.body.childNodes.forEach(processNode);
+
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Default Extension="jpeg" ContentType="image/jpeg"/>
+  <Default Extension="jpg" ContentType="image/jpeg"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`
+  );
+
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+  );
+
+  let docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n`;
+
+  mediaFiles.forEach((m) => {
+    docRels += `  <Relationship Id="${m.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>\n`;
+    zip.file(`word/media/${m.name}`, m.b64, { base64: true });
+  });
+  docRels += `</Relationships>`;
+  zip.file("word/_rels/document.xml.rels", docRels);
+
+  zip.file(
+    "word/styles.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/>
+        <w:sz w:val="22"/>
+        <w:szCs w:val="22"/>
+        <w:lang w:val="en-US"/>
+      </w:rPr>
+    </w:rPrDefault>
+  </w:docDefaults>
+</w:styles>`
+  );
+
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>
+    ${bodyXml}
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+  zip.file("word/document.xml", docXml);
+
+  return await zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+};
+
 const CanvasResizeOverlay = ({
   targetElement,
   onResize,
@@ -1525,6 +1725,7 @@ export const Create: React.FC<CreateProps> = ({
   const [aiFullComicPrompt, setAiFullComicPrompt] = useState("");
   const [isAIFullStoryDialogOpen, setIsAIFullStoryDialogOpen] = useState(false);
   const [aiFullStoryPrompt, setAiFullStoryPrompt] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [touchOff, setTouchOff] = useState(false);
   const [drawTool, setDrawTool] = useState<"pen" | "erase" | "select" | "fill">(
@@ -1739,10 +1940,13 @@ export const Create: React.FC<CreateProps> = ({
   const [isImageColorFolded, setIsImageColorFolded] = useState(true);
   const [isTextPanelSelectMode, setIsTextPanelSelectMode] = useState(false);
   const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
-  const [inlineCanvases, setInlineCanvases] = useState<Record<string, { node: PanelNode; widthPercent: number }>>({});
+  const [inlineCanvases, setInlineCanvases] = useState<Record<string, { node: PanelNode; widthPercent: number; backgroundColor?: string }>>({});
   const [activeCanvasElements, setActiveCanvasElements] = useState<{ id: string; element: HTMLElement; label?: string }[]>([]);
   const [activeImageElements, setActiveImageElements] = useState<{ element: HTMLImageElement; label: string }[]>([]);
   const [selectedCanvasElement, setSelectedCanvasElement] = useState<HTMLElement | null>(null);
+  const [selectedCanvasElements, setSelectedCanvasElements] = useState<HTMLElement[]>([]);
+  const [selectedImageElements, setSelectedImageElements] = useState<HTMLImageElement[]>([]);
+  const prevCreateModeRef = useRef<string>(createMode);
   const [, setScrollTick] = useState(0);
 
   // History and cache states
@@ -1823,13 +2027,13 @@ export const Create: React.FC<CreateProps> = ({
     });
   }, [t]);
 
-  const inlineCanvasesHistoryRef = useRef<Record<string, { node: PanelNode; widthPercent: number }>[]>([]);
+  const inlineCanvasesHistoryRef = useRef<Record<string, { node: PanelNode; widthPercent: number; backgroundColor?: string }>[]>([]);
   const inlineCanvasesHistoryIndexRef = useRef<number>(-1);
   const [canUndoInline, setCanUndoInline] = useState(false);
   const [canRedoInline, setCanRedoInline] = useState(false);
 
   // Unified Story Document History (HTML + Inline Canvases State)
-  const storyDocHistoryRef = useRef<{ html: string; canvases: Record<string, { node: PanelNode; widthPercent: number }> }[]>([]);
+  const storyDocHistoryRef = useRef<{ html: string; canvases: Record<string, { node: PanelNode; widthPercent: number; backgroundColor?: string }> }[]>([]);
   const storyDocHistoryIndexRef = useRef<number>(-1);
   const [canUndoStoryDoc, setCanUndoStoryDoc] = useState(false);
   const [canRedoStoryDoc, setCanRedoStoryDoc] = useState(false);
@@ -1853,6 +2057,119 @@ export const Create: React.FC<CreateProps> = ({
     placeholders.forEach((el) => {
       el.innerHTML = ""; // Strip portal DOM markup so store payload is clean
     });
+
+    return clone.innerHTML;
+  }, [inlineCanvases]);
+
+  const getRenderedStoryHtml = useCallback(async (): Promise<string> => {
+    if (!editorRef.current) return "";
+
+    const clone = editorRef.current.cloneNode(true) as HTMLElement;
+    const placeholders = clone.querySelectorAll(".story-inline-canvas-placeholder");
+
+    for (let i = 0; i < placeholders.length; i++) {
+      const placeholderClone = placeholders[i] as HTMLElement;
+      const canvasId = placeholderClone.getAttribute("data-id");
+      const origPlaceholder = editorRef.current.querySelector(
+        `.story-inline-canvas-placeholder[data-id="${canvasId}"]`
+      ) as HTMLElement | null;
+
+      let dataUrl = "";
+      if (origPlaceholder) {
+        const canvasEl = origPlaceholder.querySelector("canvas") as HTMLCanvasElement | null;
+        if (canvasEl && canvasEl.width > 0 && canvasEl.height > 0) {
+          try {
+            const offscreen = document.createElement("canvas");
+            offscreen.width = canvasEl.width;
+            offscreen.height = canvasEl.height;
+            const ctx = offscreen.getContext("2d");
+            if (ctx) {
+              const canvasData = (canvasId && inlineCanvases[canvasId]) || null;
+              ctx.fillStyle = canvasData?.backgroundColor || "#ffffff";
+              ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+              ctx.drawImage(canvasEl, 0, 0);
+              dataUrl = offscreen.toDataURL("image/png");
+            } else {
+              dataUrl = canvasEl.toDataURL("image/png");
+            }
+          } catch (e) {
+            console.error("Failed to extract canvas dataUrl", e);
+          }
+        }
+
+        // Fallback using html-to-image if canvas context extraction is empty
+        if (!dataUrl) {
+          try {
+            const { toPng } = await import("html-to-image");
+            dataUrl = await toPng(origPlaceholder, {
+              backgroundColor: (canvasId && inlineCanvases[canvasId]?.backgroundColor) || "#ffffff",
+              pixelRatio: 2,
+              skipFonts: true,
+              cacheBust: false,
+              filter: (node) => {
+                if (node instanceof HTMLElement) {
+                  if (
+                    node.classList?.contains("panel-label-badge") ||
+                    node.dataset?.exportIgnore === "true" ||
+                    node.closest?.(".panel-label-badge, [data-export-ignore='true']")
+                  ) {
+                    return false;
+                  }
+                }
+                return true;
+              },
+            });
+          } catch (err) {
+            console.warn("toPng fallback failed for placeholder", err);
+          }
+        }
+      }
+
+      const canvasInfo = (canvasId && inlineCanvases[canvasId]) || null;
+      const widthPercent = canvasInfo?.widthPercent || 66.6;
+
+      if (dataUrl) {
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.alt = "Drawing Illustration";
+        img.style.width = `${widthPercent}%`;
+        img.style.margin = "1.5rem auto";
+        img.style.display = "block";
+        img.className = "story-inline-drawing-image block mx-auto rounded-md shadow-xs max-w-full";
+        placeholderClone.parentNode?.replaceChild(img, placeholderClone);
+      } else {
+        placeholderClone.remove();
+      }
+    }
+
+    // Convert any blob: image URLs to self-contained data URLs
+    const allImgs = clone.querySelectorAll("img");
+    for (let i = 0; i < allImgs.length; i++) {
+      const imgEl = allImgs[i] as HTMLImageElement;
+      const src = imgEl.getAttribute("src") || "";
+      if (src.startsWith("blob:")) {
+        try {
+          const resp = await fetch(src);
+          const blob = await resp.blob();
+          const reader = new FileReader();
+          const b64Data = await new Promise<string>((res) => {
+            reader.onloadend = () => res(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          if (b64Data) {
+            imgEl.setAttribute("src", b64Data);
+          }
+        } catch (blobErr) {
+          console.warn("Could not convert blob image to base64", blobErr);
+        }
+      }
+    }
+
+    // Strip out all label badges, outlines, and resize overlays from export HTML
+    const badges = clone.querySelectorAll(
+      ".panel-label-badge, [data-export-ignore='true'], .canvas-resize-overlay, button, [role='button']"
+    );
+    badges.forEach((b) => b.remove());
 
     return clone.innerHTML;
   }, [inlineCanvases]);
@@ -1942,7 +2259,7 @@ export const Create: React.FC<CreateProps> = ({
     return false;
   }, [updateToc]);
 
-  const pushInlineCanvasesHistory = useCallback((newCanvases: Record<string, { node: PanelNode; widthPercent: number }>) => {
+  const pushInlineCanvasesHistory = useCallback((newCanvases: Record<string, { node: PanelNode; widthPercent: number; backgroundColor?: string }>) => {
     const nextIndex = inlineCanvasesHistoryIndexRef.current + 1;
     const newHistory = inlineCanvasesHistoryRef.current.slice(0, nextIndex);
     newHistory.push(JSON.parse(JSON.stringify(newCanvases)));
@@ -2681,13 +2998,35 @@ export const Create: React.FC<CreateProps> = ({
   const handleUpdateLayer = useCallback(
     (id: string, updates: Partial<ComicLayer>) => {
       if (updates.color) {
+        if (createMode === "document") {
+          const currentCanvasId = selectedCanvasElement?.getAttribute("data-id") ||
+            activeCanvasElements[activeCanvasElements.length - 1]?.id;
+          if (currentCanvasId) {
+            setInlineCanvases((prev) => {
+              const current = prev[currentCanvasId];
+              if (!current) return prev;
+              const updated = {
+                ...prev,
+                [currentCanvasId]: { ...current, backgroundColor: updates.color },
+              };
+              const el = editorRef.current?.querySelector(`[data-id="${currentCanvasId}"]`);
+              if (el) {
+                el.setAttribute("data-canvas-data", JSON.stringify(updated[currentCanvasId]));
+              }
+              pushInlineCanvasesHistory(updated);
+              return updated;
+            });
+            setTimeout(updateToc, 50);
+            return;
+          }
+        }
         setComicBackgroundColor(updates.color);
       }
       setComicLayers((prev) =>
         prev.map((l) => (l.id === id ? { ...l, ...updates } : l)),
       );
     },
-    [],
+    [createMode, selectedCanvasElement, activeCanvasElements, updateToc, pushInlineCanvasesHistory],
   );
 
   const handleUpdateGroup = useCallback(
@@ -2705,32 +3044,73 @@ export const Create: React.FC<CreateProps> = ({
 
       // In Document mode, handle Delete / Backspace when an illustration is selected
       if (createMode === "document" && (e.key === "Delete" || e.key === "Backspace")) {
-        if (imageMenuProps.visible && imageMenuProps.imgElement) {
+        const hasImg = selectedImageElements.length > 0 || (imageMenuProps.visible && !!imageMenuProps.imgElement);
+        const hasCanvas = selectedCanvasElements.length > 0 || !!selectedCanvasElement;
+
+        if (hasImg || hasCanvas) {
           e.preventDefault();
-          const img = imageMenuProps.imgElement;
-          setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
-          img.remove();
-          updateToc();
-          toast.success("Image deleted");
-          return;
-        }
-        if (selectedCanvasElement) {
-          e.preventDefault();
-          const canvasEl = selectedCanvasElement;
-          const canvasId = canvasEl.getAttribute("data-id");
-          setSelectedCanvasElement(null);
-          canvasEl.remove();
-          if (canvasId) {
-            setInlineCanvases((prev) => {
-              const updated = { ...prev };
-              delete updated[canvasId];
-              pushInlineCanvasesHistory(updated);
-              return updated;
-            });
+          if (hasImg) {
+            const toRemove = selectedImageElements.length > 0
+              ? [...selectedImageElements]
+              : (imageMenuProps.imgElement ? [imageMenuProps.imgElement] : []);
+            toRemove.forEach((img) => img.remove());
+            setSelectedImageElements([]);
+            setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+          }
+          if (hasCanvas) {
+            const toRemove = selectedCanvasElements.length > 0
+              ? [...selectedCanvasElements]
+              : (selectedCanvasElement ? [selectedCanvasElement] : []);
+            const ids = toRemove.map((c) => c.getAttribute("data-id")).filter(Boolean) as string[];
+            toRemove.forEach((c) => c.remove());
+            setSelectedCanvasElements([]);
+            setSelectedCanvasElement(null);
+            if (ids.length > 0) {
+              setInlineCanvases((prev) => {
+                const updated = { ...prev };
+                ids.forEach((id) => delete updated[id]);
+                pushInlineCanvasesHistory(updated);
+                return updated;
+              });
+            }
           }
           updateToc();
-          toast.success("Drawing canvas deleted");
+          setTimeout(() => pushStoryDocHistory(), 50);
           return;
+        }
+      }
+
+      // Document mode Undo/Redo: intercept Ctrl+Z and Ctrl+Y even in contenteditable editor
+      if (createMode === "document" && (e.ctrlKey || e.metaKey)) {
+        const isInput = ["INPUT", "TEXTAREA"].includes(target?.tagName || "");
+        if (!isInput) {
+          const key = e.key.toLowerCase();
+          if (key === "z") {
+            e.preventDefault();
+            if (e.shiftKey) {
+              if (isDrawingMode) {
+                if (handleRedoInline()) return;
+              } else {
+                if (handleRedoStoryDoc()) return;
+              }
+            } else {
+              if (isDrawingMode) {
+                if (handleUndoInline()) return;
+              } else {
+                if (handleUndoStoryDoc()) return;
+              }
+            }
+            return;
+          }
+          if (key === "y") {
+            e.preventDefault();
+            if (isDrawingMode) {
+              if (handleRedoInline()) return;
+            } else {
+              if (handleRedoStoryDoc()) return;
+            }
+            return;
+          }
         }
       }
 
@@ -2741,96 +3121,51 @@ export const Create: React.FC<CreateProps> = ({
       )
         return;
 
-      if (e.ctrlKey || e.metaKey) {
-        if (createMode === "document") {
-          if (e.key.toLowerCase() === "z") {
-            e.preventDefault();
-            if (e.shiftKey) {
-              if (handleRedoStoryDoc()) return;
-              if (handleRedoInline()) return;
-              execDocCommand("redo");
-            } else {
-              if (handleUndoStoryDoc()) return;
-              if (handleUndoInline()) return;
-              execDocCommand("undo");
-            }
-            return;
-          }
-          if (e.key.toLowerCase() === "y") {
-            e.preventDefault();
-            if (handleRedoStoryDoc()) return;
-            if (handleRedoInline()) return;
-            execDocCommand("redo");
-            return;
-          }
-        }
-
-        if (e.key.toLowerCase() === "z") {
-          e.preventDefault();
-          if (e.shiftKey) {
-            // REDO
-            if (historyIndexRef.current < historyRef.current.length - 1) {
-              historyIndexRef.current++;
-              setComicPagesState(historyRef.current[historyIndexRef.current]);
-            }
-          } else {
-            // UNDO
-            if (historyIndexRef.current > 0) {
-              historyIndexRef.current--;
-              setComicPagesState(historyRef.current[historyIndexRef.current]);
-            }
-          }
-          return;
-        }
-
-        if (createMode === "comic") {
-          if (
-            !isAIGeneratorOpen &&
-            !isAIFullComicDialogOpen &&
-            !isAIFullStoryDialogOpen &&
-            !showPublishAuthHint
-          ) {
-            // Also support CTRL+N / CMD+N as fallback for N
-            if (e.key.toLowerCase() === "n") {
-              e.preventDefault();
-              handleAddNewPage();
-              return;
-            }
-
-            // Also support CTRL+DELETE / CMD+DELETE as fallback
-            if (
-              e.key === "Delete" ||
-              e.key === "Backspace" ||
-              e.code === "Delete" ||
-              e.code === "Backspace"
-            ) {
-              e.preventDefault();
-              handleDeleteCurrentPage();
-              return;
-            }
-
-            // Layer shortcuts: Ctrl+J new layer, Ctrl+E combine layers, Ctrl+G group layers
-            const k = e.key.toLowerCase();
-            if (k === "j") {
-              e.preventDefault();
-              handleAddLayer();
-              return;
-            }
-            if (k === "e") {
-              e.preventDefault();
-              handleCombineLayers();
-              return;
-            }
-            if (k === "g") {
-              e.preventDefault();
-              handleGroupLayers();
-              return;
-            }
-          }
-        }
-      }
-
       if (createMode === "comic") {
+        if (
+          !isAIGeneratorOpen &&
+          !isAIFullComicDialogOpen &&
+          !isAIFullStoryDialogOpen &&
+          !showPublishAuthHint
+        ) {
+          // Also support CTRL+N / CMD+N as fallback for N
+          if (e.key.toLowerCase() === "n") {
+            e.preventDefault();
+            handleAddNewPage();
+            return;
+          }
+
+          // Also support CTRL+DELETE / CMD+DELETE as fallback
+          if (
+            e.key === "Delete" ||
+            e.key === "Backspace" ||
+            e.code === "Delete" ||
+            e.code === "Backspace"
+          ) {
+            e.preventDefault();
+            handleDeleteCurrentPage();
+            return;
+          }
+
+          // Layer shortcuts: Ctrl+J new layer, Ctrl+E combine layers, Ctrl+G group layers
+          const k = e.key.toLowerCase();
+          if (k === "j") {
+            e.preventDefault();
+            handleAddLayer();
+            return;
+          }
+          if (k === "e") {
+            e.preventDefault();
+            handleCombineLayers();
+            return;
+          }
+          if (k === "g") {
+            e.preventDefault();
+            handleGroupLayers();
+            return;
+          }
+        }
+
         // Comic Undo (Ctrl+Z / Cmd+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z)
         if (
           (e.ctrlKey || e.metaKey) &&
@@ -3540,11 +3875,14 @@ export const Create: React.FC<CreateProps> = ({
   const [aiPrompt, setAiPrompt] = useState("");
   const [isGeneratingText, setIsGeneratingText] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
+  const pushStoryDocHistoryRef = useRef(pushStoryDocHistory);
+  pushStoryDocHistoryRef.current = pushStoryDocHistory;
+  const updateTocRef = useRef(updateToc);
+  updateTocRef.current = updateToc;
 
   // Populate rich text content on story mode mount, and auto-save on change
   useEffect(() => {
     if (createMode === "document" && editorRef.current) {
-      setIsDrawingMode(false);
       if (loadedHtmlContent !== null) {
         editorRef.current.innerHTML = loadedHtmlContent;
 
@@ -3593,21 +3931,21 @@ export const Create: React.FC<CreateProps> = ({
         storyDocHistoryIndexRef.current = -1;
         setLoadedHtmlContent(null);
         setTimeout(() => {
-          pushStoryDocHistory();
-          updateToc();
+          pushStoryDocHistoryRef.current();
+          updateTocRef.current();
         }, 50);
       } else if (editorRef.current.innerHTML.trim() === "") {
         editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
         storyDocHistoryRef.current = [];
         storyDocHistoryIndexRef.current = -1;
         setTimeout(() => {
-          pushStoryDocHistory();
-          updateToc();
+          pushStoryDocHistoryRef.current();
+          updateTocRef.current();
         }, 50);
       }
-      setTimeout(() => updateToc(), 50);
+      setTimeout(() => updateTocRef.current(), 50);
     }
-  }, [createMode, loadedHtmlContent, pushStoryDocHistory, updateToc]);
+  }, [createMode, loadedHtmlContent]);
 
   // Sync inlineCanvases state back to DOM element data-canvas-data attributes and auto-save draft
   useEffect(() => {
@@ -3697,9 +4035,13 @@ export const Create: React.FC<CreateProps> = ({
       if (!currentStoryId) {
         setCurrentStoryId(activeId);
       }
+      let inputDebounceTimer: any = null;
       const handleInput = () => {
         isPublishedStoryRef.current = false;
-        pushStoryDocHistory();
+        clearTimeout(inputDebounceTimer);
+        inputDebounceTimer = setTimeout(() => {
+          pushStoryDocHistory();
+        }, 300);
       };
       
       const el = editorRef.current;
@@ -3716,6 +4058,7 @@ export const Create: React.FC<CreateProps> = ({
       }
 
       return () => {
+        clearTimeout(inputDebounceTimer);
         el.removeEventListener("input", handleInput);
       };
     }
@@ -4277,83 +4620,136 @@ export const Create: React.FC<CreateProps> = ({
     scrollToCaret();
   };
 
-  useEffect(() => {
-    if (createMode === "document") {
-      setIsDrawingMode(false);
-      if (editorRef.current && editorRef.current.innerHTML.trim() === "") {
-        editorRef.current.innerHTML = "<h1><br></h1><h2><br></h2><p><br></p>";
-      }
-      updateToc();
+  const findIllustrationBeforeCaret = (range: Range): HTMLElement | null => {
+    if (!editorRef.current) return null;
+    const isIllustration = (node: Node | null): node is HTMLElement => {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+      const el = node as HTMLElement;
+      return el.tagName === "IMG" || el.classList?.contains("story-inline-canvas-placeholder");
+    };
+
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    // Case A: Caret container is the editor itself
+    if (container === editorRef.current && offset > 0) {
+      const prev = editorRef.current.childNodes[offset - 1];
+      if (isIllustration(prev)) return prev;
     }
-  }, [createMode, updateToc]);
+
+    // Case B: Caret container is an Element node (e.g. <p> or <div>)
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      if (offset > 0) {
+        const prevChild = container.childNodes[offset - 1];
+        if (isIllustration(prevChild)) return prevChild;
+        if (prevChild.nodeType === Node.ELEMENT_NODE) {
+          const lastDesc = (prevChild as HTMLElement).querySelector("img, .story-inline-canvas-placeholder");
+          if (lastDesc && isIllustration(lastDesc)) return lastDesc;
+        }
+      } else {
+        // offset === 0: Caret is at the start of container
+        let current: Node = container;
+        while (current.parentElement && current.parentElement !== editorRef.current && !current.previousSibling) {
+          current = current.parentElement;
+        }
+        let prev = current.previousSibling;
+        while (prev && prev.nodeType === Node.TEXT_NODE && (prev.textContent || "").trim() === "") {
+          prev = prev.previousSibling;
+        }
+        if (isIllustration(prev)) return prev;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE) {
+          const nested = (prev as HTMLElement).querySelector("img, .story-inline-canvas-placeholder");
+          if (nested && isIllustration(nested)) return nested;
+        }
+      }
+    }
+
+    // Case C: Caret container is a Text node
+    if (container.nodeType === Node.TEXT_NODE) {
+      if (offset === 0) {
+        let current: Node = container;
+        while (current.parentElement && current.parentElement !== editorRef.current && !current.previousSibling) {
+          current = current.parentElement;
+        }
+        let prev = current.previousSibling;
+        while (prev && prev.nodeType === Node.TEXT_NODE && (prev.textContent || "").trim() === "") {
+          prev = prev.previousSibling;
+        }
+        if (isIllustration(prev)) return prev;
+        if (prev && prev.nodeType === Node.ELEMENT_NODE) {
+          const nested = (prev as HTMLElement).querySelector("img, .story-inline-canvas-placeholder");
+          if (nested && isIllustration(nested)) return nested;
+        }
+      }
+    }
+
+    return null;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Document mode Undo/Redo when not drawing
+    if ((e.ctrlKey || e.metaKey) && !isDrawingMode) {
+      const key = e.key.toLowerCase();
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedoStoryDoc();
+        } else {
+          handleUndoStoryDoc();
+        }
+        return;
+      }
+      if (key === "y") {
+        e.preventDefault();
+        handleRedoStoryDoc();
+        return;
+      }
+    }
+
     // Delete or Backspace key to remove selected or preceding illustration (drawing canvas or inserted image)
     if (e.key === "Delete" || e.key === "Backspace") {
-      // Case 1: Image is selected via toolbar
-      if (imageMenuProps.visible && imageMenuProps.imgElement) {
-        e.preventDefault();
-        const img = imageMenuProps.imgElement;
-        setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
-        img.remove();
-        updateToc();
-        toast.success("Image deleted");
-        return;
-      }
+      const hasImg = selectedImageElements.length > 0 || (imageMenuProps.visible && !!imageMenuProps.imgElement);
+      const hasCanvas = selectedCanvasElements.length > 0 || !!selectedCanvasElement;
 
-      // Case 2: Drawing canvas is selected via click
-      if (selectedCanvasElement) {
+      if (hasImg || hasCanvas) {
         e.preventDefault();
-        const canvasEl = selectedCanvasElement;
-        const canvasId = canvasEl.getAttribute("data-id");
-        setSelectedCanvasElement(null);
-        canvasEl.remove();
-        if (canvasId) {
-          setInlineCanvases((prev) => {
-            const updated = { ...prev };
-            delete updated[canvasId];
-            pushInlineCanvasesHistory(updated);
-            return updated;
-          });
+        if (hasImg) {
+          const toRemove = selectedImageElements.length > 0
+            ? [...selectedImageElements]
+            : (imageMenuProps.imgElement ? [imageMenuProps.imgElement] : []);
+          toRemove.forEach((img) => img.remove());
+          setSelectedImageElements([]);
+          setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+        }
+        if (hasCanvas) {
+          const toRemove = selectedCanvasElements.length > 0
+            ? [...selectedCanvasElements]
+            : (selectedCanvasElement ? [selectedCanvasElement] : []);
+          const ids = toRemove.map((c) => c.getAttribute("data-id")).filter(Boolean) as string[];
+          toRemove.forEach((c) => c.remove());
+          setSelectedCanvasElements([]);
+          setSelectedCanvasElement(null);
+          if (ids.length > 0) {
+            setInlineCanvases((prev) => {
+              const updated = { ...prev };
+              ids.forEach((id) => delete updated[id]);
+              pushInlineCanvasesHistory(updated);
+              return updated;
+            });
+          }
         }
         updateToc();
-        toast.success("Drawing canvas deleted");
+        setTimeout(() => pushStoryDocHistory(), 50);
         return;
       }
 
-      // Case 3: Backspace key when caret/cursor is positioned immediately after an image or drawing canvas
+      // Backspace key when caret/cursor is positioned immediately after an image or drawing canvas
       if (e.key === "Backspace") {
         const sel = window.getSelection();
         if (sel && sel.rangeCount > 0) {
           const range = sel.getRangeAt(0);
           if (range.collapsed) {
-            let targetToDelete: HTMLElement | null = null;
-            const container = range.startContainer;
-            const offset = range.startOffset;
-
-            if (container.nodeType === Node.ELEMENT_NODE) {
-              const childBefore = container.childNodes[offset - 1] as HTMLElement;
-              if (
-                childBefore &&
-                (childBefore.tagName === "IMG" ||
-                  childBefore.classList?.contains("story-inline-canvas-placeholder"))
-              ) {
-                targetToDelete = childBefore;
-              }
-            } else if (container.nodeType === Node.TEXT_NODE && offset === 0) {
-              let prev = container.previousSibling as HTMLElement;
-              if (!prev && container.parentElement && container.parentElement !== editorRef.current) {
-                prev = container.parentElement.previousSibling as HTMLElement;
-              }
-              if (
-                prev &&
-                (prev.tagName === "IMG" ||
-                  prev.classList?.contains("story-inline-canvas-placeholder"))
-              ) {
-                targetToDelete = prev;
-              }
-            }
-
+            const targetToDelete = findIllustrationBeforeCaret(range);
             if (targetToDelete) {
               e.preventDefault();
               const canvasId = targetToDelete.getAttribute("data-id");
@@ -4367,13 +4763,15 @@ export const Create: React.FC<CreateProps> = ({
                 });
               }
               if (imageMenuProps.imgElement === targetToDelete) {
-                setImageMenuProps((prev) => ({ ...prev, visible: false, imgElement: null }));
+                setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
               }
               if (selectedCanvasElement === targetToDelete) {
                 setSelectedCanvasElement(null);
               }
+              setSelectedCanvasElements((prev) => prev.filter((el) => el !== targetToDelete));
+              setSelectedImageElements((prev) => prev.filter((el) => el !== targetToDelete));
               updateToc();
-              toast.success("Illustration deleted");
+              setTimeout(() => pushStoryDocHistory(), 50);
               return;
             }
           }
@@ -4549,7 +4947,31 @@ export const Create: React.FC<CreateProps> = ({
     const existingCanvases = editorRef.current.querySelectorAll(".story-inline-canvas-placeholder").length;
     const existingImages = editorRef.current.querySelectorAll("img").length;
 
-    if (cleanText.length === 0 && existingCanvases === 0 && existingImages === 0) {
+    const activeSelectedImg = (imageMenuProps.visible && imageMenuProps.imgElement)
+      ? imageMenuProps.imgElement
+      : (selectedImageElements.length > 0 ? selectedImageElements[0] : null);
+
+    if (activeSelectedImg && editorRef.current.contains(activeSelectedImg)) {
+      // User selected an image first, then tapped draw button:
+      // Place canvas directly behind (after) the image! Never delete or replace the image!
+      let insertAnchor: Node = activeSelectedImg;
+      while (insertAnchor.parentNode && insertAnchor.parentNode !== editorRef.current) {
+        insertAnchor = insertAnchor.parentNode;
+      }
+      if (insertAnchor.parentNode === editorRef.current) {
+        insertAnchor.parentNode.insertBefore(div, insertAnchor.nextSibling);
+        insertAnchor.parentNode.insertBefore(afterP, div.nextSibling);
+      } else {
+        activeSelectedImg.parentNode?.insertBefore(div, activeSelectedImg.nextSibling);
+        activeSelectedImg.parentNode?.insertBefore(afterP, div.nextSibling);
+      }
+
+      // Deselect image, select the newly added canvas
+      setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+      setSelectedImageElements([]);
+      setSelectedCanvasElement(div);
+      setSelectedCanvasElements([div]);
+    } else if (cleanText.length === 0 && existingCanvases === 0 && existingImages === 0) {
       // Clean document with initial Title/Subtitle placeholders
       const h2 = editorRef.current.querySelector("h2");
       const emptyP = editorRef.current.querySelector("p");
@@ -4563,6 +4985,8 @@ export const Create: React.FC<CreateProps> = ({
         editorRef.current.appendChild(div);
         editorRef.current.appendChild(afterP);
       }
+      setSelectedCanvasElement(div);
+      setSelectedCanvasElements([div]);
     } else if (sel && sel.rangeCount > 0 && editorRef.current.contains(sel.anchorNode)) {
       const range = sel.getRangeAt(0);
       let targetNode: Node | null = sel.anchorNode;
@@ -4583,9 +5007,13 @@ export const Create: React.FC<CreateProps> = ({
         range.collapse(false);
         div.parentNode?.insertBefore(afterP, div.nextSibling);
       }
+      setSelectedCanvasElement(div);
+      setSelectedCanvasElements([div]);
     } else {
       editorRef.current.appendChild(div);
       editorRef.current.appendChild(afterP);
+      setSelectedCanvasElement(div);
+      setSelectedCanvasElements([div]);
     }
 
     if (sel) {
@@ -4671,6 +5099,11 @@ export const Create: React.FC<CreateProps> = ({
       coverUrl = foundImg || "";
     }
 
+    let storyContentToPublish: string | undefined = undefined;
+    if (createMode === "document") {
+      storyContentToPublish = await getRenderedStoryHtml();
+    }
+
     const newItem = {
       id: activeId,
       title: title.trim(),
@@ -4682,7 +5115,7 @@ export const Create: React.FC<CreateProps> = ({
       description: createMode === "document" 
         ? "A captivating novel authored in the eBookCC creative workspace." 
         : `An action-packed visual comic strip with ${comicPages.length} custom layouts.`,
-      content: createMode === "document" ? (editorRef.current?.innerHTML || "") : undefined,
+      content: storyContentToPublish,
       pages: createMode === "comic" ? comicPages : undefined,
       timestamp: Date.now()
     };
@@ -5275,11 +5708,22 @@ export const Create: React.FC<CreateProps> = ({
 
   const handleExport = async (format: string) => {
     toast.info(`Exporting as ${format.toUpperCase()}...`);
-
-    const content = editorRef.current?.innerText || "";
-    const htmlContent = editorRef.current?.innerHTML || "";
+    setIsExporting(true);
 
     try {
+      const getCleanPlainText = (): string => {
+        if (!editorRef.current) return "";
+        const clone = editorRef.current.cloneNode(true) as HTMLElement;
+        const unwanted = clone.querySelectorAll(
+          ".panel-label-badge, [data-export-ignore='true'], .canvas-resize-overlay, .story-inline-canvas-placeholder, button, [role='button'], .image-menu-props"
+        );
+        unwanted.forEach((el) => el.remove());
+        return (clone.textContent || clone.innerText || "").trim();
+      };
+
+      const content = getCleanPlainText();
+      const htmlContent = createMode === "document" ? await getRenderedStoryHtml() : "";
+
       if (createMode === "comic") {
         if (!comicRef.current) return;
 
@@ -5316,7 +5760,8 @@ export const Create: React.FC<CreateProps> = ({
             const dataUrl = await toPng(comicRef.current, {
               backgroundColor: "#ffffff",
               pixelRatio: 2,
-              skipFonts: false,
+              skipFonts: true,
+              cacheBust: false,
               style: {
                 border: "none",
                 boxShadow: "none",
@@ -5324,12 +5769,14 @@ export const Create: React.FC<CreateProps> = ({
                 margin: "0",
               },
               filter: (node) => {
-                if (
-                  node instanceof HTMLElement &&
-                  node.dataset &&
-                  node.dataset.exportIgnore
-                ) {
-                  return false;
+                if (node instanceof HTMLElement) {
+                  if (
+                    node.dataset?.exportIgnore === "true" ||
+                    node.classList?.contains("panel-label-badge") ||
+                    node.closest?.(".panel-label-badge, [data-export-ignore='true']")
+                  ) {
+                    return false;
+                  }
                 }
                 return true;
               },
@@ -5668,7 +6115,9 @@ export const Create: React.FC<CreateProps> = ({
               for (const node of nodes) addImageFit(node);
             } else if (nodes && typeof nodes === "object") {
               if (nodes.image) {
-                nodes.fit = [500, 740];
+                nodes.alignment = "center";
+                nodes.margin = [0, 15, 0, 15];
+                nodes.fit = [450, 600];
                 delete nodes.width;
                 delete nodes.height;
               }
@@ -5688,40 +6137,123 @@ export const Create: React.FC<CreateProps> = ({
         } catch (err: any) {
           toast.error("Failed to generate PDF: " + err.message);
         }
-      } else if (format === "epub" || format === "docx") {
-        toast.info(`Generating ${format.toUpperCase()}...`);
-        const response = await fetch(`${getApiUrl()}/api/export/${format}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ html: htmlContent, title: "Document" }),
-        });
+      } else if (format === "epub") {
+        toast.info("Generating EPUB...");
+        try {
+          const zip = new JSZip();
+          zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+          zip.file(
+            "META-INF/container.xml",
+            `<?xml version="1.0" encoding="UTF-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>\n  </rootfiles>\n</container>`
+          );
 
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Export failed: ${errText}`);
+          let processedHtml = htmlContent;
+          const imgRegex = /src="(data:image\/([a-zA-Z0-9+]+);base64,([^"]+))"/g;
+          let imgIndex = 0;
+          let manifestImages = "";
+          const imagesToAdd: { id: string; ext: string; b64: string }[] = [];
+
+          processedHtml = processedHtml.replace(imgRegex, (_, _fullDataUrl, ext, b64) => {
+            const id = `img_${imgIndex++}`;
+            const fileExt = ext.toLowerCase().includes("jpeg") ? "jpg" : ext.toLowerCase();
+            imagesToAdd.push({ id, ext: fileExt, b64 });
+            manifestImages += `    <item id="${id}" href="images/${id}.${fileExt}" media-type="image/${ext.toLowerCase()}"/>\n`;
+            return `src="images/${id}.${fileExt}"`;
+          });
+
+          imagesToAdd.forEach(({ id, ext, b64 }) => {
+            zip.file(`OEBPS/images/${id}.${ext}`, b64, { base64: true });
+          });
+
+          const docTitle = (storyTitle || "Story Document").trim();
+          const safeTitle = docTitle.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const safeFileName = docTitle.replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, "_") || "story";
+
+          // Parse and serialize strictly valid XHTML
+          const parser = new DOMParser();
+          const parsedDoc = parser.parseFromString(
+            `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${safeTitle}</title></head><body>${processedHtml}</body></html>`,
+            "text/html"
+          );
+          parsedDoc.querySelectorAll("script, style:not(head style)").forEach((el) => el.remove());
+
+          const serializer = new XMLSerializer();
+          let serializedBody = "";
+          parsedDoc.body.childNodes.forEach((childNode) => {
+            serializedBody += serializer.serializeToString(childNode) + "\n";
+          });
+
+          // Ensure void tags are strictly self-closing for XHTML compliance
+          serializedBody = serializedBody
+            .replace(/<br(?:\s*|\s+[^>]*)(?<!\/)>/gi, '<br />')
+            .replace(/<hr(?:\s*|\s+[^>]*)(?<!\/)>/gi, '<hr />')
+            .replace(/<img(\s+[^>]*?)(?<!\/)>/gi, '<img$1 />');
+
+          const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="BookId">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>${safeTitle}</dc:title>
+    <dc:language>en</dc:language>
+    <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+${manifestImages}  </manifest>
+  <spine>
+    <itemref idref="chapter1"/>
+  </spine>
+</package>`;
+
+          const chapterXhtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head>
+  <title>${safeTitle}</title>
+  <style type="text/css">
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.7; padding: 1.5rem; color: #1e293b; background-color: #ffffff; }
+    h1 { font-size: 2rem; font-weight: 800; margin-bottom: 1.25rem; color: #0f172a; }
+    h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; color: #1e293b; }
+    h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #334155; }
+    p { margin-bottom: 1rem; font-size: 1rem; }
+    img { max-width: 100%; height: auto; display: block; margin: 1.5rem auto; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>${safeTitle}</h1>
+  ${serializedBody}
+</body>
+</html>`;
+
+          zip.file("OEBPS/content.opf", contentOpf);
+          zip.file("OEBPS/chapter1.xhtml", chapterXhtml);
+
+          const blob = await zip.generateAsync({ type: "blob" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${safeFileName}.epub`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          toast.success("EPUB export complete!");
+        } catch (epubErr: any) {
+          console.error("EPUB export error:", epubErr);
+          toast.error(`EPUB export failed: ${epubErr.message || "Unknown error"}`);
         }
-
-        const json = await response.json();
-        if (!json.data) throw new Error("No data received from server");
-
-        // Decode Base64 to ArrayBuffer
-        const binaryString = window.atob(json.data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+      } else if (format === "docx") {
+        toast.info("Generating DOCX...");
+        try {
+          const docxBlob = await generateClientDocx(htmlContent, storyTitle || "Document");
+          const url = URL.createObjectURL(docxBlob);
+          const a = document.createElement("a");
+          a.href = url;
+          const safeDocName = (storyTitle || "document").replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, "_") || "document";
+          a.download = `${safeDocName}.docx`;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast.success("DOCX export complete!");
+        } catch (docxErr: any) {
+          console.error("DOCX export error:", docxErr);
+          toast.error(`DOCX export failed: ${docxErr.message || "Unknown error"}`);
         }
-
-        const mimeType =
-          format === "docx"
-            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            : "application/epub+zip";
-        const blob = new Blob([bytes.buffer], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `document.${format}`;
-        a.click();
-        URL.revokeObjectURL(url);
       } else if (format === "cbz") {
         // Create simple text/html fallback for cbz unsupported direct generation
         const blob = new Blob([htmlContent], { type: "text/html" });
@@ -5737,6 +6269,8 @@ export const Create: React.FC<CreateProps> = ({
     } catch (e) {
       console.error("Export failure:", e);
       toast.error(`Export to ${format.toUpperCase()} failed.`);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -6524,45 +7058,55 @@ export const Create: React.FC<CreateProps> = ({
               />
             )}
           {!isImageCropping &&
-            imageMenuProps.visible &&
-            imageMenuProps.imgElement && (
+            (selectedImageElements.length > 0
+              ? selectedImageElements
+              : (imageMenuProps.visible && imageMenuProps.imgElement ? [imageMenuProps.imgElement] : [])
+            ).map((img, idx) => (
               <CanvasResizeOverlay
-                targetElement={imageMenuProps.imgElement}
+                key={img.id || img.src || `selected-img-${idx}`}
+                targetElement={img}
                 onPositionChange={(newRect) => {
-                  setImageMenuProps((prev) => ({
-                    ...prev,
-                    top: newRect.top,
-                    left: newRect.left + newRect.width / 2,
-                  }));
+                  if (imageMenuProps.imgElement === img) {
+                    setImageMenuProps((prev) => ({
+                      ...prev,
+                      top: newRect.top,
+                      left: newRect.left + newRect.width / 2,
+                    }));
+                  }
                 }}
                 updateToc={updateToc}
               />
-            )}
-          {!isDrawingMode && selectedCanvasElement && (
-            <CanvasResizeOverlay
-              targetElement={selectedCanvasElement}
-              onResize={(widthPercent) => {
-                const canvasId = selectedCanvasElement.getAttribute("data-id");
-                if (canvasId) {
-                  setInlineCanvases((prev) => {
-                    const current = prev[canvasId];
-                    if (!current) return prev;
-                    const updated = {
-                      ...prev,
-                      [canvasId]: { ...current, widthPercent },
-                    };
-                    selectedCanvasElement.setAttribute(
-                      "data-canvas-data",
-                      JSON.stringify(updated[canvasId])
-                    );
-                    pushInlineCanvasesHistory(updated);
-                    return updated;
-                  });
-                }
-              }}
-              updateToc={updateToc}
-            />
-          )}
+            ))}
+          {!isDrawingMode &&
+            (selectedCanvasElements.length > 0
+              ? selectedCanvasElements
+              : (selectedCanvasElement ? [selectedCanvasElement] : [])
+            ).map((c, idx) => (
+              <CanvasResizeOverlay
+                key={c.getAttribute("data-id") || c.id || `selected-canvas-${idx}`}
+                targetElement={c}
+                onResize={(widthPercent) => {
+                  const canvasId = c.getAttribute("data-id");
+                  if (canvasId) {
+                    setInlineCanvases((prev) => {
+                      const current = prev[canvasId];
+                      if (!current) return prev;
+                      const updated = {
+                        ...prev,
+                        [canvasId]: { ...current, widthPercent },
+                      };
+                      c.setAttribute(
+                        "data-canvas-data",
+                        JSON.stringify(updated[canvasId])
+                      );
+                      pushInlineCanvasesHistory(updated);
+                      return updated;
+                    });
+                  }
+                }}
+                updateToc={updateToc}
+              />
+            ))}
           <AnimatePresence initial={false}>
             {isSidebarOpen && (
               <>
@@ -6670,24 +7214,81 @@ export const Create: React.FC<CreateProps> = ({
               onClick={(e) => {
                 const target = e.target as HTMLElement;
                 const canvasPlaceholder = target.closest(".story-inline-canvas-placeholder") as HTMLElement | null;
+                const isCtrl = e.ctrlKey || e.metaKey;
 
                 if (target.tagName === "IMG") {
-                  setSelectedCanvasElement(null);
-                  const rect = target.getBoundingClientRect();
-                  setImageMenuProps({
-                    visible: true,
-                    top: rect.top,
-                    left: rect.left + rect.width / 2,
-                    imgElement: target as HTMLImageElement,
-                  });
-                } else if (!isDrawingMode && canvasPlaceholder) {
-                  setImageMenuProps((prev) => ({ ...prev, visible: false }));
-                  setSelectedCanvasElement(canvasPlaceholder);
-                } else {
-                  if (!canvasPlaceholder) {
+                  const img = target as HTMLImageElement;
+                  if (!isCtrl) {
+                    // Single-select: deselect any canvases, clear other images, only select this image
                     setSelectedCanvasElement(null);
+                    setSelectedCanvasElements([]);
+                    setSelectedImageElements([img]);
+                    const rect = img.getBoundingClientRect();
+                    setImageMenuProps({
+                      visible: true,
+                      top: rect.top,
+                      left: rect.left + rect.width / 2,
+                      imgElement: img,
+                    });
+                  } else {
+                    // Multi-select with Ctrl: toggle this image
+                    setSelectedImageElements((prev) => {
+                      if (prev.includes(img)) {
+                        const next = prev.filter((el) => el !== img);
+                        if (imageMenuProps.imgElement === img) {
+                          if (next.length > 0) {
+                            const last = next[next.length - 1];
+                            const r = last.getBoundingClientRect();
+                            setImageMenuProps({
+                              visible: true,
+                              top: r.top,
+                              left: r.left + r.width / 2,
+                              imgElement: last,
+                            });
+                          } else {
+                            setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+                          }
+                        }
+                        return next;
+                      } else {
+                        const r = img.getBoundingClientRect();
+                        setImageMenuProps({
+                          visible: true,
+                          top: r.top,
+                          left: r.left + r.width / 2,
+                          imgElement: img,
+                        });
+                        return [...prev, img];
+                      }
+                    });
                   }
-                  setImageMenuProps((prev) => ({ ...prev, visible: false }));
+                } else if (canvasPlaceholder) {
+                  if (!isCtrl) {
+                    // Single-select: deselect any images, remove image adjust bar & outline
+                    setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+                    setSelectedImageElements([]);
+                    setSelectedCanvasElement(canvasPlaceholder);
+                    setSelectedCanvasElements([canvasPlaceholder]);
+                  } else {
+                    // Multi-select with Ctrl: toggle this canvas
+                    setSelectedCanvasElements((prev) => {
+                      if (prev.includes(canvasPlaceholder)) {
+                        const next = prev.filter((el) => el !== canvasPlaceholder);
+                        setSelectedCanvasElement(next.length > 0 ? next[next.length - 1] : null);
+                        return next;
+                      } else {
+                        setSelectedCanvasElement(canvasPlaceholder);
+                        return [...prev, canvasPlaceholder];
+                      }
+                    });
+                  }
+                } else {
+                  if (!isCtrl) {
+                    setSelectedCanvasElement(null);
+                    setSelectedCanvasElements([]);
+                    setSelectedImageElements([]);
+                    setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+                  }
                   const sel = window.getSelection();
                   // Check if selection is collapsed, only force cursor to end if user just clicked blank space
                   if (target === editorRef.current && (!sel || sel.isCollapsed)) {
@@ -6831,7 +7432,7 @@ export const Create: React.FC<CreateProps> = ({
         )}
 
         {/* Inserted Image Label Badges in Story Mode */}
-        {activeImageElements.map(({ element, label }) => {
+        {!isExporting && activeImageElements.map(({ element, label }) => {
           const rect = element.getBoundingClientRect();
           const editorRect = editorRef.current?.getBoundingClientRect();
           if (!editorRect || rect.width === 0 || rect.height === 0) return null;
@@ -6840,6 +7441,7 @@ export const Create: React.FC<CreateProps> = ({
           return (
             <div
               key={`img-badge-${label}-${element.src}`}
+              data-export-ignore="true"
               style={{
                 position: "fixed",
                 top: Math.max(editorRect.top + 4, rect.top + 4),
@@ -6847,7 +7449,7 @@ export const Create: React.FC<CreateProps> = ({
                 zIndex: 35,
                 pointerEvents: "none",
               }}
-              className="select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 shrink-0 leading-none"
+              className="panel-label-badge select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 shrink-0 leading-none"
             >
               {label}
             </div>
@@ -6864,7 +7466,7 @@ export const Create: React.FC<CreateProps> = ({
                 if (parsed && parsed.node) return parsed;
               } catch (e) {}
             }
-            return { node: { id, type: "panel", drawings: [], imageUrl: "" }, widthPercent: 66.6 };
+            return { node: { id, type: "panel", drawings: [], imageUrl: "" }, widthPercent: 66.6, backgroundColor: "#ffffff" };
           })();
           const finalLabel = label || element.getAttribute("data-label") || `L${index + 1}`;
           return createPortal(
@@ -6886,9 +7488,32 @@ export const Create: React.FC<CreateProps> = ({
               layers={comicLayers}
               activeLayerId={activeLayerId}
               layerGroups={layerGroups}
-              backgroundColor={comicBackgroundColor}
-              onSelectCanvas={() => {
-                setSelectedCanvasElement(element);
+              backgroundColor={canvasData.backgroundColor || '#ffffff'}
+              onSelectCanvas={(e?: React.MouseEvent) => {
+                const isCtrl = e ? (e.ctrlKey || e.metaKey) : false;
+                if (!isCtrl) {
+                  // Deselect any selected images: remove adjust outline and bar
+                  setImageMenuProps({ visible: false, top: 0, left: 0, imgElement: null });
+                  setSelectedImageElements([]);
+                  // Select only this canvas
+                  setSelectedCanvasElement(element);
+                  setSelectedCanvasElements([element]);
+                  if (canvasData.backgroundColor) {
+                    setComicBackgroundColor(canvasData.backgroundColor);
+                  }
+                } else {
+                  // Hold Ctrl: select multiple objects
+                  setSelectedCanvasElements((prev) => {
+                    if (prev.includes(element)) {
+                      const next = prev.filter((el) => el !== element);
+                      setSelectedCanvasElement(next.length > 0 ? next[next.length - 1] : null);
+                      return next;
+                    } else {
+                      setSelectedCanvasElement(element);
+                      return [...prev, element];
+                    }
+                  });
+                }
               }}
               onDeleteCanvas={() => {
                 element.remove();
@@ -6899,6 +7524,7 @@ export const Create: React.FC<CreateProps> = ({
                   return updated;
                 });
                 setSelectedCanvasElement(null);
+                setSelectedCanvasElements((prev) => prev.filter((el) => el !== element));
                 setTimeout(updateToc, 50);
                 toast.success("Drawing canvas deleted");
               }}
@@ -8601,7 +9227,7 @@ interface InlineStoryCanvasProps {
   activeLayerId?: string;
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
-  onSelectCanvas?: () => void;
+  onSelectCanvas?: (e?: React.MouseEvent) => void;
   onDeleteCanvas?: () => void;
   onChange: (updatedNode: PanelNode) => void;
   onWidthChange: (newWidth: number) => void;
@@ -8655,10 +9281,11 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
 
   return (
     <div 
-      onClick={() => {
-        if (!isDrawingMode) {
-          onSelectCanvas?.();
-        }
+      onPointerDown={(e) => {
+        onSelectCanvas?.(e);
+      }}
+      onClick={(e) => {
+        onSelectCanvas?.(e);
       }}
       className="w-full h-full relative select-none pointer-events-auto bg-transparent border-0 shadow-none group/canvas overflow-hidden"
     >

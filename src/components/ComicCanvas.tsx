@@ -2516,8 +2516,9 @@ const PanelView: React.FC<{
         {/* Panel Label Tag Badge (A1, A2... or T1, T2...) placed on top-left of panel */}
         {!hidePanelLabel && (
           <div 
+            data-export-ignore="true"
             className={cn(
-              "absolute top-1 left-1 z-30 select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 transition-all inline-flex items-center justify-center leading-none w-max max-w-fit min-h-0 shrink-0",
+              "panel-label-badge absolute top-1 left-1 z-30 select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[10px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20 transition-all inline-flex items-center justify-center leading-none w-max max-w-fit min-h-0 shrink-0",
               isTextPanelSelectMode 
                 ? "pointer-events-auto cursor-pointer ring-2 ring-primary ring-offset-1 hover:scale-110 active:scale-95 animate-pulse" 
                 : "pointer-events-none"

@@ -19,3 +19,7 @@ bucket_name = "ebookcc-media"
 [ai]
 binding = "AI"
 
+[[kv_namespaces]]
+binding = "CACHE"
+id = "ebookcc_cache"
+

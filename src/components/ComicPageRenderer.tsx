@@ -474,15 +474,6 @@ export function ComicTreeNodeView({ node, panelLabels }: { node: TreeNode | any;
           )}
           style={{ backgroundColor: bgColor }}
         >
-          {panelLabel && (
-            <div 
-              className="absolute top-1 left-1 z-30 pointer-events-none select-none bg-black/85 text-white dark:bg-white/90 dark:text-black text-[9px] font-mono font-black px-1.5 py-0.5 rounded shadow-xs border border-white/20 dark:border-black/20"
-              title={`Panel ${panelLabel}`}
-            >
-              {panelLabel}
-            </div>
-          )}
-
           {node.isTextPanel ? (
             <div 
               className="w-full h-full relative flex flex-col p-3 pt-6 overflow-hidden"
@@ -658,10 +649,6 @@ export const ComicPageRenderer: React.FC<{
                   top: `${posY}%`,
                 }}
               >
-                {/* Speech Bubble Label Badge B1, B2... */}
-                <div className="absolute -top-2 -left-2 z-[80] pointer-events-none bg-amber-500 text-black text-[9px] font-mono font-black px-1 py-0.2 rounded shadow-xs">
-                  B{bIdx + 1}
-                </div>
                 <SpeechBubbleRenderer bubble={bubble} />
               </div>
             );

@@ -67,10 +67,21 @@ export interface R2Bucket {
   list(options?: R2ListOptions): Promise<R2Objects>;
 }
 
+export interface KVNamespace {
+  get(key: string, options?: any): Promise<string | null>;
+  put(
+    key: string,
+    value: string | ReadableStream | ArrayBuffer,
+    options?: { expiration?: number; expirationTtl?: number }
+  ): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
 export interface Env {
   AI?: {
-    run: (model: string, inputs: any) => Promise<any>;
+    run: (model: string, inputs: any, options?: any) => Promise<any>;
   };
+  CACHE?: KVNamespace;
   MEDIA_BUCKET?: R2Bucket;
   MEDIA?: R2Bucket;
   ASSETS?: {
@@ -561,6 +572,105 @@ function parseGeminiOrCustomChatRequest(body: any): {
   }
 
   return { messages, systemInstruction };
+}
+
+const MAX_TOKENS: Record<string, number> = {
+  "agent-chat": 1024,
+  "chat": 1024,
+  "ocr": 2048,
+  "translate": 2048,
+  "speech-bubble": 128,
+  "novel": 2048,
+  "comic-script": 1024,
+};
+
+const CONCISENESS_PROMPTS = {
+  chat: `You are a concise AI assistant. Follow these rules:
+- Respond in as few words as possible while remaining accurate and complete.
+- No filler phrases, no repetition, no "Here is...", no "Sure!", no "I hope this helps".
+- If the user asks a question, answer directly in 1-3 sentences unless they explicitly ask for detail.
+- When calling tools, output ONLY the tool call JSON. Do not add commentary before or after.
+- If multiple tool calls are needed, batch them in one response.
+- Never restate the user's question. Never summarize your answer at the end.`,
+
+  translate: (targetLang: string) => `You are a translator. Translate the following text to ${targetLang}.
+Rules:
+- Output ONLY the translated text. No explanations, no notes, no "Translation:" prefix.
+- Preserve formatting (paragraphs, line breaks).
+- Do not add commentary about the translation.`,
+
+  ocr: `Extract all text from this image.
+Rules:
+- Output ONLY the extracted text, preserving line breaks and layout.
+- No descriptions of the image. No "The image contains...". No commentary.
+- If no text is found, output exactly: [NO TEXT FOUND]`,
+
+  speechBubble: `You are a comic dialogue writer. Generate speech bubble text for the described panel.
+Rules:
+- 1-3 short sentences maximum. Keep it punchy.
+- Output ONLY the dialogue text. No stage directions, no panel descriptions.
+- No "Here is the dialogue:" prefix. No commentary.`,
+
+  novel: `You are a creative writing assistant. Continue the story based on the prompt.
+Rules:
+- Write engaging prose. Stay consistent with the provided context.
+- Do not add meta-commentary, author notes, or "Here is the continuation:".
+- Do not summarize what you wrote at the end.
+- End at a natural stopping point within the token limit.`,
+};
+
+async function sha256(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function getSessionId(body: any): string {
+  if (body?.sessionId) return String(body.sessionId);
+  if (body?.userId) return String(body.userId);
+  const firstContent = body?.messages?.[0]?.content;
+  if (typeof firstContent === "string" && firstContent.length > 0) {
+    return `ses_${firstContent.slice(0, 32).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  }
+  return "default";
+}
+
+function trimMessages(messages: any[], maxTurns = 6): any[] {
+  const systemMsgs = messages.filter((m) => m.role === "system");
+  const convoMsgs = messages.filter((m) => m.role !== "system");
+
+  if (convoMsgs.length <= maxTurns) return messages;
+
+  const recent = convoMsgs.slice(-maxTurns);
+  const older = convoMsgs.slice(0, -maxTurns);
+  const summary = older
+    .map((m) => `${m.role}: ${typeof m.content === "string" ? m.content.slice(0, 80) : ""}`)
+    .join(" | ")
+    .slice(0, 500);
+
+  return [
+    ...systemMsgs,
+    { role: "system", content: `Earlier conversation summary: ${summary}` },
+    ...recent,
+  ];
+}
+
+function mergeSystemPrompt(messages: any[], concisenessPrompt: string): any[] {
+  const systemMsgs = messages.filter((m) => m.role === "system");
+  const nonSystemMsgs = messages.filter((m) => m.role !== "system");
+
+  let mergedSystem = concisenessPrompt;
+  if (systemMsgs.length > 0) {
+    const existingContent = systemMsgs
+      .map((m) => (typeof m.content === "string" ? m.content : ""))
+      .filter(Boolean)
+      .join("\n\n");
+    if (existingContent.trim()) {
+      mergedSystem = `${concisenessPrompt}\n\n${existingContent.trim()}`;
+    }
+  }
+
+  return [{ role: "system", content: mergedSystem }, ...nonSystemMsgs];
 }
 
 function parseBase64(base64Image: string) {
@@ -1391,7 +1501,35 @@ export default {
           return jsonResponse(makeGeminiErrorFormat("No valid messages or contents provided in request", 400), 400);
         }
 
-        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", { messages });
+        // Optimization: Trim conversation history to reduce input tokens
+        const trimmed = trimMessages(messages, 6);
+
+        // Optimization: Prepend conciseness rules to system prompt
+        const finalMessages = mergeSystemPrompt(trimmed, CONCISENESS_PROMPTS.chat);
+
+        // Optimization: Cap max_tokens to prevent runaway output tokens
+        const maxTokens = Math.min(
+          body.max_tokens || body.maxTokens || body.generationConfig?.maxOutputTokens || MAX_TOKENS["chat"],
+          MAX_TOKENS["chat"]
+        );
+
+        // Optimization: Session affinity for model prefix caching
+        const sessionId = getSessionId(body);
+
+        const aiResult = await env.AI.run(
+          "@cf/google/gemma-4-26b-a4b-it",
+          { messages: finalMessages, max_tokens: maxTokens },
+          {
+            gateway: {
+              id: "ebookcc-gateway",
+              skipCache: false,
+              cacheTtl: 3600,
+            },
+            headers: {
+              "x-session-affinity": `ses_${sessionId}`,
+            },
+          }
+        );
         const responseText = extractTextFromAIResult(aiResult);
 
         if (isStreaming) {
@@ -1445,19 +1583,54 @@ export default {
           }
         }
 
-        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: imageUrl } },
-              ],
+        // Optimization: KV Cache lookup for OCR
+        const ocrCacheKey = `ocr:${await sha256(imageUrl + prompt)}`;
+        const cached = await env.CACHE?.get(ocrCacheKey);
+        if (cached) {
+          return jsonResponse({
+            ...makeGeminiCandidatesResponse(cached),
+            cached: true,
+          });
+        }
+
+        const maxTokens = Math.min(
+          MAX_TOKENS["ocr"],
+          MAX_TOKENS["ocr"]
+        );
+
+        const aiResult = await env.AI.run(
+          "@cf/google/gemma-4-26b-a4b-it",
+          {
+            messages: [
+              {
+                role: "system",
+                content: CONCISENESS_PROMPTS.ocr,
+              },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: imageUrl } },
+                ],
+              },
+            ],
+            max_tokens: maxTokens,
+          },
+          {
+            gateway: {
+              id: "ebookcc-gateway",
+              skipCache: false,
+              cacheTtl: 3600,
             },
-          ],
-        });
+          }
+        );
 
         const extractedText = extractTextFromAIResult(aiResult);
+
+        // Store in KV cache (24h TTL)
+        if (extractedText) {
+          await env.CACHE?.put(ocrCacheKey, extractedText, { expirationTtl: 86400 }).catch(() => {});
+        }
 
         return jsonResponse(makeGeminiCandidatesResponse(extractedText));
       } catch (err: any) {
@@ -1482,19 +1655,51 @@ export default {
           return jsonResponse(makeGeminiErrorFormat("Text is required for translation", 400), 400);
         }
 
-        const systemPrompt = `You are a translator. Translate the following text to ${targetLang}. Only output the translation, nothing else.`;
+        // Optimization: KV Cache lookup for translation
+        const translateCacheKey = `tr:${await sha256(text + targetLang + (sourceLang || ""))}`;
+        const cachedTr = await env.CACHE?.get(translateCacheKey);
+        if (cachedTr) {
+          return jsonResponse({
+            ...makeGeminiCandidatesResponse(cachedTr),
+            translation: cachedTr,
+            cached: true,
+          });
+        }
+
+        const systemPrompt = CONCISENESS_PROMPTS.translate(targetLang);
         const userPrompt = sourceLang
           ? `Source Language: ${sourceLang}\nTarget Language: ${targetLang}\nText to translate:\n${text}`
           : text;
 
-        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        });
+        const maxTokens = Math.min(
+          body.max_tokens || body.maxTokens || body.generationConfig?.maxOutputTokens || MAX_TOKENS["translate"],
+          MAX_TOKENS["translate"]
+        );
+
+        const aiResult = await env.AI.run(
+          "@cf/google/gemma-4-26b-a4b-it",
+          {
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            max_tokens: maxTokens,
+          },
+          {
+            gateway: {
+              id: "ebookcc-gateway",
+              skipCache: false,
+              cacheTtl: 3600,
+            },
+          }
+        );
 
         const translation = extractTextFromAIResult(aiResult);
+
+        // Store in KV cache (24h TTL)
+        if (translation) {
+          await env.CACHE?.put(translateCacheKey, translation.trim(), { expirationTtl: 86400 }).catch(() => {});
+        }
 
         return jsonResponse({
           ...makeGeminiCandidatesResponse(translation.trim()),
@@ -1523,16 +1728,31 @@ export default {
         if (style) userPrompt += `\nTone/Style: ${style}`;
         userPrompt += `\nGenerate speech bubble text for this panel. Keep it short (1-3 sentences).`;
 
-        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a comic dialogue writer. Generate speech bubble text for the described panel. Keep it short (1-3 sentences).",
+        const maxTokens = Math.min(
+          body.max_tokens || body.maxTokens || body.generationConfig?.maxOutputTokens || MAX_TOKENS["speech-bubble"],
+          MAX_TOKENS["speech-bubble"]
+        );
+
+        const aiResult = await env.AI.run(
+          "@cf/google/gemma-4-26b-a4b-it",
+          {
+            messages: [
+              {
+                role: "system",
+                content: CONCISENESS_PROMPTS.speechBubble,
+              },
+              { role: "user", content: userPrompt },
+            ],
+            max_tokens: maxTokens,
+          },
+          {
+            gateway: {
+              id: "ebookcc-gateway",
+              skipCache: false,
+              cacheTtl: 3600,
             },
-            { role: "user", content: userPrompt },
-          ],
-        });
+          }
+        );
 
         const bubbleText = extractTextFromAIResult(aiResult);
 
@@ -1553,7 +1773,10 @@ export default {
         const body = (await request.json().catch(() => ({}))) as any;
         const prompt = body.prompt || "";
         const context = body.context || "";
-        const maxTokens = typeof body.maxTokens === "number" ? body.maxTokens : 2000;
+        const maxTokens = Math.min(
+          body.max_tokens || body.maxTokens || body.generationConfig?.maxOutputTokens || MAX_TOKENS["novel"],
+          MAX_TOKENS["novel"]
+        );
 
         if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
           return jsonResponse(makeGeminiErrorFormat("Prompt is required for novel generation", 400), 400);
@@ -1564,17 +1787,31 @@ export default {
           userPrompt = `Context:\n${context}\n\nTask:\n${prompt}`;
         }
 
-        const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are an author and creative novelist. Generate engaging, atmospheric, high-quality narrative prose matching the context and instructions.",
+        const sessionId = getSessionId(body);
+
+        const aiResult = await env.AI.run(
+          "@cf/google/gemma-4-26b-a4b-it",
+          {
+            messages: [
+              {
+                role: "system",
+                content: CONCISENESS_PROMPTS.novel,
+              },
+              { role: "user", content: userPrompt },
+            ],
+            max_tokens: maxTokens,
+          },
+          {
+            gateway: {
+              id: "ebookcc-gateway",
+              skipCache: false,
+              cacheTtl: 3600,
             },
-            { role: "user", content: userPrompt },
-          ],
-          max_tokens: maxTokens,
-        });
+            headers: {
+              "x-session-affinity": `ses_${sessionId}`,
+            },
+          }
+        );
 
         const content = extractTextFromAIResult(aiResult);
 
@@ -1632,12 +1869,25 @@ export default {
             const sysPrompt = 'You are an expert comic book script writer. Output only valid JSON with format: {"pages": [{"panels": [{"imagePrompt": "...", "dialogue": "..."}]}]}.';
             const userPrompt = `Create a comic book script based on this prompt: "${prompt}". Generate exactly ${pagesCount} page(s) with 4 panels per page. Keep panel descriptions visual and detailed for FLUX image generator. Keep dialogue short.`;
             
-            const aiResult = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {
-              messages: [
-                { role: "system", content: sysPrompt },
-                { role: "user", content: userPrompt }
-              ]
-            });
+            const maxTokens = Math.min(body.max_tokens || MAX_TOKENS["comic-script"], MAX_TOKENS["comic-script"]);
+
+            const aiResult = await env.AI.run(
+              "@cf/google/gemma-4-26b-a4b-it",
+              {
+                messages: [
+                  { role: "system", content: sysPrompt },
+                  { role: "user", content: userPrompt }
+                ],
+                max_tokens: maxTokens,
+              },
+              {
+                gateway: {
+                  id: "ebookcc-gateway",
+                  skipCache: false,
+                  cacheTtl: 3600,
+                },
+              }
+            );
             const rawText = extractTextFromAIResult(aiResult);
             let parsed: any = null;
             try {
@@ -1678,6 +1928,7 @@ export default {
             height: url.searchParams.get("height") ? parseInt(url.searchParams.get("height")!) : 1024,
             seed: url.searchParams.get("seed") ? parseInt(url.searchParams.get("seed")!) : undefined,
             numSteps: url.searchParams.get("numSteps") ? parseInt(url.searchParams.get("numSteps")!) : undefined,
+            quality: url.searchParams.get("quality"),
           };
         }
 
@@ -1689,22 +1940,34 @@ export default {
           return jsonResponse(makeGeminiErrorFormat("Prompt is required for image generation", 400), 400);
         }
 
-        const width = body.width || 1024;
-        const height = body.height || 1024;
+        // Optimization: Preview mode vs Final mode step counts & resolutions
+        const isPreview = body.quality === "preview" || body.quality === "draft";
+        const width = isPreview ? 512 : (body.width || 1024);
+        const height = isPreview ? 512 : (body.height || 1024);
+        const numSteps = isPreview ? 1 : Math.min(4, Math.max(1, body.numSteps || 4));
         const seed = body.seed || Math.floor(Math.random() * 100000000);
         let buffer: Uint8Array | null = null;
 
         if (env.AI) {
           try {
-            const numSteps = Math.min(8, Math.max(1, body.numSteps || 4));
             const aiParams: any = {
               prompt: prompt.trim(),
               num_steps: numSteps,
+              width,
+              height,
             };
-            if (width) aiParams.width = width;
-            if (height) aiParams.height = height;
 
-            const aiResult = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", aiParams);
+            const aiResult = await env.AI.run(
+              "@cf/black-forest-labs/flux-1-schnell",
+              aiParams,
+              {
+                gateway: {
+                  id: "ebookcc-gateway",
+                  skipCache: false,
+                  cacheTtl: 1800, // 30 min for FLUX image cache
+                },
+              }
+            );
 
             if (aiResult instanceof Uint8Array) {
               buffer = aiResult;

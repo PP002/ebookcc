@@ -299,13 +299,31 @@ const computePanels = (
   }
 };
 
+const escapeXmlText = (str: string): string => {
+  return str
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+};
+
+const escapeXmlAttr = (str: string): string => {
+  return str
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
 const generateClientDocx = async (html: string, title: string): Promise<Blob> => {
   const zip = new JSZip();
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<!DOCTYPE html><html><body>${html}</body></html>`, "text/html");
 
-  const mediaFiles: { name: string; ext: string; b64: string; rId: string }[] = [];
+  const mediaFiles: { name: string; ext: string; b64: string; rId: string; id: number }[] = [];
   const imgElements = doc.querySelectorAll("img");
   let imgIndex = 1;
 
@@ -318,10 +336,10 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
     if (src.startsWith("data:image/")) {
       const match = src.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
       if (match) {
-        ext = match[1].toLowerCase().includes("jpeg") ? "jpeg" : match[1].toLowerCase();
-        b64 = match[2];
+        ext = match[1].toLowerCase().includes("jpeg") || match[1].toLowerCase().includes("jpg") ? "jpeg" : match[1].toLowerCase();
+        b64 = match[2].trim();
       }
-    } else if (src.startsWith("blob:")) {
+    } else if (src.startsWith("blob:") || src.startsWith("http:") || src.startsWith("https:") || src.startsWith("/")) {
       try {
         const resp = await fetch(src);
         const b = await resp.blob();
@@ -332,20 +350,22 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
         });
         const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
         if (match) {
-          ext = match[1].toLowerCase().includes("jpeg") ? "jpeg" : match[1].toLowerCase();
-          b64 = match[2];
+          ext = match[1].toLowerCase().includes("jpeg") || match[1].toLowerCase().includes("jpg") ? "jpeg" : match[1].toLowerCase();
+          b64 = match[2].trim();
         }
       } catch (e) {
-        console.warn("Failed to read blob image for docx", e);
+        console.warn("Failed to read image for docx", e);
       }
     }
 
     if (b64) {
       const rId = `rIdImg${imgIndex}`;
       const fileName = `image${imgIndex}.${ext === "jpeg" ? "jpg" : ext}`;
+      const currentId = imgIndex;
       imgIndex++;
-      mediaFiles.push({ name: fileName, ext, b64, rId });
+      mediaFiles.push({ name: fileName, ext, b64, rId, id: currentId });
       img.setAttribute("data-docx-rid", rId);
+      img.setAttribute("data-docx-id", String(currentId));
     }
   }
 
@@ -353,12 +373,9 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
 
   const processNode = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      const txt = (node.textContent || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+      const txt = escapeXmlText(node.textContent || "");
       if (txt.trim()) {
-        bodyXml += `<w:p><w:r><w:t xml:space="preserve">${txt}</w:t></w:r></w:p>`;
+        bodyXml += `<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r></w:p>`;
       }
       return;
     }
@@ -368,57 +385,57 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
       const tag = el.tagName.toLowerCase();
 
       if (tag === "h1") {
-        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const txt = escapeXmlText(el.textContent || "");
         bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:spacing w:before="240" w:after="120"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="44"/><w:szCs w:val="44"/><w:color w:val="0F172A"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
       } else if (tag === "h2") {
-        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const txt = escapeXmlText(el.textContent || "");
         bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:spacing w:before="200" w:after="80"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="34"/><w:szCs w:val="34"/><w:color w:val="1E293B"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
       } else if (tag === "h3") {
-        const txt = (el.textContent || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const txt = escapeXmlText(el.textContent || "");
         bodyXml += `<w:p><w:pPr><w:pStyle w:val="Heading3"/><w:spacing w:before="160" w:after="60"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/><w:color w:val="334155"/></w:rPr><w:t>${txt}</w:t></w:r></w:p>`;
       } else if (tag === "img") {
         const rId = el.getAttribute("data-docx-rid");
+        const docxId = el.getAttribute("data-docx-id") || "1";
         if (rId) {
-          const cx = 4500000;
-          const cy = 3375000;
-          bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="180" w:after="180"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${imgIndex}" name="Picture"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:drawing></w:r></w:p>`;
+          const cx = 5400000;
+          const cy = 4050000;
+          bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="200" w:after="200"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docxId}" name="Picture ${docxId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docxId}" name="Picture ${docxId}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
         }
       } else if (tag === "p" || tag === "div") {
-        let pRuns = "";
+        let currentRuns = "";
         el.childNodes.forEach((child) => {
           if (child.nodeType === Node.TEXT_NODE) {
-            const txt = (child.textContent || "")
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;");
+            const txt = escapeXmlText(child.textContent || "");
             if (txt) {
-              pRuns += `<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
+              currentRuns += `<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
             }
           } else if (child.nodeType === Node.ELEMENT_NODE) {
             const childEl = child as HTMLElement;
             const childTag = childEl.tagName.toLowerCase();
             if (childTag === "br") {
-              pRuns += `<w:r><w:br/></w:r>`;
+              currentRuns += `<w:r><w:br/></w:r>`;
             } else if (childTag === "img") {
+              if (currentRuns) {
+                bodyXml += `<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>${currentRuns}</w:p>`;
+                currentRuns = "";
+              }
               const rId = childEl.getAttribute("data-docx-rid");
+              const docxId = childEl.getAttribute("data-docx-id") || "1";
               if (rId) {
-                const cx = 4500000;
-                const cy = 3375000;
-                bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="180" w:after="180"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${imgIndex}" name="Picture"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Picture"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:drawing></w:r></w:p>`;
+                const cx = 5400000;
+                const cy = 4050000;
+                bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="200" w:after="200"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docxId}" name="Picture ${docxId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docxId}" name="Picture ${docxId}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
               }
             } else {
               const isBold = childTag === "strong" || childTag === "b" || childEl.style.fontWeight === "bold";
               const isItalic = childTag === "em" || childTag === "i" || childEl.style.fontStyle === "italic";
-              const txt = (childEl.textContent || "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;");
-              pRuns += `<w:r><w:rPr>${isBold ? "<w:b/>" : ""}${isItalic ? "<w:i/>" : ""}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
+              const txt = escapeXmlText(childEl.textContent || "");
+              currentRuns += `<w:r><w:rPr>${isBold ? "<w:b/>" : ""}${isItalic ? "<w:i/>" : ""}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">${txt}</w:t></w:r>`;
             }
           }
         });
-        if (pRuns) {
-          bodyXml += `<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>${pRuns}</w:p>`;
+        if (currentRuns) {
+          bodyXml += `<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>${currentRuns}</w:p>`;
         }
       } else if (tag === "hr") {
         bodyXml += `<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E1"/></w:pPr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`;
@@ -429,6 +446,10 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
   };
 
   doc.body.childNodes.forEach(processNode);
+
+  if (!bodyXml.trim()) {
+    bodyXml = `<w:p><w:r><w:t xml:space="preserve">${escapeXmlText(title || "Document")}</w:t></w:r></w:p>`;
+  }
 
   zip.file(
     "[Content_Types].xml",
@@ -441,6 +462,8 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
   <Default Extension="jpg" ContentType="image/jpeg"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
+  <Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/>
 </Types>`
   );
 
@@ -454,7 +477,9 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
 
   let docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n`;
+  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
+  <Relationship Id="rIdFonts" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>\n`;
 
   mediaFiles.forEach((m) => {
     docRels += `  <Relationship Id="${m.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>\n`;
@@ -464,9 +489,31 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
   zip.file("word/_rels/document.xml.rels", docRels);
 
   zip.file(
+    "word/settings.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:defaultTabStop w:val="720"/>
+  <w:characterSpacingControl w:val="doNotCompress"/>
+</w:settings>`
+  );
+
+  zip.file(
+    "word/fontTable.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:fontTable xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:font w:name="Calibri">
+    <w:panose1 w:val="020F0502020204030204"/>
+    <w:charset w:val="00"/>
+    <w:family w:val="swiss"/>
+    <w:pitch w:val="variable"/>
+  </w:font>
+</w:fontTable>`
+  );
+
+  zip.file(
     "word/styles.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <w:docDefaults>
     <w:rPrDefault>
       <w:rPr>
@@ -476,12 +523,75 @@ const generateClientDocx = async (html: string, title: string): Promise<Blob> =>
         <w:lang w:val="en-US"/>
       </w:rPr>
     </w:rPrDefault>
+    <w:pPrDefault>
+      <w:pPr>
+        <w:spacing w:after="160" w:line="276" w:lineRule="auto"/>
+      </w:pPr>
+    </w:pPrDefault>
   </w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+    <w:qFormat/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/>
+    <w:basedOn w:val="Normal"/>
+    <w:next w:val="Normal"/>
+    <w:qFormat/>
+    <w:pPr>
+      <w:spacing w:before="240" w:after="120"/>
+    </w:pPr>
+    <w:rPr>
+      <w:b/>
+      <w:sz w:val="44"/>
+      <w:szCs w:val="44"/>
+      <w:color w:val="0F172A"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/>
+    <w:basedOn w:val="Normal"/>
+    <w:next w:val="Normal"/>
+    <w:qFormat/>
+    <w:pPr>
+      <w:spacing w:before="200" w:after="80"/>
+    </w:pPr>
+    <w:rPr>
+      <w:b/>
+      <w:sz w:val="34"/>
+      <w:szCs w:val="34"/>
+      <w:color w:val="1E293B"/>
+    </w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3">
+    <w:name w:val="heading 3"/>
+    <w:basedOn w:val="Normal"/>
+    <w:next w:val="Normal"/>
+    <w:qFormat/>
+    <w:pPr>
+      <w:spacing w:before="160" w:after="60"/>
+    </w:pPr>
+    <w:rPr>
+      <w:b/>
+      <w:sz w:val="28"/>
+      <w:szCs w:val="28"/>
+      <w:color w:val="334155"/>
+    </w:rPr>
+  </w:style>
 </w:styles>`
   );
 
   const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" 
+  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" 
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" 
+  xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
+  xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+  xmlns:v="urn:schemas-microsoft-com:vml"
+  xmlns:w10="urn:schemas-microsoft-com:office:word"
+  xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+  xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">
   <w:body>
     ${bodyXml}
     <w:sectPr>
@@ -6147,35 +6257,62 @@ export const Create: React.FC<CreateProps> = ({
             `<?xml version="1.0" encoding="UTF-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>\n  </rootfiles>\n</container>`
           );
 
-          let processedHtml = htmlContent;
-          const imgRegex = /src="(data:image\/([a-zA-Z0-9+]+);base64,([^"]+))"/g;
-          let imgIndex = 0;
+          const parser = new DOMParser();
+          const parsedDoc = parser.parseFromString(
+            `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${(storyTitle || "Document").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</title></head><body>${htmlContent}</body></html>`,
+            "text/html"
+          );
+          parsedDoc.querySelectorAll("script, style:not(head style)").forEach((el) => el.remove());
+
+          const imgElements = parsedDoc.querySelectorAll("img");
+          let imgIndex = 1;
           let manifestImages = "";
-          const imagesToAdd: { id: string; ext: string; b64: string }[] = [];
 
-          processedHtml = processedHtml.replace(imgRegex, (_, _fullDataUrl, ext, b64) => {
-            const id = `img_${imgIndex++}`;
-            const fileExt = ext.toLowerCase().includes("jpeg") ? "jpg" : ext.toLowerCase();
-            imagesToAdd.push({ id, ext: fileExt, b64 });
-            manifestImages += `    <item id="${id}" href="images/${id}.${fileExt}" media-type="image/${ext.toLowerCase()}"/>\n`;
-            return `src="images/${id}.${fileExt}"`;
-          });
+          for (let i = 0; i < imgElements.length; i++) {
+            const imgEl = imgElements[i] as HTMLImageElement;
+            const src = imgEl.getAttribute("src") || "";
+            let b64 = "";
+            let ext = "png";
 
-          imagesToAdd.forEach(({ id, ext, b64 }) => {
-            zip.file(`OEBPS/images/${id}.${ext}`, b64, { base64: true });
-          });
+            if (src.startsWith("data:image/")) {
+              const match = src.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+              if (match) {
+                ext = match[1].toLowerCase().includes("jpeg") || match[1].toLowerCase().includes("jpg") ? "jpg" : match[1].toLowerCase();
+                b64 = match[2].trim();
+              }
+            } else if (src.startsWith("blob:") || src.startsWith("http:") || src.startsWith("https:") || src.startsWith("/")) {
+              try {
+                const resp = await fetch(src);
+                const b = await resp.blob();
+                const reader = new FileReader();
+                const dataUrl = await new Promise<string>((res) => {
+                  reader.onloadend = () => res(reader.result as string);
+                  reader.readAsDataURL(b);
+                });
+                const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+                if (match) {
+                  ext = match[1].toLowerCase().includes("jpeg") || match[1].toLowerCase().includes("jpg") ? "jpg" : match[1].toLowerCase();
+                  b64 = match[2].trim();
+                }
+              } catch (e) {
+                console.warn("Failed reading image for EPUB export", e);
+              }
+            }
+
+            if (b64) {
+              const imgId = `img_${imgIndex}`;
+              const imgFileName = `image_${imgIndex}.${ext}`;
+              imgIndex++;
+              zip.file(`OEBPS/images/${imgFileName}`, b64, { base64: true });
+              const mimeType = ext === "jpg" ? "image/jpeg" : (ext === "png" ? "image/png" : `image/${ext}`);
+              manifestImages += `    <item id="${imgId}" href="images/${imgFileName}" media-type="${mimeType}"/>\n`;
+              imgEl.setAttribute("src", `images/${imgFileName}`);
+            }
+          }
 
           const docTitle = (storyTitle || "Story Document").trim();
           const safeTitle = docTitle.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           const safeFileName = docTitle.replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, "_") || "story";
-
-          // Parse and serialize strictly valid XHTML
-          const parser = new DOMParser();
-          const parsedDoc = parser.parseFromString(
-            `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${safeTitle}</title></head><body>${processedHtml}</body></html>`,
-            "text/html"
-          );
-          parsedDoc.querySelectorAll("script, style:not(head style)").forEach((el) => el.remove());
 
           const serializer = new XMLSerializer();
           let serializedBody = "";
@@ -6189,20 +6326,59 @@ export const Create: React.FC<CreateProps> = ({
             .replace(/<hr(?:\s*|\s+[^>]*)(?<!\/)>/gi, '<hr />')
             .replace(/<img(\s+[^>]*?)(?<!\/)>/gi, '<img$1 />');
 
+          const uid = "book-" + Date.now();
+          const modTime = new Date().toISOString().replace(/\.[0-9]+Z$/, "Z");
+
           const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="BookId">
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>${safeTitle}</dc:title>
     <dc:language>en</dc:language>
-    <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
+    <dc:identifier id="BookId">urn:uuid:${uid}</dc:identifier>
+    <meta property="dcterms:modified">${modTime}</meta>
   </metadata>
   <manifest>
+    <item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
 ${manifestImages}  </manifest>
-  <spine>
+  <spine toc="ncx">
     <itemref idref="chapter1"/>
   </spine>
 </package>`;
+
+          const navXhtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en">
+<head>
+  <title>Navigation</title>
+</head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>Table of Contents</h1>
+    <ol>
+      <li><a href="chapter1.xhtml">${safeTitle}</a></li>
+    </ol>
+  </nav>
+</body>
+</html>`;
+
+          const tocNcx = `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:${uid}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${safeTitle}</text></docTitle>
+  <navMap>
+    <navPoint id="navpoint-1" playOrder="1">
+      <navLabel><text>${safeTitle}</text></navLabel>
+      <content src="chapter1.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>`;
 
           const chapterXhtml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
@@ -6225,6 +6401,8 @@ ${manifestImages}  </manifest>
 </html>`;
 
           zip.file("OEBPS/content.opf", contentOpf);
+          zip.file("OEBPS/nav.xhtml", navXhtml);
+          zip.file("OEBPS/toc.ncx", tocNcx);
           zip.file("OEBPS/chapter1.xhtml", chapterXhtml);
 
           const blob = await zip.generateAsync({ type: "blob" });

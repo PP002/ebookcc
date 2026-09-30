@@ -40,10 +40,10 @@ function formatComicWithFlux(userPrompt: string, baseText?: string): string {
   const panel3Prompt = `Intense dramatic climax action, ${cleanPrompt}, powerful energy, cinematic angle, comic book panel, cel shaded, highly detailed`;
   const panel4Prompt = `Resolution aftermath scene, ${cleanPrompt}, heroic triumphant pose, atmospheric glowing lighting, comic illustration, vibrant`;
 
-  const p1Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel1Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
-  const p2Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel2Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
-  const p3Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel3Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
-  const p4Url = `https://image.pollinations.ai/prompt/${encodeURIComponent(panel4Prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+  const p1Url = `/api/ai/generate-image?prompt=${encodeURIComponent(panel1Prompt)}&width=1024&height=1024&seed=${seed}&quality=high`;
+  const p2Url = `/api/ai/generate-image?prompt=${encodeURIComponent(panel2Prompt)}&width=1024&height=1024&seed=${seed}&quality=high`;
+  const p3Url = `/api/ai/generate-image?prompt=${encodeURIComponent(panel3Prompt)}&width=1024&height=1024&seed=${seed}&quality=high`;
+  const p4Url = `/api/ai/generate-image?prompt=${encodeURIComponent(panel4Prompt)}&width=1024&height=1024&seed=${seed}&quality=high`;
 
   let response = `Here is your comic page generated with **Gemma + FLUX**:\n\n`;
   if (baseText && baseText.length > 25 && !baseText.includes("trouble connecting") && !baseText.includes("having trouble")) {
@@ -75,15 +75,7 @@ function formatComicWithFlux(userPrompt: string, baseText?: string): string {
 }
 
 const AgentImage: React.FC<{ src?: string; alt?: string; insertLabel: string }> = ({ src, alt, insertLabel }) => {
-  const [currentSrc, setCurrentSrc] = useState<string | undefined>(() => {
-    if (!src) return undefined;
-    if (src.startsWith('/api/')) {
-      const promptMatch = src.match(/prompt=([^&]+)/);
-      const promptVal = promptMatch ? promptMatch[1] : "comic%20scene";
-      return `https://image.pollinations.ai/prompt/${promptVal}?width=1024&height=1024&nologo=true&model=flux`;
-    }
-    return src;
-  });
+  const currentSrc = src;
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -102,12 +94,8 @@ const AgentImage: React.FC<{ src?: string; alt?: string; insertLabel: string }> 
           loading="lazy"
           onLoad={() => setIsLoading(false)}
           onError={() => {
-            if (src && currentSrc !== src) {
-              setCurrentSrc(src);
-            } else {
-              setHasError(true);
-              setIsLoading(false);
-            }
+            setHasError(true);
+            setIsLoading(false);
           }}
         />
       ) : (
@@ -346,11 +334,13 @@ export function AIAgentChat({
             "\n";
         }
 
+        const isVisualQuery = /(image|picture|photo|canvas|draw|screenshot|panel|look at|see this|ocr|transcribe|inspect)/i.test(userMessage.text);
+
         if (typeof (window as any).getComicCanvasContext === "function") {
           const panelsCtx = typeof (window as any).getComicPanelsContext === "function" ? (window as any).getComicPanelsContext() : "";
           if (panelsCtx) {
             autoContextText += "Current User Context: Working on a Comic Page.\n" + panelsCtx + "\n";
-            if (!userMessage.imageUrl) {
+            if (!userMessage.imageUrl && isVisualQuery) {
               const img = await (window as any).getComicCanvasContext();
               if (img) autoContextImage = img;
             }
@@ -383,7 +373,7 @@ export function AIAgentChat({
           document.querySelector('input[type="file"]');
         if (isConvert && !editor) {
           autoContextText += "Current User Context: In the Converter tool.\n";
-          if (!userMessage.imageUrl && !autoContextImage) {
+          if (!userMessage.imageUrl && !autoContextImage && isVisualQuery) {
             const activeImg = document.querySelector('img[src^="data:image"]');
             if (activeImg) {
               autoContextImage = (activeImg as HTMLImageElement).src;
@@ -517,7 +507,9 @@ Output the markdown text, FLUX images, and action links cleanly.`;
           const text = await res.text();
           if (text.trim().startsWith("{")) {
             const data = JSON.parse(text);
-            resultText = data.text || "";
+            resultText = data.text || data.response || data.candidates?.[0]?.content?.parts?.[0]?.text || data.content || "";
+          } else if (text.trim()) {
+            resultText = text.trim();
           }
         }
       } catch (err: any) {
@@ -530,7 +522,7 @@ Output the markdown text, FLUX images, and action links cleanly.`;
         if (isComicRequest) {
           resultText = formatComicWithFlux(userMessage.text);
         } else {
-          resultText = "I'm having trouble connecting to the AI backend right now. Please check your API key in Settings or try again shortly.";
+          resultText = `I have received your request for "${userMessage.text.slice(0, 50)}".\n\nYou can use the creator tools to generate comics or novel chapters directly:\n\n[🎨 Open Comic Creator](#action:generate-comic:${encodeURIComponent(userMessage.text)})\n[✒️ Open Story Writer](#action:generate-story:${encodeURIComponent(userMessage.text)})`;
         }
       } else if (isComicRequest && !resultText.includes("![") && !resultText.includes("<img")) {
         resultText = formatComicWithFlux(userMessage.text, resultText);

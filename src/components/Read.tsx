@@ -1052,15 +1052,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     const styleEl = doc.createElement('style');
     styleEl.id = 'custom-epub-override-style';
     styleEl.textContent = `
-      *, *::before, *::after {
-        background: transparent !important;
-        background-color: transparent !important;
-        background-image: none !important;
-      }
       html, body {
         background: transparent !important;
         background-color: transparent !important;
-        background-image: none !important;
         color: ${textColor} !important;
         font-family: ${fontFam} !important;
         font-size: ${fontSize}px !important;
@@ -1078,6 +1072,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       img, svg {
         max-width: 100% !important;
         height: auto !important;
+        display: block !important;
+        margin: 1.5rem auto !important;
       }
     `;
 
@@ -1089,7 +1085,64 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     } else if (doc.documentElement) {
       doc.documentElement.appendChild(styleEl);
     }
-  }, [theme, resolvedTheme, fontSize, fontFamily, textAlign]);
+
+    // Direct Image Resolver: Ensure all <img> and SVG <image> tags have valid blob/data URLs from the EPUB archive
+    try {
+      const imgs = doc.querySelectorAll('img, image');
+      if (imgs.length > 0) {
+        const getBuffer = async (): Promise<ArrayBuffer | null> => {
+          if (selectedBook?.fileBuffer) return selectedBook.fileBuffer;
+          if (selectedBook?.file) {
+            try {
+              return await selectedBook.file.arrayBuffer();
+            } catch {
+              return null;
+            }
+          }
+          return null;
+        };
+
+        getBuffer().then((buf) => {
+          if (!buf) return;
+          const zip = new JSZip();
+          zip.loadAsync(buf).then((loadedZip) => {
+            imgs.forEach(async (el: Element) => {
+              const img = el as HTMLImageElement;
+              const rawSrc = img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href') || '';
+              if (rawSrc && !rawSrc.startsWith('blob:') && !rawSrc.startsWith('data:')) {
+                const cleanTarget = rawSrc.replace(/^(\.\.\/|\.\/|\/)/, '').toLowerCase();
+                const targetFileName = cleanTarget.split('/').pop() || '';
+                const zipKey = Object.keys(loadedZip.files).find((k) => {
+                  const lowerK = k.toLowerCase();
+                  return (
+                    lowerK === cleanTarget ||
+                    lowerK.endsWith('/' + cleanTarget) ||
+                    lowerK.endsWith(cleanTarget) ||
+                    (targetFileName && lowerK.endsWith('/' + targetFileName)) ||
+                    (targetFileName && lowerK.endsWith(targetFileName))
+                  );
+                });
+                if (zipKey && loadedZip.files[zipKey]) {
+                  const blob = await loadedZip.files[zipKey].async('blob');
+                  const blobUrl = URL.createObjectURL(blob);
+                  if (img.tagName.toLowerCase() === 'image') {
+                    img.setAttribute('href', blobUrl);
+                    img.setAttribute('xlink:href', blobUrl);
+                  } else {
+                    img.src = blobUrl;
+                  }
+                  img.style.setProperty('display', 'block', 'important');
+                  img.style.setProperty('max-width', '100%', 'important');
+                  img.style.setProperty('height', 'auto', 'important');
+                  img.style.setProperty('margin', '1.5rem auto', 'important');
+                }
+              }
+            });
+          }).catch(() => {});
+        });
+      }
+    } catch (_) {}
+  }, [theme, resolvedTheme, fontSize, fontFamily, textAlign, selectedBook?.fileBuffer, selectedBook?.file]);
 
   useEffect(() => {
     applyEpubThemeStylesRef.current = applyEpubThemeStyles;
@@ -2062,10 +2115,51 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         try {
           const arrayBuffer = await file.arrayBuffer();
           const mammoth = await import('mammoth');
-          const result = await mammoth.extractRawText({ arrayBuffer });
-          pages = [result.value];
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          if (result && result.value && result.value.trim()) {
+            pages = [result.value];
+          } else {
+            throw new Error("Mammoth returned empty content");
+          }
         } catch (e) {
-          pages = ["Failed to read DOCX file"];
+          console.warn("[Read] Mammoth convertToHtml error, attempting fallback:", e);
+          try {
+            const zip = new JSZip();
+            const loaded = await zip.loadAsync(file);
+            const docXml = await loaded.file("word/document.xml")?.async("text");
+            if (docXml) {
+              const parser = new DOMParser();
+              const xmlDoc = parser.parseFromString(docXml, "application/xml");
+              const ps = xmlDoc.getElementsByTagName("w:p");
+              let html = "";
+              for (let i = 0; i < ps.length; i++) {
+                const p = ps[i];
+                const texts = p.getElementsByTagName("w:t");
+                let line = "";
+                for (let j = 0; j < texts.length; j++) {
+                  line += texts[j].textContent || "";
+                }
+                if (line.trim()) {
+                  const pStyle = p.getElementsByTagName("w:pStyle")[0]?.getAttribute("w:val");
+                  const safeLine = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                  if (pStyle === "Heading1" || pStyle === "heading 1") {
+                    html += `<h1 style="font-size: 1.75rem; font-weight: bold; margin: 1rem 0;">${safeLine}</h1>\n`;
+                  } else if (pStyle === "Heading2" || pStyle === "heading 2") {
+                    html += `<h2 style="font-size: 1.4rem; font-weight: bold; margin: 0.8rem 0;">${safeLine}</h2>\n`;
+                  } else if (pStyle === "Heading3" || pStyle === "heading 3") {
+                    html += `<h3 style="font-size: 1.2rem; font-weight: bold; margin: 0.6rem 0;">${safeLine}</h3>\n`;
+                  } else {
+                    html += `<p style="margin-bottom: 0.8rem; line-height: 1.6;">${safeLine}</p>\n`;
+                  }
+                }
+              }
+              pages = [html || "<p>Empty Document</p>"];
+            } else {
+              pages = ["<p>Failed to read DOCX file</p>"];
+            }
+          } catch {
+            pages = ["<p>Failed to read DOCX file</p>"];
+          }
         }
       } else {
         try {

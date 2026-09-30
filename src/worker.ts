@@ -81,9 +81,10 @@ export interface Env {
   AI?: {
     run: (model: string, inputs: any, options?: any) => Promise<any>;
   };
+  ebookcckv?: KVNamespace;
   CACHE?: KVNamespace;
-  MEDIA_BUCKET?: R2Bucket;
   MEDIA?: R2Bucket;
+  MEDIA_BUCKET?: R2Bucket;
   ASSETS?: {
     fetch: (request: Request) => Promise<Response>;
   };
@@ -1584,8 +1585,9 @@ export default {
         }
 
         // Optimization: KV Cache lookup for OCR
+        const cacheKV = env.ebookcckv || env.CACHE;
         const ocrCacheKey = `ocr:${await sha256(imageUrl + prompt)}`;
-        const cached = await env.CACHE?.get(ocrCacheKey);
+        const cached = await cacheKV?.get(ocrCacheKey);
         if (cached) {
           return jsonResponse({
             ...makeGeminiCandidatesResponse(cached),
@@ -1629,7 +1631,7 @@ export default {
 
         // Store in KV cache (24h TTL)
         if (extractedText) {
-          await env.CACHE?.put(ocrCacheKey, extractedText, { expirationTtl: 86400 }).catch(() => {});
+          await cacheKV?.put(ocrCacheKey, extractedText, { expirationTtl: 86400 }).catch(() => {});
         }
 
         return jsonResponse(makeGeminiCandidatesResponse(extractedText));
@@ -1656,8 +1658,9 @@ export default {
         }
 
         // Optimization: KV Cache lookup for translation
+        const cacheKV = env.ebookcckv || env.CACHE;
         const translateCacheKey = `tr:${await sha256(text + targetLang + (sourceLang || ""))}`;
-        const cachedTr = await env.CACHE?.get(translateCacheKey);
+        const cachedTr = await cacheKV?.get(translateCacheKey);
         if (cachedTr) {
           return jsonResponse({
             ...makeGeminiCandidatesResponse(cachedTr),
@@ -1698,7 +1701,7 @@ export default {
 
         // Store in KV cache (24h TTL)
         if (translation) {
-          await env.CACHE?.put(translateCacheKey, translation.trim(), { expirationTtl: 86400 }).catch(() => {});
+          await cacheKV?.put(translateCacheKey, translation.trim(), { expirationTtl: 86400 }).catch(() => {});
         }
 
         return jsonResponse({

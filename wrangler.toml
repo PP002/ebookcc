@@ -8,18 +8,19 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "ebookcc-media"
+[ai]
+binding = "AI"
+
+[[kv_namespaces]]
+binding = "ebookcckv"
+id = "57aefa6f707a4863b9badff99ec607b4"
 
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "ebookcc-media"
 
-[ai]
-binding = "AI"
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "ebookcc-media"
 
-[[kv_namespaces]]
-binding = "CACHE"
-id = "ebookcc_cache"
 

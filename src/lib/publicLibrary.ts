@@ -490,17 +490,17 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     download_count: 886986,
   },
   {
-    id: 'archive-WaltDisneysComicsandStories-193-Vol17No01-Oct1956',
-    identifier: 'WaltDisneysComicsandStories-193-Vol17No01-Oct1956',
-    title: "Walt Disney's Comics and Stories #193",
-    author: 'Carl Barks & Disney Artists',
-    cover_url: 'https://archive.org/download/WaltDisneysComicsandStories-193-Vol17No01-Oct1956/page/n0_medium.jpg',
+    id: 'archive-20210523_20210523_0901',
+    identifier: '20210523_20210523_0901',
+    title: 'Invincible: Ultimate Collection',
+    author: 'Robert Kirkman & Ryan Ottley',
+    cover_url: 'https://archive.org/download/20210523_20210523_0901/page/n0_medium.jpg',
     content_type: 'comic',
-    resource_url: 'https://archive.org/download/WaltDisneysComicsandStories-193-Vol17No01-Oct1956/page/n0.jpg',
-    total_pages: 37,
-    description: 'Vintage golden-age comic magazine with classic Donald Duck and Mickey Mouse stories.',
+    resource_url: 'https://archive.org/download/20210523_20210523_0901/page/n0.jpg',
+    total_pages: 56,
+    description: 'The celebrated superhero epic following Mark Grayson as he inherits superhuman abilities and faces cosmic threats.',
     source: 'archive',
-    download_count: 2450,
+    download_count: 709017,
   }
 ];
 

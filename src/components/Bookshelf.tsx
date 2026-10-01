@@ -893,6 +893,7 @@ export function Bookshelf({
 
   const handleOpenBook = (book: PublishedItem | PublicBookItem) => {
     const payload: PublishedItem = {
+      ...(book as any),
       id: book.id,
       title: book.title,
       author: book.author,
@@ -903,12 +904,30 @@ export function Bookshelf({
       resource_url: (book as any).resource_url,
       identifier: (book as any).identifier,
       description: (book as any).description || '',
+      content: (book as any).content || '',
+      pages: (book as any).pages || [],
       total_pages: (book as any).total_pages,
       source: (book as any).source,
       timestamp: (book as any).timestamp || Date.now(),
     };
 
-    sessionStorage.setItem("ebookcc_open_read_item", JSON.stringify(payload));
+    try {
+      sessionStorage.setItem("ebookcc_open_read_id", payload.id);
+      sessionStorage.setItem("ebookcc_open_read_type", payload.type);
+      sessionStorage.setItem("ebookcc_open_read_item", JSON.stringify(payload));
+    } catch (_) {
+      try {
+        sessionStorage.setItem("ebookcc_open_read_id", payload.id);
+        sessionStorage.setItem("ebookcc_open_read_type", payload.type);
+      } catch (_) {}
+    }
+
+    // Trigger instant open in Reader component if already mounted
+    try {
+      window.dispatchEvent(new CustomEvent("ebookcc-open-book-trigger", {
+        detail: { type: payload.type, id: payload.id, item: payload }
+      }));
+    } catch (_) {}
 
     if (onOpenInReader) {
       onOpenInReader(payload.type, payload.id);

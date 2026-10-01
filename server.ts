@@ -725,11 +725,15 @@ async function startServer() {
         headers["Range"] = req.headers.range as string;
       }
 
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+
       const upstreamRes = await fetch(parsedUrl.toString(), {
         method: req.method === "HEAD" ? "HEAD" : "GET",
         headers,
         redirect: "follow",
-      });
+        signal: controller.signal
+      }).finally(() => clearTimeout(timer));
 
       res.status(upstreamRes.status);
       res.header("Access-Control-Allow-Origin", "*");
@@ -737,6 +741,16 @@ async function startServer() {
       res.header("Access-Control-Allow-Headers", "*");
       res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
       res.header("Cache-Control", "public, max-age=86400");
+      // Explicitly ensure no cookies are ever set or leaked across origins
+      res.removeHeader("Set-Cookie");
+
+      if (!upstreamRes.ok) {
+        console.warn(`[Library Proxy] Upstream returned status ${upstreamRes.status} for ${fileUrl}`);
+        return res.status(upstreamRes.status).json({
+          error: `Upstream error ${upstreamRes.status}`,
+          url: fileUrl
+        });
+      }
 
       const headersToForward = [
         "content-type",
@@ -1239,23 +1253,24 @@ async function startServer() {
       fs.mkdirSync(path.dirname(localJsonPath), { recursive: true });
       fs.writeFileSync(localJsonPath, jsonBuffer);
 
-      try {
-        await safeS3Send(s3, new PutObjectCommand({
-          Bucket: bucket,
-          Key: jsonKey,
-          Body: jsonBuffer,
-          ContentType: "application/json"
-        }), 30000);
-        console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
-      } catch (r2SaveErr: any) {
-        console.error(`[R2] Save published work JSON to R2 bucket failed:`, r2SaveErr.message);
-        throw new Error(`Failed writing published work manifest to R2: ${r2SaveErr.message}`);
+      if (isConfigured && s3) {
+        try {
+          await safeS3Send(s3, new PutObjectCommand({
+            Bucket: bucket,
+            Key: jsonKey,
+            Body: jsonBuffer,
+            ContentType: "application/json"
+          }), 30000);
+          console.log(`[R2] Published work JSON stored in R2 bucket "${bucket}": ${jsonKey}`);
+        } catch (r2SaveErr: any) {
+          console.warn(`[R2] Save published work JSON to R2 bucket failed (preserved locally):`, r2SaveErr.message);
+        }
       }
 
       return res.json({
         success: true,
         item: cleanedItem,
-        message: `Published "${cleanedItem.title || 'work'}" successfully to R2 media storage (${bucket})!`
+        message: `Published "${cleanedItem.title || 'work'}" successfully!`
       });
     } catch (e: any) {
       console.error("[API /api/published-works POST] Error:", e);
@@ -1403,6 +1418,25 @@ async function startServer() {
           const item = JSON.parse(raw);
           if (item && item.id) {
             return res.json({ success: true, work: item, source: "local" });
+          }
+        } catch (_) {}
+      }
+
+      // Scan local published_works directory for matching id
+      const pubDir = path.join(LOCAL_MEDIA_DIR, "published_works");
+      if (fs.existsSync(pubDir)) {
+        try {
+          const files = fs.readdirSync(pubDir);
+          for (const f of files) {
+            if (f.endsWith(".json")) {
+              try {
+                const raw = fs.readFileSync(path.join(pubDir, f), "utf-8");
+                const item = JSON.parse(raw);
+                if (item && (String(item.id) === String(req.params.id) || String(item.id) === workId)) {
+                  return res.json({ success: true, work: item, source: "local" });
+                }
+              } catch (_) {}
+            }
           }
         } catch (_) {}
       }

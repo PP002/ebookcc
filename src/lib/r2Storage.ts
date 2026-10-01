@@ -1,6 +1,7 @@
 import { getApiUrl } from '@/lib/api';
 import { getSupabase } from '@/context/AppSettingsContext';
 import { AwsClient } from 'aws4fetch';
+import { get, set, del } from 'idb-keyval';
 
 export interface R2Config {
   r2AccessKeyId?: string;
@@ -631,6 +632,11 @@ export async function publishWorkToR2(
     safeSetPublishedCache(filtered);
   } catch (_) {}
 
+  // Save the full, unpruned item to IndexedDB for permanent local fidelity
+  try {
+    await savePublishedWorkLocally(cleanedItem);
+  } catch (_) {}
+
   if (onProgress) onProgress(100, "Published successfully!");
 
   return {
@@ -640,8 +646,57 @@ export async function publishWorkToR2(
   };
 }
 
+/**
+ * Permanently save a published work (full HTML novel content or complete comic pages/bubbles/drawings)
+ * into IndexedDB so it is never lost or pruned by localStorage quotas.
+ */
+export async function savePublishedWorkLocally(item: any): Promise<void> {
+  if (!item || !item.id) return;
+  try {
+    const key = `ebookcc_pub_${item.id}`;
+    await set(key, item);
+    const idsKey = 'ebookcc_all_pub_ids';
+    const existingIds: string[] = (await get(idsKey)) || [];
+    if (!existingIds.includes(String(item.id))) {
+      existingIds.push(String(item.id));
+      await set(idsKey, existingIds);
+    }
+  } catch (err) {
+    console.warn("Failed saving full published work to IndexedDB:", err);
+  }
+}
+
+/**
+ * Retrieve a full published work from IndexedDB.
+ */
+export async function getPublishedWorkLocally(id: string): Promise<any | null> {
+  if (!id) return null;
+  try {
+    const key = `ebookcc_pub_${id}`;
+    const direct = await get(key);
+    if (direct && direct.id) return direct;
+
+    const normalizedKey = `ebookcc_pub_${String(id).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    const normalized = await get(normalizedKey);
+    if (normalized && normalized.id) return normalized;
+  } catch (_) {}
+  return null;
+}
+
 export function safeSetPublishedCache(items: any[]) {
   if (!Array.isArray(items)) return;
+
+  // Before pruning for localStorage quota limits, preserve any full creator works in IndexedDB!
+  items.forEach(item => {
+    if (item && item.id && !String(item.id).startsWith("gutenberg-") && !String(item.id).startsWith("archive-")) {
+      const hasContent = typeof item.content === 'string' && item.content.trim().length > 0;
+      const hasPages = Array.isArray(item.pages) && item.pages.length > 0;
+      if (hasContent || hasPages) {
+        savePublishedWorkLocally(item).catch(() => {});
+      }
+    }
+  });
+
   try {
     // 1. Sanitize heavy base64 or deep comic page drawings
     const sanitized = items.map(item => {
@@ -847,7 +902,20 @@ export async function fetchSinglePublishedWork(
   const cleanId = String(id || "").trim();
   if (!cleanId) return null;
 
-  // 1. Network First: Server R2 API
+  // 1. Local IndexedDB Cache: Instant retrieval of full work (100% complete pages, tree, full HTML)
+  try {
+    const localFull = await getPublishedWorkLocally(cleanId);
+    if (localFull) {
+      const isNovel = localFull.type === 'novel' || localFull.content_type === 'novel';
+      const hasFullNovel = isNovel && typeof localFull.content === 'string' && localFull.content.trim().length > 0;
+      const hasFullComic = !isNovel && Array.isArray(localFull.pages) && localFull.pages.length > 0;
+      if (hasFullNovel || hasFullComic) {
+        return localFull;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Network First: Server R2 API
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
@@ -867,12 +935,13 @@ export async function fetchSinglePublishedWork(
     if (res.ok) {
       const data = await res.json();
       if (data && data.work) {
+        savePublishedWorkLocally(data.work).catch(() => {});
         return data.work;
       }
     }
   } catch (_) {}
 
-  // 2. Network: Supabase table
+  // 3. Network: Supabase table
   const supabase = getActiveSupabaseClient();
   if (supabase) {
     try {
@@ -883,18 +952,22 @@ export async function fetchSinglePublishedWork(
         .maybeSingle();
 
       if (!error && data) {
+        savePublishedWorkLocally(data).catch(() => {});
         return data;
       }
     } catch (_) {}
   }
 
-  // 3. Fallback: Local storage cache
+  // 4. Fallback: Local storage cache
   try {
     const raw = localStorage.getItem("ebookcc_published_items") || "[]";
     const localItems = JSON.parse(raw);
     if (Array.isArray(localItems)) {
       const found = localItems.find((w: any) => w && (String(w.id) === cleanId || String(w.id).replace(/[^a-zA-Z0-9_-]/g, "_") === cleanId));
-      if (found) return found;
+      if (found) {
+        savePublishedWorkLocally(found).catch(() => {});
+        return found;
+      }
     }
   } catch (_) {}
 

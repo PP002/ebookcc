@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -582,6 +582,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [recentBooks, setRecentBooks] = useState<RecentBookMetadata[]>([]);
   const [isDownloadingEpub, setIsDownloadingEpub] = useState(false);
   const [epubDownloadError, setEpubDownloadError] = useState<string | null>(null);
+  const epubZipCacheRef = React.useRef<{ key: string; zip: any } | null>(null);
 
   // Download remote EPUB as ArrayBuffer to bypass epubjs directory/extension detection failures
   useEffect(() => {
@@ -592,24 +593,79 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
       const downloadBook = async () => {
         try {
-          const fetchTarget = selectedBook.streamUrl!;
-          let response = await fetch(fetchTarget);
-          
-          if (!response.ok && selectedBook.id.startsWith('gutenberg-')) {
+          // Check local IndexedDB offline cache first
+          try {
+            const cachedFull = await getFullBookFile(selectedBook.id);
+            if (cachedFull?.fileBuffer && isSubscribed) {
+              setSelectedBook(prev => prev ? { ...prev, fileBuffer: cachedFull.fileBuffer } : null);
+              setIsDownloadingEpub(false);
+              return;
+            }
+          } catch (_) {}
+
+          // Prioritized list of fetch targets
+          const targets: string[] = [];
+          if (selectedBook.streamUrl) {
+            targets.push(selectedBook.streamUrl);
+          }
+          if (selectedBook.id.startsWith('gutenberg-')) {
             const rawId = selectedBook.id.replace('gutenberg-', '');
-            // Try direct static cache pg{id}.epub via proxy
-            const fallbackTarget = `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`)}`;
-            response = await fetch(fallbackTarget);
+            const epubs = [
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`)}`,
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}-images-3.epub`)}`,
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/ebooks/${rawId}.epub3.images`)}`,
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/ebooks/${rawId}.epub.noimages`)}`,
+              `/api/library/proxy?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`)}`
+            ];
+            for (const ep of epubs) {
+              if (!targets.includes(ep)) targets.push(ep);
+            }
           }
 
-          if (!response.ok) {
-            throw new Error(`Failed to load book from library (status ${response.status})`);
+          let arrayBuffer: ArrayBuffer | null = null;
+          let lastError: any = null;
+
+          for (const target of targets) {
+            try {
+              const response = await fetch(target);
+              if (!response.ok) {
+                lastError = new Error(`HTTP ${response.status}`);
+                continue;
+              }
+
+              const buf = await response.arrayBuffer();
+              const bytes = new Uint8Array(buf);
+              // Validate ZIP magic bytes: 0x50, 0x4B ('P', 'K')
+              if (bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
+                arrayBuffer = buf;
+                break;
+              } else {
+                lastError = new Error("Response was not a valid EPUB ZIP file");
+              }
+            } catch (err: any) {
+              lastError = err;
+            }
           }
 
-          const arrayBuffer = await response.arrayBuffer();
+          if (!arrayBuffer) {
+            throw lastError || new Error("Failed to load book from library");
+          }
+
           if (isSubscribed) {
-            setSelectedBook(prev => prev ? { ...prev, fileBuffer: arrayBuffer } : null);
+            setSelectedBook(prev => prev ? { ...prev, fileBuffer: arrayBuffer! } : null);
             setIsDownloadingEpub(false);
+            // Cache downloaded EPUB into IndexedDB for persistent offline retrieval
+            try {
+              await saveRecentBook({
+                id: selectedBook.id,
+                title: selectedBook.title,
+                author: selectedBook.author || "Project Gutenberg",
+                cover: selectedBook.cover,
+                fileType: "epub",
+                pages: [],
+                fileBuffer: arrayBuffer!,
+              }, 0, 0);
+            } catch (_) {}
           }
         } catch (err: any) {
           console.error("EPUB download error:", err);
@@ -842,54 +898,62 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             } catch (_) {}
           }
 
-          if (!book && triggerId) {
-            // Network-First: query server R2 / cloud first for the latest version of the book
+          const targetId = triggerId || (book && book.id);
+          const isCreatorWork = targetId && !targetId.startsWith('archive-') && !targetId.startsWith('gutenberg-');
+
+          // For creator published works, guarantee full content (for novel) and full pages (for comic)
+          if (isCreatorWork) {
+            // First check IndexedDB / Server for the authoritative, unpruned published work
             try {
-              book = await fetchSinglePublishedWork(triggerId);
+              const fullWork = await fetchSinglePublishedWork(targetId);
+              if (fullWork) {
+                book = { ...(book || {}), ...fullWork };
+              }
             } catch (_) {}
 
-            if (!book) {
+            if (!book?.content && (!Array.isArray(book?.pages) || book.pages.length === 0)) {
               try {
                 const r2WorksRes = await fetchPublishedWorksFromR2();
                 if (r2WorksRes?.works && Array.isArray(r2WorksRes.works)) {
-                  book = r2WorksRes.works.find((item: any) => item.id === triggerId);
+                  const found = r2WorksRes.works.find((item: any) => item.id === targetId);
+                  if (found) book = { ...(book || {}), ...found };
                 }
               } catch (_) {}
             }
 
-            // Fallback to local storage cache if network is offline or unreached
-            if (!book) {
+            if (!book?.content && (!Array.isArray(book?.pages) || book.pages.length === 0)) {
               try {
                 const pub = JSON.parse(localStorage.getItem("ebookcc_published_items") || "[]");
-                book = pub.find((item: any) => item.id === triggerId);
+                const found = pub.find((item: any) => item.id === targetId);
+                if (found) book = { ...(book || {}), ...found };
               } catch (_) {}
             }
+          }
 
+          if (!book && triggerId) {
             // Public domain direct fallback by ID
-            if (!book && triggerId) {
-              if (triggerId.startsWith('archive-')) {
-                const archiveId = triggerId.replace('archive-', '');
-                book = {
-                  id: triggerId,
-                  identifier: archiveId,
-                  title: archiveId.replace(/[-_]/g, ' '),
-                  author: 'Internet Archive Comics',
-                  content_type: 'comic',
-                  type: 'comic',
-                  source: 'archive',
-                };
-              } else if (triggerId.startsWith('gutenberg-')) {
-                const rawId = triggerId.replace('gutenberg-', '');
-                book = {
-                  id: triggerId,
-                  title: `Gutenberg Book #${rawId}`,
-                  author: 'Project Gutenberg',
-                  content_type: 'epub',
-                  type: 'novel',
-                  source: 'gutenberg',
-                  resource_url: `https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`,
-                };
-              }
+            if (triggerId.startsWith('archive-')) {
+              const archiveId = triggerId.replace('archive-', '');
+              book = {
+                id: triggerId,
+                identifier: archiveId,
+                title: archiveId.replace(/[-_]/g, ' '),
+                author: 'Internet Archive Comics',
+                content_type: 'comic',
+                type: 'comic',
+                source: 'archive',
+              };
+            } else if (triggerId.startsWith('gutenberg-')) {
+              const rawId = triggerId.replace('gutenberg-', '');
+              book = {
+                id: triggerId,
+                title: `Gutenberg Book #${rawId}`,
+                author: 'Project Gutenberg',
+                content_type: 'epub',
+                type: 'novel',
+                source: 'gutenberg',
+                resource_url: `https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`,
+              };
             }
           }
 
@@ -970,29 +1034,33 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             }
 
             // 3. NOVEL / TEXT
-            if (triggerType === "novel" || book.type === "novel") {
+            if (triggerType === "novel" || book.type === "novel" || book.content_type === "novel") {
+              const novelContent = book.content || (Array.isArray(book.pages) && typeof book.pages[0] === 'string' ? book.pages[0] : "") || book.description || "";
               setSelectedBook({
                 id: book.id,
                 title: book.title,
                 author: book.author || "Creative Publisher",
-                cover: book.cover || "",
+                cover: book.cover || book.cover_url || "",
                 chapters: 1,
                 rating: 5,
                 fileType: "text",
-                pages: [book.content || ""],
+                pages: [novelContent],
                 isBookshelf: true,
               });
               setCurrentPage(0);
             } else {
               // 4. CREATOR ORIGINAL COMIC
-              const pagesList = Array.isArray(book.pages) && book.pages.length > 0 
+              let pagesList = Array.isArray(book.pages) && book.pages.length > 0 
                 ? book.pages 
-                : (book.cover ? [{ cover: book.cover }] : []);
+                : [];
+              if (pagesList.length === 0 && (book.cover || book.cover_url)) {
+                pagesList = [{ cover: book.cover || book.cover_url, image: book.cover || book.cover_url }];
+              }
               setSelectedBook({
                 id: book.id,
                 title: book.title,
                 author: book.author || "Creative Publisher",
-                cover: book.cover || "",
+                cover: book.cover || book.cover_url || "",
                 chapters: 1,
                 rating: 5,
                 fileType: "comic",
@@ -1009,6 +1077,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     };
 
     loadFromBookshelf();
+
+    const handleOpenTrigger = () => {
+      loadFromBookshelf();
+    };
+    window.addEventListener("ebookcc-open-book-trigger", handleOpenTrigger);
+    return () => {
+      window.removeEventListener("ebookcc-open-book-trigger", handleOpenTrigger);
+    };
   }, []);
 
   // Sliding window cache: N+1 & N+2 pre-loader for stream-based reading
@@ -1626,15 +1702,32 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   }, [containerSize.width, containerSize.height, isPagedDoc]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [failedThumbnails, setFailedThumbnails] = useState<Record<number, boolean>>({});
+  const [imageLoadErrors, setImageLoadErrors] = useState<Record<number, boolean>>({});
+  const [pageOrientationMap, setPageOrientationMap] = useState<Record<string | number, 'portrait' | 'landscape'>>({});
 
+  // Reset state on book change
   useEffect(() => {
-    if (isSidebarOpen && !isFullscreen) {
-      const el = document.getElementById(`thumb-${currentPage}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
+    setFailedThumbnails({});
+    setImageLoadErrors({});
+    setPageOrientationMap({});
+  }, [selectedBook?.id]);
+
+  // Auto follow active thumbnail in sidebar while flipping pages or when sidebar is opened
+  useEffect(() => {
+    if (isSidebarOpen) {
+      const scrollActiveThumb = () => {
+        const el = document.getElementById(`thumb-${currentPage}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      };
+
+      scrollActiveThumb();
+      const timer = setTimeout(scrollActiveThumb, 80);
+      return () => clearTimeout(timer);
     }
-  }, [currentPage, isSidebarOpen, isFullscreen]);
+  }, [currentPage, isSidebarOpen]);
 
   const [pageInputValue, setPageInputValue] = useState("");
   
@@ -2444,13 +2537,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               <div className="flex items-center gap-0.5 shrink-0 z-10">
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="sm"
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="h-8 w-8 p-0 border-0 bg-transparent hover:bg-muted text-foreground shrink-0 select-none shadow-none focus-visible:ring-0 transition-all"
+                  className="h-8 px-2 font-mono font-black text-xs bg-transparent text-primary border-none shadow-none hover:bg-transparent shrink-0 select-none hover:scale-105 active:scale-95 transition-all"
                   title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
                 >
-                  {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+                  P{selectedBook.fileType === 'epub' ? (epubCurrentPage || 1) : (currentPage + 1)}
                 </Button>
+                <div className="w-px h-5 bg-border mx-0.5 shrink-0" />
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -2759,8 +2853,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           >
                             <div className="w-full h-full flex flex-col items-center justify-center bg-white p-2 text-center pointer-events-none">
                               <BookOpen className="w-5 h-5 text-muted-foreground/50 mb-1" />
-                              <span className="text-[10px] font-bold text-foreground">
-                                {t("page")} {idx + 1}
+                              <span className="text-[11px] font-bold text-foreground font-mono">
+                                P{idx + 1}
                               </span>
                             </div>
                             <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
@@ -2841,20 +2935,24 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               <div className="absolute inset-0 bg-white flex items-center justify-center p-[2px] pointer-events-none overflow-hidden select-none">
                                 <ComicTreeNodeView node={p.tree} />
                               </div>
-                            ) : thumbUrl ? (
+                            ) : thumbUrl && !failedThumbnails[idx] ? (
                               <img 
                                 src={thumbUrl} 
                                 className="w-full h-full object-cover bg-white pointer-events-none select-none" 
-                                alt={`Thumb ${idx + 1}`}
+                                alt={`P${idx + 1}`}
+                                onError={() => setFailedThumbnails(prev => ({ ...prev, [idx]: true }))}
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <div className="text-[10px] font-medium text-muted-foreground p-1 text-center bg-white w-full h-full flex items-center justify-center">
-                                {t("page")} {idx + 1}
+                              <div className="w-full h-full flex flex-col items-center justify-center bg-muted/30 p-2 text-center select-none pointer-events-none">
+                                <BookOpen className="w-4 h-4 text-muted-foreground/40 mb-1" />
+                                <span className="text-[11px] font-bold text-foreground font-mono">
+                                  P{idx + 1}
+                                </span>
                               </div>
                             )}
                             {/* Page Label Tag P1, P2... */}
-                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
+                            <div className="absolute bottom-1 left-1 bg-foreground/90 backdrop-blur-xs text-background text-[8px] font-bold px-1.5 py-0.5 rounded-none min-w-[16px] text-center z-10 font-mono shadow-xs">
                               P{idx + 1}
                             </div>
                             {panelsCache[idx] && (
@@ -2878,17 +2976,17 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               onDoubleClick={toggleFullscreenSafe}
               className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center bg-background"
             >
-              {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books) */}
+              {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books: 1/4 screen width each) */}
               {isTouchDevice() && !isReflowTextBook && (
                 <>
                   <div 
-                    className="absolute inset-y-0 left-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                    className="absolute inset-y-0 left-0 w-1/4 z-20 cursor-pointer" 
                     onClick={handleLeftClick} 
                     onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
                     title={readingDirection === 'rtl' ? t("nextPage") : t("previousPage")} 
                   />
                   <div 
-                    className="absolute inset-y-0 right-0 w-1/4 sm:w-1/3 z-20 cursor-pointer" 
+                    className="absolute inset-y-0 right-0 w-1/4 z-20 cursor-pointer" 
                     onClick={handleRightClick} 
                     onDoubleClick={(e) => { e.stopPropagation(); toggleFullscreenSafe(); }} 
                     title={readingDirection === 'rtl' ? t("previousPage") : t("nextPage")} 
@@ -2916,7 +3014,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 )}>
                   {selectedBook.fileType === 'epub' && (selectedBook.streamUrl || selectedBook.fileBuffer || selectedBook.file) ? (
                     <div className="absolute inset-0 z-0 bg-transparent reader-epub-container">
-                      {isDownloadingEpub && (
+                      {(isDownloadingEpub || (!selectedBook.fileBuffer && !selectedBook.file && !epubDownloadError)) && (
                         <div className="absolute inset-0 z-30 bg-background/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center">
                           <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
                           <p className="text-sm font-semibold text-foreground">Loading Book from Project Gutenberg...</p>
@@ -2949,10 +3047,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           </div>
                         </div>
                       )}
-                      <EpubView
-                        url={selectedBook.fileBuffer || selectedBook.streamUrl || (selectedBook.file as any)}
-                        location={location}
-                        locationChanged={(epubcition: string) => {
+                      {(selectedBook.fileBuffer || selectedBook.file) && !isDownloadingEpub && (
+                        <EpubView
+                          key={`epub-${selectedBook.id}-${selectedBook.fileBuffer ? 'buffer' : 'file'}`}
+                          url={selectedBook.fileBuffer || (selectedBook.file as any)}
+                          location={location}
+                          locationChanged={(epubcition: string) => {
                           setLocation(epubcition);
                           if (renditionRef.current && renditionRef.current.location) {
                             setEpubCurrentPage(renditionRef.current.location.start.location);
@@ -3048,18 +3148,20 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             // On desktop browsers or when selecting text, do not flip page
                             if (!isTouchDevice() || hasTextSelection()) return;
                             const width = e.view ? e.view.innerWidth : window.innerWidth;
-                            if (e.clientX > width / 2) {
-                              if (readingDirection === 'rtl') rendition.prev();
-                              else rendition.next();
-                            } else {
+                            const quarterWidth = width / 4;
+                            if (e.clientX <= quarterWidth) {
                               if (readingDirection === 'rtl') rendition.next();
                               else rendition.prev();
+                            } else if (e.clientX >= width - quarterWidth) {
+                              if (readingDirection === 'rtl') rendition.prev();
+                              else rendition.next();
                             }
                           });
                         }}
                       />
-                    </div>
-                  ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
+                    )}
+                  </div>
+                ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
                     <div className="absolute inset-0 flex items-center justify-center p-0 bg-transparent">
                       <Document 
                         file={selectedBook.file} 
@@ -3111,12 +3213,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             if (target.closest('a, button, input, textarea')) return;
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
-                            if (clickX > rect.width / 2) {
-                              if (readingDirection === 'rtl') prevPage();
-                              else nextPage();
-                            } else {
+                            const quarterWidth = rect.width / 4;
+                            if (clickX <= quarterWidth) {
                               if (readingDirection === 'rtl') nextPage();
                               else prevPage();
+                            } else if (clickX >= rect.width - quarterWidth) {
+                              if (readingDirection === 'rtl') prevPage();
+                              else nextPage();
                             }
                           }}
                         >
@@ -3151,8 +3254,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                   className="reader-html-content"
                                   dangerouslySetInnerHTML={{ __html: displayContent }} 
                                 />
-                              ) : (
+                              ) : displayContent ? (
                                 displayContent
+                              ) : (
+                                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto select-none">
+                                  <BookOpen className="w-10 h-10 mb-2 opacity-40 text-primary" />
+                                  <p className="text-sm font-semibold">{t("noContentAvailable") || "No content found for this work"}</p>
+                                  <p className="text-xs text-muted-foreground/75 mt-1">{t("openInCreatorToAdd") || "You can edit this book in the creative workspace"}</p>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -3172,7 +3281,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             <ComicPageRenderer 
                               key={`creator-page-${currentPage}`}
                               page={rawPage} 
-                              className="w-full h-full" 
+                              className="h-full w-auto aspect-[3/4] max-h-full" 
                             />
                           </div>
                         );
@@ -3187,6 +3296,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         ? croppedCache[currentPage] 
                         : cachedUrl;
 
+                      const isLandscape = pageOrientationMap[currentPage] === 'landscape';
+
                       return (
                         <div className="relative w-full h-full flex items-center justify-center bg-transparent overflow-hidden">
                           {isSplitActive ? (
@@ -3194,8 +3305,23 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               <img 
                                 key={`reader-split-p-${currentPage}-${currentPanelIndex}`} 
                                 src={displaySrc || undefined} 
-                                alt={`Page ${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
-                                className="w-full h-full max-w-full max-h-full object-contain pointer-events-auto select-none bg-transparent transition-opacity duration-150" 
+                                alt={`P${currentPage + 1} - Panel ${currentPanelIndex + 1}`}
+                                onLoad={(e) => {
+                                  const img = e.currentTarget;
+                                  if (img.naturalWidth && img.naturalHeight) {
+                                    const isLand = img.naturalWidth > img.naturalHeight;
+                                    setPageOrientationMap(prev => ({
+                                      ...prev,
+                                      [`${currentPage}-${currentPanelIndex}`]: isLand ? 'landscape' : 'portrait'
+                                    }));
+                                  }
+                                }}
+                                style={
+                                  pageOrientationMap[`${currentPage}-${currentPanelIndex}`] === 'landscape'
+                                    ? { width: '100%', height: 'auto', maxWidth: '100%', objectFit: 'contain' }
+                                    : { height: '100%', width: 'auto', maxHeight: '100%', objectFit: 'contain' }
+                                }
+                                className="pointer-events-auto select-none bg-transparent transition-opacity duration-150" 
                                 referrerPolicy="no-referrer"
                               />
                               {panelsCache[currentPage].length > 1 && (
@@ -3207,12 +3333,57 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                                 </div>
                               )}
                             </div>
+                          ) : imageLoadErrors[currentPage] ? (
+                            <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground my-auto select-none bg-muted/10 rounded-lg border border-dashed border-border/50 max-w-md mx-auto">
+                              <BookOpen className="w-12 h-12 mb-3 opacity-40 text-primary" />
+                              <p className="text-sm font-semibold text-foreground">
+                                {t("page") || "Page"} P{currentPage + 1}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                                {selectedBook.archiveIdentifier 
+                                  ? "Unable to load page image from archive.org. The upstream item may have restricted access or network timeout." 
+                                  : "This image could not be loaded."}
+                              </p>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="mt-4 text-xs"
+                                onClick={() => {
+                                  setImageLoadErrors(prev => {
+                                    const next = { ...prev };
+                                    delete next[currentPage];
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                                {t("refresh") || "Retry"}
+                              </Button>
+                            </div>
                           ) : (
                             <img 
                               key={`reader-main-p-${currentPage}`} 
                               src={displaySrc || undefined} 
-                              alt={`Page ${currentPage + 1}`} 
-                              className="w-full h-full max-w-full max-h-full object-contain pointer-events-auto select-none bg-transparent"
+                              alt={`P${currentPage + 1}`} 
+                              onLoad={(e) => {
+                                const img = e.currentTarget;
+                                if (img.naturalWidth && img.naturalHeight) {
+                                  const isLand = img.naturalWidth > img.naturalHeight;
+                                  setPageOrientationMap(prev => {
+                                    if (prev[currentPage] === (isLand ? 'landscape' : 'portrait')) return prev;
+                                    return { ...prev, [currentPage]: isLand ? 'landscape' : 'portrait' };
+                                  });
+                                }
+                              }}
+                              onError={() => {
+                                setImageLoadErrors(prev => ({ ...prev, [currentPage]: true }));
+                              }}
+                              style={
+                                isLandscape
+                                  ? { width: '100%', height: 'auto', maxWidth: '100%', objectFit: 'contain' }
+                                  : { height: '100%', width: 'auto', maxHeight: '100%', objectFit: 'contain' }
+                              }
+                              className="pointer-events-auto select-none bg-transparent"
                               referrerPolicy="no-referrer"
                             />
                           )}

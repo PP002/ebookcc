@@ -73,7 +73,7 @@ import {
   UnfinishedComic,
   UnfinishedStory
 } from "@/lib/historyCache";
-import { publishWorkToR2, fetchPublishedWorksFromR2, fetchSinglePublishedWork, deletePublishedWorkFromR2 } from "@/lib/r2Storage";
+import { publishWorkToR2, fetchPublishedWorksFromR2, fetchSinglePublishedWork, deletePublishedWorkFromR2, savePublishedWorkLocally } from "@/lib/r2Storage";
 import { useLanguage } from "@/context/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -5244,6 +5244,11 @@ export const Create: React.FC<CreateProps> = ({
     }
 
     const itemToSave = r2Result.item || newItem;
+
+    // Immediately save complete published work to IndexedDB
+    try {
+      await savePublishedWorkLocally(itemToSave);
+    } catch (_) {}
 
     if (createMode === "comic") {
       setCurrentComicId(itemToSave.id);

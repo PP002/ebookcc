@@ -150,9 +150,14 @@ export async function detectDeviceCapability(): Promise<DeviceCapability> {
   };
 }
 
-/**
- * Returns canonical URLs to fetch model from R2 / server proxy / local fallback
- */
+function isValidTfliteBuffer(buffer: ArrayBuffer | Uint8Array): boolean {
+  if (!buffer || buffer.byteLength < 500000) return false;
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  // Reject HTML error pages (starts with '<')
+  if (bytes[0] === 0x3C || bytes[0] === 60) return false;
+  return true;
+}
+
 /**
  * Returns canonical URLs to fetch model from R2 / server proxy / local fallback
  * Models are located under /Models as imagez=640-quantize=w8a32-batch={X}.tflite
@@ -165,15 +170,32 @@ export function getModelFetchUrls(filename: string): string[] {
   }
 
   const modelFilename = `imagez=640-quantize=w8a32-batch=${batchNum}.tflite`;
+  const legacyFilename = `panel-batch${batchNum}.tflite`;
 
-  return [
+  const urls: string[] = [
     `/Models/${modelFilename}`,
-    `/api/media/file/ebookcc-media/Models/${modelFilename}`,
+    `/models/${modelFilename}`,
     `/api/models/${modelFilename}`,
     `/api/Models/${modelFilename}`,
+    `/api/media/file/ebookcc-media/Models/${modelFilename}`,
+    `/api/media/file/ebookcc-media/models/${modelFilename}`,
     `/Models/${filename}`,
-    `/api/media/file/ebookcc-media/Models/${filename}`
+    `/models/${filename}`,
+    `/api/models/${filename}`,
+    `/Models/${legacyFilename}`,
+    `/models/${legacyFilename}`
   ];
+
+  // If there is an external backend URL configured in environment, add it as fallback
+  if (typeof window !== "undefined") {
+    const apiEnv = (import.meta as any).env?.VITE_API_URL;
+    if (apiEnv && typeof apiEnv === 'string' && apiEnv.startsWith('http')) {
+      urls.push(`${apiEnv.replace(/\/+$/, '')}/Models/${modelFilename}`);
+      urls.push(`${apiEnv.replace(/\/+$/, '')}/api/models/${modelFilename}`);
+    }
+  }
+
+  return urls;
 }
 
 /**
@@ -193,7 +215,15 @@ export async function isModelCached(filename: string): Promise<boolean> {
     const cache = await caches.open(CACHE_NAME);
     const cacheKey = getModelCacheKey(filename);
     const match = await cache.match(cacheKey);
-    return !!match;
+    if (match) {
+      const buffer = await match.clone().arrayBuffer();
+      if (isValidTfliteBuffer(buffer)) {
+        return true;
+      }
+      // Corrupted or HTML response cached previously -> purge it
+      await cache.delete(cacheKey);
+    }
+    return false;
   } catch (err) {
     console.warn(`[LiteRT Cache] Error checking cache for ${filename}:`, err);
     return false;
@@ -217,9 +247,14 @@ export async function getModelBytesFromCacheOrR2(
       const cache = await caches.open(CACHE_NAME);
       const cachedResponse = await cache.match(cacheKey);
       if (cachedResponse) {
-        console.log(`[LiteRT Cache] Model "${filename}" loaded directly from Cache Storage API`);
         const buffer = await cachedResponse.arrayBuffer();
-        return new Uint8Array(buffer);
+        if (isValidTfliteBuffer(buffer)) {
+          console.log(`[LiteRT Cache] Model "${filename}" loaded directly from Cache Storage API (${buffer.byteLength} bytes)`);
+          return new Uint8Array(buffer);
+        } else {
+          console.warn(`[LiteRT Cache] Cached response for "${filename}" is invalid/HTML. Purging from cache...`);
+          await cache.delete(cacheKey);
+        }
       }
     } catch (cacheErr) {
       console.warn(`[LiteRT Cache] Cache match error for ${filename}:`, cacheErr);
@@ -227,58 +262,57 @@ export async function getModelBytesFromCacheOrR2(
   }
 
   // 2. Not cached: Download from R2 / server proxy
-  console.log(`[LiteRT Cache] Model "${filename}" not in cache. Downloading from R2 /Models/...`);
+  console.log(`[LiteRT Cache] Model "${filename}" downloading from R2 /Models/...`);
   const urlsToTry = getModelFetchUrls(filename);
   let lastError: Error | null = null;
-  let successfulResponse: Response | null = null;
+  let validBytes: Uint8Array | null = null;
 
   for (const url of urlsToTry) {
     try {
       const res = await fetch(url);
-      if (res.ok) {
-        successfulResponse = res;
-        break;
+      const cType = res.headers.get("content-type") || "";
+      if (res.ok && !cType.includes("text/html")) {
+        const arrayBuffer = await res.arrayBuffer();
+        if (isValidTfliteBuffer(arrayBuffer)) {
+          validBytes = new Uint8Array(arrayBuffer);
+          console.log(`[LiteRT Cache] Successfully fetched model "${filename}" from ${url} (${validBytes.byteLength} bytes)`);
+          break;
+        }
       }
     } catch (fetchErr: any) {
       lastError = fetchErr;
     }
   }
 
-  if (!successfulResponse) {
-    const msg = lastError?.message || `Failed to fetch model ${filename} from R2 /Models/`;
+  if (!validBytes) {
+    const msg = lastError?.message || `Failed to fetch valid LiteRT model ${filename} from R2 /Models/`;
     console.error(`[LiteRT Cache Error]:`, msg);
     throw new Error(msg);
   }
 
-  // Clone response to store into Cache Storage API
-  const clonedForCache = successfulResponse.clone();
-  const arrayBuffer = await successfulResponse.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
-
   if (onProgress) {
-    onProgress(bytes.length, bytes.length);
+    onProgress(validBytes.length, validBytes.length);
   }
 
   // Store in Cache Storage API
   if (typeof window !== "undefined" && "caches" in window) {
     try {
       const cache = await caches.open(CACHE_NAME);
-      // Construct a pristine Response with proper headers to cache
-      const responseToCache = new Response(clonedForCache.body || arrayBuffer, {
+      const responseToCache = new Response(validBytes, {
         headers: {
           "Content-Type": "application/octet-stream",
-          "Content-Length": String(arrayBuffer.byteLength),
+          "Content-Length": String(validBytes.byteLength),
           "Cache-Control": "public, max-age=31536000, immutable"
         }
       });
       await cache.put(cacheKey, responseToCache);
-      console.log(`[LiteRT Cache] Successfully cached "${filename}" (${arrayBuffer.byteLength} bytes) in Cache Storage API`);
+      console.log(`[LiteRT Cache] Successfully cached "${filename}" (${validBytes.byteLength} bytes) in Cache Storage API`);
     } catch (putErr) {
       console.warn(`[LiteRT Cache] Failed to put ${filename} into Cache Storage API:`, putErr);
     }
   }
 
-  return bytes;
+  return validBytes;
 }
 
 // ─────────────────────────────────────────────

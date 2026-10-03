@@ -12,7 +12,8 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 import JSZip from 'jszip';
-import { runPredictAPI, autoCropImageBorders } from '@/components/Convert';
+import { autoCropImageBorders } from '@/components/Convert';
+import { detectPanelsLiteRT } from '@/lib/litertInference';
 import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 import { useLanguage } from '@/context/LanguageContext';
@@ -147,10 +148,6 @@ function isPublishedCreatorWork(book: BookItem | null): boolean {
   if ((book as any).source === 'creator' || (book as any).source === 'published') {
     return true;
   }
-  // Bookshelf comic that is not an external archive stream
-  if (book.isBookshelf && book.fileType === 'comic' && !book.archiveIdentifier) {
-    return true;
-  }
   return false;
 }
 
@@ -160,10 +157,7 @@ function isPublishedCreatorWork(book: BookItem | null): boolean {
  * Respects reading direction (LTR vs RTL) for horizontal splits and panel sequences.
  */
 function extractAssetPanelsFromPage(page: any, readingDirection: ReadingDirection = 'ltr'): string[] {
-  if (!page) return [];
-  if (typeof page === 'string') {
-    return page.trim() !== '' ? [page] : [];
-  }
+  if (!page || typeof page === 'string') return [];
 
   const panels: string[] = [];
 
@@ -197,7 +191,7 @@ function extractAssetPanelsFromPage(page: any, readingDirection: ReadingDirectio
 
   if (page.tree) {
     traverseNode(page.tree);
-  } else if (Array.isArray(page.panels)) {
+  } else if (Array.isArray(page.panels) && page.panels.length > 1) {
     const list = readingDirection === 'rtl' ? [...page.panels].reverse() : page.panels;
     list.forEach((p: any) => {
       if (typeof p === 'string') {
@@ -207,11 +201,6 @@ function extractAssetPanelsFromPage(page: any, readingDirection: ReadingDirectio
         if (img && typeof img === 'string' && img.trim() !== '') panels.push(img);
       }
     });
-  } else if (page.imageUrl || page.cover || page.image || page.url) {
-    const single = page.imageUrl || page.cover || page.image || page.url;
-    if (typeof single === 'string' && single.trim() !== '') {
-      panels.push(single);
-    }
   }
 
   return panels;
@@ -233,6 +222,34 @@ interface ExtractedComicEpub {
  */
 async function extractComicFromEpub(fileOrBuffer: File | ArrayBuffer): Promise<ExtractedComicEpub | null> {
   try {
+    if (!fileOrBuffer) return null;
+
+    // Quick pre-check: verify that this is an EPUB / ZIP file by magic bytes before calling JSZip
+    if (fileOrBuffer instanceof File) {
+      const lower = fileOrBuffer.name.toLowerCase();
+      if (fileOrBuffer.type.startsWith('image/') || lower.match(/\.(jpe?g|png|webp|gif|avif|bmp|svg|pdf|txt|docx)$/i)) {
+        return null;
+      }
+    }
+
+    let headerBytes: Uint8Array;
+    if (fileOrBuffer instanceof ArrayBuffer) {
+      if (fileOrBuffer.byteLength < 4) return null;
+      headerBytes = new Uint8Array(fileOrBuffer, 0, Math.min(4, fileOrBuffer.byteLength));
+    } else if (fileOrBuffer && typeof (fileOrBuffer as any).slice === 'function') {
+      const fileObj = fileOrBuffer as Blob;
+      if (fileObj.size < 4) return null;
+      const headerBuf = await fileObj.slice(0, 4).arrayBuffer();
+      headerBytes = new Uint8Array(headerBuf);
+    } else {
+      return null;
+    }
+
+    // ZIP magic bytes must be 0x50, 0x4B ('PK')
+    if (headerBytes.length < 2 || headerBytes[0] !== 0x50 || headerBytes[1] !== 0x4b) {
+      return null;
+    }
+
     const zip = new JSZip();
     const loadedZip = await zip.loadAsync(fileOrBuffer);
 
@@ -424,8 +441,8 @@ async function extractComicFromEpub(fileOrBuffer: File | ArrayBuffer): Promise<E
       readingDirectionDetail: detectedDirectionDetail,
       totalImages: finalImageFiles.length,
     };
-  } catch (err) {
-    console.error("[Read] Error checking comic EPUB:", err);
+  } catch (err: any) {
+    console.warn("[Read] Notice: Could not parse EPUB as comic archive:", err?.message || err);
     return null;
   }
 }
@@ -566,6 +583,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [selectedBook, setSelectedBook] = useState<BookItem | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [location, setLocation] = useState<string | number>(0);
+  const [cropBorders, setCropBorders] = useState(false);
+  const [gridView, setGridView] = useState(false);
+  const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
+  const [directionInfo, setDirectionInfo] = useState<string>('');
+  const [panelsCache, setPanelsCache] = useState<Record<number, string[]>>({});
+  const [croppedCache, setCroppedCache] = useState<Record<number, string>>({});
+  const [isProcessingPage, setIsProcessingPage] = useState(false);
+  const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
+
   const [epubToc, setEpubToc] = useState<any[]>([]);
   const [epubCurrentPage, setEpubCurrentPage] = useState<number>(0);
   const [epubTotalPages, setEpubTotalPages] = useState<number>(0);
@@ -751,12 +777,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
        const timer = setTimeout(() => {
          saveRecentBook({
            ...selectedBook,
-           fileType: selectedBook.fileType || "images"
-         }, currentPage, location);
+           fileType: selectedBook.fileType || "images",
+           isSplitPanel: gridView
+         }, currentPage, location, gridView);
        }, 500);
        return () => clearTimeout(timer);
     }
-  }, [selectedBook, currentPage, location]);
+  }, [selectedBook, currentPage, location, gridView]);
 
   const handleRecoverEpubAsComic = async () => {
     if (!selectedBook) return;
@@ -806,7 +833,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           const isEpubLike = fullBook.fileType === 'epub' || fullBook.title?.toLowerCase().endsWith('.epub');
           const isZipLike = fullBook.title?.toLowerCase().endsWith('.zip') || fullBook.title?.toLowerCase().endsWith('.cbz') || fullBook.title?.toLowerCase().endsWith('.cbr');
 
-          if (isEpubLike || fullBook.fileType === 'images' || fullBook.fileType === 'comic') {
+          if (isEpubLike) {
             try {
               const comicRes = await extractComicFromEpub(buf);
               if (comicRes && comicRes.isComic && comicRes.pages.length > 0) {
@@ -857,6 +884,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         if (resolvedDirection) {
           setReadingDirection(resolvedDirection);
         }
+        setGridView(false);
+        setCurrentPanelIndex(0);
         const targetPage = typeof fullBook.lastReadPage === 'number' ? fullBook.lastReadPage : 0;
         setCurrentPage(Math.max(0, Math.min(targetPage, resolvedPages.length > 0 ? resolvedPages.length - 1 : targetPage)));
         setLocation(fullBook.lastReadLocation || 0);
@@ -958,6 +987,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           }
 
           if (book) {
+            const cachedRecent = await getFullBookFile(targetId).catch(() => null);
+            const metaRecent = getRecentBooksMeta().find(m => m.id === targetId);
+            setGridView(false);
+            setCurrentPanelIndex(0);
+            const initialReadPage = typeof cachedRecent?.lastReadPage === 'number' 
+              ? cachedRecent.lastReadPage 
+              : (typeof metaRecent?.lastReadPage === 'number' ? metaRecent.lastReadPage : 0);
+            if (cachedRecent?.lastReadLocation) setLocation(cachedRecent.lastReadLocation);
+
             // 1. PUBLIC DOMAIN EPUB (Gutenberg or external stream)
             const isEpub = book.content_type === 'epub' || 
               book.source === 'gutenberg' || 
@@ -977,8 +1015,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 pages: [],
                 isBookshelf: true,
               });
-              setCurrentPage(0);
-              setLocation(0);
+              setCurrentPage(initialReadPage);
               return;
             }
 
@@ -1010,7 +1047,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 pages: streamPages,
                 isBookshelf: true,
               });
-              setCurrentPage(0);
+              setCurrentPage(Math.min(initialReadPage, streamPages.length - 1));
 
               // Dynamically fetch exact page count from Internet Archive API in background
               if (archiveId) {
@@ -1047,7 +1084,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 pages: [novelContent],
                 isBookshelf: true,
               });
-              setCurrentPage(0);
+              setCurrentPage(initialReadPage);
             } else {
               // 4. CREATOR ORIGINAL COMIC
               let pagesList = Array.isArray(book.pages) && book.pages.length > 0 
@@ -1067,7 +1104,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 pages: pagesList,
                 isBookshelf: true,
               });
-              setCurrentPage(0);
+              setCurrentPage(Math.min(initialReadPage, Math.max(0, pagesList.length - 1)));
             }
           }
         } catch (err) {
@@ -1372,17 +1409,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       } catch(e) {}
     }
   }, [fontSize, containerSize.width, containerSize.height]);
-  
-  const [cropBorders, setCropBorders] = useState(false);
-  const [gridView, setGridView] = useState(false);
-  
-  const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
-  const [directionInfo, setDirectionInfo] = useState<string>('');
-  
-  const [panelsCache, setPanelsCache] = useState<Record<number, string[]>>({});
-  const [croppedCache, setCroppedCache] = useState<Record<number, string>>({});
-  const [isProcessingPage, setIsProcessingPage] = useState(false);
-  const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
 
   // Automatic Reading Direction Detection (Waterfall Fallback)
   useEffect(() => {
@@ -1407,11 +1433,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       setReadingDirection(res.direction);
       setDirectionInfo(res.detail);
       setSelectedBook(prev => prev ? { ...prev, readingDirection: res.direction, readingDirectionInfo: res.detail } : null);
-      if (res.strategy !== 'default') {
-        toast.info(`Reading direction: ${res.direction.toUpperCase()} (${res.detail})`, {
-          id: 'reading-direction-detected-toast'
-        });
-      }
     }).catch(err => {
       console.warn('[Read] Reading direction detection error:', err);
     });
@@ -1496,17 +1517,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       }
 
       // 3. Split panels if gridView (Split Panels) is enabled
-      const isCreatorWork = isPublishedCreatorWork(selectedBook);
-      const creatorPanels = (isCreatorWork || isBookshelfComic(selectedBook)) 
-        ? extractAssetPanelsFromPage(rawPage, readingDirection) 
-        : [];
+      const creatorPanels = extractAssetPanelsFromPage(rawPage, readingDirection);
       const hasPreAuthoredPanels = creatorPanels.length > 0;
 
       if (gridView && !panelsCache[idx]) {
-        if (isCreatorWork || hasPreAuthoredPanels) {
-          // Published works created with CREATE tool ALREADY have pre-authored panels!
-          // NEVER call the YOLO model (runPredictAPI) for published works!
-          panelsData = creatorPanels.length > 0 ? creatorPanels : [cleanSourceUrl];
+        if (hasPreAuthoredPanels) {
+          // Works with pre-authored panels (e.g. from CREATE canvas) use their panel assets directly
+          panelsData = creatorPanels;
         } else {
           try {
             if (!isActive || !gridView) return;
@@ -1541,7 +1558,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             });
 
             if (!isActive || !gridView) return;
-            const layoutResult = await runPredictAPI(base64Source);
+            // READ page: Always use batch1.tflite exclusively. Load it from Cache Storage (already downloaded at startup). Use LiteRT.js to run inference.
+            const layoutResult = await detectPanelsLiteRT(base64Source, { batchSize: 1 });
             if (!isActive || !gridView) return;
             let regions = layoutResult?.panels || [];
             
@@ -2253,8 +2271,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     let detectedDetail = '';
 
     const fileName = file.name.toLowerCase();
+    const isImageFile = file.type.startsWith('image/') || 
+      Boolean(fileName.match(/\.(jpe?g|png|webp|gif|avif|bmp|svg|tiff?)$/i));
+
     // Generate basic object URL if Image
-    if (file.type.startsWith('image/')) {
+    if (isImageFile) {
+      fileType = 'images';
       pages = [URL.createObjectURL(file)];
     } else if (fileName.endsWith('.cbz') || fileName.endsWith('.zip')) {
       try {
@@ -2371,11 +2393,6 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         detectedDetail = dirResult.detail;
         setReadingDirection(detectedDir);
         setDirectionInfo(detectedDetail);
-        if (dirResult.strategy !== 'default') {
-          toast.info(`Reading direction detected: ${detectedDir.toUpperCase()} (${detectedDetail})`, {
-            id: 'reading-direction-upload-toast'
-          });
-        }
       } catch (dirErr) {
         console.warn('[Read] Direction detection on drop failed:', dirErr);
       }
@@ -2385,6 +2402,21 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     }
 
     const fileId = 'local-' + encodeURIComponent(file.name.toLowerCase().trim()) + '-' + file.size;
+
+    let initialPage = 0;
+    let initialLocation: string | number = 0;
+    try {
+      const cached = await getFullBookFile(fileId);
+      const meta = getRecentBooksMeta().find(m => m.id === fileId);
+      setGridView(false);
+      setCurrentPanelIndex(0);
+      if (typeof cached?.lastReadPage === 'number' && cached.lastReadPage > 0 && cached.lastReadPage < pages.length) {
+        initialPage = cached.lastReadPage;
+      } else if (typeof meta?.lastReadPage === 'number' && meta.lastReadPage > 0 && meta.lastReadPage < pages.length) {
+        initialPage = meta.lastReadPage;
+      }
+      if (cached?.lastReadLocation) initialLocation = cached.lastReadLocation;
+    } catch (_) {}
 
     setSelectedBook({
       id: fileId,
@@ -2400,7 +2432,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       readingDirection: detectedDir,
       readingDirectionInfo: detectedDetail
     });
-    setCurrentPage(0);
+    setCurrentPage(initialPage);
+    setLocation(initialLocation);
   }, []);
 
   // Listen to open files from Google Drive globally
@@ -2590,12 +2623,25 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                      <Button 
                        variant={gridView ? "default" : "outline"}
                        size="icon" 
-                       className="h-8 w-8" 
+                       className={cn(
+                         "h-8 w-8 transition-all cursor-pointer",
+                         gridView && "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/40"
+                       )} 
                        onClick={() => {
-                         setGridView(!gridView);
+                         setGridView(prev => {
+                           const next = !prev;
+                           if (selectedBook) {
+                             saveRecentBook({
+                               ...selectedBook,
+                               fileType: selectedBook.fileType || "images",
+                               isSplitPanel: next
+                             }, currentPage, location, next);
+                           }
+                           return next;
+                         });
                          setCurrentPanelIndex(0);
                        }}
-                       title={t("splitPanels")}
+                       title={gridView ? "Back to page view" : t("splitPanels")}
                      >
                         <SplitPanelsIcon className="w-3.5 h-3.5" />
                      </Button>
@@ -2604,14 +2650,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 transition-colors hover:bg-accent"
+                  className="h-8 w-8 transition-colors hover:bg-accent cursor-pointer"
                   onClick={() => {
                     const nextDir = readingDirection === 'rtl' ? 'ltr' : 'rtl';
                     setReadingDirection(nextDir);
                     setSelectedBook(prev => prev ? { ...prev, readingDirection: nextDir } : null);
-                    toast.success(`Reading direction set to ${nextDir.toUpperCase()} (${nextDir === 'rtl' ? 'Right-to-Left / Manga' : 'Left-to-Right / Western'})`);
                   }}
-                  title={`Reading direction: ${readingDirection.toUpperCase()} (${readingDirection === 'rtl' ? 'Right-to-Left / Manga' : 'Left-to-Right / Western'}). ${directionInfo ? `Source: ${directionInfo}. ` : ''}Click to switch.`}
+                  title={readingDirection === 'rtl' ? 'right to left' : 'left to right'}
                 >
                   {readingDirection === 'rtl' ? (
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -2854,11 +2899,11 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             <div className="w-full h-full flex flex-col items-center justify-center bg-white p-2 text-center pointer-events-none">
                               <BookOpen className="w-5 h-5 text-muted-foreground/50 mb-1" />
                               <span className="text-[11px] font-bold text-foreground font-mono">
-                                P{idx + 1}
+                                {idx + 1}
                               </span>
                             </div>
                             <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
-                              P{idx + 1}
+                              {idx + 1}
                             </div>
                           </div>
                         ))}
@@ -2939,7 +2984,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               <img 
                                 src={thumbUrl} 
                                 className="w-full h-full object-cover bg-white pointer-events-none select-none" 
-                                alt={`P${idx + 1}`}
+                                alt={`Thumb ${idx + 1}`}
                                 onError={() => setFailedThumbnails(prev => ({ ...prev, [idx]: true }))}
                                 referrerPolicy="no-referrer"
                               />
@@ -2947,13 +2992,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               <div className="w-full h-full flex flex-col items-center justify-center bg-muted/30 p-2 text-center select-none pointer-events-none">
                                 <BookOpen className="w-4 h-4 text-muted-foreground/40 mb-1" />
                                 <span className="text-[11px] font-bold text-foreground font-mono">
-                                  P{idx + 1}
+                                  {idx + 1}
                                 </span>
                               </div>
                             )}
-                            {/* Page Label Tag P1, P2... */}
-                            <div className="absolute bottom-1 left-1 bg-foreground/90 backdrop-blur-xs text-background text-[8px] font-bold px-1.5 py-0.5 rounded-none min-w-[16px] text-center z-10 font-mono shadow-xs">
-                              P{idx + 1}
+                            <div className="absolute bottom-1 left-1 bg-foreground text-background text-[7px] font-bold px-1 py-0.5 rounded-none min-w-[14px] text-center z-10 font-mono">
+                              {idx + 1}
                             </div>
                             {panelsCache[idx] && (
                               <div className="absolute top-1 right-1 bg-primary text-primary-foreground p-0.5 shadow border border-background rounded flex items-center justify-center z-10" title={t("layoutDetectedInCache")}>

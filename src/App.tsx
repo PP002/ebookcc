@@ -61,6 +61,13 @@ import {
 } from "./context/LanguageContext";
 import { LanguageSelector } from "./components/LanguageSelector";
 import { usePageSEO } from "./hooks/usePageSEO";
+import {
+  preloadStartupModel,
+  subscribeStartupPreload,
+  retryStartupModelDownload,
+  StartupPreloadState,
+  getStartupPreloadState
+} from "./lib/litertModelManager";
 
 function GoogleAuthProviderWrapper({ children }: { children: React.ReactNode }) {
   const { googleClientId } = useAppSettings();
@@ -166,6 +173,17 @@ function AppContent() {
   const [headerHidden, setHeaderHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // App startup — always, unconditionally:
+  // On app load, immediately start downloading panel-batch1.tflite in the background using Cache Storage API.
+  // Do not wait for it to complete before rendering UI.
+  const [preloadState, setPreloadState] = useState<StartupPreloadState>(() => getStartupPreloadState());
+
+  useEffect(() => {
+    preloadStartupModel();
+    const unsub = subscribeStartupPreload(setPreloadState);
+    return unsub;
+  }, []);
+
   useEffect(() => {
     const handlePopState = () => {
       const { view, lang } = parseLanguageAndRouteFromPath(
@@ -261,6 +279,27 @@ function AppContent() {
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground selection:bg-primary/30 flex flex-col">
+      {/* LiteRT Startup Model Preload Status Banner */}
+      {preloadState.hasError && (
+        <div className="w-full bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-center text-xs font-semibold text-amber-900 dark:text-amber-200 flex items-center justify-center gap-3 z-[110] relative">
+          <span>{preloadState.errorMessage || "Detection unavailable — please check your connection and reload."}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => retryStartupModelDownload()}
+              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 transition-colors font-bold cursor-pointer"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 transition-colors font-bold cursor-pointer"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Universal Navigation Banner */}
       {!headerHidden && (
         <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">

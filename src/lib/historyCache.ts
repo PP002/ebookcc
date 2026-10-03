@@ -90,6 +90,7 @@ export interface RecentBookMetadata {
   lastReadLocation?: string | number;
   timestamp: number;
   hasFile?: boolean;
+  isSplitPanel?: boolean;
 }
 
 export interface UnfinishedComic {
@@ -314,13 +315,16 @@ export async function saveRecentBook(
     fileBuffer?: ArrayBuffer;
     readingDirection?: 'ltr' | 'rtl';
     readingDirectionInfo?: string;
+    isSplitPanel?: boolean;
   },
   lastReadPage: number,
-  lastReadLocation?: string | number
+  lastReadLocation?: string | number,
+  isSplitPanel?: boolean
 ): Promise<void> {
   const resolvedCover = await resolveThumbnailCover(book.cover, book.pages);
 
   const normalizedTitle = (book.title || '').trim().toLowerCase();
+  const splitPanelState = typeof isSplitPanel === 'boolean' ? isSplitPanel : book.isSplitPanel;
 
   const metadata: RecentBookMetadata = {
     id: book.id,
@@ -331,7 +335,8 @@ export async function saveRecentBook(
     lastReadPage,
     lastReadLocation,
     timestamp: Date.now(),
-    hasFile: !!(book.file || book.fileBuffer || (book.pages && book.pages.length > 1))
+    hasFile: !!(book.file || book.fileBuffer || (book.pages && book.pages.length > 1)),
+    isSplitPanel: splitPanelState
   };
 
   // 1. Save metadata to list in localStorage, strictly deduplicating by title and id
@@ -363,6 +368,7 @@ export async function saveRecentBook(
       fileBuffer: book.fileBuffer,
       readingDirection: book.readingDirection,
       readingDirectionInfo: book.readingDirectionInfo,
+      isSplitPanel: splitPanelState,
       lastReadPage,
       lastReadLocation,
       timestamp: Date.now()

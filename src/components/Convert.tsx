@@ -27,6 +27,17 @@ import {
 } from '@/lib/historyCache';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from './GoogleDriveDialog';
+import {
+  detectDeviceCapability,
+  DeviceCapability,
+  BatchSize,
+  LITE_RT_MODELS,
+  isModelCached,
+  getModelBytesFromCacheOrR2,
+  getConvertBatchPreference,
+  setConvertBatchPreference
+} from '@/lib/litertModelManager';
+import { detectPanelsLiteRT, detectPanelsBatchLiteRT } from '@/lib/litertInference';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -1093,9 +1104,9 @@ const panelsCache = new Map<string, ExportPanel[]>();
     
     if (!aiPanels || aiPanels.length === 0) {
       try {
-        console.log("Running Cloud Predict API first...");
-        const layoutResult = await runPredictAPI(aiBase64).catch((apiErr) => {
-          console.warn("Predict API warning:", apiErr);
+        console.log("[Split Model] Running local in-browser panel detection...");
+        const layoutResult = await runPredictAPI(aiBase64, undefined, undefined, 1).catch((apiErr) => {
+          console.debug("[Split Model] Detection notice:", apiErr);
           return null;
         });
         
@@ -1351,7 +1362,12 @@ export const PREDICT_URLS = [
   "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
 ];
 
-export async function runPredictAPI(base64Data: string, customYoloUrl?: string, customYoloKey?: string): Promise<LayoutResult> {
+export async function runPredictAPI(
+  base64Data: string, 
+  customYoloUrl?: string, 
+  customYoloKey?: string,
+  preferredBatchSize?: BatchSize
+): Promise<LayoutResult> {
   // If custom user-configured YOLO is specified, attempt inference through the backend proxy
   if (customYoloUrl) {
     try {
@@ -1364,27 +1380,32 @@ export async function runPredictAPI(base64Data: string, customYoloUrl?: string, 
     }
   }
 
-  // Use the backend / Worker proxy route (/api/detect-panels) which securely handles the Ultralytics API
+  // 1. Primary: LiteRT panel detection via LiteRT.js using cached model from Cache Storage API
+  let liteRtRan = false;
   try {
-    const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 0, 1);
-    if (result && (result.panels.length > 0 || result.texts.length > 0)) {
-      return result;
-    }
-  } catch (err: any) {
-    console.warn("Backend proxy YOLO detection failed, falling back to vision panel detection:", err);
-  }
-
-  // Graceful fallback: local/Gemini comic panel detector
-  try {
-    const fallbackBoxes = await detectComicPanels(base64Data);
-    if (fallbackBoxes && fallbackBoxes.length > 0) {
+    const batch = preferredBatchSize || getConvertBatchPreference() || 1;
+    const liteResult = await detectPanelsLiteRT(base64Data, { batchSize: batch });
+    liteRtRan = true;
+    if (liteResult) {
       return {
-        panels: fallbackBoxes.map((b) => ({ box_2d: b })),
-        texts: []
+        panels: liteResult.panels || [],
+        texts: liteResult.texts || []
       };
     }
-  } catch (fallbackErr) {
-    console.warn("Fallback panel detection failed:", fallbackErr);
+  } catch (litertErr: any) {
+    console.warn("[LiteRT In-Browser Detection Notice]:", litertErr);
+  }
+
+  // 2. Secondary fallback: backend proxy only if LiteRT failed to execute
+  if (!liteRtRan) {
+    try {
+      const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 0, 1);
+      if (result && (result.panels.length > 0 || result.texts.length > 0)) {
+        return result;
+      }
+    } catch (err: any) {
+      console.warn("Backend proxy detection failed:", err);
+    }
   }
 
   return { panels: [], texts: [] };
@@ -2618,6 +2639,78 @@ export default function Convert({
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const [isAddingTextMode, setIsAddingTextMode] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
+  
+  // Split Model hardware capability and batch selection states
+  const [deviceCapability, setDeviceCapability] = useState<DeviceCapability | null>(null);
+  const [activeBatchSize, setActiveBatchSize] = useState<BatchSize>(() => getConvertBatchPreference() || 1);
+  const [batchCacheStatus, setBatchCacheStatus] = useState<Record<BatchSize, boolean>>({ 1: true, 4: false, 8: false, 16: false, 32: false });
+  const [isDownloadingModel, setIsDownloadingModel] = useState<BatchSize | null>(null);
+
+  // CONVERT page: When the user opens CONVERT, detect device capability:
+  // If WebGPU is available -> offer batch 8
+  // If WebGPU is unavailable but the device has a capable GPU (check via WebGL renderer string) -> offer batch 4
+  // Fallback -> batch 1 (already cached)
+  // Once cached, use it for all CONVERT inference via Split Model (LiteRT)
+  useEffect(() => {
+    let isMounted = true;
+    detectDeviceCapability().then(async (cap) => {
+      if (!isMounted) return;
+      setDeviceCapability(cap);
+
+      const c1 = await isModelCached(LITE_RT_MODELS[1].filename);
+      const c4 = await isModelCached(LITE_RT_MODELS[4].filename);
+      const c8 = await isModelCached(LITE_RT_MODELS[8].filename);
+      const c16 = await isModelCached(LITE_RT_MODELS[16].filename);
+      const c32 = await isModelCached(LITE_RT_MODELS[32].filename);
+      if (!isMounted) return;
+      setBatchCacheStatus({ 1: c1, 4: c4, 8: c8, 16: c16, 32: c32 });
+
+      const savedPref = getConvertBatchPreference();
+      const targetBatch = savedPref || cap.recommendedBatch;
+      setActiveBatchSize(targetBatch);
+
+      const isTargetCached = targetBatch === 32 ? c32 : targetBatch === 16 ? c16 : targetBatch === 8 ? c8 : targetBatch === 4 ? c4 : c1;
+      if (!isTargetCached) {
+        setIsDownloadingModel(targetBatch);
+        getModelBytesFromCacheOrR2(LITE_RT_MODELS[targetBatch].filename)
+          .then(() => {
+            if (isMounted) {
+              setBatchCacheStatus(prev => ({ ...prev, [targetBatch]: true }));
+              setIsDownloadingModel(null);
+            }
+          })
+          .catch((err) => {
+            console.warn(`[Convert] Failed to auto-cache model for batch ${targetBatch}:`, err);
+            if (isMounted) setIsDownloadingModel(null);
+          });
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  const handleSelectBatchSize = async (batch: BatchSize) => {
+    setActiveBatchSize(batch);
+    setConvertBatchPreference(batch);
+    const modelInfo = LITE_RT_MODELS[batch];
+    const cached = await isModelCached(modelInfo.filename);
+    if (!cached) {
+      setIsDownloadingModel(batch);
+      toast.info(`Caching ${modelInfo.label} model into browser (~2.8 MB)...`);
+      try {
+        await getModelBytesFromCacheOrR2(modelInfo.filename);
+        setBatchCacheStatus(prev => ({ ...prev, [batch]: true }));
+        toast.success(`${modelInfo.label} cached! Ready for Split Model inference.`);
+      } catch (err: any) {
+        toast.error(`Failed to download ${modelInfo.filename}: ${err.message || 'Network error'}`);
+      } finally {
+        setIsDownloadingModel(null);
+      }
+    } else {
+      setBatchCacheStatus(prev => ({ ...prev, [batch]: true }));
+    }
+  };
+
   const isPortraitScreen = () =>
     typeof window !== 'undefined'
       ? (window.innerHeight > window.innerWidth || window.matchMedia('(orientation: portrait)').matches)
@@ -3234,11 +3327,6 @@ export default function Convert({
       }).then(dirRes => {
         setReadingDirection(dirRes.direction);
         setReadingDirectionDetail(dirRes.detail);
-        if (dirRes.strategy !== 'default') {
-          toast.info(`Reading direction detected: ${dirRes.direction.toUpperCase()} (${dirRes.detail})`, {
-            id: 'convert-reading-dir'
-          });
-        }
       }).catch(err => {
         console.warn('[Convert] Reading direction detection error:', err);
       });
@@ -3563,8 +3651,8 @@ export default function Convert({
       if (needYolo && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
-          // Pass the resized/properly-formatted aiBase64 straight to YOLO API
-          const layoutResult = await runPredictAPI(aiBase64);
+          // Pass the resized/properly-formatted aiBase64 straight to LiteRT layout detection
+          const layoutResult = await runPredictAPI(aiBase64, undefined, undefined, activeBatchSize);
           if (layoutResult) {
             localTexts = layoutResult.texts || [];
             localPanels = layoutResult.panels || [];
@@ -3972,6 +4060,40 @@ export default function Convert({
 
     toast.info(`Processing ${preservedIndices.length} content pages...`);
     
+    // Pre-detect comic panels in parallel batches using the chosen Split Model (Batch 8 or 4)
+    if (splitDuringBatch && activeBatchSize > 1) {
+      const layoutIndices = preservedIndices.filter(i => {
+        const p = pages[i];
+        return p && !p.hasLayoutRun && (!p.detectedPanels || p.detectedPanels.length === 0);
+      });
+
+      if (layoutIndices.length > 0) {
+        toast.info(`Split Model: Detecting panels across ${layoutIndices.length} pages (Batch size: ${activeBatchSize})...`);
+        for (let cStart = 0; cStart < layoutIndices.length; cStart += activeBatchSize) {
+          if (cancelProcessRef.current) break;
+          const chunkIdxs = layoutIndices.slice(cStart, cStart + activeBatchSize);
+          const chunkImages = chunkIdxs.map(idx => pages[idx].originalImage);
+
+          try {
+            const batchResults = await detectPanelsBatchLiteRT(chunkImages, { batchSize: activeBatchSize });
+            setPages(prev => prev.map((p, pIdx) => {
+              const resIdx = chunkIdxs.indexOf(pIdx);
+              if (resIdx !== -1 && batchResults[resIdx]) {
+                return {
+                  ...p,
+                  detectedPanels: batchResults[resIdx].panels || [],
+                  hasLayoutRun: true
+                };
+              }
+              return p;
+            }));
+          } catch (batchErr) {
+            console.warn(`[Batch Split] Chunk inference failed, will fallback to individual page:`, batchErr);
+          }
+        }
+      }
+    }
+
     let stoppedBecauseOfQuota = false;
 
     for (let index = 0; index < preservedIndices.length; index++) {
@@ -4004,14 +4126,21 @@ export default function Convert({
         setBatchProgress(Math.round(progressAfterApi));
         
         if (index < preservedIndices.length - 1) {
-           // Wait ~4.5s to respect 15 RPM limits on Gemini 2.5 Flash Free Tier
-           const delaySteps = 45;
-           const progressPerStep = (chunkSize * 0.6) / delaySteps;
-           
-           for (let step = 1; step <= delaySteps; step++) {
-             if (cancelProcessRef.current) break;
-             await new Promise(r => setTimeout(r, 100)); // 100ms per step
-             setBatchProgress(Math.round(progressAfterApi + (progressPerStep * step)));
+           const isCloudApiNeeded = ocrDuringBatch || translateDuringBatch;
+           if (isCloudApiNeeded) {
+             // Wait ~4.5s to respect 15 RPM limits on Gemini 2.5 Flash Free Tier
+             const delaySteps = 45;
+             const progressPerStep = (chunkSize * 0.6) / delaySteps;
+             
+             for (let step = 1; step <= delaySteps; step++) {
+               if (cancelProcessRef.current) break;
+               await new Promise(r => setTimeout(r, 100)); // 100ms per step
+               setBatchProgress(Math.round(progressAfterApi + (progressPerStep * step)));
+             }
+           } else {
+             // Pure local on-device processing: split model already ran or runs on device, no artificial 4.5s wait needed
+             await new Promise(r => setTimeout(r, 20));
+             setBatchProgress(Math.round(progressAfterApi + (chunkSize * 0.6)));
            }
         } else {
            // Last item finishes the full chunk
@@ -4967,9 +5096,8 @@ ${navItems}    </ol>
                     e.stopPropagation();
                     const next = readingDirection === 'rtl' ? 'ltr' : 'rtl';
                     setReadingDirection(next);
-                    toast.success(`Reading direction set to ${next.toUpperCase()} (${next === 'rtl' ? 'Manga / RTL' : 'Western / LTR'})`);
                   }}
-                  title={`Direction: ${readingDirection.toUpperCase()}${readingDirectionDetail ? ` (${readingDirectionDetail})` : ''}. Click to toggle.`}
+                  title={readingDirection === 'rtl' ? 'right to left' : 'left to right'}
                 >
                   {readingDirection === 'rtl' ? (
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -4977,6 +5105,81 @@ ${navItems}    </ol>
                     <ArrowRight className="w-3.5 h-3.5" />
                   )}
                 </Button>
+              </div>
+
+              {/* Split Model Panel Detection Hardware Capability & Batch Dropdown */}
+              <div className="pt-2 border-t border-border/40 w-full flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span>Split Model:</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                    {deviceCapability?.hasWebGpu
+                      ? "WebGPU Available"
+                      : deviceCapability?.hasCapableGpu
+                      ? "GPU Accelerated"
+                      : "CPU/WASM"}
+                  </span>
+                </div>
+
+                <Select
+                  value={String(activeBatchSize)}
+                  onValueChange={(val) => handleSelectBatchSize(Number(val) as BatchSize)}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs font-medium cursor-pointer bg-background/50">
+                    <div className="flex items-center justify-between w-full pr-1">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="font-semibold text-primary">{LITE_RT_MODELS[activeBatchSize].label}</span>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-1 ml-2">
+                        {isDownloadingModel === activeBatchSize ? (
+                          <span className="flex items-center gap-1 text-[10px] text-amber-500 font-semibold">
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
+                          </span>
+                        ) : batchCacheStatus[activeBatchSize] ? (
+                          <span className="text-[10px] text-emerald-500 font-medium">Cached ✓</span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">{LITE_RT_MODELS[activeBatchSize].sizeFormatted}</span>
+                        )}
+                      </div>
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent className="w-[240px]">
+                    {([1, 4, 8, 16, 32] as BatchSize[]).map((batch) => {
+                      const isRecommended = deviceCapability?.recommendedBatch === batch;
+                      const isCached = batchCacheStatus[batch];
+                      const isDownloading = isDownloadingModel === batch;
+                      const modelInfo = LITE_RT_MODELS[batch];
+
+                      return (
+                        <SelectItem key={batch} value={String(batch)} className="text-xs py-1.5 cursor-pointer">
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <span className="font-semibold flex items-center gap-1.5">
+                              {modelInfo.label}
+                              {isRecommended && (
+                                <span className="text-[9px] font-semibold bg-primary text-primary-foreground px-1 py-0.2 rounded-xs uppercase">
+                                  Rec
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[10px]">
+                              {isDownloading ? (
+                                <span className="flex items-center gap-0.5 text-amber-500 font-bold">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
+                                </span>
+                              ) : isCached ? (
+                                <span className="text-emerald-500 font-medium">Cached ✓</span>
+                              ) : (
+                                <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
+                              )}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

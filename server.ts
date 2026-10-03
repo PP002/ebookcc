@@ -1041,6 +1041,76 @@ async function startServer() {
     }
   });
 
+  // Route 2.5: Serve LiteRT panel detection models hosted on Cloudflare R2 (R2/models/) or local cache
+  app.get(["/api/models/:filename", "/models/:filename"], async (req, res): Promise<any> => {
+    try {
+      const filename = path.basename(req.params.filename);
+      if (!filename || (!filename.endsWith(".tflite") && !filename.endsWith(".bin") && !filename.endsWith(".json"))) {
+        return res.status(400).send("Invalid model filename");
+      }
+
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+
+      // 1. Try remote Cloudflare R2 if configured: key "Models/${filename}" or "models/${filename}" or alias
+      if (isConfigured && s3) {
+        const candidateKeys = [
+          `Models/${filename}`,
+          `models/${filename}`
+        ];
+
+        const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
+        if (batchMatch) {
+          const bNum = batchMatch[1];
+          candidateKeys.push(
+            `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+            `models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+            `Models/panel-batch${bNum}.tflite`,
+            `models/panel-batch${bNum}.tflite`
+          );
+        }
+
+        for (const candidateKey of candidateKeys) {
+          try {
+            const s3Obj = await s3.send(new GetObjectCommand({
+              Bucket: bucket,
+              Key: candidateKey
+            }));
+            if (s3Obj.Body) {
+              res.setHeader("Content-Type", "application/octet-stream");
+              res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+              res.setHeader("Access-Control-Allow-Origin", "*");
+              const byteArray = await s3Obj.Body.transformToByteArray();
+              return res.send(Buffer.from(byteArray));
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 2. Check local public/models directory
+      const localPublicPath = path.join(process.cwd(), "public", "models", filename);
+      if (fs.existsSync(localPublicPath)) {
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.sendFile(localPublicPath);
+      }
+
+      // 3. Check local tmp media directory
+      const localTmpPath = path.join(LOCAL_MEDIA_DIR, "models", filename);
+      if (fs.existsSync(localTmpPath)) {
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.sendFile(localTmpPath);
+      }
+
+      return res.status(404).send("Model file not found");
+    } catch (err: any) {
+      console.error("[API /api/models] Error serving model:", err);
+      return res.status(500).send("Error serving model file");
+    }
+  });
+
   // Route 3: Serve media files from R2 (or local cache fallback)
   app.get("/api/media/file/:bucket/*", async (req, res): Promise<any> => {
     try {

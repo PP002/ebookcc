@@ -943,6 +943,51 @@ export default {
     }
 
     // ─────────────────────────────────────────────
+    // Route: GET /Models/*, /api/Models/*, /api/models/*, /models/* (Split Models on R2)
+    // ─────────────────────────────────────────────
+    if (
+      (url.pathname.startsWith("/Models/") ||
+        url.pathname.startsWith("/api/Models/") ||
+        url.pathname.startsWith("/api/models/") ||
+        url.pathname.startsWith("/models/")) &&
+      request.method === "GET"
+    ) {
+      try {
+        const filename = url.pathname.split("/").pop();
+        if (filename && (filename.endsWith(".tflite") || filename.endsWith(".bin") || filename.endsWith(".json"))) {
+          const r2 = getR2Bucket(env);
+          if (r2) {
+            const candidateKeys = [
+              `Models/${filename}`
+            ];
+
+            const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
+            if (batchMatch) {
+              const bNum = batchMatch[1];
+              candidateKeys.push(
+                `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+                `Models/panel-batch${bNum}.tflite`
+              );
+            }
+
+            for (const key of candidateKeys) {
+              const obj = await r2.get(key);
+              if (obj) {
+                const headers = new Headers(corsHeaders);
+                obj.writeHttpMetadata(headers);
+                headers.set("Content-Type", "application/octet-stream");
+                headers.set("Cache-Control", "public, max-age=31536000, immutable");
+                return new Response(obj.body, { headers });
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("[Worker Models] R2 fetch notice:", err.message);
+      }
+    }
+
+    // ─────────────────────────────────────────────
     // Route: GET /api/media/file/:bucket/* or /api/media/file/*
     // ─────────────────────────────────────────────
     if (

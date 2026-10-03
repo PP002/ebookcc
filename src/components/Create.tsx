@@ -6913,16 +6913,12 @@ ${manifestImages}  </manifest>
             <div className="flex items-center gap-0.5 shrink-0">
               <Button
                 variant="ghost"
-                size="icon"
+                size="sm"
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="w-8 h-8 shrink-0"
-                title={isSidebarOpen ? t("hideSidebar") : t("showSidebar")}
+                className="h-8 px-2 font-mono font-black text-xs bg-transparent text-primary border-none shadow-none hover:bg-transparent shrink-0 select-none hover:scale-105 active:scale-95 transition-all"
+                title={isSidebarOpen ? (t("hideSidebar") || "Hide Sidebar") : (t("showSidebar") || "Show Sidebar")}
               >
-                {isSidebarOpen ? (
-                  <PanelLeftClose className="w-4 h-4" />
-                ) : (
-                  <PanelLeftOpen className="w-4 h-4" />
-                )}
+                P{activePageIndex + 1}
               </Button>
               <div className="w-px h-5 bg-border mx-1 shrink-0" />
               <Button

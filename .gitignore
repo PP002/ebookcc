@@ -6,3 +6,23 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# LiteRT / TFLite binary model files & local model caches
+*.tflite
+*.bin
+public/models/
+public/Models/
+models/
+Models/
+.wrangler/
+.mf/
+
+# Temporary patch/fix scripts
+*.patch
+patch*.cjs
+patch*.js
+fix_*.cjs
+check_*.cjs
+generate_patch*.cjs
+move_useeffects.cjs
+

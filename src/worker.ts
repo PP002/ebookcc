@@ -1,4 +1,10 @@
 import { AwsClient } from "aws4fetch";
+import {
+  parseAIContextPacket,
+  buildDynamicSystemPrompt,
+  CONVERT_SKIP_GUIDANCE,
+  AIContextPacket
+} from "./lib/aiContextPacket";
 
 export interface R2HttpMetadata {
   contentType?: string;
@@ -943,7 +949,7 @@ export default {
     }
 
     // ─────────────────────────────────────────────
-    // Route: GET /Models/*, /api/Models/*, /api/models/*, /models/* (Split Models on R2)
+    // Route: GET /Models/*, /api/Models/*, /api/models/*, /models/* (Split Models on R2 or static assets)
     // ─────────────────────────────────────────────
     if (
       (url.pathname.startsWith("/Models/") ||
@@ -955,20 +961,19 @@ export default {
       try {
         const filename = url.pathname.split("/").pop();
         if (filename && (filename.endsWith(".tflite") || filename.endsWith(".bin") || filename.endsWith(".json"))) {
+          const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
+          const bNum = batchMatch ? batchMatch[1] : "1";
+
           const r2 = getR2Bucket(env);
           if (r2) {
             const candidateKeys = [
-              `Models/${filename}`
+              `Models/${filename}`,
+              `models/${filename}`,
+              `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+              `models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+              `Models/panel-batch${bNum}.tflite`,
+              `models/panel-batch${bNum}.tflite`
             ];
-
-            const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
-            if (batchMatch) {
-              const bNum = batchMatch[1];
-              candidateKeys.push(
-                `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-                `Models/panel-batch${bNum}.tflite`
-              );
-            }
 
             for (const key of candidateKeys) {
               const obj = await r2.get(key);
@@ -981,9 +986,61 @@ export default {
               }
             }
           }
+
+          // Fallback: Serve model bundled in static assets (dist/models)
+          if (env.ASSETS) {
+            const candidateAssetPaths = [
+              `/models/panel-batch${bNum}.tflite`,
+              `/models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+              `/models/${filename}`,
+              `/Models/panel-batch${bNum}.tflite`,
+              `/Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
+              `/Models/${filename}`
+            ];
+
+            for (const aPath of candidateAssetPaths) {
+              try {
+                const assetReq = new Request(new URL(aPath, url.origin).toString());
+                const assetRes = await env.ASSETS.fetch(assetReq);
+                const cType = assetRes.headers.get("content-type") || "";
+                if (assetRes.ok && !cType.includes("text/html")) {
+                  const headers = new Headers(corsHeaders);
+                  headers.set("Content-Type", "application/octet-stream");
+                  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+                  return new Response(assetRes.body, { status: 200, headers });
+                }
+              } catch (_) {}
+            }
+          }
         }
       } catch (err: any) {
-        console.warn("[Worker Models] R2 fetch notice:", err.message);
+        console.warn("[Worker Models] fetch notice:", err.message);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: GET /wasm/* (LiteRT WASM & JS runtime files with explicit MIME types)
+    // ─────────────────────────────────────────────
+    if (url.pathname.startsWith("/wasm/") && request.method === "GET") {
+      if (env.ASSETS) {
+        try {
+          const assetRes = await env.ASSETS.fetch(request);
+          if (assetRes.ok) {
+            const headers = new Headers(assetRes.headers);
+            for (const [k, v] of Object.entries(corsHeaders)) {
+              headers.set(k, v);
+            }
+            if (url.pathname.endsWith(".wasm")) {
+              headers.set("Content-Type", "application/wasm");
+            } else if (url.pathname.endsWith(".js")) {
+              headers.set("Content-Type", "application/javascript");
+            }
+            headers.set("Cache-Control", "public, max-age=31536000, immutable");
+            return new Response(assetRes.body, { status: assetRes.status, headers });
+          }
+        } catch (wasmErr: any) {
+          console.warn("[Worker WASM] fetch notice:", wasmErr.message);
+        }
       }
     }
 
@@ -1541,6 +1598,59 @@ export default {
         }
 
         const body = (await request.json().catch(() => ({}))) as any;
+
+        // Dynamic Context Packet Processing with Compressed System Prompts
+        const contextPacket = parseAIContextPacket(body);
+        if (contextPacket) {
+          // Rule 3: if page === CONVERT: guide user tap the process menu { skip: true }
+          if (contextPacket.page === "CONVERT") {
+            return jsonResponse({
+              skip: true,
+              text: CONVERT_SKIP_GUIDANCE,
+              response: CONVERT_SKIP_GUIDANCE,
+              candidates: [{ content: { parts: [{ text: CONVERT_SKIP_GUIDANCE }] } }]
+            }, 200);
+          }
+
+          // Rule 3: select system prompt template by page+mode & interpolate packet fields (under 80 tokens)
+          const systemPrompt = buildDynamicSystemPrompt(contextPacket);
+
+          // Rule 3: call Cloudflare Workers AI (Gemma4) with system prompt + userMessage
+          const finalMessages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: contextPacket.userMessage || " " }
+          ];
+
+          const sessionId = getSessionId(body);
+          const aiResult = await env.AI.run(
+            "@cf/google/gemma-4-26b-a4b-it",
+            { messages: finalMessages, max_tokens: 1024 },
+            {
+              gateway: {
+                id: "ebookcc-gateway",
+                skipCache: false,
+                cacheTtl: 3600,
+              },
+              headers: {
+                "x-session-affinity": `ses_${sessionId}`,
+              },
+            }
+          );
+          const responseText = extractTextFromAIResult(aiResult);
+
+          if (isStreaming) {
+            return makeSSEResponse(responseText);
+          }
+
+          // Rule 3: return response text
+          return jsonResponse({
+            text: responseText,
+            response: responseText,
+            candidates: [{ content: { parts: [{ text: responseText }] } }]
+          });
+        }
+
+        // Legacy payload fallback
         const { messages } = parseGeminiOrCustomChatRequest(body);
 
         if (messages.length === 0) {

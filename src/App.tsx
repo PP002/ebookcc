@@ -713,7 +713,7 @@ function AppContent() {
         </div>
       )}
 
-      <AIAgentChat isFullscreen={isFullscreen} />
+      <AIAgentChat isFullscreen={isFullscreen} activeView={currentPath} />
       <Toaster
         position="top-center"
         toastOptions={{ className: "z-[9999999]" }}

@@ -9,6 +9,11 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { resolveSEORoute, injectSEOMetadata } from "./src/seoMetadata";
+import {
+  parseAIContextPacket,
+  buildDynamicSystemPrompt,
+  CONVERT_SKIP_GUIDANCE
+} from "./src/lib/aiContextPacket";
 
 // ─────────────────────────────────────────────
 // Types
@@ -2931,6 +2936,66 @@ STRICT INSTRUCTIONS:
         req.path?.endsWith(":streamGenerateContent") ||
         req.body?.stream === true ||
         req.query?.stream === "true";
+
+      // Dynamic Context Packet Processing with Compressed System Prompts
+      const contextPacket = parseAIContextPacket(req.body);
+      if (contextPacket) {
+        // Rule 3: if page === CONVERT: guide user tap the process menu { skip: true }
+        if (contextPacket.page === "CONVERT") {
+          return res.json({
+            skip: true,
+            text: CONVERT_SKIP_GUIDANCE,
+            response: CONVERT_SKIP_GUIDANCE,
+            candidates: [{ content: { parts: [{ text: CONVERT_SKIP_GUIDANCE }] } }]
+          });
+        }
+
+        // Rule 3: select system prompt template by page+mode & interpolate packet fields (under 80 tokens)
+        const systemPrompt = buildDynamicSystemPrompt(contextPacket);
+        const userPrompt = contextPacket.userMessage || " ";
+
+        const customKey = req.headers["x-gemini-api-key"] as string;
+        const ai = getAIClient(customKey);
+        let responseText = "";
+
+        // First attempt Workers AI Gemma4 if CF credentials configured
+        responseText = await callWorkerAI(
+          [{ role: "user", content: userPrompt }],
+          systemPrompt
+        );
+
+        if (!responseText && ai) {
+          try {
+            const response = await ai.models.generateContent({
+              model: "gemini-flash-latest",
+              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+              config: { systemInstruction: systemPrompt },
+            });
+            responseText = response.text || "";
+          } catch (gErr: any) {
+            console.warn("[Dev Server Context Packet] Gemini fallback notice:", gErr.message);
+          }
+        }
+
+        if (isStreaming) {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          const payload = {
+            text: responseText,
+            response: responseText,
+            candidates: [{ content: { parts: [{ text: responseText }] } }]
+          };
+          res.write(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
+          return res.end();
+        }
+
+        return res.json({
+          text: responseText,
+          response: responseText,
+          candidates: [{ content: { parts: [{ text: responseText }] } }]
+        });
+      }
 
       const { messages, systemInstruction } = parseGeminiOrCustomChatRequest(req.body);
 

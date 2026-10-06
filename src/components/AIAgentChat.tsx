@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +20,12 @@ import { toast } from "sonner";
 import { useAppSettings } from "@/context/AppSettingsContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getApiUrl } from '@/lib/api';
+import {
+  AIContextPacket,
+  AIPage,
+  AIMode,
+  AISelectionType,
+} from "@/lib/aiContextPacket";
 
 
 interface ChatMessage {
@@ -139,8 +145,10 @@ const AutoFillPanel = ({ panelId, href }: { panelId: string; href: string }) => 
 
 export function AIAgentChat({
   isFullscreen = false,
+  activeView = "read",
 }: {
   isFullscreen?: boolean;
+  activeView?: string;
 }) {
   const { t } = useLanguage();
   const { llmEngine, geminiApiKey } = useAppSettings();
@@ -149,6 +157,10 @@ export function AIAgentChat({
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [activeSelection, setActiveSelection] = useState<{
+    type: AISelectionType;
+    content: string;
+  } | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [size, setSize] = useState({
     width:
@@ -165,6 +177,33 @@ export function AIAgentChat({
   } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Determine current subpage for contextual greeting and assistance: "read" | "create" | "convert" | "faq" | "home"
+  const normalizedSubpage = useMemo(() => {
+    const v = (activeView || "").toLowerCase();
+    if (v === "read" || (typeof window !== "undefined" && window.location.pathname.includes("/read"))) return "read";
+    if (v === "create" || (typeof window !== "undefined" && window.location.pathname.includes("/create"))) return "create";
+    if (v === "convert" || (typeof window !== "undefined" && window.location.pathname.includes("/convert"))) return "convert";
+    if (v === "faq" || (typeof window !== "undefined" && window.location.pathname.includes("/faq"))) return "faq";
+    return "home";
+  }, [activeView]);
+
+  // Contextual greeting text based on subpage
+  const subpageGreeting = useMemo(() => {
+    switch (normalizedSubpage) {
+      case "read":
+        return t("aiAgentGreetingRead") || "📖 Hi! I'm your reading companion. I can explain literary allusions, cultural context, translate foreign dialogue, or summarize chapters for you.";
+      case "create":
+        return t("aiAgentGreetingCreate") || "🎨 Hi! I'm your creative co-pilot. I can help brainstorm plotlines, draft comic scripts & bubbles, polish story prose, or generate Flux illustration prompts.";
+      case "convert":
+        return t("aiAgentGreetingConvert") || "🔄 Hi! I can assist with document & comic processing — guide panel splitting, OCR text recognition, manga translation, or format conversion.";
+      case "faq":
+        return t("aiAgentGreetingFaq") || "💡 Hi! Have questions about EbookCC? I can explain offline LiteRT panel detection, format support, cloud sync, or keyboard shortcuts.";
+      case "home":
+      default:
+        return t("aiAgentGreeting") || "👋 Hi! I can help brainstorm ideas, write scripts, or draw something. What would you like to create?";
+    }
+  }, [normalizedSubpage, t]);
 
   const startResize = (
     e: React.PointerEvent,
@@ -253,10 +292,35 @@ export function AIAgentChat({
           } catch (e) {}
         }
 
+        setActiveSelection({
+          type: "panel_image",
+          content: extractedPrompt || url || "panel image",
+        });
+
         if (extractedPrompt) {
           setInput(`Regenerate with same style: "${extractedPrompt}"`);
         }
+      } else if (e.detail?.type === "ocr_bubble") {
+        setActiveSelection({
+          type: "ocr_bubble",
+          content: e.detail.text || "",
+        });
+        setInput((prev) =>
+          prev ? prev + " " + `"${e.detail.text}"` : `"${e.detail.text}"`,
+        );
+      } else if (e.detail?.type === "canvas_state") {
+        setActiveSelection({
+          type: "canvas_state",
+          content: e.detail.text || "",
+        });
+        setInput((prev) =>
+          prev ? prev + " " + `"${e.detail.text}"` : `"${e.detail.text}"`,
+        );
       } else if (e.detail?.type === "text") {
+        setActiveSelection({
+          type: "text",
+          content: e.detail.text || "",
+        });
         setInput((prev) =>
           prev ? prev + " " + `"${e.detail.text}"` : `"${e.detail.text}"`,
         );
@@ -321,174 +385,94 @@ export function AIAgentChat({
     setIsGenerating(true);
 
     try {
-      // --- Automatically gather context ---
-      let autoContextText = "";
-      let autoContextImage = null;
-
-      try {
-        const editor = document.querySelector(".editor-doc");
-        if (editor) {
-          autoContextText +=
-            "Current User Context: Working on a Rich Text Document / Story.\nVisible Text:\n" +
-            (editor as HTMLElement).innerText.substring(0, 4000) +
-            "\n";
-        }
-
-        const isVisualQuery = /(image|picture|photo|canvas|draw|screenshot|panel|look at|see this|ocr|transcribe|inspect)/i.test(userMessage.text);
-
-        if (typeof (window as any).getComicCanvasContext === "function") {
-          const panelsCtx = typeof (window as any).getComicPanelsContext === "function" ? (window as any).getComicPanelsContext() : "";
-          if (panelsCtx) {
-            autoContextText += "Current User Context: Working on a Comic Page.\n" + panelsCtx + "\n";
-            if (!userMessage.imageUrl && isVisualQuery) {
-              const img = await (window as any).getComicCanvasContext();
-              if (img) autoContextImage = img;
-            }
-          }
-        }
-
-        const readerContainer = document.querySelector(
-          '.react-reader-container, [class*="react-reader"]',
-        );
-        if (readerContainer) {
-          autoContextText += "Current User Context: Reading an Ebook/EPUB.\n";
-          const iframe = document.querySelector("iframe");
-          if (iframe && iframe.contentDocument) {
-            autoContextText +=
-              "Visible text:\n" +
-              iframe.contentDocument.body.innerText.substring(0, 4000) +
-              "\n";
-          }
-        }
-        const pdfPage = document.querySelector(".react-pdf__Page__textContent");
-        if (pdfPage) {
-          autoContextText +=
-            "Current User Context: Reading a PDF.\nVisible text:\n" +
-            (pdfPage as HTMLElement).innerText.substring(0, 4000) +
-            "\n";
-        }
-
-        const isConvert =
-          document.body.innerText.includes("Convert") &&
-          document.querySelector('input[type="file"]');
-        if (isConvert && !editor) {
-          autoContextText += "Current User Context: In the Converter tool.\n";
-          if (!userMessage.imageUrl && !autoContextImage && isVisualQuery) {
-            const activeImg = document.querySelector('img[src^="data:image"]');
-            if (activeImg) {
-              autoContextImage = (activeImg as HTMLImageElement).src;
-            } else {
-              const canvas = document.querySelector("canvas");
-              if (canvas) autoContextImage = canvas.toDataURL();
-            }
-          }
-          const textareas = document.querySelectorAll('textarea');
-          if (textareas.length > 0) {
-            autoContextText += "Text content visible on screen:\n";
-            textareas.forEach(ta => {
-              if (ta.value.trim()) autoContextText += "- " + ta.value.trim() + "\n";
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to get context automatically:", e);
-      }
-
-      const finalImageUrl = userMessage.imageUrl || autoContextImage;
-      const combinedText = autoContextText.trim()
-        ? `[System: The following is context about what the user is currently looking at or working on. Use it to answer their question better. Do not mention this system context explicitly unless it's relevant.]\n\n${autoContextText}\n\n[User's Request]: ${userMessage.text}`
-        : userMessage.text;
-
-      let quickLinksStr = `APP NAVIGATION (Quick Links):
-Use these markdown links to help the user navigate to app features rapidly. ONLY provide Quick Links that are HIGHLY RELEVANT to the user's CURRENT CONTEXT. Do not show comic links if the user is writing a story, and vice-versa.
-`;
-      if (autoContextText.includes("Rich Text")) {
-        quickLinksStr += `If the user wants to write a novel or story based on their prompt, use:\n[Generate Full Novel from this Summary](#action:generate-story:{URL_ENCODED_SUMMARY})\n[Open Converter/Reader](#action:open-converter)\n`;
-      } else if (autoContextText.includes("Comic Page")) {
-        quickLinksStr += `If the user wants to create a comic book based on their prompt, use:\n[Generate Full Comic from this Summary](#action:generate-comic:{URL_ENCODED_SUMMARY})\n[Create Comic Script](#action:open-create-script)\n[Open Drawing Board](#action:open-draw-board)\n`;
+      // 1. Determine page: READ | CREATE | CONVERT
+      let page: AIPage = "READ";
+      const normalizedView = (activeView || "").toLowerCase();
+      if (normalizedView.includes("convert") || window.location.pathname.includes("/convert")) {
+        page = "CONVERT";
+      } else if (normalizedView.includes("create") || window.location.pathname.includes("/create")) {
+        page = "CREATE";
+      } else if (normalizedView.includes("read") || window.location.pathname.includes("/read")) {
+        page = "READ";
       } else {
-        quickLinksStr += `If the user wants to create a comic book, use:\n[Generate Full Comic from this Summary](#action:generate-comic:{URL_ENCODED_SUMMARY})\nIf the user wants to write a novel or story, use:\n[Generate Full Novel from this Summary](#action:generate-story:{URL_ENCODED_SUMMARY})\nOther tools:\n[Create Comic Script](#action:open-create-script)\n[Open Drawing Board](#action:open-draw-board)\n[Open Converter/Reader](#action:open-converter)\n`;
+        if (document.body.innerText.includes("Convert") && document.querySelector('input[type="file"]')) {
+          page = "CONVERT";
+        } else if (document.querySelector(".editor-doc") || typeof (window as any).getComicCanvasContext === "function") {
+          page = "CREATE";
+        } else {
+          page = "READ";
+        }
       }
 
-      const systemInstruction = `You are an expert AI Agent for a professional Comic Creator App and Story Writer App. You have direct access to the FLUX image generation model via \`/api/ai/generate-image\`.
+      // 2. Determine mode: novel | comic (READ), comic | richtext (CREATE)
+      let mode: AIMode = "novel";
+      if (page === "READ") {
+        const isComic = Boolean(
+          document.querySelector(".reader-split-p") ||
+          document.querySelector('img[alt*="P"]') ||
+          document.querySelector(".comic-page-renderer") ||
+          document.querySelector('[data-reader-type="comic"]') ||
+          document.querySelector('.reader-comic')
+        );
+        mode = isComic ? "comic" : "novel";
+      } else if (page === "CREATE") {
+        const isRichText = Boolean(document.querySelector(".editor-doc"));
+        mode = isRichText ? "richtext" : "comic";
+      } else {
+        mode = "comic";
+      }
 
-CRITICAL RULE FOR COMIC CREATION & DRAWINGS:
-Whenever the user asks to "create a comic page", "draw a comic", "generate a comic", "illustrate a scene", "create a character", or "make a comic panel":
-- You MUST deliver the visual task to the FLUX model by outputting FLUX markdown image tags directly in your response!
-- NEVER output only a text script or text description when asked to create or draw a comic page.
-- For a comic page request, generate 3 to 4 sequential panels with FLUX image markdown for each panel:
+      // 3. Determine title & lang (current open content, empty string if not applicable)
+      let title = "";
+      try {
+        const titleEl = document.querySelector("h4[title], [data-book-title], .book-title");
+        if (titleEl) {
+          title = (titleEl.getAttribute("title") || titleEl.textContent || "").trim();
+        }
+      } catch (_) {}
 
-### Panel 1: [Scene Title]
-![Panel 1](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
-**Caption / Dialogue**: "..."
+      const lang = document.documentElement.lang || localStorage.getItem("ebookcc_language") || "en";
 
-### Panel 2: [Scene Title]
-![Panel 2](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
-**Caption / Dialogue**: "..."
+      // 4. Determine selectionType & selectedContent
+      let selectionType: AISelectionType = "text";
+      let selectedContent = "";
 
-### Panel 3: [Scene Title]
-![Panel 3](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
-**Caption / Dialogue**: "..."
-
-IMAGE PROMPT GUIDELINES FOR FLUX:
-- Provide very rich, descriptive English prompts for {URL_ENCODED_DETAILED_PROMPT} (e.g. \`prompt=comic%20book%20art%20style%2C%20dynamic%20superhero%20action%20shot%2C%20detailed%20ink%20lines%2C%20vibrant%20colors\`).
-- Use a consistent seed number (e.g. \`seed=123456\`) across the panels to maintain character and visual style consistency.
-
-CANVAS DIRECT PANEL AUTO-FILL:
-If the user is working on a comic page with panel IDs in the context (like panel-1, panel-2):
-You can also use:
-[Fill Panel {PANEL_ID}](/api/ai/generate-image?prompt={URL_ENCODED_DETAILED_PROMPT}&width=1024&height=1024&seed={SEED})
-The system will automatically place the FLUX art directly into that canvas panel.
-
-INTERACTIVE ACTION BUTTONS:
-At the bottom of your response, always include the relevant action button so the user can open it in the creator canvas:
-- For comic creation: [🎨 Generate Full Comic in Comic Creator](#action:generate-comic:{URL_ENCODED_SUMMARY})
-- For story/novel writing: [✒️ Generate Full Novel in Story Writer](#action:generate-story:{URL_ENCODED_SUMMARY})
-
-${quickLinksStr}
-Output the markdown text, FLUX images, and action links cleanly.`;
-
-      const geminiMessages = [
-        ...messages.map((m) => {
-          const parts: any[] = [];
-          if (m.text) parts.push({ text: m.text });
-          if (m.imageUrl) {
-            const mimeTypeMatch = m.imageUrl.match(
-              /^data:(image\/[a-zA-Z]+);base64,/,
-            );
-            let mimeType = "image/jpeg";
-            let data = m.imageUrl;
-            if (mimeTypeMatch) {
-              mimeType = mimeTypeMatch[1];
-              data = m.imageUrl.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
-            }
-            parts.push({ inlineData: { mimeType, data } });
+      const windowSelection = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+      if (windowSelection) {
+        selectionType = "text";
+        selectedContent = windowSelection;
+      } else if (activeSelection) {
+        selectionType = activeSelection.type;
+        selectedContent = activeSelection.content;
+      } else {
+        if (page === "READ") {
+          selectionType = mode === "comic" ? "ocr_bubble" : "text";
+          selectedContent = "";
+        } else if (page === "CREATE") {
+          if (mode === "comic") {
+            selectionType = "canvas_state";
+            selectedContent = typeof (window as any).getComicPanelsContext === "function" ? (window as any).getComicPanelsContext() : "";
+          } else {
+            selectionType = "text";
+            selectedContent = "";
           }
-          if (parts.length === 0) parts.push({ text: " " });
-          return { role: m.role === "agent" ? "model" : "user", parts };
-        }),
-        (() => {
-          const parts: any[] = [];
-          if (combinedText) parts.push({ text: combinedText });
-          if (finalImageUrl) {
-            const mimeTypeMatch = finalImageUrl.match(
-              /^data:(image\/[a-zA-Z]+);base64,/,
-            );
-            let mimeType = "image/jpeg";
-            let data = finalImageUrl;
-            if (mimeTypeMatch) {
-              mimeType = mimeTypeMatch[1];
-              data = finalImageUrl.replace(
-                /^data:image\/[a-zA-Z]+;base64,/,
-                "",
-              );
-            }
-            parts.push({ inlineData: { mimeType, data } });
-          }
-          if (parts.length === 0) parts.push({ text: " " });
-          return { role: "user", parts };
-        })(),
-      ];
+        } else {
+          selectionType = "text";
+          selectedContent = "";
+        }
+      }
+
+      // Rule 1: Context packet strictly contains: page, mode, title, lang, selectionType, selectedContent, userMessage
+      // Rule 4: Excludes page numbers, total pages, availableActions, imageBase64
+      const contextPacket: AIContextPacket = {
+        page,
+        mode,
+        title,
+        lang,
+        selectionType,
+        selectedContent,
+        userMessage: userMessage.text,
+      };
 
       let resultText = "";
 
@@ -500,14 +484,18 @@ Output the markdown text, FLUX images, and action links cleanly.`;
         const res = await fetch(`${getApiUrl()}/api/agent-chat`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ messages: geminiMessages, systemInstruction, engine: llmEngine }),
+          body: JSON.stringify(contextPacket),
         });
 
         if (res.ok) {
           const text = await res.text();
           if (text.trim().startsWith("{")) {
             const data = JSON.parse(text);
-            resultText = data.text || data.response || data.candidates?.[0]?.content?.parts?.[0]?.text || data.content || "";
+            if (data.skip) {
+              resultText = data.text || data.response || "To process or convert this document, please tap the options in the Convert menu tree (such as Split Panels, OCR, Translate, or Export).";
+            } else {
+              resultText = data.text || data.response || data.candidates?.[0]?.content?.parts?.[0]?.text || data.content || "";
+            }
           } else if (text.trim()) {
             resultText = text.trim();
           }
@@ -515,6 +503,8 @@ Output the markdown text, FLUX images, and action links cleanly.`;
       } catch (err: any) {
         console.error("[AIAgentChat] Backend /api/agent-chat failed:", err);
       }
+
+      setActiveSelection(null);
 
       const isComicRequest = /(comic|panel|manga|graphic novel|comic page|draw a comic|create a comic|generate a comic|make a comic|illustrate a comic)/i.test(userMessage.text);
 
@@ -605,56 +595,200 @@ Output the markdown text, FLUX images, and action links cleanly.`;
 
           <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-3">
             {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-4 gap-4">
-                <span className="text-sm">
-                  {t("aiAgentGreeting")}
+              <div className="h-full flex flex-col items-start justify-start text-left text-muted-foreground p-4 gap-4">
+                <span className="text-sm text-left text-foreground/90 leading-relaxed">
+                  {subpageGreeting}
                 </span>
-                <div className="flex flex-col w-full gap-2 mt-2">
-                  <button
-                    type="button"
-                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
-                    onClick={() => {
-                      setIsOpen(true);
-                      setInput("I want to create a comic book about...");
-                      window.dispatchEvent(
-                        new CustomEvent("app-navigation", {
-                          detail: { action: "open-comic-creator" },
-                        }),
-                      );
-                    }}
-                  >
-                    🎨 {t("createComicCardTitle")}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
-                    onClick={() => {
-                      setIsOpen(true);
-                      setInput("I want to write a story about...");
-                      window.dispatchEvent(
-                        new CustomEvent("app-navigation", {
-                          detail: { action: "open-story-writer" },
-                        }),
-                      );
-                    }}
-                  >
-                    ✒️ {t("writeAStory")}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
-                    onClick={() => {
-                      setIsOpen(true);
-                      setInput("I want to convert an ebook...");
-                      window.dispatchEvent(
-                        new CustomEvent("app-navigation", {
-                          detail: { action: "open-converter" },
-                        }),
-                      );
-                    }}
-                  >
-                    📚 {t("convertCardTitle")}
-                  </button>
+                <div className="flex flex-col w-full gap-2.5 mt-1">
+                  {normalizedSubpage === "read" && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Can you explain the historical/cultural context and allusions in this section?");
+                        }}
+                      >
+                        📖 Explain cultural context & literary allusions
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Translate this selected dialogue or text into natural language with cultural notes: ");
+                        }}
+                      >
+                        🌐 Translate selected text or dialogue
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Can you summarize this passage and its key narrative beats?");
+                        }}
+                      >
+                        📝 Summarize this chapter or passage
+                      </button>
+                    </>
+                  )}
+
+                  {normalizedSubpage === "create" && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Help me script a 4-panel comic scene with dialogue bubbles about...");
+                        }}
+                      >
+                        🎨 Create comic panel layout & script
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Please polish and improve the narrative flow of this story draft: ");
+                        }}
+                      >
+                        ✒️ Polish story draft & improve dialogue
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Create a detailed Flux illustration prompt for a comic panel depicting...");
+                        }}
+                      >
+                        ✨ Generate Flux illustration image prompt
+                      </button>
+                    </>
+                  )}
+
+                  {normalizedSubpage === "convert" && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("How do I auto-split comic panels and adjust crop borders?");
+                        }}
+                      >
+                        ✂️ How to auto-split comic panels & boxes
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("How do I run OCR on speech bubbles and translate manga panels?");
+                        }}
+                      >
+                        🔍 OCR speech bubble extraction & translation
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("What is the best format (CBZ, EPUB, PDF) to export my converted comic for Kindle/e-readers?");
+                        }}
+                      >
+                        📦 Optimize & export formats for e-readers
+                      </button>
+                    </>
+                  )}
+
+                  {normalizedSubpage === "faq" && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("How does LiteRT in-browser panel detection work with WebGPU and WASM?");
+                        }}
+                      >
+                        ⚡ How does offline LiteRT detection work?
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("How do I backup and sync my comics and books to Google Drive?");
+                        }}
+                      >
+                        ☁️ How do I connect Google Drive sync?
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Show me the keyboard and drawing shortcuts available in EbookCC.");
+                        }}
+                      >
+                        ⌨️ What are the reading & canvas shortcuts?
+                      </button>
+                    </>
+                  )}
+
+                  {normalizedSubpage === "home" && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("I want to create a comic book about...");
+                          window.dispatchEvent(
+                            new CustomEvent("app-navigation", {
+                              detail: { action: "open-comic-creator" },
+                            }),
+                          );
+                        }}
+                      >
+                        🎨 {t("createComicCardTitle")}
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("I want to write a story about...");
+                          window.dispatchEvent(
+                            new CustomEvent("app-navigation", {
+                              detail: { action: "open-story-writer" },
+                            }),
+                          );
+                        }}
+                      >
+                        ✒️ {t("writeAStory")}
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("I want to convert an ebook...");
+                          window.dispatchEvent(
+                            new CustomEvent("app-navigation", {
+                              detail: { action: "open-converter" },
+                            }),
+                          );
+                        }}
+                      >
+                        📚 {t("convertCardTitle")}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

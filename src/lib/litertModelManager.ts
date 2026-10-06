@@ -173,17 +173,19 @@ export function getModelFetchUrls(filename: string): string[] {
   const legacyFilename = `panel-batch${batchNum}.tflite`;
 
   const urls: string[] = [
-    `/Models/${modelFilename}`,
+    `/models/${legacyFilename}`,
     `/models/${modelFilename}`,
+    `/Models/${legacyFilename}`,
+    `/Models/${modelFilename}`,
+    `/models/${filename}`,
+    `/Models/${filename}`,
+    `/api/models/${legacyFilename}`,
     `/api/models/${modelFilename}`,
+    `/api/models/${filename}`,
+    `/api/Models/${legacyFilename}`,
     `/api/Models/${modelFilename}`,
     `/api/media/file/ebookcc-media/Models/${modelFilename}`,
     `/api/media/file/ebookcc-media/models/${modelFilename}`,
-    `/Models/${filename}`,
-    `/models/${filename}`,
-    `/api/models/${filename}`,
-    `/Models/${legacyFilename}`,
-    `/models/${legacyFilename}`
   ];
 
   // If there is an external backend URL configured in environment, add it as fallback

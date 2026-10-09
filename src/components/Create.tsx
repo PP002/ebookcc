@@ -100,6 +100,8 @@ import {
   TreeNode,
   Stroke,
   PanelNode,
+  getSortedPanelLabels,
+  splitPanelWithDrawings,
 } from "./ComicCanvas";
 import { LayerManagerUI } from "./comic/LayerManagerUI";
 import { ComicLayer, ComicLayerGroup } from "./comic/drawingTypes";
@@ -3577,14 +3579,83 @@ export const Create: React.FC<CreateProps> = ({
       } else if (createMode === "comic") {
         setComicPages((prev) => {
           let updatedPages = [...prev];
-          const page = updatedPages[activePageIndex];
+          const targetPageIndex = typeof e.detail?.pageIndex === "number"
+            ? e.detail.pageIndex
+            : (typeof e.detail?.pageNumber === "number" ? e.detail.pageNumber - 1 : activePageIndex);
+          const pageIdxToUse = targetPageIndex >= 0 && targetPageIndex < updatedPages.length ? targetPageIndex : activePageIndex;
+          if (pageIdxToUse !== activePageIndex) {
+            setTimeout(() => setActivePageIndex(pageIdxToUse), 0);
+          }
+
+          const page = updatedPages[pageIdxToUse];
           if (page) {
             const targetPanelId = e.detail?.panelId;
+            const targetPanelLabel = e.detail?.panelLabel; // e.g. "A5", "Panel 5", "5"
+            const targetPanelIndex = e.detail?.panelIndex;
             const activePath = (window as any).activeComicPanelPath;
-            
-            if (targetPanelId) {
+
+            const countPanels = (node: any): any[] => {
+              if (node.type === "panel") return [node];
+              if (node.dir) return [...countPanels(node.c1), ...countPanels(node.c2)];
+              return [];
+            };
+            let panels = countPanels(page.tree);
+            let labelMap = getSortedPanelLabels(page.tree);
+
+            let resolvedNodeId: string | null = null;
+            let matchedLabelName = "";
+
+            if (targetPanelLabel || targetPanelId || targetPanelIndex) {
+              const query = (targetPanelLabel || targetPanelId || (targetPanelIndex ? `A${targetPanelIndex}` : "")).toString().trim().toUpperCase();
+
+              // 1. Exact node.id match
+              const idMatch = panels.find((p) => p.id === targetPanelId);
+              if (idMatch) {
+                resolvedNodeId = idMatch.id;
+                matchedLabelName = labelMap.get(idMatch.id) || idMatch.id;
+              }
+
+              // 2. Exact panel label match (e.g. "A5", "T1")
+              if (!resolvedNodeId) {
+                const labelMatch = panels.find((p) => (labelMap.get(p.id) || "").toUpperCase() === query);
+                if (labelMatch) {
+                  resolvedNodeId = labelMatch.id;
+                  matchedLabelName = labelMap.get(labelMatch.id) || query;
+                }
+              }
+
+              // 3. Numeric index or "PANEL 5", "PANEL5", "5"
+              if (!resolvedNodeId) {
+                const numMatch = query.match(/\d+/);
+                const reqIdx = targetPanelIndex || (numMatch ? parseInt(numMatch[0], 10) : undefined);
+                if (reqIdx) {
+                  if (reqIdx >= 1 && reqIdx <= panels.length) {
+                    const indexedPanel = panels[reqIdx - 1];
+                    resolvedNodeId = indexedPanel.id;
+                    matchedLabelName = labelMap.get(indexedPanel.id) || `Panel ${reqIdx}`;
+                  } else if (reqIdx > panels.length && panels.length > 0) {
+                    // Auto-split to expand panels until requested panel index exists
+                    let curTree = page.tree;
+                    while (countPanels(curTree).length < reqIdx) {
+                      const curPanels = countPanels(curTree);
+                      const lastP = curPanels[curPanels.length - 1];
+                      curTree = splitPanelWithDrawings(curTree, lastP.id, curPanels.length % 2 === 0 ? 'col' : 'row');
+                    }
+                    panels = countPanels(curTree);
+                    labelMap = getSortedPanelLabels(curTree);
+                    if (reqIdx <= panels.length) {
+                      resolvedNodeId = panels[reqIdx - 1].id;
+                      matchedLabelName = labelMap.get(resolvedNodeId) || `A${reqIdx}`;
+                      page.tree = curTree;
+                    }
+                  }
+                }
+              }
+            }
+
+            if (resolvedNodeId) {
               const replaceNodeById = (node: TreeNode): TreeNode => {
-                if (node.type === "panel" && node.id === targetPanelId) {
+                if (node.type === "panel" && node.id === resolvedNodeId) {
                   return { ...node, imageUrl: imageUrl, drawings: [] };
                 }
                 if (node.type !== "panel") {
@@ -3596,11 +3667,12 @@ export const Create: React.FC<CreateProps> = ({
                 }
                 return node;
               };
-              updatedPages[activePageIndex] = {
+              updatedPages[pageIdxToUse] = {
                 ...page,
                 tree: replaceNodeById(page.tree),
               };
-              setTimeout(() => toast.success("Image placed in panel!"), 0);
+              const styleDesc = e.detail?.style ? ` (${e.detail.style})` : "";
+              setTimeout(() => toast.success(`✨ Refined illustration in Panel ${matchedLabelName}${styleDesc}!`), 0);
             } else if (activePath) {
               const replaceNodeByPath = (
                 node: TreeNode,
@@ -3658,7 +3730,49 @@ export const Create: React.FC<CreateProps> = ({
       }
     };
 
+    const handleUpdateBubble = (e: any) => {
+      if (createMode !== "comic") return;
+      const { bubbleIndex, bubbleLabel, bubbleId, text, style } = e.detail || {};
+      setComicPages((prev) => {
+        const updated = [...prev];
+        const page = updated[activePageIndex];
+        if (!page || !page.bubbles || page.bubbles.length === 0) {
+          setTimeout(() => toast.info("No speech bubbles on this page to update."), 0);
+          return prev;
+        }
+
+        let targetIdx = -1;
+        if (typeof bubbleIndex === "number" && bubbleIndex >= 1 && bubbleIndex <= page.bubbles.length) {
+          targetIdx = bubbleIndex - 1;
+        } else if (bubbleLabel) {
+          const num = String(bubbleLabel).match(/\d+/);
+          if (num) {
+            const idx = parseInt(num[0], 10);
+            if (idx >= 1 && idx <= page.bubbles.length) targetIdx = idx - 1;
+          }
+        } else if (bubbleId) {
+          targetIdx = page.bubbles.findIndex((b) => b.id === bubbleId);
+        } else {
+          targetIdx = 0;
+        }
+
+        if (targetIdx !== -1) {
+          const newBubbles = [...page.bubbles];
+          newBubbles[targetIdx] = {
+            ...newBubbles[targetIdx],
+            text: typeof text === "string" ? text : newBubbles[targetIdx].text,
+            style: style || newBubbles[targetIdx].style,
+          };
+          updated[activePageIndex] = { ...page, bubbles: newBubbles };
+          setTimeout(() => toast.success(`Speech Bubble ${targetIdx + 1} updated!`), 0);
+          return updated;
+        }
+        return prev;
+      });
+    };
+
     window.addEventListener("insert-comic-image", handleInsertImage);
+    window.addEventListener("update-comic-bubble", handleUpdateBubble);
 
     (window as any).getComicCanvasContext = async () => {
       if (createMode === "comic" && comicRef.current) {
@@ -3678,25 +3792,72 @@ export const Create: React.FC<CreateProps> = ({
       if (createMode !== "comic") return "";
       
       const countPanels = (node: any): any[] => {
-          if (node.type === "panel") return [node];
-          if (node.dir) return [...countPanels(node.c1), ...countPanels(node.c2)];
-          return [];
+        if (node.type === "panel") return [node];
+        if (node.dir) return [...countPanels(node.c1), ...countPanels(node.c2)];
+        return [];
       };
       
       const activePage = comicPages[activePageIndex] || comicPages[0];
       const panels = countPanels(activePage.tree);
+      const labelMap = getSortedPanelLabels(activePage.tree);
       
-      let context = `The current comic page has ${panels.length} panels.\n`;
+      let context = `Page ${activePageIndex + 1} (${panels.length} panels total):\n`;
       panels.forEach((p, idx) => {
-          context += `Panel ID: ${p.id} - ${p.imageUrl ? "Contains an image." : "Empty."}\n`;
+        const label = labelMap.get(p.id) || `A${idx + 1}`;
+        const hasImg = !!p.imageUrl;
+        const hasSketch = p.drawings && p.drawings.length > 0;
+        const illustrationState = hasImg ? "illustration image" : hasSketch ? "sketch/drawing" : "empty illustration";
+        context += `- Panel ${idx + 1} (Label: ${label}): ${illustrationState}${p.isTextPanel ? ", text panel" : ""}\n`;
       });
+
+      if (activePage.bubbles && activePage.bubbles.length > 0) {
+        context += `Speech Bubbles (${activePage.bubbles.length} total):\n`;
+        activePage.bubbles.forEach((b, bIdx) => {
+          context += `- Bubble ${bIdx + 1} [${b.style}]: "${b.text || '(empty)'}"\n`;
+        });
+      }
+
       return context;
+    };
+
+    (window as any).getComicMetadata = () => {
+      if (createMode !== "comic") return null;
+      const countPanels = (node: any): any[] => {
+        if (node.type === "panel") return [node];
+        if (node.dir) return [...countPanels(node.c1), ...countPanels(node.c2)];
+        return [];
+      };
+      const activePage = comicPages[activePageIndex] || comicPages[0];
+      const panels = countPanels(activePage.tree);
+      const labelMap = getSortedPanelLabels(activePage.tree);
+      return {
+        activePageIndex,
+        pageNumber: activePageIndex + 1,
+        totalPages: comicPages.length,
+        panels: panels.map((p, idx) => ({
+          id: p.id,
+          index: idx + 1,
+          label: labelMap.get(p.id) || `A${idx + 1}`,
+          imageUrl: p.imageUrl,
+          isTextPanel: !!p.isTextPanel,
+          hasDrawings: !!(p.drawings && p.drawings.length > 0),
+        })),
+        bubbles: (activePage.bubbles || []).map((b, bIdx) => ({
+          id: b.id,
+          index: bIdx + 1,
+          label: `Bubble ${bIdx + 1}`,
+          text: b.text,
+          style: b.style,
+        })),
+      };
     };
 
     return () => {
       window.removeEventListener("insert-comic-image", handleInsertImage);
+      window.removeEventListener("update-comic-bubble", handleUpdateBubble);
       delete (window as any).getComicCanvasContext;
       delete (window as any).getComicPanelsContext;
+      delete (window as any).getComicMetadata;
     };
   }, [createMode, activePageIndex, comicPages]);
 
@@ -3970,7 +4131,26 @@ export const Create: React.FC<CreateProps> = ({
 
   useEffect(() => {
     onFullscreenChange?.(isComicPanelExpanded);
+    if (isComicPanelExpanded) {
+      if (!document.fullscreenElement) {
+        document.documentElement?.requestFullscreen?.().catch(() => {});
+      }
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    }
   }, [isComicPanelExpanded, onFullscreenChange]);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      if (!document.fullscreenElement && isComicPanelExpanded) {
+        setIsComicPanelExpanded(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, [isComicPanelExpanded]);
 
   useEffect(() => {
     return () => {
@@ -8478,7 +8658,7 @@ ${manifestImages}  </manifest>
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-      <header className="sticky top-0 z-[150] w-full border-b bg-background/80 backdrop-blur-md shrink-0 overflow-visible">
+      <header className={cn("w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all", isComicPanelExpanded ? "fixed top-0 inset-x-0 z-[10001] shadow-md" : "sticky top-0 z-[150]")}>
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
           {/* Left Actions */}
           <div className="flex items-center gap-0.5 overflow-visible py-1 shrink-0 z-20 relative">
@@ -8495,9 +8675,15 @@ ${manifestImages}  </manifest>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setCreateMode("select")}
+              onClick={() => {
+                if (isComicPanelExpanded) {
+                  setIsComicPanelExpanded(false);
+                } else {
+                  setCreateMode("select");
+                }
+              }}
               className="w-8 h-8 shrink-0"
-              title={t("back") || "Back"}
+              title={isComicPanelExpanded ? "Exit Full Panel" : (t("back") || "Back")}
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -8601,7 +8787,10 @@ ${manifestImages}  </manifest>
         {isDrawingMode && createMode === "comic" && isPortrait && !isSidebarOpen && (
           <div
             data-portrait-drawing-sidebar="true"
-            className="absolute top-3 left-2 sm:left-3 z-[45] pointer-events-auto"
+            className={cn(
+              "left-2 sm:left-3 pointer-events-auto",
+              isComicPanelExpanded ? "fixed top-14 z-[10002]" : "absolute top-3 z-[45]"
+            )}
           >
             {renderDrawingToolbar(true)}
           </div>
@@ -8785,7 +8974,7 @@ ${manifestImages}  </manifest>
                 className={cn(
                   "w-full h-full overflow-hidden",
                   isComicPanelExpanded
-                    ? "relative flex items-center justify-center"
+                    ? "fixed inset-0 top-11 z-[9999] w-screen h-[calc(100vh-44px)] bg-background flex items-center justify-center select-none"
                     : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
                 )}
               >

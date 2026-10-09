@@ -428,7 +428,8 @@ async function executeModel(
         if (batchSize > 1) {
           console.debug(`[Split Model] High-batch fallback to Batch 1 CPU...`);
           const singleCached = await getOrCompileModel(1, false);
-          const singleTensor = new Tensor(inputTensor.data.subarray(0, 3 * 640 * 640), [1, 3, 640, 640]);
+          const rawData: any = typeof (inputTensor as any).data === "function" ? await (inputTensor as any).data() : (inputTensor as any).data;
+          const singleTensor = new Tensor(rawData?.subarray ? rawData.subarray(0, 3 * 640 * 640) : rawData, [1, 3, 640, 640]);
           const singleOutputs = await singleCached.model.run([singleTensor]);
           return { outputs: singleOutputs, accelerator: "wasm", isChannelsFirst: singleCached.isChannelsFirst };
         }

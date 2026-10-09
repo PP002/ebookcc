@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, Pause, SkipBack, SkipForward, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -603,6 +603,23 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isHudVisible, setIsHudVisible] = useState(true);
+  const hudTimeoutRef = React.useRef<any>(null);
+  const singleTapTimeoutRef = React.useRef<any>(null);
+  const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
+  const [slideshowIntervalMs, setSlideshowIntervalMs] = useState(4000);
+  const [manualSpeedInput, setManualSpeedInput] = useState<string>("4");
+  const slideshowTimerRef = React.useRef<any>(null);
+
+  const handlePointerActivity = useCallback(() => {
+    setIsHudVisible(true);
+    if (hudTimeoutRef.current) clearTimeout(hudTimeoutRef.current);
+    hudTimeoutRef.current = setTimeout(() => {
+      if (isFullscreen) {
+        setIsHudVisible(false);
+      }
+    }, 3500);
+  }, [isFullscreen]);
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const [recentBooks, setRecentBooks] = useState<RecentBookMetadata[]>([]);
@@ -2019,6 +2036,13 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     }
   }, [selectedBook, onActiveStateChange]);
 
+  const totalBookPages = useMemo(() => {
+    if (!selectedBook) return 1;
+    if (selectedBook.fileType === 'pdf' && pdfNumPages) return pdfNumPages;
+    if (selectedBook.fileType === 'text') return textPages;
+    return selectedBook.pages?.length || 1;
+  }, [selectedBook, pdfNumPages, textPages]);
+
   const nextPage = useCallback(() => {
     clearLockedAnchor();
     if (selectedBook) {
@@ -2102,8 +2126,49 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     const now = Date.now();
     if (now - lastToggleTimeRef.current < 350) return;
     lastToggleTimeRef.current = now;
-    setIsFullscreen((prev) => !prev);
+    setIsFullscreen((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsHudVisible(true);
+        if (!document.fullscreenElement) {
+          containerRef.current?.requestFullscreen?.().catch(() => {});
+        }
+      } else {
+        setIsPlayingSlideshow(false);
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        }
+      }
+      return next;
+    });
   }, []);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      const isFs = Boolean(document.fullscreenElement);
+      setIsFullscreen(isFs);
+      if (isFs) {
+        setIsHudVisible(true);
+      } else {
+        setIsPlayingSlideshow(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  useEffect(() => {
+    if (isPlayingSlideshow && isFullscreen) {
+      slideshowTimerRef.current = setInterval(() => {
+        nextPage();
+      }, slideshowIntervalMs);
+      return () => {
+        if (slideshowTimerRef.current) clearInterval(slideshowTimerRef.current);
+      };
+    } else {
+      if (slideshowTimerRef.current) clearInterval(slideshowTimerRef.current);
+    }
+  }, [isPlayingSlideshow, isFullscreen, nextPage, slideshowIntervalMs]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     // Disable touch gesture handling on desktop/mouse
@@ -2172,7 +2237,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         return;
       }
 
-      // 2. Double tap to switch between full screen and normal
+      // 2. Double tap to switch between full screen and normal / Single tap to toggle bars in fullscreen
       if (absX < 25 && absY < 25 && elapsed < 350) {
         const now = Date.now();
         const lastTap = lastTapRef.current;
@@ -2182,12 +2247,19 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           now - lastTap.time < 350 &&
           Math.hypot(endX - lastTap.x, endY - lastTap.y) < 45
         ) {
+          if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
           toggleFullscreenSafe();
           lastTapRef.current = null;
           touchStartRef.current = null;
           return;
         } else {
           lastTapRef.current = { time: now, x: endX, y: endY };
+          if (isFullscreen) {
+            if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+            singleTapTimeoutRef.current = setTimeout(() => {
+              setIsHudVisible((prev) => !prev);
+            }, 260);
+          }
         }
       }
 
@@ -2235,6 +2307,35 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         targetEl?.isContentEditable ||
         targetEl?.getAttribute?.('contenteditable') === 'true'
       ) {
+        return;
+      }
+
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFullscreenSafe();
+        return;
+      }
+
+      if (e.key === 'Escape' && isFullscreen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsFullscreen(false);
+        setIsPlayingSlideshow(false);
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        }
+        return;
+      }
+
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isFullscreen) {
+          setIsPlayingSlideshow((prev) => !prev);
+        } else {
+          nextPage();
+        }
         return;
       }
 
@@ -2563,7 +2664,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           )}
         </div>
       ) : (
-        <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">
+        <div className={cn(
+          "flex-1 flex flex-col overflow-hidden min-h-0 relative",
+          isFullscreen 
+            ? "fixed inset-0 z-[9999] w-screen h-screen bg-background select-none" 
+            : "bg-background"
+        )}>
           {!isFullscreen && (
             <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md shrink-0">
             <div className="relative w-full px-2 h-11 flex items-center justify-between gap-2">
@@ -2664,7 +2770,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     <ArrowRight className="w-3.5 h-3.5" />
                   )}
                 </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setIsFullscreen(true)} title={t("fullscreen")}>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={toggleFullscreenSafe} title={t("fullscreen")}>
                    <Maximize className="w-3.5 h-3.5" />
                 </Button>
                 {isTextBook && (
@@ -3015,11 +3121,41 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
             <div 
               ref={containerRef} 
-              onTouchStart={handleTouchStart}
+              onTouchStart={(e) => { handlePointerActivity(); handleTouchStart(e); }}
               onTouchEnd={handleTouchEnd}
+              onPointerMove={handlePointerActivity}
               onDoubleClick={toggleFullscreenSafe}
-              className="flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center bg-background"
+              onClick={(e) => {
+                if (!isFullscreen) return;
+                const target = e.target as HTMLElement;
+                if (target.closest('.fullscreen-hud, button, input, textarea, a, select')) return;
+                setIsHudVisible(prev => !prev);
+              }}
+              className={cn(
+                "flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center",
+                isFullscreen ? "bg-background" : "bg-background",
+                isFullscreen && !isHudVisible && "cursor-none"
+              )}
             >
+              {/* Video-Player Style Top HUD Overlay for Fullscreen */}
+              {isFullscreen && (
+                <div 
+                  className={cn(
+                    "fullscreen-hud absolute top-3 inset-x-3 sm:inset-x-8 z-50 flex items-center justify-between pointer-events-none transition-all duration-300",
+                    isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
+                  )}
+                >
+                  <div className="pointer-events-auto bg-card/90 text-card-foreground border border-border px-3.5 py-1.5 rounded-full flex items-center gap-2.5 shadow-2xl backdrop-blur-md">
+                    <BookOpen className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="text-xs font-bold truncate max-w-[180px] sm:max-w-[320px] text-foreground">
+                      {selectedBook?.title || "Reader"}
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-muted text-foreground border border-border/50 px-2 py-0.5 rounded-full">
+                      P{selectedBook?.fileType === 'epub' ? (epubCurrentPage || 1) : (currentPage + 1)} / {totalBookPages}
+                    </span>
+                  </div>
+                </div>
+              )}
               {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books: 1/4 screen width each) */}
               {isTouchDevice() && !isReflowTextBook && (
                 <>
@@ -3444,6 +3580,163 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   )}
                 </div>
               </div>
+
+              {/* Video-Player Style Bottom Controls HUD for Fullscreen */}
+              {isFullscreen && (
+                <div 
+                  className={cn(
+                    "fullscreen-hud absolute bottom-4 inset-x-3 sm:inset-x-12 md:inset-x-20 max-w-3xl mx-auto z-50 pointer-events-auto transition-all duration-300",
+                    isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="bg-card/90 dark:bg-card/90 text-card-foreground border border-border px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col gap-2">
+                    {/* Timeline Scrubber Bar */}
+                    <div 
+                      className="w-full flex items-center gap-2 group/scrubber cursor-pointer py-1"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+                        const targetPage = Math.min(totalBookPages - 1, Math.round(ratio * (totalBookPages - 1)));
+                        clearLockedAnchor();
+                        setCurrentPage(targetPage);
+                      }}
+                    >
+                      <div className="relative flex-1 h-1.5 group-hover/scrubber:h-2 bg-muted rounded-full overflow-hidden transition-all">
+                        <div 
+                          className="absolute left-0 top-0 bottom-0 bg-primary rounded-full transition-all duration-150"
+                          style={{ width: `${Math.max(2, Math.min(100, ((currentPage + 1) / Math.max(1, totalBookPages)) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Controls Row */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        {/* Prev Page */}
+                        <button
+                          type="button"
+                          onClick={prevPage}
+                          disabled={currentPage === 0}
+                          className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+                          title="Previous Page (Left Arrow)"
+                        >
+                          <SkipBack className="w-4 h-4" />
+                        </button>
+
+                        {/* Play / Slideshow Toggle (Icon only, no text) */}
+                        <button
+                          type="button"
+                          onClick={() => setIsPlayingSlideshow(p => !p)}
+                          className="p-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors cursor-pointer flex items-center justify-center shadow-xs"
+                          title={isPlayingSlideshow ? "Pause Auto-play (Space)" : "Auto-play Slideshow (Space)"}
+                        >
+                          {isPlayingSlideshow ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+                        </button>
+
+                        {/* Next Page */}
+                        <button
+                          type="button"
+                          onClick={nextPage}
+                          disabled={currentPage >= totalBookPages - 1}
+                          className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+                          title="Next Page (Right Arrow)"
+                        >
+                          <SkipForward className="w-4 h-4" />
+                        </button>
+
+                        {/* Page Counter */}
+                        <span className="text-xs font-mono font-bold text-foreground ml-1">
+                          {currentPage + 1} / {totalBookPages}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        {/* Manual Play Speed Input */}
+                        <div className="flex items-center gap-1 bg-muted/60 border border-border/50 rounded-lg px-2 py-0.5 text-xs text-foreground" title="Slideshow interval in seconds">
+                          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider select-none">Speed</span>
+                          <input
+                            type="number"
+                            min="0.5"
+                            max="60"
+                            step="0.5"
+                            value={manualSpeedInput}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setManualSpeedInput(val);
+                              const parsed = parseFloat(val);
+                              if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 60) {
+                                setSlideshowIntervalMs(Math.round(parsed * 1000));
+                              }
+                            }}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="w-12 h-5 text-center text-xs font-mono font-bold bg-background text-foreground border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <span className="text-[11px] text-muted-foreground font-mono select-none">s</span>
+                        </div>
+
+                        {/* Reading Direction Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextDir = readingDirection === 'rtl' ? 'ltr' : 'rtl';
+                            setReadingDirection(nextDir);
+                            setSelectedBook(prev => prev ? { ...prev, readingDirection: nextDir } : null);
+                          }}
+                          className="p-1.5 hover:bg-muted text-foreground/80 hover:text-foreground rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-border/40"
+                          title={readingDirection === 'rtl' ? "Reading direction: Right to Left (Click for LTR)" : "Reading direction: Left to Right (Click for RTL)"}
+                        >
+                          {readingDirection === 'rtl' ? (
+                            <ArrowLeft className="w-3.5 h-3.5 text-primary" />
+                          ) : (
+                            <ArrowRight className="w-3.5 h-3.5 text-primary" />
+                          )}
+                          <span className="text-[10px] font-mono font-bold uppercase">{readingDirection.toUpperCase()}</span>
+                        </button>
+
+                        {/* Crop / Split panels toggle */}
+                        {selectedBook?.fileType !== 'text' && selectedBook?.fileType !== 'pdf' && selectedBook?.fileType !== 'epub' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setCropBorders(p => !p)}
+                              className={cn("p-1.5 rounded-lg transition-colors cursor-pointer border border-border/40", cropBorders ? "bg-primary text-primary-foreground" : "hover:bg-muted text-foreground/80")}
+                              title={t("cropPageBorders")}
+                            >
+                              <Crop className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGridView(p => !p)}
+                              className={cn("p-1.5 rounded-lg transition-colors cursor-pointer border border-border/40", gridView ? "bg-primary text-primary-foreground" : "hover:bg-muted text-foreground/80")}
+                              title={gridView ? "Back to page view" : t("splitPanels")}
+                            >
+                              <SplitPanelsIcon className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+
+                        {/* Exit Fullscreen (Un-fullscreen button) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsFullscreen(false);
+                            setIsPlayingSlideshow(false);
+                            if (document.fullscreenElement) {
+                              document.exitFullscreen?.().catch(() => {});
+                            }
+                          }}
+                          className="p-1.5 hover:bg-muted rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer border border-border/40"
+                          title="Exit Fullscreen (Esc or F)"
+                        >
+                          <Minimize className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </main>
         </div>

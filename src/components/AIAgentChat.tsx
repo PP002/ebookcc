@@ -35,6 +35,227 @@ interface ChatMessage {
   imageUrl?: string;
 }
 
+function isExplicitComicGenerationRequest(prompt: string): boolean {
+  if (!prompt || typeof prompt !== "string") return false;
+  const trimmed = prompt.trim();
+  // Question patterns should never trigger full comic panel image generation
+  if (/^(how\s|what\s|why\s|where\s|when\s|can\s+you\s+explain|explain\b|tell\s+me\s+about|guide\b|is\s+there|show\s+me\s+the|which\b)/i.test(trimmed)) {
+    return false;
+  }
+  // Technical, conversion, cropping, processing actions are not creative comic generation
+  if (/(split|detect|crop|border|ocr|extract|translate|export|convert|setting|shortcut|download|upload)/i.test(trimmed)) {
+    return false;
+  }
+  // Explicit creation/generation keywords for comics or manga
+  const creationRegex = /^(please\s+)?(draw|create|generate|make|illustrate|design|draft)\s+(a\s+|an\s+|me\s+a\s+)?(comic|comic\s+page|comic\s+strip|comic\s+book|manga|graphic\s+novel)/i;
+  const patternRegex = /\b(draw|create|generate|make|illustrate)\s+(a\s+|an\s+)?(new\s+)?(comic\s+page|comic\s+strip|comic\s+scene|manga\s+page)\b/i;
+  return creationRegex.test(trimmed) || patternRegex.test(trimmed);
+}
+
+export interface ComicTargetInfo {
+  isTargeted: boolean;
+  pageNumber?: number;
+  panelLabel?: string;     // e.g. "A5"
+  panelIndex?: number;     // e.g. 5
+  bubbleIndex?: number;    // e.g. 1
+  elementType: "illustration" | "bubble" | "panel";
+  styleKeyword?: string;   // e.g. "60s comic style"
+}
+
+export function parseComicTargetAndStyle(prompt: string): ComicTargetInfo {
+  if (!prompt || typeof prompt !== "string") {
+    return { isTargeted: false, elementType: "panel", styleKeyword: "" };
+  }
+  const text = prompt.trim();
+
+  // Pure questions or convert commands are not targeted editing requests
+  if (/^(how\s|what\s|why\s|where\s|when\s|can\s+you\s+explain|explain\b|tell\s+me\s+about)/i.test(text)) {
+    return { isTargeted: false, elementType: "panel", styleKeyword: "" };
+  }
+
+  // 1. Detect Panel Label (e.g. A5, A1..A20, T1..T20, or "panel 5", "panel5", "panel A5", "panel #5", "5th panel")
+  let panelLabel: string | undefined;
+  let panelIndex: number | undefined;
+
+  const directLabelMatch = text.match(/\b([AT]\d+)\b/i);
+  const panelWordMatch = text.match(/\bpanel\s*(?:#|no\.?\s*)?([AT]?\d+)\b/i);
+  const compactPanelMatch = text.match(/\bpanel([AT]?\d+)\b/i);
+  const ordinalPanelMatch = text.match(/\b(\d+)(?:st|nd|rd|th)\s+panel\b/i);
+
+  if (directLabelMatch) {
+    panelLabel = directLabelMatch[1].toUpperCase();
+    const num = parseInt(panelLabel.slice(1), 10);
+    if (!isNaN(num)) panelIndex = num;
+  } else if (panelWordMatch) {
+    const raw = panelWordMatch[1].toUpperCase();
+    if (raw.startsWith("A") || raw.startsWith("T")) {
+      panelLabel = raw;
+      panelIndex = parseInt(raw.slice(1), 10);
+    } else {
+      panelIndex = parseInt(raw, 10);
+      panelLabel = `A${panelIndex}`;
+    }
+  } else if (compactPanelMatch) {
+    const raw = compactPanelMatch[1].toUpperCase();
+    if (raw.startsWith("A") || raw.startsWith("T")) {
+      panelLabel = raw;
+      panelIndex = parseInt(raw.slice(1), 10);
+    } else {
+      panelIndex = parseInt(raw, 10);
+      panelLabel = `A${panelIndex}`;
+    }
+  } else if (ordinalPanelMatch) {
+    panelIndex = parseInt(ordinalPanelMatch[1], 10);
+    panelLabel = `A${panelIndex}`;
+  }
+
+  // 2. Detect Bubble (e.g. bubble 1, speech bubble 2, b1, b2)
+  let bubbleIndex: number | undefined;
+  const bubbleMatch = text.match(/\b(?:speech\s+)?bubble\s*(?:#|no\.?\s*)?(\d+)\b/i);
+  const compactBubbleMatch = text.match(/\bb(\d+)\b/i);
+  if (bubbleMatch) {
+    bubbleIndex = parseInt(bubbleMatch[1], 10);
+  } else if (compactBubbleMatch && !directLabelMatch) {
+    bubbleIndex = parseInt(compactBubbleMatch[1], 10);
+  }
+
+  // 3. Detect Page (e.g. page 1, page 2, p1, p2)
+  let pageNumber: number | undefined;
+  const pageMatch = text.match(/\bpage\s*(?:#|no\.?\s*)?(\d+)\b/i);
+  const compactPageMatch = text.match(/\bp(\d+)\b/i);
+  if (pageMatch) {
+    pageNumber = parseInt(pageMatch[1], 10);
+  } else if (compactPageMatch && !directLabelMatch && !compactBubbleMatch) {
+    pageNumber = parseInt(compactPageMatch[1], 10);
+  }
+
+  // 4. Element Type
+  let elementType: "illustration" | "bubble" | "panel" = "illustration";
+  if (bubbleMatch || /\b(bubble|dialogue|speech|caption)\b/i.test(text)) {
+    elementType = "bubble";
+  } else if (/\b(refine|style|draw|illustrate|illustration|artwork|sketch|image|picture|render|60s|manga|comic\s+style|color)\b/i.test(text)) {
+    elementType = "illustration";
+  } else if (panelLabel || panelIndex) {
+    elementType = "illustration";
+  }
+
+  // 5. Detect Style Keyword (e.g. "60s comic style", "cyberpunk", "noir", "vintage")
+  let styleKeyword = "";
+  const styleMatch = text.match(/(?:to|in|into|with)\s+([a-zA-Z0-9\s\-]+(?:\s+comic\s+style|\s+manga\s+style|\s+style|\s+aesthetic|\s+art))/i);
+  if (styleMatch) {
+    styleKeyword = styleMatch[1].trim();
+  } else {
+    const directStyle = text.match(/\b(60s\s+comic\s+style|60s\s+style|1960s\s+comic\s+style|1960s\s+style|silver\s+age|manga\s+style|anime\s+style|noir\s+comic\s+style|noir\s+style|cyberpunk\s+comic\s+style|cyberpunk|watercolor\s+comic\s+style|watercolor|retro\s+comic\s+style|vintage\s+comic\s+style|golden\s+age|pop\s+art)\b/i);
+    if (directStyle) {
+      styleKeyword = directStyle[1].trim();
+    }
+  }
+
+  const isTargeted = Boolean(panelLabel || (panelIndex && panelIndex > 0) || bubbleIndex);
+
+  // Default active page from comic metadata if available
+  const meta = typeof window !== "undefined" && typeof (window as any).getComicMetadata === "function" 
+    ? (window as any).getComicMetadata() 
+    : null;
+  const activePageNumber = meta?.pageNumber || pageNumber || 1;
+
+  return {
+    isTargeted,
+    pageNumber: activePageNumber,
+    panelLabel: panelLabel || (panelIndex ? `A${panelIndex}` : undefined),
+    panelIndex: panelIndex || (panelLabel ? parseInt(panelLabel.replace(/\D/g, ""), 10) : undefined),
+    bubbleIndex,
+    elementType,
+    styleKeyword,
+  };
+}
+
+export function formatTargetedPanelRefinement(
+  target: ComicTargetInfo,
+  userPrompt: string,
+  baseText?: string
+): { markdown: string; imgUrl: string; panelLabel: string; panelIndex: number; pageNum: number; styleDisplayName: string } {
+  const panelLabel = target.panelLabel || `A${target.panelIndex || 1}`;
+  const panelIndex = target.panelIndex || parseInt(panelLabel.replace(/\D/g, ""), 10) || 1;
+  const pageNum = target.pageNumber || 1;
+  const style = target.styleKeyword || "60s comic style";
+
+  let styleDesc = "1960s vintage comic book panel illustration, silver age pop art aesthetic, bold black ink linework, authentic Ben-Day dots halftone color shading, vibrant four-color process print, retro pulp paper texture, dramatic comic superhero action, high-contrast graphic novel panel";
+  let styleDisplayName = "1960s Comic Style (Silver Age, Ben-Day Halftone Dots, Bold Inks)";
+
+  if (/60s|1960|sixties|silver\s*age/i.test(style)) {
+    styleDesc = "1960s vintage comic book panel illustration, silver age pop art aesthetic, bold black ink linework, authentic Ben-Day dots halftone color shading, vibrant four-color process print, retro pulp paper texture, dramatic comic superhero action, high-contrast graphic novel panel";
+    styleDisplayName = "1960s Comic Style (Silver Age, Ben-Day Halftone Dots, Bold Inks)";
+  } else if (/manga|anime/i.test(style)) {
+    styleDesc = "classic Japanese manga panel illustration, crisp black ink linework, authentic halftone screentones, expressive dynamic anime angles, clean monochrome manga art";
+    styleDisplayName = "Japanese Manga Style (Halftone Screentones, Dynamic Linework)";
+  } else if (/noir|black\s*and\s*white/i.test(style)) {
+    styleDesc = "gritty noir graphic novel panel illustration, deep chiaroscuro shadows, high-contrast black and white ink, moody detective atmosphere";
+    styleDisplayName = "Comic Noir Style (High-Contrast Chiaroscuro Inks)";
+  } else if (/cyberpunk|sci-?fi/i.test(style)) {
+    styleDesc = "cyberpunk graphic novel panel illustration, glowing neon lighting, detailed futuristic linework, sharp cel shading, cinematic high-tech comic art";
+    styleDisplayName = "Cyberpunk Comic Style (Neon Cel-Shading, Sci-Fi Inks)";
+  } else if (style) {
+    styleDesc = `${style} comic book panel illustration, professional graphic novel art, detailed ink linework, vivid cel shading`;
+    styleDisplayName = `${style.charAt(0).toUpperCase() + style.slice(1)}`;
+  }
+
+  const seed = Math.floor(Math.random() * 100000000);
+  const fluxPrompt = `Panel ${panelLabel} scene, ${styleDesc}`;
+  const imgUrl = `/api/ai/generate-image?prompt=${encodeURIComponent(fluxPrompt)}&width=1024&height=1024&seed=${seed}&quality=high`;
+
+  // Get bubble context if available
+  const meta = typeof window !== "undefined" && typeof (window as any).getComicMetadata === "function" 
+    ? (window as any).getComicMetadata() 
+    : null;
+  const bubblesOnPage = meta?.bubbles && meta.bubbles.length > 0
+    ? meta.bubbles.map((b: any) => `Bubble ${b.index} ("${b.text || ""}")`).join(", ")
+    : "Bubble 1, Bubble 2";
+
+  let response = `📍 **Location**: Page ${pageNum} > Panel ${panelLabel} (Panel ${panelIndex}) > Illustration\n`;
+  response += `🎯 **Target Element**: Illustration in Panel ${panelLabel}\n`;
+  response += `🎨 **Style Applied**: ${styleDisplayName}\n`;
+  response += `⚡ **Action Executed**: Refined illustration in Panel ${panelLabel} (Panel ${panelIndex}) and applied to canvas!\n`;
+  response += `💬 **Bubbles on Page**: ${bubblesOnPage}\n\n`;
+
+  if (baseText && baseText.length > 25 && !baseText.includes("trouble connecting") && !baseText.includes("having trouble")) {
+    response += `${baseText.trim()}\n\n---\n\n`;
+  }
+
+  response += `Here is your refined illustration for **Panel ${panelLabel} (Panel ${panelIndex})**:\n\n`;
+  response += `![Panel ${panelLabel}: ${styleDisplayName}](${imgUrl})\n\n`;
+  response += `**FLUX Illustration Prompt**:\n> *"${fluxPrompt}"*\n\n`;
+  response += `[🎨 Re-apply to Panel ${panelLabel} (Panel ${panelIndex})](#action:apply-panel-image:${panelLabel}:${encodeURIComponent(imgUrl)})`;
+
+  return {
+    markdown: response,
+    imgUrl,
+    panelLabel,
+    panelIndex,
+    pageNum,
+    styleDisplayName,
+  };
+}
+
+export function formatTargetedBubbleUpdate(
+  target: ComicTargetInfo,
+  userPrompt: string
+): string {
+  const bubbleIdx = target.bubbleIndex || 1;
+  const pageNum = target.pageNumber || 1;
+  const panelRef = target.panelLabel ? `, Panel ${target.panelLabel} (Panel ${target.panelIndex})` : "";
+
+  const quoteMatch = userPrompt.match(/["'“]([^"'”]+)["'”]/);
+  const sayMatch = userPrompt.match(/(?:say|says|to|text:)\s*([A-Za-z0-9\s!,?.-]+)/i);
+  const dialogueText = (quoteMatch ? quoteMatch[1] : sayMatch ? sayMatch[1] : userPrompt).trim();
+
+  let response = `📍 **Location**: Page ${pageNum}${panelRef}, Bubble ${bubbleIdx}\n`;
+  response += `🎯 **Target**: Speech Bubble ${bubbleIdx}\n`;
+  response += `💬 **Updated Dialogue**: "${dialogueText}"\n\n`;
+  response += `[💬 Apply to Speech Bubble ${bubbleIdx}](#action:apply-bubble:${bubbleIdx}:${encodeURIComponent(dialogueText)})`;
+  return response;
+}
+
 function formatComicWithFlux(userPrompt: string, baseText?: string): string {
   const seed = Math.floor(Math.random() * 100000000);
   const cleanPrompt = userPrompt
@@ -85,6 +306,18 @@ const AgentImage: React.FC<{ src?: string; alt?: string; insertLabel: string }> 
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
+  // Check if alt contains a panel label like "Panel A5", "A5", "Panel 5"
+  const panelMatch = alt?.match(/\b(?:Panel\s*)?([AT]\d+)\b/i) || alt?.match(/\bPanel\s*(\d+)\b/i);
+  let matchedPanelLabel: string | null = null;
+  if (panelMatch) {
+    const raw = panelMatch[1].toUpperCase();
+    matchedPanelLabel = raw.startsWith("A") || raw.startsWith("T") ? raw : `A${raw}`;
+  }
+
+  const buttonLabel = matchedPanelLabel
+    ? `Apply to Panel ${matchedPanelLabel}`
+    : insertLabel;
+
   return (
     <div className="mt-2 rounded overflow-hidden relative group bg-black/5 min-h-[160px] flex items-center justify-center border">
       {isLoading && (
@@ -117,12 +350,15 @@ const AgentImage: React.FC<{ src?: string; alt?: string; insertLabel: string }> 
           e.stopPropagation();
           window.dispatchEvent(
             new CustomEvent("insert-comic-image", {
-              detail: { imageUrl: currentSrc || src },
+              detail: {
+                imageUrl: currentSrc || src,
+                panelLabel: matchedPanelLabel || undefined,
+              },
             }),
           );
         }}
       >
-        {insertLabel}
+        {buttonLabel}
       </Button>
     </div>
   );
@@ -475,6 +711,7 @@ export function AIAgentChat({
       };
 
       let resultText = "";
+      let isSkipResponse = false;
 
       try {
         const headers: any = { "Content-Type": "application/json" };
@@ -492,6 +729,7 @@ export function AIAgentChat({
           if (text.trim().startsWith("{")) {
             const data = JSON.parse(text);
             if (data.skip) {
+              isSkipResponse = true;
               resultText = data.text || data.response || "To process or convert this document, please tap the options in the Convert menu tree (such as Split Panels, OCR, Translate, or Export).";
             } else {
               resultText = data.text || data.response || data.candidates?.[0]?.content?.parts?.[0]?.text || data.content || "";
@@ -506,15 +744,80 @@ export function AIAgentChat({
 
       setActiveSelection(null);
 
-      const isComicRequest = /(comic|panel|manga|graphic novel|comic page|draw a comic|create a comic|generate a comic|make a comic|illustrate a comic)/i.test(userMessage.text);
+      const targeted = parseComicTargetAndStyle(userMessage.text);
+      const isComicRequest = !isSkipResponse && (targeted.isTargeted || isExplicitComicGenerationRequest(userMessage.text));
 
       if (!resultText || resultText.includes("trouble connecting")) {
-        if (isComicRequest) {
+        if (targeted.isTargeted) {
+          if (targeted.elementType === "bubble") {
+            resultText = formatTargetedBubbleUpdate(targeted, userMessage.text);
+            const quoteMatch = userMessage.text.match(/["'“]([^"'”]+)["'”]/);
+            const sayMatch = userMessage.text.match(/(?:say|says|to|text:)\s*([A-Za-z0-9\s!,?.-]+)/i);
+            const dialogueText = (quoteMatch ? quoteMatch[1] : sayMatch ? sayMatch[1] : userMessage.text).trim();
+            window.dispatchEvent(
+              new CustomEvent("update-comic-bubble", {
+                detail: {
+                  bubbleIndex: targeted.bubbleIndex || 1,
+                  pageNumber: targeted.pageNumber || 1,
+                  text: dialogueText,
+                },
+              })
+            );
+          } else {
+            const panelRes = formatTargetedPanelRefinement(targeted, userMessage.text);
+            resultText = panelRes.markdown;
+            window.dispatchEvent(
+              new CustomEvent("insert-comic-image", {
+                detail: {
+                  imageUrl: panelRes.imgUrl,
+                  panelLabel: panelRes.panelLabel,
+                  panelIndex: panelRes.panelIndex,
+                  pageNumber: panelRes.pageNum,
+                  pageIndex: panelRes.pageNum - 1,
+                  style: panelRes.styleDisplayName,
+                },
+              })
+            );
+            toast.success(`✨ Refined Panel ${panelRes.panelLabel} (Panel ${panelRes.panelIndex}) to ${panelRes.styleDisplayName}!`);
+          }
+        } else if (isComicRequest) {
           resultText = formatComicWithFlux(userMessage.text);
         } else {
           resultText = `I have received your request for "${userMessage.text.slice(0, 50)}".\n\nYou can use the creator tools to generate comics or novel chapters directly:\n\n[🎨 Open Comic Creator](#action:generate-comic:${encodeURIComponent(userMessage.text)})\n[✒️ Open Story Writer](#action:generate-story:${encodeURIComponent(userMessage.text)})`;
         }
-      } else if (isComicRequest && !resultText.includes("![") && !resultText.includes("<img")) {
+      } else if (targeted.isTargeted && !resultText.includes("![") && !resultText.includes("<img")) {
+        if (targeted.elementType === "bubble") {
+          resultText = formatTargetedBubbleUpdate(targeted, userMessage.text);
+          const quoteMatch = userMessage.text.match(/["'“]([^"'”]+)["'”]/);
+          const sayMatch = userMessage.text.match(/(?:say|says|to|text:)\s*([A-Za-z0-9\s!,?.-]+)/i);
+          const dialogueText = (quoteMatch ? quoteMatch[1] : sayMatch ? sayMatch[1] : userMessage.text).trim();
+          window.dispatchEvent(
+            new CustomEvent("update-comic-bubble", {
+              detail: {
+                bubbleIndex: targeted.bubbleIndex || 1,
+                pageNumber: targeted.pageNumber || 1,
+                text: dialogueText,
+              },
+            })
+          );
+        } else {
+          const panelRes = formatTargetedPanelRefinement(targeted, userMessage.text, resultText);
+          resultText = panelRes.markdown;
+          window.dispatchEvent(
+            new CustomEvent("insert-comic-image", {
+              detail: {
+                imageUrl: panelRes.imgUrl,
+                panelLabel: panelRes.panelLabel,
+                panelIndex: panelRes.panelIndex,
+                pageNumber: panelRes.pageNum,
+                pageIndex: panelRes.pageNum - 1,
+                style: panelRes.styleDisplayName,
+              },
+            })
+          );
+          toast.success(`✨ Refined Panel ${panelRes.panelLabel} (Panel ${panelRes.panelIndex}) to ${panelRes.styleDisplayName}!`);
+        }
+      } else if (isComicRequest && !resultText.includes("![") && !resultText.includes("<img") && !targeted.isTargeted) {
         resultText = formatComicWithFlux(userMessage.text, resultText);
       }
 
@@ -528,15 +831,52 @@ export function AIAgentChat({
       ]);
     } catch (error: any) {
       console.error(error);
-      const isComic = /(comic|panel|manga|graphic novel|comic page|draw a comic|create a comic|generate a comic)/i.test(userMessage.text);
+      const targeted = parseComicTargetAndStyle(userMessage.text);
+      const isComic = targeted.isTargeted || isExplicitComicGenerationRequest(userMessage.text);
+      let fallbackText = "";
+      if (targeted.isTargeted) {
+        if (targeted.elementType === "bubble") {
+          fallbackText = formatTargetedBubbleUpdate(targeted, userMessage.text);
+          const quoteMatch = userMessage.text.match(/["'“]([^"'”]+)["'”]/);
+          const sayMatch = userMessage.text.match(/(?:say|says|to|text:)\s*([A-Za-z0-9\s!,?.-]+)/i);
+          const dialogueText = (quoteMatch ? quoteMatch[1] : sayMatch ? sayMatch[1] : userMessage.text).trim();
+          window.dispatchEvent(
+            new CustomEvent("update-comic-bubble", {
+              detail: {
+                bubbleIndex: targeted.bubbleIndex || 1,
+                pageNumber: targeted.pageNumber || 1,
+                text: dialogueText,
+              },
+            })
+          );
+        } else {
+          const panelRes = formatTargetedPanelRefinement(targeted, userMessage.text);
+          fallbackText = panelRes.markdown;
+          window.dispatchEvent(
+            new CustomEvent("insert-comic-image", {
+              detail: {
+                imageUrl: panelRes.imgUrl,
+                panelLabel: panelRes.panelLabel,
+                panelIndex: panelRes.panelIndex,
+                pageNumber: panelRes.pageNum,
+                pageIndex: panelRes.pageNum - 1,
+                style: panelRes.styleDisplayName,
+              },
+            })
+          );
+          toast.success(`✨ Refined Panel ${panelRes.panelLabel} (Panel ${panelRes.panelIndex}) to ${panelRes.styleDisplayName}!`);
+        }
+      } else if (isComic) {
+        fallbackText = formatComicWithFlux(userMessage.text);
+      } else {
+        fallbackText = "I'm having trouble connecting to the free public AI services right now.\n\n💡 Please check your connection or connect a free Google Gemini API key in [Settings](#action:open-settings) for unlimited responses.";
+      }
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
           role: "agent",
-          text: isComic
-            ? formatComicWithFlux(userMessage.text)
-            : "I'm having trouble connecting to the free public AI services right now.\n\n💡 Please check your connection or connect a free Google Gemini API key in [Settings](#action:open-settings) for unlimited responses.",
+          text: fallbackText,
         },
       ]);
     } finally {
@@ -637,6 +977,16 @@ export function AIAgentChat({
 
                   {normalizedSubpage === "create" && (
                     <>
+                      <button
+                        type="button"
+                        className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
+                        onClick={() => {
+                          setIsOpen(true);
+                          setInput("Help me refine A5 to 60s comic style.");
+                        }}
+                      >
+                        ⚡ Refine Panel A5 to 60s comic style
+                      </button>
                       <button
                         type="button"
                         className="w-full justify-start text-xs text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/60 hover:decoration-primary bg-transparent hover:bg-transparent p-0 border-0 cursor-pointer font-medium transition-colors"
@@ -828,14 +1178,42 @@ export function AIAgentChat({
                                     className="my-1 py-0.5 text-left text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/70 hover:decoration-primary font-semibold text-xs sm:text-sm bg-transparent hover:bg-transparent border-0 p-0 inline-flex items-center gap-1 cursor-pointer transition-colors"
                                     onClick={(e) => {
                                       e.preventDefault();
+                                      const actionStr = href.replace(
+                                        "#action:",
+                                        "",
+                                      );
+
+                                      if (actionStr.startsWith("apply-panel-image:")) {
+                                        const parts = actionStr.split(":");
+                                        const panelLabel = parts[1];
+                                        const imgUrl = decodeURIComponent(parts.slice(2).join(":"));
+                                        window.dispatchEvent(
+                                          new CustomEvent("insert-comic-image", {
+                                            detail: { imageUrl: imgUrl, panelLabel: panelLabel },
+                                          }),
+                                        );
+                                        toast.success(`Applying image to Panel ${panelLabel}!`);
+                                        return;
+                                      }
+
+                                      if (actionStr.startsWith("apply-bubble:")) {
+                                        const parts = actionStr.split(":");
+                                        const bubbleIdx = parseInt(parts[1], 10);
+                                        const bubbleText = decodeURIComponent(parts.slice(2).join(":"));
+                                        window.dispatchEvent(
+                                          new CustomEvent("update-comic-bubble", {
+                                            detail: { bubbleIndex: bubbleIdx, text: bubbleText },
+                                          }),
+                                        );
+                                        toast.success(`Updated Speech Bubble ${bubbleIdx}!`);
+                                        return;
+                                      }
+
                                       const event = new CustomEvent(
                                         "app-navigation",
                                         {
                                           detail: {
-                                            action: href.replace(
-                                              "#action:",
-                                              "",
-                                            ),
+                                            action: actionStr,
                                           },
                                         },
                                       );

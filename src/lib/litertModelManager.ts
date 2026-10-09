@@ -300,7 +300,7 @@ export async function getModelBytesFromCacheOrR2(
   if (typeof window !== "undefined" && "caches" in window) {
     try {
       const cache = await caches.open(CACHE_NAME);
-      const responseToCache = new Response(validBytes, {
+      const responseToCache = new Response(validBytes as any, {
         headers: {
           "Content-Type": "application/octet-stream",
           "Content-Length": String(validBytes.byteLength),

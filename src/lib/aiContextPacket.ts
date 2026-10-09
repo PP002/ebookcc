@@ -56,7 +56,7 @@ export function buildDynamicSystemPrompt(packet: {
 
   if (page === "CREATE") {
     if (mode === "comic") {
-      return `AI. CREATE/comic. Script:"${selectedContent}". Focus: panel, dialogue, Flux image prompt. Concise.`;
+      return `AI. CREATE/comic. Canvas:"${selectedContent}". Identify and use precise labels: Page [N], Panel [A-N/T-N], Bubble [N], Illustration. If asked to refine/draw (e.g. A5 to 60s style), locate target Panel, describe action, output Flux illustration prompt and dialogue. Concise.`;
     }
     // CREATE / richtext
     return `AI. CREATE/novel. Selected:"${selectedContent}". Focus: polish, grammar, Flux illustration prompt. Concise.`;

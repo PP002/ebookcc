@@ -4130,29 +4130,14 @@ export const Create: React.FC<CreateProps> = ({
   const [isComicPanelExpanded, setIsComicPanelExpanded] = useState(false);
 
   useEffect(() => {
-    onFullscreenChange?.(isComicPanelExpanded);
     if (isComicPanelExpanded) {
-      if (!document.fullscreenElement) {
-        document.documentElement?.requestFullscreen?.().catch(() => {});
-      }
-    } else {
-      if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch(() => {});
-      }
+      setIsBubbleSidebarOpen(false);
     }
-  }, [isComicPanelExpanded, onFullscreenChange]);
-
-  useEffect(() => {
-    const handleFsChange = () => {
-      if (!document.fullscreenElement && isComicPanelExpanded) {
-        setIsComicPanelExpanded(false);
-      }
-    };
-    document.addEventListener("fullscreenchange", handleFsChange);
-    return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, [isComicPanelExpanded]);
 
   useEffect(() => {
+    // CREATE does not trigger immersive fullscreen
+    onFullscreenChange?.(false);
     return () => {
       onFullscreenChange?.(false);
     };
@@ -8766,19 +8751,21 @@ ${manifestImages}  </manifest>
           </div>
 
           {/* Right Actions */}
-          <div className="flex items-center gap-2 pr-2 shrink-0 z-20 relative ml-auto">
-            {renderExportMenu()}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsBubbleSidebarOpen(!isBubbleSidebarOpen)}
-              className="gap-2 shrink-0 h-8 text-xs font-semibold"
-              title={t("bubbles") || "Bubbles"}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />{" "}
-              <span className="hidden sm:inline">{t("bubbles") || "Bubbles"}</span>
-            </Button>
-          </div>
+          {!isComicPanelExpanded && (
+            <div className="flex items-center gap-2 pr-2 shrink-0 z-20 relative ml-auto">
+              {renderExportMenu()}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsBubbleSidebarOpen(!isBubbleSidebarOpen)}
+                className="gap-2 shrink-0 h-8 text-xs font-semibold"
+                title={t("bubbles") || "Bubbles"}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />{" "}
+                <span className="hidden sm:inline">{t("bubbles") || "Bubbles"}</span>
+              </Button>
+            </div>
+          )}
         </div>
       </header>
 

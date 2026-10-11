@@ -605,13 +605,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isHudVisible, setIsHudVisible] = useState(true);
   const hudTimeoutRef = React.useRef<any>(null);
-  const singleTapTimeoutRef = React.useRef<any>(null);
+  const lastTouchToggleTimeRef = React.useRef<number>(0);
   const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
-  const [slideshowIntervalMs, setSlideshowIntervalMs] = useState(4000);
-  const [manualSpeedInput, setManualSpeedInput] = useState<string>("4");
+  const [slideshowIntervalMs, setSlideshowIntervalMs] = useState(10000);
+  const [manualSpeedInput, setManualSpeedInput] = useState<string>("10");
   const slideshowTimerRef = React.useRef<any>(null);
 
-  const handlePointerActivity = useCallback(() => {
+  const handlePointerActivity = useCallback((e?: React.PointerEvent) => {
+    if (e && e.pointerType && e.pointerType !== 'mouse') return;
     setIsHudVisible(true);
     if (hudTimeoutRef.current) clearTimeout(hudTimeoutRef.current);
     hudTimeoutRef.current = setTimeout(() => {
@@ -2237,7 +2238,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         return;
       }
 
-      // 2. Double tap to switch between full screen and normal / Single tap to toggle bars in fullscreen
+      // 2. Double tap to switch between full screen and normal / Single tap to toggle bars in fullscreen immediately
       if (absX < 25 && absY < 25 && elapsed < 350) {
         const now = Date.now();
         const lastTap = lastTapRef.current;
@@ -2247,25 +2248,24 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
           now - lastTap.time < 350 &&
           Math.hypot(endX - lastTap.x, endY - lastTap.y) < 45
         ) {
-          if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
           toggleFullscreenSafe();
           lastTapRef.current = null;
           touchStartRef.current = null;
+          lastTouchToggleTimeRef.current = now;
           return;
         } else {
           lastTapRef.current = { time: now, x: endX, y: endY };
           if (isFullscreen) {
-            if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
-            singleTapTimeoutRef.current = setTimeout(() => {
-              setIsHudVisible((prev) => !prev);
-            }, 260);
+            // Immediate toggle on touch devices with zero delay
+            setIsHudVisible((prev) => !prev);
+            lastTouchToggleTimeRef.current = now;
           }
         }
       }
 
       touchStartRef.current = null;
     },
-    [nextPage, prevPage, toggleFullscreenSafe, readingDirection, isTouchDevice, hasTextSelection]
+    [nextPage, prevPage, toggleFullscreenSafe, readingDirection, isTouchDevice, hasTextSelection, isFullscreen]
   );
 
   const handleLeftClick = useCallback(
@@ -3121,14 +3121,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
             <div 
               ref={containerRef} 
-              onTouchStart={(e) => { handlePointerActivity(); handleTouchStart(e); }}
+              onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
-              onPointerMove={handlePointerActivity}
+              onPointerMove={(e) => {
+                if (e.pointerType === 'mouse') handlePointerActivity(e);
+              }}
               onDoubleClick={toggleFullscreenSafe}
               onClick={(e) => {
                 if (!isFullscreen) return;
                 const target = e.target as HTMLElement;
                 if (target.closest('.fullscreen-hud, button, input, textarea, a, select')) return;
+                // Avoid double-toggle from synthetic click following a touch tap
+                if (Date.now() - lastTouchToggleTimeRef.current < 500) return;
                 setIsHudVisible(prev => !prev);
               }}
               className={cn(
@@ -3156,8 +3160,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   </div>
                 </div>
               )}
-              {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books: 1/4 screen width each) */}
-              {isTouchDevice() && !isReflowTextBook && (
+              {/* Full-height click zones for previous / next page (Touch screens only, non-reflow books: 1/4 screen width each, non-fullscreen) */}
+              {isTouchDevice() && !isReflowTextBook && !isFullscreen && (
                 <>
                   <div 
                     className="absolute inset-y-0 left-0 w-1/4 z-20 cursor-pointer" 
@@ -3387,6 +3391,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         <div 
                           className="absolute inset-0 overflow-hidden bg-transparent text-foreground select-text reader-text-container cursor-default"
                           onClick={(e) => {
+                            // In fullscreen, allow clicks to bubble and toggle fullscreen controls
+                            if (isFullscreen) return;
                             // On desktop browsers or when selecting text, do not flip page via click
                             if (!isTouchDevice() || hasTextSelection()) return;
                             const target = e.target as HTMLElement;

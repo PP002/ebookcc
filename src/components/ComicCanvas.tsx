@@ -2563,7 +2563,7 @@ const PanelView: React.FC<{
                   onExpandPanel?.(path);
                 }
               }}
-              title={isExpanded ? (t("restorePanel") || "Restore panel") : (t("fullscreen") || "Fullscreen")}
+              title={isExpanded ? (t("restorePanel") || "Restore panel") : (t("expandPanel") || "Full Panel")}
             >
               {isExpanded ? (
                 <Minimize className="w-4 h-4 sm:w-3.5 sm:h-3.5 stroke-[2.5]" />
@@ -2742,17 +2742,6 @@ const ExpandedPanelWorkspace: React.FC<{
   const currentPanelIndex = leafBoxes ? leafBoxes.findIndex(b => b.node.id === node.id) : 0;
   const totalPanels = leafBoxes ? leafBoxes.length : 1;
   const currentLabel = panelLabels?.get(node.id) || (leafBoxes && leafBoxes[currentPanelIndex] ? panelLabels?.get(leafBoxes[currentPanelIndex].node.id) : `A${currentPanelIndex + 1}`) || `A${currentPanelIndex + 1}`;
-
-  const [isHudVisible, setIsHudVisible] = useState(true);
-  const hudTimeoutRef = useRef<any>(null);
-
-  const handlePointerActivity = () => {
-    setIsHudVisible(true);
-    if (hudTimeoutRef.current) clearTimeout(hudTimeoutRef.current);
-    hudTimeoutRef.current = setTimeout(() => {
-      setIsHudVisible(false);
-    }, 2800);
-  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3094,53 +3083,18 @@ const ExpandedPanelWorkspace: React.FC<{
       ref={workspaceRef}
       data-workspace-bg="true"
       className={cn(
-        "w-full h-full relative overflow-hidden bg-background text-foreground flex flex-col items-center select-none touch-none",
-        isSpaceDown ? (isDraggingPan ? "cursor-grabbing" : "cursor-grab") : "",
-        !isHudVisible && "cursor-none"
+        "w-full h-full relative overflow-hidden bg-background text-foreground flex flex-col select-none touch-none",
+        isSpaceDown ? (isDraggingPan ? "cursor-grabbing" : "cursor-grab") : ""
       )}
       onPointerDown={handlePointerDown}
-      onPointerMove={(e) => {
-        handlePointerActivity();
-        handlePointerMove(e);
-      }}
-      onTouchStart={handlePointerActivity}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onDoubleClick={onExitExpanded}
     >
-      {/* Video Player Style Top HUD Overlay for Full Panel */}
-      <div 
-        className={cn(
-          "absolute top-3 inset-x-3 sm:inset-x-8 z-50 flex items-center justify-between pointer-events-none transition-all duration-300",
-          isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
-        )}
-      >
-        <div className="pointer-events-auto bg-card/90 text-card-foreground border border-border px-3.5 py-1.5 rounded-full flex items-center gap-2.5 shadow-2xl backdrop-blur-md">
-          <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="text-xs font-bold text-foreground tracking-wide">
-            Full Panel
-          </span>
-          <span className="text-[10px] font-mono font-bold bg-primary/15 text-primary border border-primary/30 px-2 py-0.5 rounded-full">
-            Panel {currentLabel} ({currentPanelIndex + 1} / {totalPanels})
-          </span>
-        </div>
-
-        <div className="pointer-events-auto bg-card/90 text-card-foreground border border-border px-2.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl backdrop-blur-md">
-          <button
-            type="button"
-            onClick={onExitExpanded}
-            className="p-1 hover:bg-muted rounded-full text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
-            title="Exit Full Panel (Esc or F)"
-          >
-            <Minimize className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
       {/* Main Panel Viewport Area */}
       <div
         ref={panelAreaRef}
-        className="flex-1 w-full min-h-0 relative flex items-center justify-center p-2 sm:p-6 overflow-hidden"
+        className="flex-1 w-full min-h-0 relative flex items-center justify-center p-2 sm:p-4 overflow-hidden"
         data-workspace-bg="true"
       >
         {/* Panel Box with zoom & pan transforms and consistent panel mask clipping */}
@@ -3182,143 +3136,109 @@ const ExpandedPanelWorkspace: React.FC<{
         </div>
       </div>
 
-      {/* Video Player Style Bottom Controls HUD for Full Panel */}
-      <div 
-        className={cn(
-          "fullscreen-hud absolute bottom-4 inset-x-3 sm:inset-x-12 md:inset-x-20 max-w-3xl mx-auto z-50 pointer-events-auto transition-all duration-300",
-          isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
-        )}
-      >
-        <div className="bg-card/90 dark:bg-card/90 text-card-foreground border border-border px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col gap-2">
-          {/* Panel Timeline Chapters Scrubber Track */}
-          {leafBoxes && leafBoxes.length > 1 && (
-            <div className="w-full flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-              {leafBoxes.map((b, bIdx) => {
-                const pLabel = panelLabels?.get(b.node.id) || `A${bIdx + 1}`;
-                const isActive = b.node.id === node.id;
-                return (
-                  <button
-                    key={b.node.id}
-                    type="button"
-                    onClick={() => onSelectPanelPath?.(b.path)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer shrink-0 border",
-                      isActive
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm ring-1 ring-primary/40 scale-105"
-                        : "bg-muted/70 hover:bg-muted text-foreground/80 border-border/50"
-                    )}
-                    title={`Jump to Panel ${pLabel}`}
-                  >
-                    {pLabel}
-                  </button>
+      {/* Always Visible Bottom Bar (does not cover panel workspace) */}
+      <div className="shrink-0 w-full border-t border-border bg-card/95 backdrop-blur-md px-3 sm:px-6 py-2.5 z-40 select-none">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Prev Panel */}
+            <button
+              type="button"
+              onClick={() => {
+                if (leafBoxes && leafBoxes.length > 0) {
+                  const prevIdx = (currentPanelIndex - 1 + leafBoxes.length) % leafBoxes.length;
+                  onSelectPanelPath?.(leafBoxes[prevIdx].path);
+                }
+              }}
+              disabled={!leafBoxes || leafBoxes.length <= 1}
+              className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+              title="Previous Panel (Left Arrow)"
+            >
+              <SkipBack className="w-4 h-4" />
+            </button>
+
+            {/* Next Panel */}
+            <button
+              type="button"
+              onClick={() => {
+                if (leafBoxes && leafBoxes.length > 0) {
+                  const nextIdx = (currentPanelIndex + 1) % leafBoxes.length;
+                  onSelectPanelPath?.(leafBoxes[nextIdx].path);
+                }
+              }}
+              disabled={!leafBoxes || leafBoxes.length <= 1}
+              className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+              title="Next Panel (Right Arrow)"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+
+            {/* Panel Counter */}
+            <span className="text-xs font-mono font-bold text-foreground ml-1">
+              Panel {currentLabel} ({currentPanelIndex + 1}/{totalPanels})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Zoom controls */}
+            <button
+              type="button"
+              onClick={() => zoomAroundCursor((s) => Math.max(0.01, +(s / 1.25).toFixed(4)))}
+              className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
+              title="Zoom Out (Ctrl -)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => updateZoomAndPan(1.0, { x: 0, y: 0 })}
+              className="px-2 py-0.5 hover:bg-muted font-mono font-bold text-xs text-foreground rounded transition-colors cursor-pointer"
+              title="Reset to Full Canvas (Ctrl 0)"
+            >
+              {Math.max(1, Math.round(zoomScale * 100))}%
+            </button>
+
+            <button
+              type="button"
+              onClick={() => zoomAroundCursor((s) => Math.min(10, +(s * 1.25).toFixed(4)))}
+              className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
+              title="Zoom In (Ctrl +)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+
+            <div className="w-[1px] h-4 bg-border/60 mx-0.5" />
+
+            {/* AI Refine button */}
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent("quote-to-agent", {
+                    detail: {
+                      type: "text",
+                      text: `help me refine ${currentLabel} to 60s comic style.`,
+                    },
+                  })
                 );
-              })}
-            </div>
-          )}
+                toast.info(`Prompting AI Agent to refine ${currentLabel}...`);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              title={`Refine Panel ${currentLabel} with AI`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Refine AI</span>
+            </button>
 
-          {/* Controls Row */}
-          <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              {/* Prev Panel */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (leafBoxes && leafBoxes.length > 0) {
-                    const prevIdx = (currentPanelIndex - 1 + leafBoxes.length) % leafBoxes.length;
-                    onSelectPanelPath?.(leafBoxes[prevIdx].path);
-                  }
-                }}
-                disabled={!leafBoxes || leafBoxes.length <= 1}
-                className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
-                title="Previous Panel (Left Arrow)"
-              >
-                <SkipBack className="w-4 h-4" />
-              </button>
-
-              {/* Next Panel */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (leafBoxes && leafBoxes.length > 0) {
-                    const nextIdx = (currentPanelIndex + 1) % leafBoxes.length;
-                    onSelectPanelPath?.(leafBoxes[nextIdx].path);
-                  }
-                }}
-                disabled={!leafBoxes || leafBoxes.length <= 1}
-                className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
-                title="Next Panel (Right Arrow)"
-              >
-                <SkipForward className="w-4 h-4" />
-              </button>
-
-              {/* Panel Counter */}
-              <span className="text-xs font-mono font-bold text-foreground ml-1">
-                Panel {currentLabel} ({currentPanelIndex + 1}/{totalPanels})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1 sm:gap-2">
-              {/* Zoom controls */}
-              <button
-                type="button"
-                onClick={() => zoomAroundCursor((s) => Math.max(0.01, +(s / 1.25).toFixed(4)))}
-                className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
-                title="Zoom Out (Ctrl -)"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => updateZoomAndPan(1.0, { x: 0, y: 0 })}
-                className="px-2 py-0.5 hover:bg-muted font-mono font-bold text-xs text-foreground rounded transition-colors cursor-pointer"
-                title="Reset to Full Canvas (Ctrl 0)"
-              >
-                {Math.max(1, Math.round(zoomScale * 100))}%
-              </button>
-
-              <button
-                type="button"
-                onClick={() => zoomAroundCursor((s) => Math.min(10, +(s * 1.25).toFixed(4)))}
-                className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
-                title="Zoom In (Ctrl +)"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
-
-              <div className="w-[1px] h-4 bg-border/60 mx-0.5" />
-
-              {/* AI Refine button */}
-              <button
-                type="button"
-                onClick={() => {
-                  window.dispatchEvent(
-                    new CustomEvent("quote-to-agent", {
-                      detail: {
-                        type: "text",
-                        text: `help me refine ${currentLabel} to 60s comic style.`,
-                      },
-                    })
-                  );
-                  toast.info(`Prompting AI Agent to refine ${currentLabel}...`);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                title={`Refine Panel ${currentLabel} with AI`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Refine AI</span>
-              </button>
-
-              {/* Exit Full Panel */}
-              <button
-                type="button"
-                onClick={onExitExpanded}
-                className="p-1 hover:bg-muted rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer border border-border/40"
-                title={`${t("restorePanel") || "Restore Page"} (Esc)`}
-              >
-                <Minimize className="w-4 h-4" />
-              </button>
-            </div>
+            {/* Exit Full Panel */}
+            <button
+              type="button"
+              onClick={onExitExpanded}
+              className="p-1 hover:bg-muted rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer border border-border/40"
+              title={`${t("restorePanel") || "Restore Page"} (Esc)`}
+            >
+              <Minimize className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>

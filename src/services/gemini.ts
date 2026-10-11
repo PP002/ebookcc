@@ -546,6 +546,7 @@ Ensure coordinates are scaled between 0 and 1000. If no panels are found, return
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (customYoloUrl) headers["x-yolo-url"] = customYoloUrl;
     if (customYoloKey) headers["x-yolo-key"] = customYoloKey;
+    if (customApiKey) headers["x-gemini-api-key"] = customApiKey;
 
     const payload = {
       base64Image,
@@ -559,8 +560,17 @@ Ensure coordinates are scaled between 0 and 1000. If no panels are found, return
       body: JSON.stringify(payload),
     });
     const text = await res.text();
-    if (text.trim().startsWith('<') || !res.ok) {
-      throw new Error(text || "Backend panel detection failed");
+    if (!res.ok || text.trim().startsWith('<')) {
+      let msg = text;
+      try {
+        const errJson = JSON.parse(text);
+        msg = errJson.error?.message || errJson.error || errJson.message || text;
+      } catch {
+        if (text.trim().startsWith('<')) {
+          msg = `Server returned HTML (${res.status} ${res.statusText}) instead of JSON`;
+        }
+      }
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
     const jsonResult = JSON.parse(text);
     if (Array.isArray(jsonResult)) return jsonResult;
@@ -760,6 +770,7 @@ STRICT INSTRUCTIONS:
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (customApiKey) headers["x-gemini-api-key"] = customApiKey;
     const payload = {
       base64Image,
       suggestedCount,
@@ -774,8 +785,17 @@ STRICT INSTRUCTIONS:
       body: JSON.stringify(payload),
     });
     const text = await res.text();
-    if (text.trim().startsWith('<') || !res.ok) {
-      throw new Error(text || "Backend text detection failed");
+    if (!res.ok || text.trim().startsWith('<')) {
+      let msg = text;
+      try {
+        const errJson = JSON.parse(text);
+        msg = errJson.error?.message || errJson.error || errJson.message || text;
+      } catch {
+        if (text.trim().startsWith('<')) {
+          msg = `Server returned HTML (${res.status} ${res.statusText}) instead of JSON`;
+        }
+      }
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
@@ -828,6 +848,8 @@ export async function translateTexts(
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (customApiKey) headers["x-gemini-api-key"] = customApiKey;
+
     const res = await fetchWithRetry(`/api/translate`, {
       method: "POST",
       headers,
@@ -839,8 +861,17 @@ export async function translateTexts(
       }),
     });
     const text = await res.text();
-    if (text.trim().startsWith('<') || !res.ok) {
-      throw new Error(text || "Backend translation failed");
+    if (!res.ok || text.trim().startsWith('<')) {
+      let msg = text;
+      try {
+        const errJson = JSON.parse(text);
+        msg = errJson.error?.message || errJson.error || errJson.message || text;
+      } catch {
+        if (text.trim().startsWith('<')) {
+          msg = `Server returned HTML (${res.status} ${res.statusText}) instead of JSON`;
+        }
+      }
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : texts;

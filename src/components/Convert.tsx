@@ -3976,24 +3976,40 @@ export default function Convert({
       
       let errorMsg = error?.message || String(error);
       try {
-        if (errorMsg.startsWith('{')) {
+        if (typeof errorMsg === 'string' && errorMsg.startsWith('{')) {
           const parsed = JSON.parse(errorMsg);
           if (parsed.error && typeof parsed.error === 'string') {
-             const internalParsed = JSON.parse(parsed.error);
-             errorMsg = internalParsed?.error?.message || errorMsg;
+             try {
+               const internalParsed = JSON.parse(parsed.error);
+               errorMsg = internalParsed?.error?.message || internalParsed?.message || parsed.error;
+             } catch {
+               errorMsg = parsed.error;
+             }
           } else if (parsed.error && parsed.error.message) {
              errorMsg = parsed.error.message;
+          } else if (parsed.message) {
+             errorMsg = parsed.message;
           }
         }
       } catch(e) {}
 
+      // Strip any raw HTML error page responses
+      if (typeof errorMsg === 'string' && errorMsg.includes('<html')) {
+        errorMsg = "Backend service temporarily unavailable or request was rate-limited.";
+      }
+
       if (handleApiError(errorMsg, setShowApiKeyModal) || (error?.status === 429)) {
         setIsBatchProcessing(false);
         throw error;
-      } else if (errorMsg.toLowerCase().includes("api key missing") || errorMsg.toLowerCase().includes("server missing gemini api key")) {
+      } else if (
+        errorMsg.toLowerCase().includes("api key missing") || 
+        errorMsg.toLowerCase().includes("server missing gemini api key") ||
+        errorMsg.toLowerCase().includes("api key not valid") ||
+        errorMsg.toLowerCase().includes("api_key_invalid")
+      ) {
         setIsBatchProcessing(false);
         setShowApiKeyModal(true);
-        toast.error(isBatchProcessing ? "Batch stopped: Gemini API Key is missing." : "Gemini API Key is missing. Please provide your own to continue.");
+        toast.error("Gemini API Key is invalid or missing. Please provide your own in App Settings to continue.");
         throw error;
       } else {
         if (!isBatchProcessing) {

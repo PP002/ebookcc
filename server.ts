@@ -2429,9 +2429,30 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      // If everything failed
+      // Fallback to Worker AI (Gemma) if Gemini failed or no API key provided
       if (!textFound) {
-        throw errorOccurred || new Error("All AI text detection systems failed.");
+        try {
+          console.log("[API detectText] Falling back to Cloudflare Workers AI (Gemma)...");
+          const workerResText = await callWorkerAI([
+            { role: "user", content: [
+              { type: "text", text: finalPrompt },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${rawBase64}` } }
+            ]}
+          ], "You are a precise OCR transcriber. Return ONLY a JSON array of objects with text and box_2d coordinates.", true);
+          const parsedWorker = parseJsonSafely(workerResText, null);
+          if (parsedWorker && Array.isArray(parsedWorker)) {
+            textFound = parsedWorker;
+          } else if (parsedWorker && Array.isArray(parsedWorker.texts)) {
+            textFound = parsedWorker.texts;
+          }
+        } catch (workerErr: any) {
+          console.warn("[API detectText] Worker AI fallback failed:", workerErr.message);
+        }
+      }
+
+      // Final fallback rule-based or empty list if all systems fail
+      if (!textFound) {
+        textFound = [];
       }
 
       let parsed: TextBlock[] = textFound.map(block => ({
@@ -2579,9 +2600,27 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      // If everything failed
+      // Fallback to Worker AI (Gemma) if Gemini failed or no API key provided
       if (!translationResult) {
-        throw errorOccurred || new Error("All AI translation systems failed.");
+        try {
+          console.log("[API translate] Falling back to Cloudflare Workers AI (Gemma)...");
+          const workerResText = await callWorkerAI([
+            { role: "user", content: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.\n\n${JSON.stringify(texts)}` }
+          ], `You are a translator. Return ONLY a JSON array of strings.`, true);
+          const parsedWorker = parseJsonSafely(workerResText, null);
+          if (parsedWorker && Array.isArray(parsedWorker)) {
+            translationResult = parsedWorker;
+          } else if (parsedWorker && Array.isArray(parsedWorker.translation)) {
+            translationResult = parsedWorker.translation;
+          }
+        } catch (workerErr: any) {
+          console.warn("[API translate] Worker AI fallback failed:", workerErr.message);
+        }
+      }
+
+      // If everything failed, return original texts or empty array
+      if (!translationResult) {
+        translationResult = texts;
       }
 
       return res.json(translationResult);

@@ -3758,7 +3758,7 @@ export default function Convert({
                   pBase64,
                   customApiKey,
                   -1,
-                  customApiKey ? (llmEngine === 'worker' ? 'gemini' : llmEngine) : 'worker',
+                  'gemini',
                   undefined,
                   {
                     engine: customApiKey ? llmEngine : 'worker',
@@ -3821,7 +3821,7 @@ export default function Convert({
             aiBase64,
             customApiKey,
             localTexts?.length || 0,
-            customApiKey ? (llmEngine === 'worker' ? 'gemini' : llmEngine) : 'worker',
+            'gemini',
             undefined,
             {
               engine: customApiKey ? llmEngine : 'worker',

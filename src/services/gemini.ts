@@ -593,30 +593,36 @@ export async function detectComicText(
   yoloTexts?: any[]
 ): Promise<ComicText[]> {
   try {
-    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini') {
-      let promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes (scaled 0-1000).
+    const engine = localLlmConfig?.engine;
+    const isExternalLlm = engine === 'local' || engine === 'openai' || engine === 'claude' || engine === 'qwen';
+
+    if (isExternalLlm) {
+      try {
+        let promptText = `You are an expert OCR and layout intelligence engine. Your single task is to transcribe EVERY piece of text/speech bubble in this comic image with precise [ymin, xmin, ymax, xmax] bounding boxes (scaled 0-1000).
 
 Output ONLY a JSON array of objects: [{"text": "transcribed text", "box_2d": [ymin, xmin, ymax, xmax]}]`;
 
-      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
-        const boxesStr = yoloTexts.map((item: any, i: number) => {
-          const box = item.box_2d || item;
-          if (Array.isArray(box) && box.length === 4) {
-            return `Box #${i}: [${box.map((v: any) => Math.round(Number(v))).join(', ')}]`;
+        if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+          const boxesStr = yoloTexts.map((item: any, i: number) => {
+            const box = item.box_2d || item;
+            if (Array.isArray(box) && box.length === 4) {
+              return `Box #${i}: [${box.map((v: any) => Math.round(Number(v))).join(', ')}]`;
+            }
+            return null;
+          }).filter(Boolean).join('\n');
+
+          if (boxesStr) {
+            promptText = `You are a precise OCR assistant. A local layout detector has detected exactly ${yoloTexts.length} text regions in this image:\n${boxesStr}\n\nFor each bounding box, transcribe the text inside it and return a JSON array: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]`;
           }
-          return null;
-        }).filter(Boolean).join('\n');
-
-        if (boxesStr) {
-          promptText = `You are a precise OCR assistant. A local layout detector has detected exactly ${yoloTexts.length} text regions in this image:\n${boxesStr}\n\nFor each bounding box, transcribe the text inside it and return a JSON array: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}]`;
         }
-      }
 
-      const rawContent = await runVisionModelDirect(localLlmConfig, promptText, base64Image);
-      const parsed = parseJsonSafely(rawContent, []);
-      if (Array.isArray(parsed)) return parsed as ComicText[];
-      if (parsed?.texts && Array.isArray(parsed.texts)) return parsed.texts as ComicText[];
-      return [];
+        const rawContent = await runVisionModelDirect(localLlmConfig, promptText, base64Image);
+        const parsed = parseJsonSafely(rawContent, []);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as ComicText[];
+        if (parsed?.texts && Array.isArray(parsed.texts) && parsed.texts.length > 0) return parsed.texts as ComicText[];
+      } catch (externalErr: any) {
+        console.warn(`[detectComicText] External LLM (${engine}) failed, falling back to Workers AI / Backend:`, externalErr?.message || externalErr);
+      }
     }
 
     if (ocrProvider === 'vision') {
@@ -836,14 +842,20 @@ export async function translateTexts(
 ): Promise<string[]> {
   if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   try {
-    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'worker') {
-      const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
-      const rawContent = await runTextModelDirect(localLlmConfig, promptText);
-      const parsed = parseJsonSafely(rawContent, null);
-      if (parsed && Array.isArray(parsed)) {
-        return parsed;
+    const engine = localLlmConfig?.engine;
+    const isExternalLlm = engine === 'local' || engine === 'openai' || engine === 'claude' || engine === 'qwen';
+
+    if (isExternalLlm) {
+      try {
+        const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
+        const rawContent = await runTextModelDirect(localLlmConfig, promptText);
+        const parsed = parseJsonSafely(rawContent, null);
+        if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (externalErr: any) {
+        console.warn(`[translateTexts] External LLM (${engine}) failed, falling back to Workers AI / Backend:`, externalErr?.message || externalErr);
       }
-      return texts;
     }
 
     const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'worker');

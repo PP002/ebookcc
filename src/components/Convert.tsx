@@ -3753,15 +3753,15 @@ export default function Convert({
                   }
                 }
 
-                // Run OCR on panel with panel-hint (-1) (Gemini or Local LLM)
+                // Run OCR on panel with panel-hint (-1) (Workers AI Gemma default when key empty)
                 const panelTexts = await detectComicText(
                   pBase64,
                   customApiKey,
                   -1,
-                  'gemini',
+                  customApiKey ? (llmEngine === 'worker' ? 'gemini' : llmEngine) : 'worker',
                   undefined,
                   {
-                    engine: llmEngine,
+                    engine: customApiKey ? llmEngine : 'worker',
                     url: localLlmUrl,
                     model: localLlmModel,
                     apiKey: localLlmApiKey
@@ -3816,15 +3816,15 @@ export default function Convert({
       } else {
         if (runOcr) {
           toast.info("Analyzing layout and extracting text...");
-          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Gemini or Local LLM)
+          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Workers AI Gemma default when key empty)
           const rawResult = await detectComicText(
             aiBase64,
             customApiKey,
             localTexts?.length || 0,
-            'gemini',
+            customApiKey ? (llmEngine === 'worker' ? 'gemini' : llmEngine) : 'worker',
             undefined,
             {
-              engine: llmEngine,
+              engine: customApiKey ? llmEngine : 'worker',
               url: localLlmUrl,
               model: localLlmModel,
               apiKey: localLlmApiKey
@@ -3911,7 +3911,7 @@ export default function Convert({
             batchTargetLanguage,
             customApiKey,
             {
-              engine: llmEngine,
+              engine: customApiKey ? (llmEngine === 'worker' ? 'gemini' : llmEngine) : 'worker',
               url: localLlmUrl,
               model: localLlmModel,
               apiKey: localLlmApiKey

@@ -343,14 +343,19 @@ export async function runOcrFallback(
     });
 
     if (response.ok) {
-      const data = await response.json();
-      if (data && data.direction && !data.noTextDetected && data.sampleText) {
-        return {
-          direction: data.direction,
-          detail: data.detail || `OCR analysis: detected ${data.language} -> ${data.direction.toUpperCase()}`,
-          language: data.language || 'other',
-          sampleText: data.sampleText || ''
-        };
+      const text = await response.text();
+      if (!text.trim().startsWith('<')) {
+        try {
+          const data = JSON.parse(text);
+          if (data && data.direction && !data.noTextDetected && data.sampleText) {
+            return {
+              direction: data.direction,
+              detail: data.detail || `OCR analysis: detected ${data.language} -> ${data.direction.toUpperCase()}`,
+              language: data.language || 'other',
+              sampleText: data.sampleText || ''
+            };
+          }
+        } catch {}
       }
     }
   } catch (err) {

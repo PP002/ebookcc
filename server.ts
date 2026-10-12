@@ -2321,6 +2321,7 @@ Return a JSON object:
 
       console.log(`[API detectText] Image size: ${Math.round(rawBase64.length / 1024)} KB, engine: ${engine}`);
       const customKey = req.headers["x-gemini-api-key"] as string;
+      const hasCustomKey = !!(customKey && customKey.trim().length > 10 && !customKey.includes("YOUR_API_KEY"));
       const ai = getAIClient(customKey);
 
       const promptText = `You are a precise OCR engine. Your ONLY job is text detection and extraction.
@@ -2366,16 +2367,19 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      // If ai is available, we prioritize Google Gemini (the official SDK) unless pollinations or puter is explicitly requested
-      const useGeminiFirst = !!ai && engine !== 'pollinations' && engine !== 'puter';
+      // Default Provider Logic:
+      // If user provided custom Gemini API Key -> Query Gemini first
+      // If API key is empty -> Query Cloudflare Workers AI (Gemma) first as default provider
+      const useGeminiFirst = hasCustomKey && !!ai && engine !== 'pollinations' && engine !== 'puter' && engine !== 'worker';
       let textResultText = "";
       let textFound: TextBlock[] | null = null;
       let errorOccurred: any = null;
 
+      // 1. If custom Gemini key provided, run Gemini first
       if (useGeminiFirst) {
         try {
-          console.log(`[API detectText] Querying Google Gemini first (Official SDK, model: ${targetModel})...`);
-          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
+          console.log(`[API detectText] Custom Gemini API key provided. Querying Google Gemini (model: ${targetModel})...`);
+          const cacheName = await getOrCreateGlossaryCache(ai, true, targetModel);
           let isCacheHit = false;
 
           const result = await callWithRetry(() => {
@@ -2417,22 +2421,22 @@ STRICT INSTRUCTIONS:
             let parsed = parseJsonSafely(textResultText, []);
             if (parsed && Array.isArray(parsed)) {
               textFound = parsed;
-              console.log("[API detectText] Gemini successfully detected text first!");
+              console.log("[API detectText] Gemini successfully detected text!");
               if (isCacheHit) {
                 res.setHeader("x-gemini-cache-hit", "true");
               }
             }
           }
         } catch (gemError: any) {
-          console.log("[API detectText] Gemini attempt failed:", gemError.message);
+          console.log("[API detectText] Custom Gemini attempt failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
 
-      // Fallback to Worker AI (Gemma) if Gemini failed or no API key provided
+      // 2. Default Provider: Cloudflare Workers AI (Gemma) when API key is empty (or if Gemini failed)
       if (!textFound) {
         try {
-          console.log("[API detectText] Falling back to Cloudflare Workers AI (Gemma)...");
+          console.log("[API detectText] Using default provider: Cloudflare Workers AI (Gemma)...");
           const workerResText = await callWorkerAI([
             { role: "user", content: [
               { type: "text", text: finalPrompt },
@@ -2440,13 +2444,56 @@ STRICT INSTRUCTIONS:
             ]}
           ], "You are a precise OCR transcriber. Return ONLY a JSON array of objects with text and box_2d coordinates.", true);
           const parsedWorker = parseJsonSafely(workerResText, null);
-          if (parsedWorker && Array.isArray(parsedWorker)) {
+          if (parsedWorker && Array.isArray(parsedWorker) && parsedWorker.length > 0) {
             textFound = parsedWorker;
-          } else if (parsedWorker && Array.isArray(parsedWorker.texts)) {
+            console.log("[API detectText] Workers AI (Gemma) successfully detected text!");
+          } else if (parsedWorker && Array.isArray(parsedWorker.texts) && parsedWorker.texts.length > 0) {
             textFound = parsedWorker.texts;
+            console.log("[API detectText] Workers AI (Gemma) successfully detected text!");
           }
         } catch (workerErr: any) {
-          console.warn("[API detectText] Worker AI fallback failed:", workerErr.message);
+          console.warn("[API detectText] Workers AI attempt failed:", workerErr.message);
+        }
+      }
+
+      // 3. Dev Server Fallback: if in local dev environment without Workers AI credentials, fallback to dev Gemini
+      if (!textFound && !hasCustomKey && ai && engine !== 'pollinations' && engine !== 'puter') {
+        try {
+          console.log("[API detectText] Workers AI unavailable in dev environment, falling back to development Gemini...");
+          const result = await callWithRetry(() => {
+            return ai.models.generateContent({
+              model: targetModel,
+              contents: [{
+                parts: [
+                  { text: finalPrompt },
+                  { inlineData: { mimeType: "image/jpeg", data: rawBase64 } }
+                ]
+              }],
+              config: {
+                responseMimeType: "application/json",
+                maxOutputTokens: 8192,
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      text:   { type: Type.STRING },
+                      box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } }
+                    },
+                    required: ["text", "box_2d"]
+                  }
+                }
+              }
+            });
+          }, res, "detectText");
+          if (result) {
+            let parsed = parseJsonSafely(result.text, []);
+            if (parsed && Array.isArray(parsed)) {
+              textFound = parsed;
+            }
+          }
+        } catch (devGemErr: any) {
+          console.warn("[API detectText] Dev Gemini fallback failed:", devGemErr.message);
         }
       }
 
@@ -2548,16 +2595,18 @@ STRICT INSTRUCTIONS:
       console.log(`[API translate] Translating ${texts.length} items to ${targetLanguage}, engine: ${engine}`);
       
       const customKey = req.headers["x-gemini-api-key"] as string;
+      const hasCustomKey = !!(customKey && customKey.trim().length > 10 && !customKey.includes("YOUR_API_KEY"));
       const ai = getAIClient(customKey);
 
       let rawResultText = "";
       let translationResult: string[] | null = null;
       let errorOccurred: any = null;
 
-      if (ai) {
+      // 1. If user provided a custom Gemini API key, query Gemini first
+      if (hasCustomKey && ai && engine !== 'worker') {
         try {
-          console.log(`[API translate] Querying Google Gemini (Official SDK, model: ${targetModel})...`);
-          const cacheName = await getOrCreateGlossaryCache(ai, !!customKey, targetModel);
+          console.log(`[API translate] Custom Gemini API key provided. Querying Google Gemini (model: ${targetModel})...`);
+          const cacheName = await getOrCreateGlossaryCache(ai, true, targetModel);
           let isCacheHit = false;
 
           const result = await callWithRetry(() => {
@@ -2595,26 +2644,58 @@ STRICT INSTRUCTIONS:
             }
           }
         } catch (gemError: any) {
-          console.log("[API translate] Gemini attempt failed:", gemError.message);
+          console.log("[API translate] Custom Gemini attempt failed:", gemError.message);
           errorOccurred = gemError;
         }
       }
 
-      // Fallback to Worker AI (Gemma) if Gemini failed or no API key provided
+      // 2. Default Provider: Cloudflare Workers AI (Gemma) when API key is empty (or if Gemini failed)
       if (!translationResult) {
         try {
-          console.log("[API translate] Falling back to Cloudflare Workers AI (Gemma)...");
+          console.log("[API translate] Using default provider: Cloudflare Workers AI (Gemma)...");
           const workerResText = await callWorkerAI([
             { role: "user", content: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.\n\n${JSON.stringify(texts)}` }
           ], `You are a translator. Return ONLY a JSON array of strings.`, true);
           const parsedWorker = parseJsonSafely(workerResText, null);
-          if (parsedWorker && Array.isArray(parsedWorker)) {
+          if (parsedWorker && Array.isArray(parsedWorker) && parsedWorker.length > 0) {
             translationResult = parsedWorker;
-          } else if (parsedWorker && Array.isArray(parsedWorker.translation)) {
+            console.log("[API translate] Workers AI (Gemma) successfully translated text!");
+          } else if (parsedWorker && Array.isArray(parsedWorker.translation) && parsedWorker.translation.length > 0) {
             translationResult = parsedWorker.translation;
+            console.log("[API translate] Workers AI (Gemma) successfully translated text!");
           }
         } catch (workerErr: any) {
-          console.warn("[API translate] Worker AI fallback failed:", workerErr.message);
+          console.warn("[API translate] Workers AI attempt failed:", workerErr.message);
+        }
+      }
+
+      // 3. Dev Server Fallback: if in local dev environment without Workers AI credentials, fallback to dev Gemini
+      if (!translationResult && !hasCustomKey && ai && engine !== 'pollinations' && engine !== 'puter') {
+        try {
+          console.log("[API translate] Workers AI unavailable in dev environment, falling back to development Gemini...");
+          const result = await callWithRetry(() => {
+            return ai.models.generateContent({
+              model: targetModel,
+              contents: [{
+                parts: [
+                  { text: `Translate the following texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If a text is already in ${targetLanguage}, leave it unchanged.` },
+                  { text: JSON.stringify(texts) }
+                ]
+              }],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
+              }
+            });
+          }, res, "translate");
+          if (result) {
+            let parsed = parseJsonSafely(result.text, []);
+            if (parsed && Array.isArray(parsed)) {
+              translationResult = parsed;
+            }
+          }
+        } catch (devGemErr: any) {
+          console.warn("[API translate] Dev Gemini fallback failed:", devGemErr.message);
         }
       }
 

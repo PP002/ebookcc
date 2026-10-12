@@ -774,7 +774,7 @@ STRICT INSTRUCTIONS:
     const payload = {
       base64Image,
       suggestedCount,
-      engine: 'gemini',
+      engine: customApiKey ? 'gemini' : 'worker',
       model: localLlmConfig?.model,
       yoloTexts
     };
@@ -786,13 +786,21 @@ STRICT INSTRUCTIONS:
     });
     const text = await res.text();
     if (!res.ok || text.trim().startsWith('<')) {
+      if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+        console.warn("[detectComicText] Backend returned non-JSON, falling back to pre-detected YOLO regions");
+        return yoloTexts.map((yt: any) => ({
+          text: yt.text || "",
+          box_2d: yt.box_2d || yt,
+          panelIdx: yt.panelIdx
+        }));
+      }
       let msg = text;
       try {
         const errJson = JSON.parse(text);
         msg = errJson.error?.message || errJson.error || errJson.message || text;
       } catch {
         if (text.trim().startsWith('<')) {
-          msg = `Server returned HTML (${res.status} ${res.statusText}) instead of JSON`;
+          msg = `Backend temporarily unavailable (${res.status} ${res.statusText})`;
         }
       }
       throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
@@ -800,13 +808,21 @@ STRICT INSTRUCTIONS:
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
+    if (yoloTexts && Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+      console.warn("[detectComicText] Using pre-detected layout fallback after error:", error);
+      return yoloTexts.map((yt: any) => ({
+        text: yt.text || "",
+        box_2d: yt.box_2d || yt,
+        panelIdx: yt.panelIdx
+      }));
+    }
     console.error("Error detecting comic text:", error);
     throw error;
   }
 }
 
 export interface LocalLlmConfig {
-  engine: 'gemini' | 'local' | 'openai' | 'claude' | 'qwen';
+  engine: 'gemini' | 'local' | 'openai' | 'claude' | 'qwen' | 'worker';
   url?: string;
   model?: string;
   apiKey?: string;
@@ -820,7 +836,7 @@ export async function translateTexts(
 ): Promise<string[]> {
   if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
   try {
-    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini') {
+    if (localLlmConfig && localLlmConfig.engine && localLlmConfig.engine !== 'gemini' && localLlmConfig.engine !== 'worker') {
       const promptText = `Translate the following comic texts to ${targetLanguage}. Return a JSON array of strings in the EXACT SAME ORDER. If any text is already in ${targetLanguage}, leave it as is.\n\n${JSON.stringify(texts)}`;
       const rawContent = await runTextModelDirect(localLlmConfig, promptText);
       const parsed = parseJsonSafely(rawContent, null);
@@ -830,7 +846,7 @@ export async function translateTexts(
       return texts;
     }
 
-    const activeEngine = localLlmConfig?.engine || 'gemini';
+    const activeEngine = localLlmConfig?.engine || (customApiKey ? 'gemini' : 'worker');
 
     if (customApiKey && activeEngine === 'gemini') {
       console.log("[Frontend Direct] Running translate locally to bypass server limits");
@@ -856,22 +872,14 @@ export async function translateTexts(
       body: JSON.stringify({
         texts,
         targetLanguage,
-        engine: 'gemini',
+        engine: customApiKey ? 'gemini' : 'worker',
         model: localLlmConfig?.model
       }),
     });
     const text = await res.text();
     if (!res.ok || text.trim().startsWith('<')) {
-      let msg = text;
-      try {
-        const errJson = JSON.parse(text);
-        msg = errJson.error?.message || errJson.error || errJson.message || text;
-      } catch {
-        if (text.trim().startsWith('<')) {
-          msg = `Server returned HTML (${res.status} ${res.statusText}) instead of JSON`;
-        }
-      }
-      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      console.warn("[translateTexts] Backend returned non-JSON, preserving original texts");
+      return texts;
     }
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : texts;

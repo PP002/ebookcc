@@ -94,10 +94,17 @@ export async function detectDeviceCapability(): Promise<DeviceCapability> {
       const canvas = document.createElement("canvas");
       const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
       if (gl) {
-        const debugInfo = (gl as any).getExtension("WEBGL_debug_renderer_info");
-        gpuRenderer = debugInfo
-          ? (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-          : (gl as any).getParameter((gl as any).RENDERER) || "";
+        try {
+          gpuRenderer = (gl as any).getParameter((gl as any).RENDERER) || "";
+        } catch {}
+        if (!gpuRenderer || gpuRenderer === "Unknown") {
+          try {
+            const debugInfo = (gl as any).getExtension("WEBGL_debug_renderer_info");
+            if (debugInfo) {
+              gpuRenderer = (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "";
+            }
+          } catch {}
+        }
 
         const lower = gpuRenderer.toLowerCase();
         const isSoftware =

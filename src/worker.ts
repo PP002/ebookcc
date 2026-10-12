@@ -717,6 +717,52 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function parseJsonSafely(text: string | undefined, defaultValue: any) {
+  if (!text) return defaultValue;
+  try {
+    let clean = text.trim();
+    const match = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (match) {
+      clean = match[1].trim();
+    } else {
+      clean = clean.replace(/^```json/i, "").replace(/```$/i, "").trim();
+    }
+
+    const firstBracket = clean.indexOf('[');
+    const lastBracket = clean.lastIndexOf(']');
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+
+    let startIdx = -1;
+    let endIdx = -1;
+
+    if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+      startIdx = firstBracket;
+      endIdx = lastBracket;
+    } else if (firstBrace !== -1) {
+      startIdx = firstBrace;
+      endIdx = lastBrace;
+    }
+
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      clean = clean.substring(startIdx, endIdx + 1);
+    }
+
+    try {
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(defaultValue) && !Array.isArray(parsed)) {
+        return defaultValue;
+      }
+      return parsed ?? defaultValue;
+    } catch {}
+
+    clean = clean.replace(/,\s*\]/g, ']').replace(/,\s*\}/g, '}');
+    return JSON.parse(clean) ?? defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx?: any): Promise<Response> {
     const url = new URL(request.url);
@@ -1463,6 +1509,243 @@ export default {
     }
 
     // ─────────────────────────────────────────────
+    // Route: POST /api/detectText, /api/detect-text (Workers AI OCR & Transcription)
+    // ─────────────────────────────────────────────
+    if (
+      (url.pathname === "/api/detectText" ||
+        url.pathname === "/api/detect-text") &&
+      request.method === "POST"
+    ) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        let base64Image = body.base64Image || body.image || body.imageBase64 || "";
+        const yoloTexts = body.yoloTexts || [];
+
+        if (!base64Image) {
+          return jsonResponse([], 200);
+        }
+
+        let imageUrl = base64Image;
+        if (!imageUrl.startsWith("data:")) {
+          imageUrl = `data:image/jpeg;base64,${imageUrl}`;
+        }
+
+        const customApiKey = request.headers.get("x-gemini-api-key") || body.customApiKey || body.apiKey || "";
+
+        let prompt = `You are a precise OCR engine. Extract all text blocks from this image. Return ONLY a valid JSON array of objects with format: [{"text": "transcribed text", "box_2d": [ymin, xmin, ymax, xmax]}]. Bounding coordinates are scaled 0-1000.`;
+
+        if (Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+          const boxesStr = yoloTexts.map((item: any, i: number) => {
+            const box = item.box_2d || item;
+            if (Array.isArray(box) && box.length === 4) {
+              return `Box #${i}: [${box.map((v: any) => Math.round(Number(v))).join(', ')}]`;
+            }
+            return null;
+          }).filter(Boolean).join('\n');
+          if (boxesStr) {
+            prompt = `You are a precise OCR engine. Layout detector has located these text regions (ymin, xmin, ymax, xmax 0-1000):\n${boxesStr}\nTranscribe the text for each box and return ONLY a JSON array: [{"text": "...", "box_2d": [ymin, xmin, ymax, xmax]}].`;
+          }
+        }
+
+        // 1. If user provided a Gemini API Key, query Gemini directly
+        if (customApiKey && customApiKey.trim().length > 10) {
+          try {
+            const rawB64 = imageUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+            const geminiRes = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(customApiKey.trim())}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [
+                      { text: prompt },
+                      { inlineData: { mimeType: "image/jpeg", data: rawB64 } }
+                    ]
+                  }],
+                  generationConfig: {
+                    responseMimeType: "application/json",
+                    maxOutputTokens: 4096
+                  }
+                })
+              }
+            );
+            if (geminiRes.ok) {
+              const geminiData: any = await geminiRes.json();
+              const textOut = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (textOut) {
+                const parsed = parseJsonSafely(textOut, null);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  return jsonResponse(parsed);
+                }
+              }
+            }
+          } catch (gemErr) {
+            console.warn("[Workers detectText] Custom Gemini API call failed, falling back to Workers AI:", gemErr);
+          }
+        }
+
+        // 2. Default Provider: Cloudflare Workers AI (Gemma) when api key is empty
+        if (env.AI) {
+          const cacheKV = env.ebookcckv || env.CACHE;
+          const ocrKey = `ocr-dt:${await sha256(imageUrl.slice(0, 500) + (yoloTexts.length || 0))}`;
+          const cachedOcr = await cacheKV?.get(ocrKey);
+          if (cachedOcr) {
+            try {
+              const parsed = JSON.parse(cachedOcr);
+              if (Array.isArray(parsed)) return jsonResponse(parsed);
+            } catch {}
+          }
+
+          try {
+            const aiResult = await env.AI.run(
+              "@cf/google/gemma-4-26b-a4b-it",
+              {
+                messages: [
+                  {
+                    role: "system",
+                    content: "You are a precise OCR transcription engine. Output ONLY valid JSON array with keys 'text' and 'box_2d'. No explanations.",
+                  },
+                  {
+                    role: "user",
+                    content: [
+                      { type: "text", text: prompt },
+                      { type: "image_url", image_url: { url: imageUrl } },
+                    ],
+                  },
+                ],
+                max_tokens: 2048,
+              },
+              {
+                gateway: {
+                  id: "ebookcc-gateway",
+                  skipCache: false,
+                  cacheTtl: 3600,
+                },
+              }
+            );
+
+            const extractedText = extractTextFromAIResult(aiResult);
+            if (extractedText) {
+              const parsed = parseJsonSafely(extractedText, null);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                await cacheKV?.put(ocrKey, JSON.stringify(parsed), { expirationTtl: 86400 }).catch(() => {});
+                return jsonResponse(parsed);
+              }
+            }
+          } catch (aiErr) {
+            console.warn("[Workers AI Gemma detectText Error]:", aiErr);
+          }
+        }
+
+        // If YOLO text regions were provided, return them with empty transcription as fallback
+        if (Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+          const fallbackTexts = yoloTexts.map((yt: any) => ({
+            text: yt.text || "",
+            box_2d: yt.box_2d || yt,
+            panelIdx: yt.panelIdx
+          }));
+          return jsonResponse(fallbackTexts);
+        }
+
+        return jsonResponse([]);
+      } catch (err: any) {
+        console.error("[Workers AI detectText Error]:", err);
+        return jsonResponse([]);
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: POST /api/detect-reading-direction (Workers AI Language & Reading Direction)
+    // ─────────────────────────────────────────────
+    if (
+      url.pathname === "/api/detect-reading-direction" &&
+      request.method === "POST"
+    ) {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const images = body.images || [];
+        if (!Array.isArray(images) || images.length === 0) {
+          return jsonResponse({
+            direction: "ltr",
+            language: "unknown",
+            confidence: 0,
+            sampleText: "",
+            noTextDetected: true,
+            detail: "No images provided, default LTR"
+          });
+        }
+
+        const classifyScript = (text: string): { lang: 'korean' | 'japanese' | 'chinese' | 'other'; detail: string } => {
+          const hangul = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g) || [];
+          const kana = text.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || [];
+          const cjk = text.match(/[\u4E00-\u9FAF]/g) || [];
+          const latin = text.match(/[a-zA-Z]/g) || [];
+          if (hangul.length >= 2) return { lang: 'korean', detail: `Korean Hangul detected (${hangul.length})` };
+          if (kana.length >= 2) return { lang: 'japanese', detail: `Japanese Kana detected (${kana.length})` };
+          if (cjk.length >= 3) {
+            if (kana.length < 2) return { lang: 'chinese', detail: `Chinese CJK ideographs detected (${cjk.length})` };
+            return { lang: 'japanese', detail: `Japanese Kanji+Kana detected` };
+          }
+          if (latin.length >= 4) return { lang: 'other', detail: `Latin/Western text detected (${latin.length})` };
+          return { lang: 'other', detail: 'Other language' };
+        };
+
+        let sampleText = "";
+        let detectedLanguage = "other";
+        let confidence = 0.85;
+
+        if (env.AI && images[0]) {
+          try {
+            let imgUrl = images[0];
+            if (!imgUrl.startsWith("data:")) {
+              imgUrl = `data:image/jpeg;base64,${imgUrl}`;
+            }
+            const aiRes = await env.AI.run(
+              "@cf/google/gemma-4-26b-a4b-it",
+              {
+                messages: [
+                  { role: "system", content: "Transcribe any visible speech bubble or narrative text from this comic page. Output only the transcribed text." },
+                  { role: "user", content: [
+                    { type: "text", text: "Transcribe visible text from this page." },
+                    { type: "image_url", image_url: { url: imgUrl } }
+                  ]}
+                ],
+                max_tokens: 512,
+              }
+            );
+            sampleText = extractTextFromAIResult(aiRes) || "";
+            if (sampleText) {
+              const check = classifyScript(sampleText);
+              detectedLanguage = check.lang;
+            }
+          } catch (e) {
+            console.warn("[Workers AI detect-reading-direction]:", e);
+          }
+        }
+
+        const isRtl = detectedLanguage === "japanese" || detectedLanguage === "chinese";
+        const direction: "ltr" | "rtl" = isRtl ? "rtl" : "ltr";
+
+        return jsonResponse({
+          direction,
+          language: detectedLanguage,
+          confidence,
+          sampleText: sampleText.slice(0, 100),
+          detail: `Workers AI (Gemma): ${detectedLanguage.toUpperCase()} -> ${direction.toUpperCase()}`
+        });
+      } catch (err: any) {
+        return jsonResponse({
+          direction: "ltr",
+          language: "unknown",
+          confidence: 0,
+          sampleText: "",
+          detail: "Default LTR fallback"
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────
     // Route: POST /api/detect-panels, /api/detectPanelsLocalYolo (YOLO Proxy)
     // ─────────────────────────────────────────────
     if (
@@ -1796,20 +2079,124 @@ export default {
       }
     }
 
-    // 3. POST /api/ai/translate — Translation (CONVERT feature)
-    if (url.pathname === "/api/ai/translate" && request.method === "POST") {
+    // 3. POST /api/translate & /api/ai/translate — Translation (CONVERT feature & AI assistant)
+    if (
+      (url.pathname === "/api/translate" ||
+        url.pathname === "/api/ai/translate") &&
+      request.method === "POST"
+    ) {
       try {
-        if (!env.AI) {
-          return jsonResponse(makeGeminiErrorFormat("Cloudflare Workers AI binding (env.AI) is not configured", 500), 500);
+        const body = (await request.json().catch(() => ({}))) as any;
+        const customApiKey = request.headers.get("x-gemini-api-key") || body.customApiKey || body.apiKey || "";
+
+        // Case A: Batch translation (body.texts is an array of strings from Convert page)
+        if (Array.isArray(body.texts)) {
+          const texts: string[] = body.texts;
+          const targetLanguage = (body.targetLanguage || body.targetLang || "English").trim();
+
+          if (texts.length === 0) {
+            return jsonResponse([]);
+          }
+
+          // 1. If user provided a custom Gemini API key, query Gemini directly
+          if (customApiKey && customApiKey.trim().length > 10) {
+            try {
+              const geminiRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(customApiKey.trim())}`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [{
+                        text: `Translate the following comic texts to ${targetLanguage}. Return ONLY a JSON array of strings in the exact same order. If a text is already in ${targetLanguage}, keep it unchanged.\n\n${JSON.stringify(texts)}`
+                      }]
+                    }],
+                    generationConfig: {
+                      responseMimeType: "application/json",
+                      maxOutputTokens: 4096
+                    }
+                  })
+                }
+              );
+              if (geminiRes.ok) {
+                const geminiData: any = await geminiRes.json();
+                const textOut = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (textOut) {
+                  const parsed = parseJsonSafely(textOut, null);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    return jsonResponse(parsed);
+                  }
+                }
+              }
+            } catch (gemErr) {
+              console.warn("[Workers translate] Custom Gemini API call failed, falling back to Workers AI:", gemErr);
+            }
+          }
+
+          // 2. Default Provider: Cloudflare Workers AI (Gemma) when api key is empty
+          if (env.AI) {
+            try {
+              const cacheKV = env.ebookcckv || env.CACHE;
+              const trBatchKey = `tr-batch:${await sha256(JSON.stringify(texts) + targetLanguage)}`;
+              const cachedBatch = await cacheKV?.get(trBatchKey);
+              if (cachedBatch) {
+                try {
+                  const parsedBatch = JSON.parse(cachedBatch);
+                  if (Array.isArray(parsedBatch)) return jsonResponse(parsedBatch);
+                } catch {}
+              }
+
+              const prompt = `You are a professional comic translator. Translate the following comic texts into ${targetLanguage}.\nReturn ONLY a JSON array of strings in the EXACT SAME ORDER. If any string is already in ${targetLanguage}, do not modify it.\n\n${JSON.stringify(texts)}`;
+              const aiResult = await env.AI.run(
+                "@cf/google/gemma-4-26b-a4b-it",
+                {
+                  messages: [
+                    {
+                      role: "system",
+                      content: `You are a professional translator. Output ONLY a valid JSON array of strings in ${targetLanguage}. No explanation, no wrapper object.`
+                    },
+                    { role: "user", content: prompt }
+                  ],
+                  max_tokens: Math.min(4096, Math.max(1024, texts.length * 150))
+                },
+                {
+                  gateway: {
+                    id: "ebookcc-gateway",
+                    skipCache: false,
+                    cacheTtl: 3600
+                  }
+                }
+              );
+
+              const extractedText = extractTextFromAIResult(aiResult);
+              if (extractedText) {
+                const parsed = parseJsonSafely(extractedText, null);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  await cacheKV?.put(trBatchKey, JSON.stringify(parsed), { expirationTtl: 86400 }).catch(() => {});
+                  return jsonResponse(parsed);
+                }
+              }
+            } catch (aiErr) {
+              console.warn("[Workers AI Gemma translate batch Error]:", aiErr);
+            }
+          }
+
+          // Fallback: return original texts if translation fails
+          return jsonResponse(texts);
         }
 
-        const body = (await request.json().catch(() => ({}))) as any;
+        // Case B: Single string translation (/api/ai/translate)
         const text = body.text;
         const targetLang = (body.targetLang || "zh").trim();
         const sourceLang = body.sourceLang ? body.sourceLang.trim() : undefined;
 
         if (!text || typeof text !== "string" || !text.trim()) {
           return jsonResponse(makeGeminiErrorFormat("Text is required for translation", 400), 400);
+        }
+
+        if (!env.AI) {
+          return jsonResponse(makeGeminiErrorFormat("Cloudflare Workers AI binding (env.AI) is not configured", 500), 500);
         }
 
         // Optimization: KV Cache lookup for translation
@@ -2178,16 +2565,12 @@ export default {
     }
 
     // ─────────────────────────────────────────────
-    // Fallback: Proxy other /api/* routes to backend server
-    // (e.g. Gemini OCR, AI translation, DOCX export)
+    // Fallback: Proxy other /api/* routes to external backend server if configured
     // ─────────────────────────────────────────────
     if (url.pathname.startsWith("/api/")) {
-      const targetHost =
-        env.VITE_API_URL ||
-        env.API_URL ||
-        "https://ais-dev-hdnihrh5osfa2rtxf3lhro-642769293101.europe-west2.run.app";
+      const targetHost = env.VITE_API_URL || env.API_URL;
 
-      if (targetHost) {
+      if (targetHost && !targetHost.includes("europe-west2.run.app")) {
         try {
           const targetUrl = new URL(url.pathname + url.search, targetHost);
           const proxyRequest = new Request(targetUrl.toString(), request);
@@ -2210,6 +2593,11 @@ export default {
           );
         }
       }
+
+      return jsonResponse(
+        { error: `Endpoint not found: ${url.pathname}`, path: url.pathname },
+        404
+      );
     }
 
     // ─────────────────────────────────────────────

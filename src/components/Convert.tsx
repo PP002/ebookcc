@@ -3646,8 +3646,8 @@ export default function Convert({
       const maxDim = 1600;
       const aiBase64 = await resizeImageForAI(workingImageSrc, maxDim);
 
-      // 1. Initial Layout Detection (YOLO / Predict API)
-      const needYolo = runLayout || runOcr;
+      // 1. Initial Layout Detection (YOLO / Predict API) - ONLY run if splitDuringBatch (split panels) is requested
+      const needYolo = runLayout;
       if (needYolo && (!localTexts || !localPanels)) {
         try {
           console.log("Running layout detection...");
@@ -4567,30 +4567,45 @@ ${pagesHtml}</body>
                }
             } else {
                for (let p of panels) {
+                  let ptrWidth = 0;
+                  let ptrHeight = 0;
+                  let imgProps: any = null;
                   if (p.base64Image) {
-                     const imgProps = pdf.getImageProperties(p.base64Image);
-                     let ptrWidth = imgProps.width;
-                     let ptrHeight = imgProps.height;
+                     imgProps = pdf.getImageProperties(p.base64Image);
+                     ptrWidth = imgProps.width;
+                     ptrHeight = imgProps.height;
                      if (ptrWidth > contentWidth) {
                         const ratio = ptrWidth / ptrHeight;
                         ptrWidth = contentWidth;
                         ptrHeight = ptrWidth / ratio;
                      }
-                     // Center image
+                  }
+
+                  let textContent = '';
+                  let estimatedTextHeight = 0;
+                  if (p.texts.length > 0) {
+                     const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
+                     textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
+                     if (textContent) {
+                        pdf.setFont("helvetica");
+                        pdf.setFontSize(12);
+                        const lines = pdf.splitTextToSize(textContent, contentWidth) as string[];
+                        estimatedTextHeight = lines.length * 16 + 15;
+                     }
+                  }
+
+                  const totalBlockHeight = (ptrHeight > 0 ? ptrHeight + 10 : 0) + estimatedTextHeight + 10;
+                  checkAddPage(totalBlockHeight);
+
+                  if (p.base64Image && imgProps) {
                      const xOffset = margin + (contentWidth - ptrWidth) / 2;
-                     
-                     checkAddPage(ptrHeight + 10);
                      pdf.addImage(p.base64Image, 'JPEG', xOffset, currentY, ptrWidth, ptrHeight);
                      currentY += ptrHeight + 10;
                   }
                   
-                  if (p.texts.length > 0) {
-                     const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
-                     const textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
-                     if (textContent) {
-                        addText(textContent);
-                        currentY += 10; // extra spacing after text
-                     }
+                  if (textContent) {
+                     addText(textContent);
+                     currentY += 10;
                   }
                }
             }
@@ -5061,10 +5076,18 @@ ${navItems}    </ol>
             </div>
 
             <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-full flex flex-col items-start">
-              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setDetectBgDuringBatch(!detectBgDuringBatch)}>
+              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => {
+                const nextVal = !detectBgDuringBatch;
+                setDetectBgDuringBatch(nextVal);
+                if (nextVal) setSplitDuringBatch(false);
+              }}>
                 <Checkbox 
                   checked={detectBgDuringBatch} 
-                  onCheckedChange={(c) => setDetectBgDuringBatch(!!c)}
+                  onCheckedChange={(c) => {
+                    const val = !!c;
+                    setDetectBgDuringBatch(val);
+                    if (val) setSplitDuringBatch(false);
+                  }}
                   className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
                 <div className="flex flex-col min-w-0 flex-1">
@@ -5072,10 +5095,18 @@ ${navItems}    </ol>
                   <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")}</span>
                 </div>
               </div>
-              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => setSplitDuringBatch(!splitDuringBatch)}>
+              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => {
+                const nextVal = !splitDuringBatch;
+                setSplitDuringBatch(nextVal);
+                if (nextVal) setDetectBgDuringBatch(false);
+              }}>
                 <Checkbox 
                   checked={splitDuringBatch} 
-                  onCheckedChange={(c) => setSplitDuringBatch(!!c)}
+                  onCheckedChange={(c) => {
+                    const val = !!c;
+                    setSplitDuringBatch(val);
+                    if (val) setDetectBgDuringBatch(false);
+                  }}
                   className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
                 <div className="flex flex-col min-w-0 flex-1">

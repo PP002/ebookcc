@@ -1129,7 +1129,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
           yMax: Math.min(img.height, (box[2] / 1000) * img.height),
           xMax: Math.min(img.width, (box[3] / 1000) * img.width),
           maskBase64: mask,
-          originalIdx
+          originalIdx: (p && p.originalIdx !== undefined) ? p.originalIdx : originalIdx
         };
       });
     }
@@ -2957,6 +2957,7 @@ export default function Convert({
   const [detectBgDuringBatch, setDetectBgDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
+  const [showDetectionMasks, setShowDetectionMasks] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
   const [readingDirectionDetail, setReadingDirectionDetail] = useState<string>('');
@@ -3646,196 +3647,112 @@ export default function Convert({
       const maxDim = 1600;
       const aiBase64 = await resizeImageForAI(workingImageSrc, maxDim);
 
-      // 1. Initial Layout Detection (YOLO / Predict API) - ONLY run if splitDuringBatch (split panels) is requested
+      // 1. Initial Layout Detection (LiteRT / YOLO) - ONLY run if splitDuringBatch (split panels) is requested
       const needYolo = runLayout;
-      if (needYolo && (!localTexts || !localPanels)) {
+      if (needYolo && (!localPanels || localPanels.length === 0)) {
         try {
-          console.log("Running layout detection...");
-          // Pass the resized/properly-formatted aiBase64 straight to LiteRT layout detection
+          console.log("Running layout detection for panels...");
           const layoutResult = await runPredictAPI(aiBase64, undefined, undefined, activeBatchSize);
           if (layoutResult) {
-            localTexts = layoutResult.texts || [];
             localPanels = layoutResult.panels || [];
-          } else {
-            throw new Error("YOLO API returned no results.");
+            // If the model also outputs text or masks, keep them
+            if (layoutResult.texts && layoutResult.texts.length > 0) {
+              localTexts = layoutResult.texts;
+            }
           }
         } catch (apiErr) {
           console.log("Predict API failed:", apiErr);
-          toast.error(`YOLO Failed for Page ${pageIndex + 1}: ${String(apiErr)}`);
+          toast.error(`Panel Detection Notice for Page ${pageIndex + 1}: ${String(apiErr)}`);
         }
       }
 
-      const hasLayoutPanels = localPanels && localPanels.length > 0;
-
-      // Branch A: Both Panels and Text detected (or just Panels) -> Comic Mode
-      if (splitDuringBatch && hasLayoutPanels) {
-        toast.info(`Comic detected: Processing ${localPanels.length} panels...`);
-        
-        // Sort panels by reading order before processing
+      // Sort and label detected panels in reading order: A(1), A(2), ...
+      if (localPanels && localPanels.length > 0) {
         const isRtl = readingDirection === 'rtl';
-        const sortedPanels = [...localPanels].sort((a, b) => {
+        localPanels = [...localPanels].sort((a, b) => {
           const boxA = a.box_2d || a;
           const boxB = b.box_2d || b;
           const yDiff = boxA[0] - boxB[0];
           if (Math.abs(yDiff) < 50) return isRtl ? boxB[1] - boxA[1] : boxA[1] - boxB[1];
           return yDiff;
-        });
+        }).map((p, idx) => ({
+          ...(typeof p === 'object' && !Array.isArray(p) ? p : { box_2d: p }),
+          originalIdx: idx,
+          label: `A(${idx + 1})`
+        }));
+      }
 
-        const finalResults: ComicText[] = [];
-        
-        if (runOcr) {
-            for (let i = 0; i < sortedPanels.length; i++) {
-              const panel = sortedPanels[i];
-              const box = panel.box_2d || panel;
-              
-              // Crop panel for OCR with a small margin for context
-              const margin = 20; // 2% margin
-              const pSx = Math.max(0, ((box[1] - margin) / 1000) * fullImg.naturalWidth);
-              const pSy = Math.max(0, ((box[0] - margin) / 1000) * fullImg.naturalHeight);
-              const pSw = Math.min(fullImg.naturalWidth - pSx, ((box[3] - box[1] + 2 * margin) / 1000) * fullImg.naturalWidth);
-              const pSh = Math.min(fullImg.naturalHeight - pSy, ((box[2] - box[0] + 2 * margin) / 1000) * fullImg.naturalHeight);
-              
-              const pCanvas = document.createElement('canvas');
-              pCanvas.width = pSw;
-              pCanvas.height = pSh;
-              const pCtx = pCanvas.getContext('2d');
-              if (pCtx) {
-                pCtx.fillStyle = '#ffffff';
-                pCtx.fillRect(0, 0, pSw, pSh);
-                pCtx.drawImage(fullImg, pSx, pSy, pSw, pSh, 0, 0, pSw, pSh);
-                const pBase64 = pCanvas.toDataURL('image/jpeg', 0.9);
-                
-                // Wait slightly between panels to help avoid early rate limiting
-                if (i > 0) await new Promise(r => setTimeout(r, 1000));
+      const hasLayoutPanels = localPanels && localPanels.length > 0;
 
-                // Find YOLO text blocks that belong to this panel, and scale them to the panel crop's 0-1000 bounds
-                const panelYoloTexts: any[] = [];
-                if (localTexts && localTexts.length > 0) {
-                  const pBox = panel.box_2d || panel;
-                  const pXMin = pBox[1];
-                  const pYMin = pBox[0];
-                  const pXMax = pBox[3];
-                  const pYMax = pBox[2];
+      // 2. OCR Execution: Do NOT use YOLO detecting first on OCR process
+      // Run page OCR directly on the page image, then mark locations of text and map to panels
+      if (runOcr) {
+        toast.info("Extracting comic text via OCR...");
+        const rawOcrResult = await detectComicText(
+          aiBase64,
+          customApiKey,
+          0, // 0 indicates full page scan with no YOLO text forcing
+          'gemini',
+          undefined,
+          {
+            engine: customApiKey ? llmEngine : 'worker',
+            url: localLlmUrl,
+            model: localLlmModel,
+            apiKey: localLlmApiKey
+          }
+        );
 
-                  // Crop bounds in page coordinates
-                  const cropYMin = Math.max(0, pYMin - margin);
-                  const cropXMin = Math.max(0, pXMin - margin);
-                  const cropYMax = Math.min(1000, pYMax + margin);
-                  const cropXMax = Math.min(1000, pXMax + margin);
+        // Sort all detected page texts in reading order: T(1), T(2), ...
+        const sortedPageTexts = sortTextsReadingOrder(rawOcrResult, undefined, readingDirection);
 
-                  const cropW = cropXMax - cropXMin;
-                  const cropH = cropYMax - cropYMin;
+        // Mark the location of each text and match to its containing panel A(x)
+        const labeledTexts = sortedPageTexts.map((item, tIdx) => {
+          const box = item.box_2d || [0, 0, 0, 0];
+          const tYCenter = (box[0] + box[2]) / 2;
+          const tXCenter = (box[1] + box[3]) / 2;
 
-                  if (cropW > 0 && cropH > 0) {
-                    localTexts.forEach((t: any) => {
-                      const tBox = t.box_2d || t;
-                      const tyMin = tBox[0], txMin = tBox[1], tyMax = tBox[2], txMax = tBox[3];
-                      const tXCenter = (txMin + txMax) / 2;
-                      const tYCenter = (tyMin + tyMax) / 2;
-
-                      // Is this text center inside our panel box (with some small tolerance)?
-                      const isInside = tXCenter >= pXMin - 5 && tXCenter <= pXMax + 5 &&
-                                      tYCenter >= pYMin - 5 && tYCenter <= pYMax + 5;
-
-                      if (isInside) {
-                        // Map the text coordinates from page scale to relative crop scale (0-1000)
-                        const relXMin = Math.max(0, Math.min(1000, ((txMin - cropXMin) / cropW) * 1000));
-                        const relYMin = Math.max(0, Math.min(1000, ((tyMin - cropYMin) / cropH) * 1000));
-                        const relXMax = Math.max(0, Math.min(1000, ((txMax - cropXMin) / cropW) * 1000));
-                        const relYMax = Math.max(0, Math.min(1000, ((tyMax - cropYMin) / cropH) * 1000));
-
-                        panelYoloTexts.push({
-                          ...t,
-                          box_2d: [relYMin, relXMin, relYMax, relXMax]
-                        });
-                      }
-                    });
-                  }
-                }
-
-                // Run OCR on panel with panel-hint (-1) (Workers AI Gemma default when key empty)
-                const panelTexts = await detectComicText(
-                  pBase64,
-                  customApiKey,
-                  -1,
-                  'gemini',
-                  undefined,
-                  {
-                    engine: customApiKey ? llmEngine : 'worker',
-                    url: localLlmUrl,
-                    model: localLlmModel,
-                    apiKey: localLlmApiKey
-                  },
-                  panelYoloTexts
-                );
-                
-                // Transform panel coordinates back to page coordinates
-                // Note: we need to account for the margin we added during cropping
-                panelTexts.forEach(pt => {
-                  const [pyMin, pxMin, pyMax, pxMax] = pt.box_2d;
-                  
-                  // Local coords in the crop (0-1000) mapped to the crop's width/height
-                  const cropLocalXMin = (pxMin / 1000) * pSw;
-                  const cropLocalYMin = (pyMin / 1000) * pSh;
-                  const cropLocalXMax = (pxMax / 1000) * pSw;
-                  const cropLocalYMax = (pyMax / 1000) * pSh;
-                  
-                  // Map crop local pixels to fullImg pixels
-                  const fullImgPixelXMin = pSx + cropLocalXMin;
-                  const fullImgPixelYMin = pSy + cropLocalYMin;
-                  const fullImgPixelXMax = pSx + cropLocalXMax;
-                  const fullImgPixelYMax = pSy + cropLocalYMax;
-                  
-                  // Map fullImg pixels back to page-relative units (0-1000)
-                  const yMin = (fullImgPixelYMin / fullImg.naturalHeight) * 1000;
-                  const xMin = (fullImgPixelXMin / fullImg.naturalWidth) * 1000;
-                  const yMax = (fullImgPixelYMax / fullImg.naturalHeight) * 1000;
-                  const xMax = (fullImgPixelXMax / fullImg.naturalWidth) * 1000;
-                  
-                  const tXCenter = (xMin + xMax) / 2;
-                  const tYCenter = (yMin + yMax) / 2;
-                  
-                  // Only include if text center is actually inside the panel boundaries (ignoring the margin context)
-                  const isInside = tXCenter >= box[1] - 5 && tXCenter <= box[3] + 5 &&
-                                  tYCenter >= box[0] - 5 && tYCenter <= box[2] + 5;
-                  
-                  if (isInside) {
-                    finalResults.push({ 
-                      ...pt, 
-                      box_2d: [yMin, xMin, yMax, xMax],
-                      panelIdx: localPanels.indexOf(panel)
-                    });
-                  }
-                });
+          let matchedPanelIdx: number | undefined = undefined;
+          if (localPanels && localPanels.length > 0) {
+            // Check if text center is inside panel bounds (with small margin tolerance)
+            for (let pIdx = 0; pIdx < localPanels.length; pIdx++) {
+              const p = localPanels[pIdx];
+              const pBox = p.box_2d || p;
+              if (tYCenter >= pBox[0] - 8 && tYCenter <= pBox[2] + 8 &&
+                  tXCenter >= pBox[1] - 8 && tXCenter <= pBox[3] + 8) {
+                matchedPanelIdx = pIdx;
+                break;
               }
             }
-          result = finalResults;
-        } else {
-          result = page.detectedTexts || [];
-        }
+            // If not strictly inside, match to the closest panel
+            if (matchedPanelIdx === undefined) {
+              let minDist = Infinity;
+              localPanels.forEach((p, pIdx) => {
+                const pBox = p.box_2d || p;
+                const pYCenter = (pBox[0] + pBox[2]) / 2;
+                const pXCenter = (pBox[1] + pBox[3]) / 2;
+                const dist = Math.hypot(tYCenter - pYCenter, tXCenter - pXCenter);
+                if (dist < minDist) {
+                  minDist = dist;
+                  matchedPanelIdx = pIdx;
+                }
+              });
+            }
+          }
+
+          return {
+            ...item,
+            panelIdx: matchedPanelIdx,
+            label: `T(${tIdx + 1})`
+          };
+        });
+
+        // Store all marked texts for object/mask preview in the toolbar
+        localTexts = labeledTexts;
+
+        // Keep all detected texts with their panel assignment
+        result = labeledTexts;
       } else {
-        if (runOcr) {
-          toast.info("Analyzing layout and extracting text...");
-          // Follow "Non-panel" branch: Regular book -> OCR and analyze layout (Workers AI Gemma default when key empty)
-          const rawResult = await detectComicText(
-            aiBase64,
-            customApiKey,
-            localTexts?.length || 0,
-            'gemini',
-            undefined,
-            {
-              engine: customApiKey ? llmEngine : 'worker',
-              url: localLlmUrl,
-              model: localLlmModel,
-              apiKey: localLlmApiKey
-            },
-            localTexts
-          );
-          // Canonical sort for the book page
-          result = sortTextsReadingOrder(rawResult, undefined, readingDirection);
-        } else {
-          result = page.detectedTexts || []; // Keep existing if no OCR requested
-        }
+        result = page.detectedTexts || [];
       }
 
       // Cache yoloTexts and detectedPanels to save computation next time or during export
@@ -4399,30 +4316,27 @@ export default function Convert({
           ${allTexts.length > 0 ? `<div class="panel-text-container">${sortTextsReadingOrder(allTexts, undefined, readingDirection).map(t => `<p class="panel-text-line">${t.text}</p>`).join('')}</div>` : ''}
         </div>`;
         } else {
-          for (let p of panels) {
-            let imageHtml = '';
+          for (let pIdx = 0; pIdx < panels.length; pIdx++) {
+            const p = panels[pIdx];
             if (p.base64Image) {
-              imageHtml = `
+              const panelTexts = p.texts || [];
+              const panelTextHtml = panelTexts.length > 0
+                ? `<div class="panel-text-container">${panelTexts.map((t: any) => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')}</div>`
+                : '';
+              panelsHtml += `
+          <div class="panel-card" style="page-break-inside: avoid; break-inside: avoid;">
             <div class="panel-image-container">
-              <img src="${p.base64Image}" class="panel-img" alt="Panel" />
-            </div>`;
-            }
-
-            const textContent = p.texts.length > 0 
-              ? sortTextsReadingOrder(p.texts, undefined, readingDirection).map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')
-              : '';
-            
-            panelsHtml += `
-          <div class="panel-card">
-            ${imageHtml}
-            ${textContent ? `<div class="panel-text-container">${textContent}</div>` : ''}
+              <img src="${p.base64Image}" class="panel-img" alt="Panel ${pIdx + 1}" />
+            </div>
+            ${panelTextHtml}
           </div>`;
+            }
           }
         }
       }
 
       pagesHtml += `
-    <div class="page-wrapper" style="background-color: ${page.bgColor || '#fff'};">
+    <div class="page-wrapper" style="background-color: ${page.bgColor || '#fff'}; page-break-inside: avoid; break-inside: avoid;">
 ${panelsHtml}
     </div>\n`;
     }
@@ -4435,13 +4349,16 @@ ${panelsHtml}
 <title>Comic Export</title>
 <style>
     body { margin: 0; padding: ${splitDuringBatch ? '20px' : '0'}; background: #fff; font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; }
-    .page-wrapper { width: 100%; max-width: ${splitDuringBatch ? '1000px' : '100%'}; margin-bottom: 0px; display: flex; flex-direction: column; gap: 0px; }
+    .page-wrapper { width: 100%; max-width: ${splitDuringBatch ? '1000px' : '100%'}; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px; page-break-inside: avoid; break-inside: avoid; }
     .panel-card { display: flex; flex-direction: column; align-items: center; width: 100%; border: none; margin: 0; padding: 0; }
     .panel-image-container { width: 100%; display: flex; justify-content: center; margin-bottom: 0px; }
     .panel-img { width: 100%; max-width: 100%; height: auto; display: block; }
     .panel-text-container { width: 100%; max-width: 100%; text-align: left; padding: 20px; box-sizing: border-box; }
     .panel-text-line { margin: 0 0 12px 0; font-size: 1rem; line-height: 1.6; color: #222; }
     .panel-text-line:last-child { margin-bottom: 0; }
+    @media print {
+      .page-wrapper { page-break-inside: avoid; break-inside: avoid; }
+    }
 </style>
 </head>
 <body>
@@ -4506,8 +4423,8 @@ ${pagesHtml}</body>
 
       const addText = (textStr: string) => {
         pdf.setFont("helvetica");
-        pdf.setFontSize(12);
-        const lineHeight = 16;
+        pdf.setFontSize(11);
+        const lineHeight = 15;
         const paragraphs = textStr.split('\n');
         
         for (const p of paragraphs) {
@@ -4522,7 +4439,7 @@ ${pagesHtml}</body>
                  pdf.addPage();
                  currentY = margin;
               }
-              pdf.text(line, margin, currentY + 12);
+              pdf.text(line, margin, currentY + 11);
               currentY += lineHeight;
            }
         }
@@ -4542,7 +4459,6 @@ ${pagesHtml}</body>
                currentY += 20;
             }
         } else {
-            // Panels logic same as HTML export
             const panels = await getPanelsForPage(page, base64Data, splitDuringBatch, customApiKey, readingDirection);
             
             if (panels.length === 0) {
@@ -4566,47 +4482,73 @@ ${pagesHtml}</body>
                  }
                }
             } else {
-               for (let p of panels) {
-                  let ptrWidth = 0;
-                  let ptrHeight = 0;
-                  let imgProps: any = null;
-                  if (p.base64Image) {
-                     imgProps = pdf.getImageProperties(p.base64Image);
-                     ptrWidth = imgProps.width;
-                     ptrHeight = imgProps.height;
-                     if (ptrWidth > contentWidth) {
-                        const ratio = ptrWidth / ptrHeight;
-                        ptrWidth = contentWidth;
-                        ptrHeight = ptrWidth / ratio;
-                     }
-                  }
+               // Split panels + OCR export:
+               // Ensure each split panel and its corresponding extracted OCR text ALWAYS remain together on the same page.
+               // Prevent split panel and extracted text from breaking across pages.
+               const availHeight = pageHeight - margin * 2;
 
-                  let textContent = '';
-                  let estimatedTextHeight = 0;
-                  if (p.texts.length > 0) {
-                     const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
-                     textContent = sortedTexts.map(t => t.text.replace(/\n/g, ' ')).join('\n\n');
-                     if (textContent) {
-                        pdf.setFont("helvetica");
-                        pdf.setFontSize(12);
-                        const lines = pdf.splitTextToSize(textContent, contentWidth) as string[];
-                        estimatedTextHeight = lines.length * 16 + 15;
-                     }
-                  }
+               for (let pIdx = 0; pIdx < panels.length; pIdx++) {
+                 const p = panels[pIdx];
+                 if (!p.base64Image) continue;
 
-                  const totalBlockHeight = (ptrHeight > 0 ? ptrHeight + 10 : 0) + estimatedTextHeight + 10;
-                  checkAddPage(totalBlockHeight);
+                 const panelTexts = p.texts || [];
+                 let textLines: string[] = [];
+                 let textBlockHeight = 0;
 
-                  if (p.base64Image && imgProps) {
-                     const xOffset = margin + (contentWidth - ptrWidth) / 2;
-                     pdf.addImage(p.base64Image, 'JPEG', xOffset, currentY, ptrWidth, ptrHeight);
-                     currentY += ptrHeight + 10;
-                  }
-                  
-                  if (textContent) {
-                     addText(textContent);
-                     currentY += 10;
-                  }
+                 if (panelTexts.length > 0) {
+                   const textContent = panelTexts.map((t: any) => t.text.replace(/\n/g, ' ')).join('\n\n');
+                   if (textContent) {
+                     pdf.setFont("helvetica");
+                     pdf.setFontSize(10.5);
+                     textLines = pdf.splitTextToSize(textContent, contentWidth) as string[];
+                     textBlockHeight = textLines.length * 14 + 10;
+                   }
+                 }
+
+                 const imgProps = pdf.getImageProperties(p.base64Image);
+                 let imgW = imgProps.width;
+                 let imgH = imgProps.height;
+                 if (imgW > contentWidth) {
+                   const ratio = imgW / imgH;
+                   imgW = contentWidth;
+                   imgH = imgW / ratio;
+                 }
+
+                 let totalPanelBlockHeight = imgH + textBlockHeight + (textBlockHeight > 0 ? 8 : 0);
+
+                 // If the panel + text exceeds total available page height, scale down the image so both fit on one page
+                 if (totalPanelBlockHeight > availHeight) {
+                   const maxImgH = Math.max(60, availHeight - textBlockHeight - 12);
+                   const scale = maxImgH / imgH;
+                   imgH = maxImgH;
+                   imgW = imgW * scale;
+                   totalPanelBlockHeight = imgH + textBlockHeight + (textBlockHeight > 0 ? 8 : 0);
+                 }
+
+                 // Check if it fits on current page; if not, add a new page
+                 if (!isFirstPage && (currentY + totalPanelBlockHeight > pageHeight - margin)) {
+                   pdf.addPage();
+                   currentY = margin;
+                 }
+                 isFirstPage = false;
+
+                 // Draw panel image
+                 const xOffset = margin + (contentWidth - imgW) / 2;
+                 pdf.addImage(p.base64Image, 'JPEG', xOffset, currentY, imgW, imgH);
+                 currentY += imgH + 8;
+
+                 // Draw extracted OCR text directly underneath this panel
+                 if (textLines.length > 0) {
+                   pdf.setFont("helvetica");
+                   pdf.setFontSize(10.5);
+                   for (const line of textLines) {
+                     pdf.text(line, margin, currentY + 10);
+                     currentY += 14;
+                   }
+                   currentY += 12;
+                 } else {
+                   currentY += 8;
+                 }
                }
             }
         }
@@ -4746,8 +4688,8 @@ ${textContent}
 </body>
 </html>`);
              seqIndex++;
-         } else if (isSplitOnly) {
-             // Reflowable mode for "Split Only" - multiple panels per page
+         } else if (splitDuringBatch) {
+             // Reflowable mode for Split Panels - all panels of this page with extracted text underneath
              const pageId = `page${seqIndex}`;
              manifestItems += `    <item id="${pageId}" href="${pageId}.xhtml" media-type="application/xhtml+xml" />\n`;
              spineItems += `    <itemref idref="${pageId}"/>\n`;
@@ -4763,34 +4705,30 @@ ${textContent}
                 const panelImgFilename = `image${seqIndex}_p${pIdx}.jpg`;
                 const imgId = `img${seqIndex}_p${pIdx}`;
 
-                let panelTextHtml = '';
-                if (p.texts && p.texts.length > 0) {
-                   const sortedTexts = sortTextsReadingOrder(p.texts, undefined, readingDirection);
-                   panelTextHtml = sortedTexts.map(t => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('');
-                }
-
                 if (p.base64Image) {
                    const panelBase64DataRaw = p.base64Image.split(',')[1];
                    zip.file(`OEBPS/images/${panelImgFilename}`, panelBase64DataRaw, { base64: true });
                    manifestItems += `    <item id="${imgId}" href="images/${panelImgFilename}" media-type="image/jpeg"/>\n`;
-                   panelsHtml += `<div class="panel-box"><img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}" /></div>\n`;
-                }
-
-                if (panelTextHtml) {
-                   panelsHtml += `<div class="panel-text-container">${panelTextHtml}</div>\n`;
+                   const panelTexts = p.texts || [];
+                   const panelTextHtml = panelTexts.length > 0
+                     ? `<div class="panel-text-container">${panelTexts.map((t: any) => `<p class="panel-text-line">${t.text.replace(/\n/g, ' ')}</p>`).join('')}</div>`
+                     : '';
+                   panelsHtml += `<div class="panel-box" style="page-break-inside: avoid; break-inside: avoid;"><img src="images/${panelImgFilename}" class="comic-img" alt="Panel ${pIdx + 1}" />${panelTextHtml}</div>\n`;
                 }
              }
+
+
 
              zip.file(`OEBPS/${pageId}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
   <title>Page ${seqIndex} Panels</title>
   <style>
-    body { margin: 0; padding: 0; background: #fff; text-align: center; }
-    .panel-box { margin-bottom: 0px; page-break-inside: avoid; display: block; width: 100%; }
-    .comic-img { width: 100%; max-width: 1200px; height: auto; display: block; margin: 0 auto; }
-    .panel-text-container { max-width: 800px; margin: 20px auto; padding: 20px; font-family: sans-serif; background: transparent; color: #000; text-align: left; }
-    .panel-text-line { font-size: 1.2em; line-height: 1.5; margin-bottom: 10px; }
+    body { margin: 0; padding: 20px 0; background: #fff; text-align: center; }
+    .panel-box { margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid; display: block; width: 100%; }
+    .comic-img { width: 100%; max-width: 1000px; height: auto; display: block; margin: 0 auto; }
+    .panel-text-container { max-width: 800px; margin: 24px auto; padding: 20px; font-family: sans-serif; background: transparent; color: #000; text-align: left; page-break-inside: avoid; break-inside: avoid; }
+    .panel-text-line { font-size: 1.1em; line-height: 1.6; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -5076,11 +5014,15 @@ ${navItems}    </ol>
             </div>
 
             <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-full flex flex-col items-start">
-              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => {
-                const nextVal = !detectBgDuringBatch;
-                setDetectBgDuringBatch(nextVal);
-                if (nextVal) setSplitDuringBatch(false);
-              }}>
+              <div 
+                className="flex items-start gap-3 cursor-pointer group w-full select-none" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextVal = !detectBgDuringBatch;
+                  setDetectBgDuringBatch(nextVal);
+                  if (nextVal) setSplitDuringBatch(false);
+                }}
+              >
                 <Checkbox 
                   checked={detectBgDuringBatch} 
                   onCheckedChange={(c) => {
@@ -5088,18 +5030,26 @@ ${navItems}    </ol>
                     setDetectBgDuringBatch(val);
                     if (val) setSplitDuringBatch(false);
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
                 <div className="flex flex-col min-w-0 flex-1">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")}</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
+                    {detectBgDuringBatch && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded font-mono">Active</span>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")} (mutually exclusive with Split Panels)</span>
                 </div>
               </div>
-              <div className="flex items-start gap-3 cursor-pointer group w-full" onClick={() => {
-                const nextVal = !splitDuringBatch;
-                setSplitDuringBatch(nextVal);
-                if (nextVal) setDetectBgDuringBatch(false);
-              }}>
+              <div 
+                className="flex items-start gap-3 cursor-pointer group w-full select-none" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextVal = !splitDuringBatch;
+                  setSplitDuringBatch(nextVal);
+                  if (nextVal) setDetectBgDuringBatch(false);
+                }}
+              >
                 <Checkbox 
                   checked={splitDuringBatch} 
                   onCheckedChange={(c) => {
@@ -5107,11 +5057,15 @@ ${navItems}    </ol>
                     setSplitDuringBatch(val);
                     if (val) setDetectBgDuringBatch(false);
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
                 />
                 <div className="flex flex-col min-w-0 flex-1">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")}</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
+                    {splitDuringBatch && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded font-mono">Active</span>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")} (mutually exclusive with Crop Borders)</span>
                 </div>
               </div>
               <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
@@ -5595,6 +5549,9 @@ ${navItems}    </ol>
                           }}>
                             <Type className="w-4 h-4 mr-2" /> {t("addText")}
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setShowDetectionMasks(!showDetectionMasks)}>
+                            <Eye className="w-4 h-4 mr-2" /> {showDetectionMasks ? "Hide Object Masks" : "Show Object Masks"}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
                             setIsGridView(true);
                             setSelectedPages(new Set());
@@ -5667,12 +5624,26 @@ ${navItems}    </ol>
                       variant={(isAddingTextMode) ? "secondary" : "ghost"} 
                       size="sm" 
                       onClick={() => {
-                        setViewMode('preview');
                         setIsAddingTextMode(!isAddingTextMode);
                       }}
                       className="gap-1.5 h-8 px-2 shrink-0 text-xs"
                     >
                       <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("addText")}</span>
+                    </Button>
+                    <Button 
+                      variant={showDetectionMasks ? "secondary" : "ghost"} 
+                      size="sm" 
+                      onClick={() => setShowDetectionMasks(!showDetectionMasks)}
+                      className={cn(
+                        "gap-1.5 h-8 px-2 shrink-0 text-xs font-semibold", 
+                        showDetectionMasks && "bg-primary/15 text-primary border border-primary/30"
+                      )}
+                      title="Toggle detected objects & masks overlay (A(x) Panels & T(x) Texts)"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>
+                        Object Masks {showDetectionMasks ? "(ON)" : "(OFF)"}
+                      </span>
                     </Button>
                   </div>
                 </div>
@@ -6132,45 +6103,112 @@ ${navItems}    </ol>
                               ) : (
                                 <>
                                   {viewMode === 'preview' && activePagePanels.length > 0 ? (
-                                    <div className="flex flex-col gap-8 max-h-[calc(100vh-3rem)] overflow-y-auto p-4 w-full">
-                                      {activePagePanels.map((panel, pIdx) => (
-                                        <div key={pIdx} className="overflow-hidden bg-white max-w-[600px] mx-auto border border-gray-100 rounded-lg shadow-md p-6 flex flex-col items-center gap-6">
-                                          {panel.base64Image && (
-                                            <div className="w-full flex justify-center overflow-hidden">
-                                              <img
-                                                src={panel.base64Image || undefined}
-                                                alt={`Panel ${pIdx + 1}`}
-                                                className="max-h-[400px] object-contain rounded border border-gray-100"
-                                              />
-                                            </div>
-                                          )}
-                                          {panel.texts && panel.texts.length > 0 && (
-                                            <div className="w-full text-left p-4 bg-slate-50 border-l-4 border-primary rounded">
-                                              {sortTextsReadingOrder(panel.texts, undefined, readingDirection).map((t, tIdx) => (
-                                                <p key={tIdx} className="text-base font-serif text-slate-800 leading-relaxed mb-3 last:mb-0">
-                                                  {t.text}
-                                                </p>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : viewMode === 'preview' && isPanelsLoading ? (
+                                    <div className="flex flex-col gap-6 max-h-[calc(100vh-3rem)] overflow-y-auto p-4 w-full items-center">
+                                      <div className="flex flex-col gap-6 max-w-[650px] w-full">
+                                        {activePagePanels.map((panel, pIdx) => (
+                                           <div key={pIdx} className="overflow-hidden bg-white border border-gray-200 rounded-lg shadow-sm p-4 flex flex-col items-center">
+                                             {panel.base64Image && (
+                                               <div className="w-full flex justify-center overflow-hidden">
+                                                 <img
+                                                   src={panel.base64Image || undefined}
+                                                   alt={`Panel A(${pIdx + 1})`}
+                                                   className="max-h-[420px] object-contain rounded border border-gray-100"
+                                                 />
+                                               </div>
+                                             )}
+                                             {panel.texts && panel.texts.length > 0 && (
+                                               <div className="w-full text-left mt-3 p-3 bg-slate-50 border-l-2 border-primary rounded text-sm text-slate-800">
+                                                 <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1 flex items-center justify-between">
+                                                   <span>Panel A({pIdx + 1}) Text</span>
+                                                 </div>
+                                                 {panel.texts.map((t: any, tIdx: number) => (
+                                                   <p key={tIdx} className="mb-1 last:mb-0 leading-relaxed font-sans">{t.text}</p>
+                                                 ))}
+                                               </div>
+                                             )}
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   ) : viewMode === 'preview' && isPanelsLoading ? (
                                     <div className="flex flex-col items-center justify-center py-20 gap-3">
                                       <Loader2 className="w-8 h-8 animate-spin text-primary" />
                                       <p className="text-sm text-muted-foreground font-medium">Splitting panels & loading preview...</p>
                                     </div>
                                   ) : (
                                     <>
-                                      <img
-                                        ref={imageRef}
-                                        src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage) || undefined}
-                                        alt={`Page ${currentPageIndex + 1}`}
-                                        className="max-h-[calc(100vh-3rem)] w-auto block border border-black mx-auto"
-                                        style={{ backgroundColor: activePage.bgColor || 'white' }}
-                                      />
-                                      {/* Extracted text hidden below main view */}
+                                      <div className="relative inline-block mx-auto">
+                                        <img
+                                          ref={imageRef}
+                                          src={viewMode === 'edit' ? activePage.originalImage : (activePage.cleanedImage || activePage.originalImage) || undefined}
+                                          alt={`Page ${currentPageIndex + 1}`}
+                                          className="max-h-[calc(100vh-3rem)] w-auto block border border-black mx-auto"
+                                          style={{ backgroundColor: activePage.bgColor || 'white' }}
+                                        />
+
+                                        {/* Detected Objects Overlay (Panels A(x) & Texts T(x) with border line and masks) */}
+                                        {showDetectionMasks && (
+                                          <div className="absolute inset-0 pointer-events-none z-30">
+                                            {/* Panels A(x) */}
+                                            {(activePage.detectedPanels || []).map((panel: any, pIdx: number) => {
+                                              const box = Array.isArray(panel) ? panel : (panel.box_2d || [0, 0, 0, 0]);
+                                              const style = getBoxStyle(box, activePage.width, activePage.height);
+                                              const label = panel.label || `A(${pIdx + 1})`;
+                                              const mask = panel.maskBase64;
+                                              return (
+                                                <div
+                                                  key={`panel-mask-${pIdx}`}
+                                                  className="absolute border-2 border-indigo-600 bg-indigo-500/10 pointer-events-auto transition-all"
+                                                  style={style}
+                                                  title={`Panel ${label}: [${box.map((v: number) => Math.round(v)).join(', ')}]`}
+                                                >
+                                                  <span className="absolute -top-3.5 left-0 bg-indigo-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
+                                                    {label}
+                                                  </span>
+                                                  {mask && (
+                                                    <img
+                                                      src={mask}
+                                                      alt=""
+                                                      className="absolute inset-0 w-full h-full object-fill opacity-40 pointer-events-none mix-blend-multiply"
+                                                    />
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+
+                                            {/* Texts T(x) from OCR model */}
+                                            {(activePage.detectedTexts && activePage.detectedTexts.length > 0
+                                              ? activePage.detectedTexts
+                                              : activePage.yoloTexts || []
+                                            ).map((txt: any, tIdx: number) => {
+                                              const box = Array.isArray(txt) ? txt : (txt.box_2d || [0, 0, 0, 0]);
+                                              const style = getBoxStyle(box, activePage.width, activePage.height);
+                                              const label = txt.label || `T(${tIdx + 1})`;
+                                              const pIdx = txt.panelIdx;
+                                              const mask = txt.maskBase64;
+                                              return (
+                                                <div
+                                                  key={`text-mask-${tIdx}`}
+                                                  className="absolute border-2 border-emerald-600 bg-emerald-500/15 pointer-events-auto transition-all"
+                                                  style={style}
+                                                  title={`Text ${label}${pIdx !== undefined ? ` [A(${pIdx + 1})]` : ''}: ${txt.text || ''}`}
+                                                >
+                                                  <span className="absolute -top-3.5 right-0 bg-emerald-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
+                                                    {label}{pIdx !== undefined ? ` [A(${pIdx + 1})]` : ''}
+                                                  </span>
+                                                  {mask && (
+                                                    <img
+                                                      src={mask}
+                                                      alt=""
+                                                      className="absolute inset-0 w-full h-full object-fill opacity-45 pointer-events-none mix-blend-multiply"
+                                                    />
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
                                     </>
                                   )}
                                 <AnimatePresence>

@@ -13,7 +13,7 @@ import { AIAgentChat } from "./components/AIAgentChat";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "next-themes";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   BookOpen,
   PenTool,
@@ -69,7 +69,7 @@ import {
   getStartupPreloadState
 } from "./lib/litertModelManager";
 
-function GoogleAuthProviderWrapper({ children }: { children: React.ReactNode }) {
+function GoogleAuthProviderWrapper({ children }: { children: ReactNode }) {
   const { googleClientId } = useAppSettings();
   if (!googleClientId || !googleClientId.trim() || googleClientId === "dummy") {
     return <>{children}</>;

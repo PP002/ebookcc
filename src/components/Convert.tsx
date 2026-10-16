@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock, ArrowLeftRight, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, EyeOff, ChevronDown, Book, Sparkles, Layers, Play, ChevronLeft, ChevronRight, CheckSquare, Languages, Sun, Moon, ExternalLink, Settings, Shuffle, Type, Move, Crop, Contrast, ArrowUp, ArrowDown, Palette, PanelLeftOpen, PanelLeftClose, PanelRightOpen, PanelRightClose, PanelRight, Square, Coffee, Heart, Github, Info, AlertTriangle, BookOpen, Lightbulb, PenTool, Wrench, Image as ImageIcon, Bot, Clock, ArrowLeftRight, ArrowLeft, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -2588,6 +2588,218 @@ function b64EncodeUnicode(str: string) {
   }));
 }
 
+const PanelMaskItem = ({
+  panel,
+  pIdx,
+  isSelected,
+  onSelect,
+  onUpdate,
+  onDelete,
+  containerRef
+}: {
+  key?: React.Key;
+  panel: any;
+  pIdx: number;
+  isSelected: boolean;
+  onSelect: () => void;
+  onUpdate: (newBox: [number, number, number, number]) => void;
+  onDelete: () => void;
+  containerRef: React.RefObject<HTMLImageElement | null>;
+}) => {
+  const box: [number, number, number, number] = Array.isArray(panel) ? panel : (panel.box_2d || [0, 0, 0, 0]);
+  const label = panel.label || `A(${pIdx + 1})`;
+  const mask = panel.maskBase64;
+  
+  const [y1, x1, y2, x2] = box;
+  const style = {
+    top: `${(y1 / 1000) * 100}%`,
+    left: `${(x1 / 1000) * 100}%`,
+    width: `${Math.max(0.5, ((x2 - x1) / 1000) * 100)}%`,
+    height: `${Math.max(0.5, ((y2 - y1) / 1000) * 100)}%`,
+  };
+
+  const isInteractingRef = useRef<'drag' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w' | null>(null);
+  const startPosRef = useRef<{ clientX: number; clientY: number; box: [number, number, number, number] }>({ clientX: 0, clientY: 0, box: [...box] });
+
+  const handlePointerDown = (e: React.PointerEvent, action: 'drag' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w') => {
+    e.stopPropagation();
+    if (!isSelected) {
+      onSelect();
+    }
+    isInteractingRef.current = action;
+    startPosRef.current = { clientX: e.clientX, clientY: e.clientY, box: [...box] };
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isInteractingRef.current || !containerRef.current) return;
+    e.stopPropagation();
+
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const dx = ((e.clientX - startPosRef.current.clientX) / rect.width) * 1000;
+    const dy = ((e.clientY - startPosRef.current.clientY) / rect.height) * 1000;
+    const [origY1, origX1, origY2, origX2] = startPosRef.current.box;
+
+    let newBox: [number, number, number, number] = [origY1, origX1, origY2, origX2];
+    const action = isInteractingRef.current;
+
+    if (action === 'drag') {
+      const w = origX2 - origX1;
+      const h = origY2 - origY1;
+      const newX1 = Math.max(0, Math.min(1000 - w, Math.round(origX1 + dx)));
+      const newY1 = Math.max(0, Math.min(1000 - h, Math.round(origY1 + dy)));
+      newBox = [newY1, newX1, newY1 + h, newX1 + w];
+    } else {
+      if (action.includes('n')) newBox[0] = Math.max(0, Math.min(origY2 - 15, Math.round(origY1 + dy)));
+      if (action.includes('s')) newBox[2] = Math.min(1000, Math.max(origY1 + 15, Math.round(origY2 + dy)));
+      if (action.includes('w')) newBox[1] = Math.max(0, Math.min(origX2 - 15, Math.round(origX1 + dx)));
+      if (action.includes('e')) newBox[3] = Math.min(1000, Math.max(origX1 + 15, Math.round(origX2 + dx)));
+    }
+
+    onUpdate(newBox);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isInteractingRef.current) {
+      isInteractingRef.current = null;
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "absolute border-2 pointer-events-auto transition-colors select-none",
+        isSelected
+          ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/80 z-40 shadow-lg cursor-move"
+          : "border-indigo-600 bg-indigo-500/10 hover:border-indigo-400 hover:bg-indigo-500/15 z-20 cursor-pointer"
+      )}
+      style={style}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      onPointerDown={(e) => handlePointerDown(e, 'drag')}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      title={`Panel ${label}: [${box.map((v: number) => Math.round(v)).join(', ')}]`}
+    >
+      {/* Top action badge */}
+      <div 
+        className="absolute -top-6 left-0 flex items-center gap-1 z-50 pointer-events-auto"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <span className="bg-indigo-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
+          {label}
+        </span>
+        {isSelected && (
+          <div className="flex items-center gap-1 bg-background/95 backdrop-blur-xs p-0.5 rounded border border-border shadow-xs">
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground p-0.5 rounded cursor-move"
+              title="Drag to Move"
+            >
+              <Move className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              className="text-destructive hover:bg-destructive/15 p-0.5 rounded transition-colors cursor-pointer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              title="Delete Panel"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors cursor-pointer"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+              }}
+              title="Close"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {mask && (
+        <img
+          src={mask}
+          alt=""
+          className="absolute inset-0 w-full h-full object-fill opacity-40 pointer-events-none mix-blend-multiply"
+        />
+      )}
+
+      {/* Resize handles when selected */}
+      {isSelected && (
+        <>
+          <div
+            className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'nw')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'ne')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'sw')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'se')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ew-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'w')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ew-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'e')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ns-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 'n')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+          <div
+            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ns-resize z-50 pointer-events-auto shadow-xs"
+            onPointerDown={(e) => handlePointerDown(e, 's')}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+        </>
+      )}
+    </div>
+  );
+};
+
 export default function Convert({ 
   setActiveView, 
   onActiveStateChange 
@@ -2972,6 +3184,7 @@ export default function Convert({
       setIsSyncingGithub(false);
     }
   };
+  const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [detectBgDuringBatch, setDetectBgDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
@@ -2989,8 +3202,10 @@ export default function Convert({
       localStorage.setItem('ebookcc_ocr_engine_pref', engine);
     } catch (_) {}
   };
-  const [splitDuringBatch, setSplitDuringBatch] = useState(false);
-  const [showDetectionMasks, setShowDetectionMasks] = useState(false);
+  const [showPanelMasks, setShowPanelMasks] = useState(false);
+  const [showTextMasks, setShowTextMasks] = useState(false);
+  const [selectedPanelIdx, setSelectedPanelIdx] = useState<number | null>(null);
+  const showDetectionMasks = showPanelMasks || showTextMasks;
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
   const [readingDirectionDetail, setReadingDirectionDetail] = useState<string>('');
@@ -5116,52 +5331,70 @@ ${navItems}    </ol>
             {sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((t, i) => {
               const isEditing = editingIndex === i;
               return (
-                <div 
-                  key={i}
-                  className={cn(
-                    "p-2 rounded border text-xs transition-colors flex flex-col gap-1 w-full",
-                    isEditing ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
-                  )}
-                  onClick={() => {
-                    if (!isEditing) {
-                      setEditingIndex(i);
-                      setTempText(t.text);
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="font-semibold text-muted-foreground">{i + 1}.</span>
+                <div key={i} className="flex items-start gap-1.5 w-full">
+                  <div 
+                    className={cn(
+                      "flex-1 p-2 rounded border text-xs transition-colors flex flex-col gap-1 min-w-0",
+                      isEditing ? "border-primary bg-primary/5 ring-1 ring-primary/20 shadow-xs" : "border-border hover:bg-muted cursor-pointer"
+                    )}
+                    onClick={() => {
+                      if (!isEditing) {
+                        setEditingIndex(i);
+                        setTempText(t.text);
+                      }
+                    }}
+                  >
                     {isEditing ? (
-                      <div className="flex items-center gap-1">
-                        <Button size="icon" variant="ghost" className="h-5 w-5 text-green-600 hover:bg-green-100" onClick={(e) => { e.stopPropagation(); handleSaveEdit(i); setEditingIndex(null); }}>
-                          <Check className="w-3 h-3" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-5 w-5 text-red-600 hover:bg-red-100" onClick={(e) => { e.stopPropagation(); setEditingIndex(null); }}>
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
+                      <textarea
+                        autoFocus
+                        className="w-full min-h-[76px] resize-y border-0 bg-transparent p-0 text-xs focus:outline-none font-mono leading-relaxed text-foreground placeholder:text-muted-foreground"
+                        rows={3}
+                        value={tempText}
+                        onChange={(e) => setTempText(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSaveEdit(i);
+                            setEditingIndex(null);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setEditingIndex(null);
+                          }
+                        }}
+                        placeholder="Edit extracted text..."
+                      />
                     ) : (
-                      <span className="text-[10px] text-muted-foreground cursor-pointer hover:text-primary">Click to edit</span>
+                      <>
+                        <div className="flex items-center justify-between w-full">
+                          <span className="font-semibold text-muted-foreground">{i + 1}.</span>
+                          <span className="text-[10px] text-muted-foreground cursor-pointer hover:text-primary">Click to edit</span>
+                        </div>
+                        <p className="line-clamp-2 font-mono">{t.text}</p>
+                      </>
                     )}
                   </div>
-                  {isEditing ? (
-                    <textarea
-                      autoFocus
-                      className="w-full resize-none border border-input rounded p-1 text-xs bg-background focus:outline-none font-mono"
-                      rows={2}
-                      value={tempText}
-                      onChange={(e) => setTempText(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSaveEdit(i);
-                          setEditingIndex(null);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <p className="line-clamp-2 font-mono">{t.text}</p>
+                  {isEditing && (
+                    <div className="flex flex-col items-center justify-start gap-1 shrink-0 pt-0.5">
+                      <Button 
+                        size="icon" 
+                        variant="outline" 
+                        className="h-7 w-7 text-green-600 hover:bg-green-100 hover:text-green-700 border-green-300 shadow-2xs cursor-pointer" 
+                        onClick={(e) => { e.stopPropagation(); handleSaveEdit(i); setEditingIndex(null); }}
+                        title="Save (Enter)"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button 
+                        size="icon" 
+                        variant="outline" 
+                        className="h-7 w-7 text-red-600 hover:bg-red-100 hover:text-red-700 border-red-300 shadow-2xs cursor-pointer" 
+                        onClick={(e) => { e.stopPropagation(); setEditingIndex(null); }}
+                        title="Cancel (Esc)"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               );
@@ -5763,8 +5996,31 @@ ${navItems}    </ol>
                           }}>
                             <Type className="w-4 h-4 mr-2" /> {t("addText")}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setShowDetectionMasks(!showDetectionMasks)}>
-                            <Eye className="w-4 h-4 mr-2" /> {showDetectionMasks ? "Hide Object Masks" : "Show Object Masks"}
+                          <DropdownMenuItem 
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setShowPanelMasks(!showPanelMasks);
+                            }}
+                            className={cn(
+                              "cursor-pointer",
+                              showPanelMasks && "text-indigo-600 font-semibold"
+                            )}
+                          >
+                            {showPanelMasks ? <Eye className="w-4 h-4 mr-2 text-indigo-600" /> : <EyeOff className="w-4 h-4 mr-2 text-muted-foreground" />}
+                            {showPanelMasks ? "Hide Panel Masks (A)" : "Show Panel Masks (A)"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setShowTextMasks(!showTextMasks);
+                            }}
+                            className={cn(
+                              "cursor-pointer",
+                              showTextMasks && "text-emerald-600 font-semibold"
+                            )}
+                          >
+                            {showTextMasks ? <Eye className="w-4 h-4 mr-2 text-emerald-600" /> : <EyeOff className="w-4 h-4 mr-2 text-muted-foreground" />}
+                            {showTextMasks ? "Hide Text Masks (T)" : "Show Text Masks (T)"}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
                             setIsGridView(true);
@@ -5844,21 +6100,59 @@ ${navItems}    </ol>
                     >
                       <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("addText")}</span>
                     </Button>
-                    <Button 
-                      variant={showDetectionMasks ? "secondary" : "ghost"} 
-                      size="sm" 
-                      onClick={() => setShowDetectionMasks(!showDetectionMasks)}
-                      className={cn(
-                        "gap-1.5 h-8 px-2 shrink-0 text-xs font-semibold", 
-                        showDetectionMasks && "bg-primary/15 text-primary border border-primary/30"
-                      )}
-                      title="Toggle detected objects & masks overlay (A(x) Panels & T(x) Texts)"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>
-                        Object Masks {showDetectionMasks ? "(ON)" : "(OFF)"}
-                      </span>
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button 
+                          variant={(showPanelMasks || showTextMasks) ? "secondary" : "ghost"} 
+                          size="sm" 
+                          className={cn(
+                            "gap-1.5 h-8 px-2 shrink-0 text-xs font-semibold cursor-pointer", 
+                            (showPanelMasks || showTextMasks) && "bg-primary/15 text-primary border border-primary/30"
+                          )}
+                          title="Toggle detected objects & masks overlay (A(x) Panels & T(x) Texts)"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>
+                            Object Masks
+                          </span>
+                          <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52 p-1.5 space-y-1">
+                        <DropdownMenuItem 
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            setShowPanelMasks(!showPanelMasks);
+                          }}
+                          className={cn(
+                            "flex items-center justify-between cursor-pointer text-xs py-2 px-2.5 rounded transition-colors",
+                            showPanelMasks ? "bg-indigo-50 text-indigo-700 font-semibold" : "hover:bg-muted"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            {showPanelMasks ? <Eye className="w-3.5 h-3.5 text-indigo-600 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                            <span>Panel Masks</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">A(x)</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            setShowTextMasks(!showTextMasks);
+                          }}
+                          className={cn(
+                            "flex items-center justify-between cursor-pointer text-xs py-2 px-2.5 rounded transition-colors",
+                            showTextMasks ? "bg-emerald-50 text-emerald-700 font-semibold" : "hover:bg-muted"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            {showTextMasks ? <Eye className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                            <span>Text Masks</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">T(x)</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 
@@ -6363,35 +6657,43 @@ ${navItems}    </ol>
                                         {/* Detected Objects Overlay (Panels A(x) & Texts T(x) with border line and masks) */}
                                         {showDetectionMasks && (
                                           <div className="absolute inset-0 pointer-events-none z-30">
-                                            {/* Panels A(x) */}
-                                            {(activePage.detectedPanels || []).map((panel: any, pIdx: number) => {
-                                              const box = Array.isArray(panel) ? panel : (panel.box_2d || [0, 0, 0, 0]);
-                                              const style = getBoxStyle(box, activePage.width, activePage.height);
-                                              const label = panel.label || `A(${pIdx + 1})`;
-                                              const mask = panel.maskBase64;
-                                              return (
-                                                <div
-                                                  key={`panel-mask-${pIdx}`}
-                                                  className="absolute border-2 border-indigo-600 bg-indigo-500/10 pointer-events-auto transition-all"
-                                                  style={style}
-                                                  title={`Panel ${label}: [${box.map((v: number) => Math.round(v)).join(', ')}]`}
-                                                >
-                                                  <span className="absolute -top-3.5 left-0 bg-indigo-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
-                                                    {label}
-                                                  </span>
-                                                  {mask && (
-                                                    <img
-                                                      src={mask}
-                                                      alt=""
-                                                      className="absolute inset-0 w-full h-full object-fill opacity-40 pointer-events-none mix-blend-multiply"
-                                                    />
-                                                  )}
-                                                </div>
-                                              );
-                                            })}
+                                            {/* Panels A(x) with interactive resize, move and delete */}
+                                            {showPanelMasks && (activePage.detectedPanels || []).map((panel: any, pIdx: number) => (
+                                              <PanelMaskItem
+                                                key={`panel-mask-${pIdx}`}
+                                                panel={panel}
+                                                pIdx={pIdx}
+                                                isSelected={selectedPanelIdx === pIdx}
+                                                onSelect={() => setSelectedPanelIdx(selectedPanelIdx === pIdx ? null : pIdx)}
+                                                onUpdate={(newBox) => {
+                                                  const updatedPages = [...pages];
+                                                  const page = { ...updatedPages[currentPageIndex] };
+                                                  const panels = [...(page.detectedPanels || [])];
+                                                  if (Array.isArray(panels[pIdx])) {
+                                                    panels[pIdx] = newBox;
+                                                  } else {
+                                                    panels[pIdx] = { ...panels[pIdx], box_2d: newBox };
+                                                  }
+                                                  page.detectedPanels = panels;
+                                                  updatedPages[currentPageIndex] = page;
+                                                  setPages(updatedPages);
+                                                }}
+                                                onDelete={() => {
+                                                  const updatedPages = [...pages];
+                                                  const page = { ...updatedPages[currentPageIndex] };
+                                                  const panels = [...(page.detectedPanels || [])];
+                                                  panels.splice(pIdx, 1);
+                                                  page.detectedPanels = panels;
+                                                  updatedPages[currentPageIndex] = page;
+                                                  setPages(updatedPages);
+                                                  setSelectedPanelIdx(null);
+                                                }}
+                                                containerRef={imageRef}
+                                              />
+                                            ))}
 
                                             {/* Texts T(x) from OCR model */}
-                                            {(activePage.detectedTexts && activePage.detectedTexts.length > 0
+                                            {showTextMasks && (activePage.detectedTexts && activePage.detectedTexts.length > 0
                                               ? activePage.detectedTexts
                                               : activePage.yoloTexts || []
                                             ).map((txt: any, tIdx: number) => {
@@ -6427,6 +6729,10 @@ ${navItems}    </ol>
                                   )}
                                 <AnimatePresence>
                                   {viewMode === 'edit' && sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((item, idx) => {
+                                    const isEditing = editingIndex === idx;
+                                    // Do not display the div overlay on the page view when tapped or editing
+                                    if (isEditing) return null;
+
                                     const boxToUse = item.box_2d || [0,0,0,0];
                                     const [ymin, xmin, ymax, xmax] = boxToUse;
                                     const h = ymax - ymin;
@@ -6444,19 +6750,12 @@ ${navItems}    </ol>
                                     const textH = ((expYmax - expYmin) / 1000) * (activePage.height || 1000);
                                     const estimatedFontSizePx = calculateOptimalFontSize(item.text.trim(), textW, textH);
                                     const fontSizeCqi = activePage.width > 0 ? (estimatedFontSizePx / activePage.width) * 100 : 2;
-                                    const isEditing = editingIndex === idx;
 
                                     return (
                                       <motion.div
                                         key={`${activePage.id}-${idx}`}
                                         initial={{ opacity: 0 }}
-                                        animate={{ opacity: isEditing ? 1 : undefined }}
-                                        className={cn(
-                                          "absolute group transition-opacity duration-200 flex items-center justify-center overflow-hidden rounded-sm cursor-pointer",
-                                          isEditing
-                                            ? "opacity-100 border-2 border-primary bg-background shadow-lg z-20 pointer-events-auto"
-                                            : "opacity-0 hover:opacity-100 active:opacity-100 focus:opacity-100 border border-black/80 bg-[#fcfaf2] shadow-md z-10 pointer-events-auto"
-                                        )}
+                                        className="absolute group transition-opacity duration-200 flex items-center justify-center overflow-hidden rounded-sm cursor-pointer opacity-0 hover:opacity-100 active:opacity-100 focus:opacity-100 border border-black/80 bg-[#fcfaf2] shadow-md z-10 pointer-events-auto"
                                         style={boxStyle}
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -6464,25 +6763,14 @@ ${navItems}    </ol>
                                             setTempText(item.text);
                                         }}
                                       >
-                                        {isEditing ? (
-                                          <div className="w-full h-full flex items-center justify-center overflow-hidden p-1 sm:p-1.5 bg-primary/10">
-                                            <div 
-                                              className="font-semibold text-foreground whitespace-pre-wrap text-center leading-snug w-full h-full flex items-center justify-center overflow-hidden"
-                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
-                                            >
-                                              {tempText || item.text}
-                                            </div>
+                                        <div className="w-full h-full flex items-center justify-center overflow-hidden p-1 sm:p-1.5">
+                                          <div 
+                                            className="font-semibold text-black whitespace-pre-wrap text-center leading-snug w-full h-full flex items-center justify-center overflow-hidden"
+                                            style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
+                                          >
+                                            {item.text}
                                           </div>
-                                        ) : (
-                                          <div className="w-full h-full flex items-center justify-center overflow-hidden p-1 sm:p-1.5">
-                                            <div 
-                                              className="font-semibold text-black whitespace-pre-wrap text-center leading-snug w-full h-full flex items-center justify-center overflow-hidden"
-                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
-                                            >
-                                              {item.text}
-                                            </div>
-                                          </div>
-                                        )}
+                                        </div>
                                       </motion.div>
                                     );
                                   })}

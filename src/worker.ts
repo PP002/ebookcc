@@ -407,8 +407,14 @@ function extractTextFromAIResult(aiResult: any): string {
 
   if (typeof aiResult.response === "string") return aiResult.response;
   if (typeof aiResult.text === "string") return aiResult.text;
+  if (typeof aiResult.answer === "string") return aiResult.answer;
+  if (typeof aiResult.description === "string") return aiResult.description;
+  if (typeof aiResult.caption === "string") return aiResult.caption;
   if (typeof aiResult.result?.response === "string") return aiResult.result.response;
   if (typeof aiResult.result?.text === "string") return aiResult.result.text;
+  if (typeof aiResult.result?.answer === "string") return aiResult.result.answer;
+  if (typeof aiResult.result?.description === "string") return aiResult.result.description;
+  if (typeof aiResult.result?.caption === "string") return aiResult.result.caption;
 
   const choices = aiResult.choices || aiResult.result?.choices;
   if (Array.isArray(choices) && choices.length > 0) {
@@ -1585,7 +1591,7 @@ export default {
           }
         }
 
-        // 2. Default Provider: Cloudflare Workers AI (Gemma) when api key is empty
+        // 2. Default Provider: Cloudflare Workers AI (Llama 3.2 Vision / Gemma) when api key is empty
         if (env.AI) {
           const cacheKV = env.ebookcckv || env.CACHE;
           const ocrKey = `ocr-dt:${await sha256(imageUrl.slice(0, 500) + (yoloTexts.length || 0))}`;
@@ -1598,43 +1604,51 @@ export default {
           }
 
           try {
-            const aiResult = await env.AI.run(
-              "@cf/google/gemma-4-26b-a4b-it",
-              {
-                messages: [
-                  {
-                    role: "system",
-                    content: "You are a precise OCR transcription engine. Output ONLY valid JSON array with keys 'text' and 'box_2d'. No explanations.",
-                  },
-                  {
-                    role: "user",
-                    content: [
-                      { type: "text", text: prompt },
-                      { type: "image_url", image_url: { url: imageUrl } },
-                    ],
-                  },
-                ],
-                max_tokens: 2048,
-              },
-              {
-                gateway: {
-                  id: "ebookcc-gateway",
-                  skipCache: false,
-                  cacheTtl: 3600,
-                },
-              }
-            );
+            const rawB64 = imageUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+            const imageBase64 = rawB64;
 
-            const extractedText = extractTextFromAIResult(aiResult);
-            if (extractedText) {
+            // Workers AI OCR model: Moondream 3.1
+            let extractedText = "";
+            try {
+              const result = await env.AI.run("@cf/moondream/moondream3.1-9B-A2B", {
+                task: "query",
+                image: imageBase64,
+                question: "Read all text in this image and output only the text.",
+              });
+              extractedText = extractTextFromAIResult(result);
+            } catch (moondreamErr: any) {
+              console.warn("[Workers AI Moondream detectText Error]:", moondreamErr?.message || moondreamErr);
+            }
+
+            if (extractedText && extractedText.trim()) {
               const parsed = parseJsonSafely(extractedText, null);
               if (Array.isArray(parsed) && parsed.length > 0) {
                 await cacheKV?.put(ocrKey, JSON.stringify(parsed), { expirationTtl: 86400 }).catch(() => {});
                 return jsonResponse(parsed);
               }
+
+              // Map transcribed text to regions if YOLO bounding boxes are present
+              if (Array.isArray(yoloTexts) && yoloTexts.length > 0) {
+                const textLines = extractedText.split("\n").map(l => l.trim()).filter(Boolean);
+                const mapped = yoloTexts.map((yt: any, idx: number) => ({
+                  text: textLines[idx] || (idx === 0 ? extractedText.trim() : yt.text || ""),
+                  box_2d: yt.box_2d || yt,
+                  panelIdx: yt.panelIdx
+                }));
+                await cacheKV?.put(ocrKey, JSON.stringify(mapped), { expirationTtl: 86400 }).catch(() => {});
+                return jsonResponse(mapped);
+              }
+
+              // Return transcribed text blocks
+              const textLines = extractedText.split("\n").map(l => l.trim()).filter(Boolean);
+              const textBlocks = textLines.length > 0
+                ? textLines.map(line => ({ text: line, box_2d: [0, 0, 1000, 1000] }))
+                : [{ text: extractedText.trim(), box_2d: [0, 0, 1000, 1000] }];
+              await cacheKV?.put(ocrKey, JSON.stringify(textBlocks), { expirationTtl: 86400 }).catch(() => {});
+              return jsonResponse(textBlocks);
             }
           } catch (aiErr) {
-            console.warn("[Workers AI Gemma detectText Error]:", aiErr);
+            console.warn("[Workers AI detectText Error]:", aiErr);
           }
         }
 
@@ -2038,32 +2052,14 @@ export default {
           MAX_TOKENS["ocr"]
         );
 
-        const aiResult = await env.AI.run(
-          "@cf/google/gemma-4-26b-a4b-it",
-          {
-            messages: [
-              {
-                role: "system",
-                content: CONCISENESS_PROMPTS.ocr,
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: prompt },
-                  { type: "image_url", image_url: { url: imageUrl } },
-                ],
-              },
-            ],
-            max_tokens: maxTokens,
-          },
-          {
-            gateway: {
-              id: "ebookcc-gateway",
-              skipCache: false,
-              cacheTtl: 3600,
-            },
-          }
-        );
+        const rawB64 = imageUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+        const imageBase64 = rawB64;
+
+        const aiResult = await env.AI.run("@cf/moondream/moondream3.1-9B-A2B", {
+          task: "query",
+          image: imageBase64,
+          question: prompt || "Read all text in this image and output only the text.",
+        });
 
         const extractedText = extractTextFromAIResult(aiResult);
 

@@ -16,7 +16,7 @@ import { Slideshow } from './Slideshow';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
 import JSZip from 'jszip';
-import Tesseract from 'tesseract.js';
+import { runInBrowserOCR, loadPaddleOcrModels } from '@/lib/ppOcrInference';
 import { useTheme } from 'next-themes';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
@@ -1189,7 +1189,18 @@ const panelsCache = new Map<string, ExportPanel[]>();
 
   // Assign each text to exactly one panel
   const textsByPanel: Map<number, ComicText[]> = new Map();
-  const allAvailableTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+  let allAvailableTexts = [...(page.detectedTexts || []), ...(page.manualTexts || [])];
+  if (allAvailableTexts.length === 0 && page.hasOcrRun) {
+    try {
+      const ppRes = await runInBrowserOCR(img, activeDir, 'default_book');
+      const inBrowserExtracted = (ppRes as any).texts || ppRes;
+      if (inBrowserExtracted && Array.isArray(inBrowserExtracted) && inBrowserExtracted.length > 0) {
+        allAvailableTexts = inBrowserExtracted;
+      }
+    } catch (e) {
+      console.debug("On-the-fly OCR fallback notice:", e);
+    }
+  }
   
   allAvailableTexts.forEach(t => {
     // If text already has a panel assignment from OCR step, use it
@@ -1459,12 +1470,13 @@ export async function transcribeTextsViaPieces(
     let resultText = "";
     
     try {
-        const result = await Tesseract.recognize(pieceBase64, 'eng+jpn', { logger: () => {} });
-        if (result && result.data && result.data.text) {
-            resultText = result.data.text.trim();
+        const ppRes = await runInBrowserOCR(pieceBase64, 'ltr', 'default');
+        const texts = (ppRes as any).texts || ppRes;
+        if (texts && Array.isArray(texts) && texts.length > 0) {
+            resultText = texts.map((t: any) => t.text).join(' ');
         }
     } catch (err) {
-        console.error(`[Frontend] Tesseract.js failed for piece ${i}:`, err);
+        console.error(`[Frontend] PaddleOCR failed for piece ${i}:`, err);
     }
     
     ocrResults.push({ text: resultText, index: i });
@@ -1480,6 +1492,8 @@ export async function transcribeTextsViaPieces(
     };
   });
 }
+
+export { runInBrowserOCR } from '@/lib/ppOcrInference';
 
 const sortTextsReadingOrder = (texts: ComicText[], forceMangaMode?: boolean, explicitDirection?: 'rtl' | 'ltr') => {
   if (!texts || !Array.isArray(texts) || texts.length === 0) return [];
@@ -2686,6 +2700,11 @@ export default function Convert({
       }
     });
 
+    // Auto-cache Paddle OCR models into Cache Storage API when first loading the app
+    loadPaddleOcrModels().catch(err => {
+      console.warn("[Convert] Failed to auto-cache Paddle OCR models on app load:", err);
+    });
+
     return () => { isMounted = false; };
   }, []);
 
@@ -2956,6 +2975,20 @@ export default function Convert({
   const [translateDuringBatch, setTranslateDuringBatch] = useState(false);
   const [detectBgDuringBatch, setDetectBgDuringBatch] = useState(false);
   const [ocrDuringBatch, setOcrDuringBatch] = useState(false);
+  const [ocrEnginePreference, setOcrEnginePreference] = useState<'paddle' | 'ai'>(() => {
+    try {
+      return (localStorage.getItem('ebookcc_ocr_engine_pref') as 'paddle' | 'ai') || 'paddle';
+    } catch (_) {
+      return 'paddle';
+    }
+  });
+
+  const handleSelectOcrEngine = (engine: 'paddle' | 'ai') => {
+    setOcrEnginePreference(engine);
+    try {
+      localStorage.setItem('ebookcc_ocr_engine_pref', engine);
+    } catch (_) {}
+  };
   const [splitDuringBatch, setSplitDuringBatch] = useState(false);
   const [showDetectionMasks, setShowDetectionMasks] = useState(false);
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
@@ -3553,8 +3586,8 @@ export default function Convert({
     if (!page || page.status === 'processing' || page.isIgnored) return;
     if (cancelProcessRef.current) return;
 
-    const runOcr = ocrDuringBatch && !page.hasOcrRun;
-    const runLayout = splitDuringBatch && !page.hasLayoutRun;
+    const runOcr = isBatchProcessing ? (ocrDuringBatch && (!page.hasOcrRun || !page.detectedTexts || page.detectedTexts.length === 0)) : ocrDuringBatch;
+    const runLayout = isBatchProcessing ? (splitDuringBatch && (!page.hasLayoutRun || !page.detectedPanels || page.detectedPanels.length === 0)) : splitDuringBatch;
     const runTranslate = translateDuringBatch && (page.translatedLanguage !== batchTargetLanguage || runOcr);
     const runBgDetection = detectBgDuringBatch && !page.bgColor;
 
@@ -3687,20 +3720,124 @@ export default function Convert({
       // 2. OCR Execution: Do NOT use YOLO detecting first on OCR process
       // Run page OCR directly on the page image, then mark locations of text and map to panels
       if (runOcr) {
-        toast.info("Extracting comic text via OCR...");
-        const rawOcrResult = await detectComicText(
-          aiBase64,
-          customApiKey,
-          0, // 0 indicates full page scan with no YOLO text forcing
-          'gemini',
-          undefined,
-          {
-            engine: customApiKey ? llmEngine : 'worker',
-            url: localLlmUrl,
-            model: localLlmModel,
-            apiKey: localLlmApiKey
+        let rawOcrResult: ComicText[] = [];
+
+        if (ocrEnginePreference === 'ai') {
+          // Forced switch to AI OCR (Workers AI or AI providers with API input)
+          toast.info("Extracting comic text via AI OCR...");
+          try {
+            rawOcrResult = await detectComicText(
+              aiBase64,
+              customApiKey,
+              0,
+              'gemini',
+              undefined,
+              {
+                engine: customApiKey ? llmEngine : (llmEngine !== 'gemini' ? llmEngine : 'worker'),
+                url: localLlmUrl,
+                model: localLlmModel,
+                apiKey: localLlmApiKey
+              }
+            );
+          } catch (ocrErr: any) {
+            console.warn("[Convert OCR] AI OCR failed, attempting PaddleOCR fallback:", ocrErr);
+            try {
+              const ppResult = await runInBrowserOCR(fullImg, readingDirection, 'default_book');
+              rawOcrResult = ppResult.texts || [];
+            } catch (_) {}
           }
-        );
+        } else {
+          // Default: Paddle OCR on-device with low-confidence AI fallback
+          toast.info("Extracting comic text via PaddleOCR...");
+          let lowConfCrops: { canvas: HTMLCanvasElement; box: number[] }[] = [];
+
+          try {
+            const ppResult = await runInBrowserOCR(fullImg, readingDirection, 'default_book');
+            rawOcrResult = ppResult.texts || [];
+            lowConfCrops = ppResult.lowConfidenceCrops || [];
+          } catch (ppErr) {
+            console.warn("[Convert OCR] PaddleOCR failed:", ppErr);
+          }
+
+          // If PaddleOCR returned 0 texts or failed, fallback to AI OCR
+          if (!rawOcrResult || rawOcrResult.length === 0) {
+            try {
+              toast.info("Running AI OCR fallback...");
+              rawOcrResult = await detectComicText(
+                aiBase64,
+                customApiKey,
+                0,
+                'gemini',
+                undefined,
+                {
+                  engine: customApiKey ? llmEngine : (llmEngine !== 'gemini' ? llmEngine : 'worker'),
+                  url: localLlmUrl,
+                  model: localLlmModel,
+                  apiKey: localLlmApiKey
+                }
+              );
+            } catch (ocrErr: any) {
+              console.warn("[Convert OCR] Cloud/API OCR failed:", ocrErr);
+            }
+          } else if (lowConfCrops.length > 0) {
+            // AI OCR fallback ONLY for low-confidence lines (< 0.9): stitch vertically into ONE image
+            try {
+              const totalH = lowConfCrops.reduce((sum, c) => sum + c.canvas.height + 10, 0);
+              const maxWidth = Math.max(...lowConfCrops.map(c => c.canvas.width), 100);
+              const stitchedCanvas = document.createElement('canvas');
+              stitchedCanvas.width = maxWidth;
+              stitchedCanvas.height = totalH;
+              const sCtx = stitchedCanvas.getContext('2d');
+              if (sCtx) {
+                sCtx.fillStyle = '#ffffff';
+                sCtx.fillRect(0, 0, maxWidth, totalH);
+                let currentY = 0;
+                for (const crop of lowConfCrops) {
+                  sCtx.drawImage(crop.canvas, 0, currentY);
+                  currentY += crop.canvas.height + 10;
+                }
+                const stitchedBase64 = stitchedCanvas.toDataURL('image/png');
+                const fallbackTexts = await detectComicText(
+                  stitchedBase64,
+                  customApiKey,
+                  0,
+                  'gemini',
+                  undefined,
+                  {
+                    engine: customApiKey ? llmEngine : (llmEngine !== 'gemini' ? llmEngine : 'worker'),
+                    url: localLlmUrl,
+                    model: localLlmModel,
+                    apiKey: localLlmApiKey
+                  }
+                );
+                if (fallbackTexts && fallbackTexts.length > 0) {
+                  const mappedFallbacks = lowConfCrops.map((crop, cropIdx) => {
+                    const fallbackItem = fallbackTexts[cropIdx];
+                    return {
+                      text: fallbackItem?.text?.trim() ? fallbackItem.text : "",
+                      box_2d: crop.box as [number, number, number, number],
+                      confidence: 0.95
+                    };
+                  }).filter(t => t.text.length > 0);
+
+                  if (mappedFallbacks.length > 0) {
+                    const lowConfBoxes = new Set(lowConfCrops.map(c => c.box.join(',')));
+                    rawOcrResult = [
+                      ...rawOcrResult.filter(t => !lowConfBoxes.has((t.box_2d || []).join(','))),
+                      ...mappedFallbacks
+                    ];
+                  }
+                }
+              }
+            } catch (fallbackErr: any) {
+              console.info("[Convert OCR] Low-confidence AI fallback info:", fallbackErr?.message || fallbackErr);
+            }
+          }
+        }
+
+        if (rawOcrResult && rawOcrResult.length > 0) {
+          toast.success(`Extracted ${rawOcrResult.length} text blocks via OCR`);
+        }
 
         // Sort all detected page texts in reading order: T(1), T(2), ...
         const sortedPageTexts = sortTextsReadingOrder(rawOcrResult, undefined, readingDirection);
@@ -3864,6 +4001,8 @@ export default function Convert({
         width: newWidth,
         height: newHeight,
         detectedTexts: finalResults,
+        detectedPanels: localPanels,
+        yoloTexts: localTexts,
         manualTexts: page.manualTexts || p.manualTexts,
         cleanedImage, 
         status: 'done',
@@ -4974,23 +5113,59 @@ ${navItems}    </ol>
             </span>
           </div>
           <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar pb-2 max-h-[282px] w-full">
-            {sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((t, i) => (
-              <div 
-                key={i}
-                className={cn(
-                  "p-2 rounded border text-xs cursor-pointer transition-colors hover:bg-muted flex items-start gap-2 w-full",
-                  editingIndex === i ? "border-primary bg-primary/5" : "border-border"
-                )}
-                onClick={() => {
-                  setEditingIndex(i);
-                  setTempText(t.text);
-                  setViewMode('edit');
-                }}
-              >
-                <span className="shrink-0 w-4 font-semibold text-muted-foreground mt-0.5">{i + 1}.</span>
-                <p className="line-clamp-2 font-mono flex-1">{t.text}</p>
-              </div>
-            ))}
+            {sortTextsReadingOrder(activePage.detectedTexts, undefined, readingDirection).map((t, i) => {
+              const isEditing = editingIndex === i;
+              return (
+                <div 
+                  key={i}
+                  className={cn(
+                    "p-2 rounded border text-xs transition-colors flex flex-col gap-1 w-full",
+                    isEditing ? "border-primary bg-primary/5" : "border-border hover:bg-muted"
+                  )}
+                  onClick={() => {
+                    if (!isEditing) {
+                      setEditingIndex(i);
+                      setTempText(t.text);
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="font-semibold text-muted-foreground">{i + 1}.</span>
+                    {isEditing ? (
+                      <div className="flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="h-5 w-5 text-green-600 hover:bg-green-100" onClick={(e) => { e.stopPropagation(); handleSaveEdit(i); setEditingIndex(null); }}>
+                          <Check className="w-3 h-3" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-5 w-5 text-red-600 hover:bg-red-100" onClick={(e) => { e.stopPropagation(); setEditingIndex(null); }}>
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground cursor-pointer hover:text-primary">Click to edit</span>
+                    )}
+                  </div>
+                  {isEditing ? (
+                    <textarea
+                      autoFocus
+                      className="w-full resize-none border border-input rounded p-1 text-xs bg-background focus:outline-none font-mono"
+                      rows={2}
+                      value={tempText}
+                      onChange={(e) => setTempText(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSaveEdit(i);
+                          setEditingIndex(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p className="line-clamp-2 font-mono">{t.text}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -5023,66 +5198,180 @@ ${navItems}    </ol>
                   if (nextVal) setSplitDuringBatch(false);
                 }}
               >
-                <Checkbox 
-                  checked={detectBgDuringBatch} 
-                  onCheckedChange={(c) => {
-                    const val = !!c;
-                    setDetectBgDuringBatch(val);
-                    if (val) setSplitDuringBatch(false);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
-                />
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    !detectBgDuringBatch ? "bg-muted-foreground/20" :
+                    activePage?.status === 'processing' || isBatchProcessing ? "bg-green-500 animate-pulse" :
+                    activePage?.status === 'done' ? "bg-green-500" :
+                    activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
+                  )} />
+                  <Checkbox 
+                    checked={detectBgDuringBatch} 
+                    onCheckedChange={(c) => {
+                      const val = !!c;
+                      setDetectBgDuringBatch(val);
+                      if (val) setSplitDuringBatch(false);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
+                  />
+                </div>
                 <div className="flex flex-col min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
-                    {detectBgDuringBatch && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded font-mono">Active</span>}
-                  </div>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")} (mutually exclusive with Split Panels)</span>
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")}</span>
                 </div>
               </div>
-              <div 
-                className="flex items-start gap-3 cursor-pointer group w-full select-none" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const nextVal = !splitDuringBatch;
-                  setSplitDuringBatch(nextVal);
-                  if (nextVal) setDetectBgDuringBatch(false);
-                }}
-              >
-                <Checkbox 
-                  checked={splitDuringBatch} 
-                  onCheckedChange={(c) => {
-                    const val = !!c;
-                    setSplitDuringBatch(val);
-                    if (val) setDetectBgDuringBatch(false);
+              <div className="flex items-center justify-between gap-2 w-full">
+                <div 
+                  className="flex items-start gap-3 cursor-pointer group flex-1 min-w-0 select-none" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const nextVal = !splitDuringBatch;
+                    setSplitDuringBatch(nextVal);
+                    if (nextVal) setDetectBgDuringBatch(false);
                   }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-4 h-4 mt-0.5 border-muted-foreground rounded-none shrink-0"
-                />
-                <div className="flex flex-col min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
+                >
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={cn(
+                      "w-2 h-2 rounded-full shrink-0",
+                      !splitDuringBatch ? "bg-muted-foreground/20" :
+                      activePage?.status === 'processing' || isBatchProcessing ? "bg-green-500 animate-pulse" :
+                      activePage?.status === 'done' ? "bg-green-500" :
+                      activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
+                    )} />
+                    <Checkbox 
+                      checked={splitDuringBatch} 
+                      onCheckedChange={(c) => {
+                        const val = !!c;
+                        setSplitDuringBatch(val);
+                        if (val) setDetectBgDuringBatch(false);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-0 flex-1">
                     <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
-                    {splitDuringBatch && <span className="text-[9px] bg-primary/10 text-primary px-1 rounded font-mono">Active</span>}
+                    <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")} (mutually exclusive with Crop Borders)</span>
+                </div>
+
+                {/* Split Model Dropdown on the right */}
+                <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <Select
+                    value={String(activeBatchSize)}
+                    onValueChange={(val) => handleSelectBatchSize(Number(val) as BatchSize)}
+                  >
+                    <SelectTrigger className="h-6 text-[10px] font-medium cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[70px] text-muted-foreground">
+                      <span>{LITE_RT_MODELS[activeBatchSize].label}</span>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="w-[190px]">
+                      {([1, 4, 8, 16, 32] as BatchSize[]).map((batch) => {
+                        const isRecommended = deviceCapability?.recommendedBatch === batch;
+                        const isCached = batchCacheStatus[batch];
+                        const isDownloading = isDownloadingModel === batch;
+                        const modelInfo = LITE_RT_MODELS[batch];
+
+                        return (
+                          <SelectItem key={batch} value={String(batch)} className="text-xs py-1.5 cursor-pointer">
+                            <div className="flex items-center justify-between w-full gap-2">
+                              <span className="font-semibold flex items-center gap-1">
+                                {modelInfo.label}
+                                {isRecommended && (
+                                  <span className="text-[8px] font-semibold bg-primary text-primary-foreground px-1 rounded-xs uppercase">
+                                    Rec
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-[10px]">
+                                {isDownloading ? (
+                                  <span className="flex items-center gap-0.5 text-amber-500 font-bold">
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
+                                  </span>
+                                ) : isCached ? (
+                                  <span className="text-emerald-500 font-medium">Cached ✓</span>
+                                ) : (
+                                  <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
+                                )}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setOcrDuringBatch(!ocrDuringBatch)}>
-                <Checkbox 
-                  checked={ocrDuringBatch} 
-                  onCheckedChange={(c) => setOcrDuringBatch(!!c)}
-                  className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
-                />
-                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
+
+              <div className="flex items-center justify-between gap-2 w-full">
+                <div 
+                  className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0" 
+                  onClick={() => setOcrDuringBatch(!ocrDuringBatch)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn(
+                      "w-2 h-2 rounded-full shrink-0",
+                      !ocrDuringBatch ? "bg-muted-foreground/20" :
+                      activePage?.status === 'processing' || isBatchProcessing ? "bg-green-500 animate-pulse" :
+                      activePage?.status === 'done' ? "bg-green-500" :
+                      activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
+                    )} />
+                    <Checkbox 
+                      checked={ocrDuringBatch} 
+                      onCheckedChange={(c) => setOcrDuringBatch(!!c)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
+                    />
+                  </div>
+                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
+                </div>
+
+                {/* OCR Engine Dropdown on the right */}
+                <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <Select
+                    value={ocrEnginePreference}
+                    onValueChange={(val) => handleSelectOcrEngine(val as 'paddle' | 'ai')}
+                  >
+                    <SelectTrigger className="h-6 text-[10px] font-medium cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[80px] text-muted-foreground">
+                      <SelectValue placeholder="OCR Engine">
+                        {ocrEnginePreference === 'paddle' ? 'Paddle OCR' : 'AI OCR'}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="w-[180px]">
+                      <SelectItem value="paddle" className="text-xs py-1.5 cursor-pointer">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-foreground">Paddle OCR</span>
+                          <span className="text-[10px] text-muted-foreground">In-browser on-device</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="ai" className="text-xs py-1.5 cursor-pointer">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-foreground">AI OCR</span>
+                          <span className="text-[10px] text-muted-foreground">Workers AI / API Provider</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div className="flex items-center gap-3 cursor-pointer group w-full" onClick={() => setTranslateDuringBatch(!translateDuringBatch)}>
-                <Checkbox 
-                  id="translate-batch-sb" 
-                  checked={translateDuringBatch} 
-                  onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
-                  className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
-                />
+                <div className="flex items-center gap-1.5">
+                  <span className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    !translateDuringBatch ? "bg-muted-foreground/20" :
+                    activePage?.status === 'processing' || isBatchProcessing ? "bg-green-500 animate-pulse" :
+                    activePage?.status === 'done' ? "bg-green-500" :
+                    activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
+                  )} />
+                  <Checkbox 
+                    id="translate-batch-sb" 
+                    checked={translateDuringBatch} 
+                    onCheckedChange={(c) => setTranslateDuringBatch(!!c)} 
+                    className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
+                  />
+                </div>
                 <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
               </div>
 
@@ -5106,81 +5395,6 @@ ${navItems}    </ol>
                     <ArrowRight className="w-3.5 h-3.5" />
                   )}
                 </Button>
-              </div>
-
-              {/* Split Model Panel Detection Hardware Capability & Batch Dropdown */}
-              <div className="pt-2 border-t border-border/40 w-full flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-primary" />
-                    <span>Split Model:</span>
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    {deviceCapability?.hasWebGpu
-                      ? "WebGPU Available"
-                      : deviceCapability?.hasCapableGpu
-                      ? "GPU Accelerated"
-                      : "CPU/WASM"}
-                  </span>
-                </div>
-
-                <Select
-                  value={String(activeBatchSize)}
-                  onValueChange={(val) => handleSelectBatchSize(Number(val) as BatchSize)}
-                >
-                  <SelectTrigger className="w-full h-8 text-xs font-medium cursor-pointer bg-background/50">
-                    <div className="flex items-center justify-between w-full pr-1">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="font-semibold text-primary">{LITE_RT_MODELS[activeBatchSize].label}</span>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-1 ml-2">
-                        {isDownloadingModel === activeBatchSize ? (
-                          <span className="flex items-center gap-1 text-[10px] text-amber-500 font-semibold">
-                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
-                          </span>
-                        ) : batchCacheStatus[activeBatchSize] ? (
-                          <span className="text-[10px] text-emerald-500 font-medium">Cached ✓</span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">{LITE_RT_MODELS[activeBatchSize].sizeFormatted}</span>
-                        )}
-                      </div>
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="w-[240px]">
-                    {([1, 4, 8, 16, 32] as BatchSize[]).map((batch) => {
-                      const isRecommended = deviceCapability?.recommendedBatch === batch;
-                      const isCached = batchCacheStatus[batch];
-                      const isDownloading = isDownloadingModel === batch;
-                      const modelInfo = LITE_RT_MODELS[batch];
-
-                      return (
-                        <SelectItem key={batch} value={String(batch)} className="text-xs py-1.5 cursor-pointer">
-                          <div className="flex items-center justify-between w-full gap-2">
-                            <span className="font-semibold flex items-center gap-1.5">
-                              {modelInfo.label}
-                              {isRecommended && (
-                                <span className="text-[9px] font-semibold bg-primary text-primary-foreground px-1 py-0.2 rounded-xs uppercase">
-                                  Rec
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-[10px]">
-                              {isDownloading ? (
-                                <span className="flex items-center gap-0.5 text-amber-500 font-bold">
-                                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
-                                </span>
-                              ) : isCached ? (
-                                <span className="text-emerald-500 font-medium">Cached ✓</span>
-                              ) : (
-                                <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
-                              )}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
 
@@ -5212,7 +5426,7 @@ ${navItems}    </ol>
               }} 
               disabled={activePage?.status === 'processing' || isBatchProcessing || activePage?.isIgnored || (!ocrDuringBatch && !splitDuringBatch && !translateDuringBatch && !detectBgDuringBatch)}
             >
-              {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Sparkles className="w-4 h-4 shrink-0" />}
+              {activePage?.status === 'processing' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <></>}
               <span className="whitespace-nowrap truncate">{t("processCurrentPage")}</span>
             </Button>
             {activePage?.status === 'processing' && !isBatchProcessing && (
@@ -6251,27 +6465,12 @@ ${navItems}    </ol>
                                         }}
                                       >
                                         {isEditing ? (
-                                          <div className="w-full h-full flex flex-col p-1 bg-background rounded-sm">
-                                            <textarea
-                                              autoFocus
-                                              className="w-full h-full resize-none focus:outline-none border-none bg-transparent text-foreground text-center font-semibold p-1"
-                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
-                                              value={tempText}
-                                              onChange={(e) => setTempText(e.target.value)}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && !e.shiftKey) {
-                                                  e.preventDefault();
-                                                  handleSaveEdit(idx);
-                                                }
-                                              }}
-                                            />
-                                            <div className="absolute -bottom-8 right-0 flex gap-1 bg-background p-1 rounded border border-border shadow-sm">
-                                              <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-muted" onClick={() => handleSaveEdit(idx)}>
-                                                <Check className="h-4 w-4 text-green-600" />
-                                              </Button>
-                                              <Button size="icon" variant="ghost" className="h-6 w-6 hover:bg-muted" onClick={() => setEditingIndex(null)}>
-                                                <X className="h-4 w-4 text-red-600" />
-                                              </Button>
+                                          <div className="w-full h-full flex items-center justify-center overflow-hidden p-1 sm:p-1.5 bg-primary/10">
+                                            <div 
+                                              className="font-semibold text-foreground whitespace-pre-wrap text-center leading-snug w-full h-full flex items-center justify-center overflow-hidden"
+                                              style={{ fontFamily: "Helvetica, Arial, sans-serif", wordBreak: 'break-word', textWrap: 'balance', fontSize: `calc(var(--cw, 800px) * ${fontSizeCqi / 100})`, lineHeight: 1.25 }}
+                                            >
+                                              {tempText || item.text}
                                             </div>
                                           </div>
                                         ) : (

@@ -2,6 +2,9 @@ name = "ebookcc"
 main = "src/worker.ts"
 compatibility_date = "2026-07-31"
 
+[observability]
+enabled = false
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"

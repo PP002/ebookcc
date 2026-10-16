@@ -99,6 +99,18 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint', 'apikey']
   }));
 
+  // Ensure wasm and wasm helper modules have explicit correct MIME types and Cross-Origin-Resource-Policy
+  app.use('/wasm', (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.path.endsWith('.wasm')) {
+      res.setHeader('Content-Type', 'application/wasm');
+    } else if (req.path.endsWith('.js') || req.path.endsWith('.mjs')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+    next();
+  });
+
   // Proxy to Supabase removed for direct connection
 
   app.use(express.json({ limit: '100mb' }));
@@ -570,18 +582,38 @@ async function startServer() {
 
     if (cfToken && cfAccount) {
       try {
+        const isVision = formattedMessages.some(m => typeof m.content === 'string' && (m.content.includes("data:image") || m.content.includes("image_url")));
+        const modelName = isVision ? "@cf/moondream/moondream3.1-9B-A2B" : "@cf/google/gemma-4-26b-a4b-it";
+        
+        let requestBody: any;
+        if (isVision) {
+          const imgMsg = formattedMessages.find(m => typeof m.content === 'string' && (m.content.includes("data:image") || m.content.includes("image_url")));
+          let b64 = "";
+          if (imgMsg) {
+            const match = imgMsg.content.match(/data:image\/[a-zA-Z]+;base64,([A-Za-z0-9+/=]+)/);
+            b64 = match ? match[1] : imgMsg.content;
+          }
+          requestBody = {
+            task: "query",
+            image: b64,
+            question: "Read all text in this image and output only the text."
+          };
+        } else {
+          requestBody = {
+            messages: formattedMessages,
+            max_tokens: isJson ? 2048 : 1024,
+          };
+        }
+
         const cfRes = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/run/@cf/google/gemma-4-26b-a4b-it`,
+          `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/run/${modelName}`,
           {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${cfToken}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              messages: formattedMessages,
-              max_tokens: isJson ? 2048 : 1024,
-            }),
+            body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(12000),
           }
         );
@@ -599,6 +631,9 @@ async function startServer() {
 
     // 2. Structured JSON response generator for comic script / OCR / Translate
     if (isJson) {
+      if (systemInstruction?.toLowerCase().includes("ocr") || promptText.toLowerCase().includes("transcribe") || promptText.toLowerCase().includes("bounding box") || promptText.toLowerCase().includes("speech bubble")) {
+        return "[]";
+      }
       if (promptText.toLowerCase().includes("comic") || promptText.toLowerCase().includes("script")) {
         const cleanP = promptText.replace(/[^a-zA-Z0-9\s]/g, " ").slice(0, 60);
         return JSON.stringify({
@@ -2415,6 +2450,7 @@ STRICT INSTRUCTIONS:
 
             return ai.models.generateContent(payload);
           }, res, "detectText");
+          if (res.headersSent) return;
 
           if (result) {
             textResultText = result.text;
@@ -2486,6 +2522,7 @@ STRICT INSTRUCTIONS:
               }
             });
           }, res, "detectText");
+          if (res.headersSent) return;
           if (result) {
             let parsed = parseJsonSafely(result.text, []);
             if (parsed && Array.isArray(parsed)) {

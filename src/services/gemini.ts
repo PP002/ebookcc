@@ -9,6 +9,7 @@ export interface ComicText {
   bgColor?: string;
   maskBase64?: string;
   panelIdx?: number;
+  confidence?: number;
 }
 
 export interface LayoutResult {

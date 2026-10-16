@@ -13,7 +13,8 @@ export default defineConfig(({mode}) => {
       dedupe: ['react', 'react-dom'],
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-dropzone']
+      include: ['react', 'react-dom', 'react-dropzone'],
+      exclude: ['onnxruntime-web']
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

@@ -10,6 +10,7 @@ import { Create } from "./components/Create";
 import { FAQ } from "./components/FAQ";
 import { Bookshelf } from "./components/Bookshelf";
 import { AIAgentChat } from "./components/AIAgentChat";
+import { loadPaddleOcrModels } from "@/lib/ppOcrInference";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "next-themes";
@@ -180,6 +181,7 @@ function AppContent() {
 
   useEffect(() => {
     preloadStartupModel();
+    loadPaddleOcrModels().catch(e => console.warn("[App] PaddleOCR preload notice:", e));
     const unsub = subscribeStartupPreload(setPreloadState);
     return unsub;
   }, []);

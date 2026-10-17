@@ -4,6 +4,13 @@
  * Supports WebGPU and WebAssembly (XNNPACK CPU) execution with batching (1, 4, 8).
  */
 
+export {
+  loadLiteRt,
+  loadAndCompile,
+  Tensor,
+  CompiledModel,
+  isWebGPUSupported
+} from "@litertjs/core";
 import {
   loadLiteRt,
   loadAndCompile,
@@ -33,15 +40,25 @@ export interface LiteRTLayoutResult {
 }
 
 // ─────────────────────────────────────────────
-// LiteRT Runtime Initialization
+// LiteRT Runtime Initialization (Global Singleton Guard)
 // ─────────────────────────────────────────────
 
 let isLiteRtInitialized = false;
 let initPromise: Promise<void> | null = null;
 
-async function ensureLiteRtInitialized(): Promise<void> {
-  if (isLiteRtInitialized) return;
-  if (initPromise) return initPromise;
+export async function ensureLiteRtReady(): Promise<void> {
+  const g = typeof globalThis !== "undefined" ? (globalThis as any) : (typeof window !== "undefined" ? (window as any) : {});
+
+  // Global Singleton Guard: Check cross-module global flags
+  if (g.__LITERT_READY__ || isLiteRtInitialized) {
+    return;
+  }
+  if (g.__LITERT_INIT_PROMISE__) {
+    return g.__LITERT_INIT_PROMISE__;
+  }
+  if (initPromise) {
+    return initPromise;
+  }
 
   initPromise = (async () => {
     // Route Emscripten WASM standard output/error to console.debug to prevent benign C++ diagnostic logs from triggering error boundaries
@@ -56,12 +73,23 @@ async function ensureLiteRtInitialized(): Promise<void> {
           originalPrintErr(...args);
         }
       };
+
+      if (!w.Asyncify) {
+        w.Asyncify = {
+          handleAsync: async (fn: () => Promise<any>) => await fn(),
+          handleSleep: (fn: any) => new Promise(fn)
+        };
+      }
+      if (typeof globalThis !== 'undefined' && !globalThis.Asyncify) {
+        (globalThis as any).Asyncify = w.Asyncify;
+      }
     }
 
     // 1. Try local self-hosted WASM first
     try {
       await loadLiteRt("/wasm/litert/");
       isLiteRtInitialized = true;
+      g.__LITERT_READY__ = true;
       console.log("[LiteRT Engine] Initialized using local /wasm/litert/");
       return;
     } catch (localErr) {
@@ -72,15 +100,21 @@ async function ensureLiteRtInitialized(): Promise<void> {
     try {
       await loadLiteRt("https://cdn.jsdelivr.net/npm/@litertjs/core@2.5.3/wasm/");
       isLiteRtInitialized = true;
+      g.__LITERT_READY__ = true;
       console.log("[LiteRT Engine] Initialized using CDN wasm");
     } catch (cdnErr) {
       console.error("[LiteRT Engine] Failed to initialize LiteRT WASM runtime:", cdnErr);
       throw cdnErr;
+    } finally {
+      g.__LITERT_INIT_PROMISE__ = null;
     }
   })();
 
+  g.__LITERT_INIT_PROMISE__ = initPromise;
   return initPromise;
 }
+
+export const ensureLiteRtInitialized = ensureLiteRtReady;
 
 // ─────────────────────────────────────────────
 // Compiled Model Cache

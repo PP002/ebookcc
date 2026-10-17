@@ -772,8 +772,13 @@ STRICT INSTRUCTIONS:
       };
       
       const modelOverride = localLlmConfig && localLlmConfig.engine === 'gemini' && localLlmConfig.model ? localLlmConfig.model : undefined;
-      const text = await runGeminiDirect(customApiKey, finalPrompt, rawBase64, schema, modelOverride);
-      return parseJsonSafely(text, []) || [];
+      try {
+        const text = await runGeminiDirect(customApiKey, finalPrompt, rawBase64, schema, modelOverride);
+        const parsed = parseJsonSafely(text, []);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (gemErr: any) {
+        console.warn("[detectComicText] Direct Gemini call failed (e.g. 403 / permission error), falling back to Workers AI backend:", gemErr?.message || gemErr);
+      }
     }
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -781,7 +786,7 @@ STRICT INSTRUCTIONS:
     const payload = {
       base64Image,
       suggestedCount,
-      engine: customApiKey ? 'gemini' : 'worker',
+      engine: 'worker', // Workers AI fallback
       model: localLlmConfig?.model,
       yoloTexts
     };
@@ -823,8 +828,8 @@ STRICT INSTRUCTIONS:
         panelIdx: yt.panelIdx
       }));
     }
-    console.error("Error detecting comic text:", error);
-    throw error;
+    console.warn("Could not detect comic text via Cloud/Workers AI fallback:", error);
+    return [];
   }
 }
 

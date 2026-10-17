@@ -100,6 +100,21 @@ async function startServer() {
   }));
 
   // Ensure wasm and wasm helper modules have explicit correct MIME types and Cross-Origin-Resource-Policy
+  const publicWasmDir = path.join(process.cwd(), 'public', 'wasm');
+  if (fs.existsSync(publicWasmDir)) {
+    app.use('/wasm', express.static(publicWasmDir, {
+      setHeaders: (res, filepath) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        if (filepath.endsWith('.wasm')) {
+          res.setHeader('Content-Type', 'application/wasm');
+        } else if (filepath.endsWith('.js') || filepath.endsWith('.mjs')) {
+          res.setHeader('Content-Type', 'application/javascript');
+        }
+      }
+    }));
+  }
+
   app.use('/wasm', (req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -583,7 +598,7 @@ async function startServer() {
     if (cfToken && cfAccount) {
       try {
         const isVision = formattedMessages.some(m => typeof m.content === 'string' && (m.content.includes("data:image") || m.content.includes("image_url")));
-        const modelName = isVision ? "@cf/moondream/moondream3.1-9B-A2B" : "@cf/google/gemma-4-26b-a4b-it";
+        const modelName = isVision ? "@cf/meta/llama-3.2-11b-vision-instruct" : "@cf/google/gemma-4-26b-a4b-it";
         
         let requestBody: any;
         if (isVision) {
@@ -594,9 +609,9 @@ async function startServer() {
             b64 = match ? match[1] : imgMsg.content;
           }
           requestBody = {
-            task: "query",
+            prompt: "Read and extract all visible text from this comic page or panel crop. Return a JSON array of detected text objects with box_2d coordinates.",
             image: b64,
-            question: "Read all text in this image and output only the text."
+            max_tokens: isJson ? 2048 : 1024
           };
         } else {
           requestBody = {

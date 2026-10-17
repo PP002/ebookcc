@@ -617,6 +617,7 @@ const CanvasResizeOverlay = ({
   onPositionChange,
   updateToc,
 }: {
+  key?: string | number;
   targetElement: HTMLElement;
   onResize?: (widthPercent: number) => void;
   onPositionChange?: (rect: DOMRect) => void;
@@ -1478,6 +1479,7 @@ function CreateMetroTile({
   onDelete,
   onExportDrive,
 }: {
+  key?: string | number;
   book: any;
   index: number;
   user: any;
@@ -2154,7 +2156,7 @@ export const Create: React.FC<CreateProps> = ({
     if (!editorRef.current) return "";
 
     // Sync inlineCanvases state back to data-canvas-data on placeholders
-    Object.entries(inlineCanvases).forEach(([id, data]) => {
+    Object.entries(inlineCanvases).forEach(([id, data]: [string, any]) => {
       const el = editorRef.current?.querySelector(`[data-id="${id}"]`);
       if (el) {
         el.setAttribute("data-canvas-data", JSON.stringify(data));
@@ -4226,7 +4228,7 @@ export const Create: React.FC<CreateProps> = ({
   useEffect(() => {
     if (createMode === "document" && editorRef.current && !isPublishedStoryRef.current) {
       let changed = false;
-      Object.entries(inlineCanvases).forEach(([id, data]) => {
+      Object.entries(inlineCanvases).forEach(([id, data]: [string, any]) => {
         const el = editorRef.current?.querySelector(`[data-id="${id}"]`);
         if (el) {
           const json = JSON.stringify(data);

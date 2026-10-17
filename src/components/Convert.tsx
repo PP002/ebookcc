@@ -2607,7 +2607,7 @@ const PanelMaskItem = ({
   containerRef: React.RefObject<HTMLImageElement | null>;
 }) => {
   const box: [number, number, number, number] = Array.isArray(panel) ? panel : (panel.box_2d || [0, 0, 0, 0]);
-  const label = panel.label || `A(${pIdx + 1})`;
+  const label = panel.label || `Panel ${pIdx + 1}`;
   const mask = panel.maskBase64;
   
   const [y1, x1, y2, x2] = box;
@@ -6100,59 +6100,26 @@ ${navItems}    </ol>
                     >
                       <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("addText")}</span>
                     </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button 
-                          variant={(showPanelMasks || showTextMasks) ? "secondary" : "ghost"} 
-                          size="sm" 
-                          className={cn(
-                            "gap-1.5 h-8 px-2 shrink-0 text-xs font-semibold cursor-pointer", 
-                            (showPanelMasks || showTextMasks) && "bg-primary/15 text-primary border border-primary/30"
-                          )}
-                          title="Toggle detected objects & masks overlay (A(x) Panels & T(x) Texts)"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>
-                            Object Masks
-                          </span>
-                          <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-52 p-1.5 space-y-1">
-                        <DropdownMenuItem 
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            setShowPanelMasks(!showPanelMasks);
-                          }}
-                          className={cn(
-                            "flex items-center justify-between cursor-pointer text-xs py-2 px-2.5 rounded transition-colors",
-                            showPanelMasks ? "bg-indigo-50 text-indigo-700 font-semibold" : "hover:bg-muted"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {showPanelMasks ? <Eye className="w-3.5 h-3.5 text-indigo-600 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                            <span>Panel Masks</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">A(x)</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            setShowTextMasks(!showTextMasks);
-                          }}
-                          className={cn(
-                            "flex items-center justify-between cursor-pointer text-xs py-2 px-2.5 rounded transition-colors",
-                            showTextMasks ? "bg-emerald-50 text-emerald-700 font-semibold" : "hover:bg-muted"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {showTextMasks ? <Eye className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                            <span>Text Masks</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">T(x)</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                      variant={showPanelMasks ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowPanelMasks(!showPanelMasks)}
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
+                      title="Toggle Panel Masks"
+                    >
+                      {showPanelMasks ? <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />}
+                      <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Panel</span>
+                    </Button>
+                    <Button
+                      variant={showTextMasks ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowTextMasks(!showTextMasks)}
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
+                      title="Toggle Text Masks"
+                    >
+                      {showTextMasks ? <Eye className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />}
+                      <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Text</span>
+                    </Button>
                   </div>
                 </div>
 
@@ -6699,7 +6666,7 @@ ${navItems}    </ol>
                                             ).map((txt: any, tIdx: number) => {
                                               const box = Array.isArray(txt) ? txt : (txt.box_2d || [0, 0, 0, 0]);
                                               const style = getBoxStyle(box, activePage.width, activePage.height);
-                                              const label = txt.label || `T(${tIdx + 1})`;
+                                              const label = txt.label || `Text ${tIdx + 1}`;
                                               const pIdx = txt.panelIdx;
                                               const mask = txt.maskBase64;
                                               return (
@@ -6707,10 +6674,10 @@ ${navItems}    </ol>
                                                   key={`text-mask-${tIdx}`}
                                                   className="absolute border-2 border-emerald-600 bg-emerald-500/15 pointer-events-auto transition-all"
                                                   style={style}
-                                                  title={`Text ${label}${pIdx !== undefined ? ` [A(${pIdx + 1})]` : ''}: ${txt.text || ''}`}
+                                                  title={`${label}${pIdx !== undefined ? ` [Panel ${pIdx + 1}]` : ''}: ${txt.text || ''}`}
                                                 >
                                                   <span className="absolute -top-3.5 right-0 bg-emerald-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
-                                                    {label}{pIdx !== undefined ? ` [A(${pIdx + 1})]` : ''}
+                                                    {label}{pIdx !== undefined ? ` [Panel ${pIdx + 1}]` : ''}
                                                   </span>
                                                   {mask && (
                                                     <img

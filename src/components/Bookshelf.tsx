@@ -58,6 +58,7 @@ function MetroBookTile({
   isDefault,
   isAuthor
 }: {
+  key?: string | number;
   book: PublishedItem;
   index: number;
   onOpen: () => void;

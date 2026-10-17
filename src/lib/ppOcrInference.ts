@@ -9,54 +9,81 @@ export type ReadingDirection = 'ltr' | 'rtl';
 import { Lexicon, BookVocab, normalizeLine, correctLine, detectLanguage, isAllCaps, buildCharMask, DEFAULTS } from './postprocess';
 
 if (typeof window !== 'undefined') {
-  ort.env.wasm.wasmPaths = '/wasm/onnx/';
+  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
   ort.env.wasm.numThreads = 1;
+  ort.env.wasm.proxy = false;
 }
 
-async function checkWebGpuAvailable(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !('gpu' in navigator)) return false;
-  try {
-    const adapter = await (navigator as any).gpu?.requestAdapter();
-    return !!adapter;
-  } catch {
-    return false;
+// ─────────────────────────────────────────────
+// IEEE-754 Half-Precision (FP16) Conversion Helpers
+// ─────────────────────────────────────────────
+function float32ToHalf(val: number): number {
+  const f32 = new Float32Array(1);
+  const u32 = new Uint32Array(f32.buffer);
+  f32[0] = val;
+  const x = u32[0];
+  const sign = (x >> 31) & 0x1;
+  const exp = (x >> 23) & 0xff;
+  let mant = x & 0x7fffff;
+  if (exp === 255) {
+    return (sign << 15) | 0x7c00 | (mant ? 0x200 : 0);
   }
+  const newExp = exp - 127 + 15;
+  if (newExp >= 31) {
+    return (sign << 15) | 0x7c00;
+  }
+  if (newExp <= 0) {
+    if (newExp < -10) return (sign << 15);
+    mant = mant | 0x800000;
+    const shift = 14 - newExp;
+    return (sign << 15) | (mant >> shift);
+  }
+  return (sign << 15) | (newExp << 10) | (mant >> 13);
+}
+
+function float32ToHalfArray(f32: Float32Array): Uint16Array {
+  const u16 = new Uint16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    u16[i] = float32ToHalf(f32[i]);
+  }
+  return u16;
+}
+
+function halfToFloat32(u16: Uint16Array): Float32Array {
+  const f32 = new Float32Array(u16.length);
+  for (let i = 0; i < u16.length; i++) {
+    const h = u16[i];
+    const s = (h >> 15) & 0x0001;
+    const e = (h >> 10) & 0x001f;
+    const f = h & 0x03ff;
+    if (e === 0) {
+      f32[i] = (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+    } else if (e === 31) {
+      f32[i] = f === 0 ? (s ? -Infinity : Infinity) : NaN;
+    } else {
+      f32[i] = (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+    }
+  }
+  return f32;
 }
 
 async function createOcrSession(modelBytes: Uint8Array, modelName: string): Promise<ort.InferenceSession> {
-  const isGpuReady = await checkWebGpuAvailable();
-
-  if (isGpuReady) {
-    try {
-      console.log(`[PP-OCR] Initializing ${modelName} with WebGPU hardware acceleration...`);
-      const session = await ort.InferenceSession.create(modelBytes, {
-        executionProviders: ['webgpu', 'wasm'],
-        graphOptimizationLevel: 'all'
-      });
-      console.log(`[PP-OCR] ${modelName} successfully loaded on WebGPU!`);
-      return session;
-    } catch (gpuErr: any) {
-      console.warn(`[PP-OCR] WebGPU failed for ${modelName} (${gpuErr?.message || gpuErr}), falling back to WebAssembly (WASM)...`);
-    }
-  }
-
-  console.log(`[PP-OCR] Initializing ${modelName} with WASM fallback...`);
+  console.log(`[PP-OCR ONNX] Initializing ${modelName} on WebAssembly...`);
   try {
     const session = await ort.InferenceSession.create(modelBytes, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all'
     });
-    console.log(`[PP-OCR] ${modelName} successfully loaded on WASM!`);
+    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM!`);
     return session;
   } catch (wasmErr: any) {
-    console.warn(`[PP-OCR] Local WASM init failed (${wasmErr?.message || wasmErr}), retrying with default wasm paths...`);
-    // Retry with unpkg CDN wasm fallback if local assets failed
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+    console.warn(`[PP-OCR ONNX] WASM CDN init failed for ${modelName} (${wasmErr?.message || wasmErr}), retrying with local path...`);
+    ort.env.wasm.wasmPaths = '/wasm/onnx/';
     const session = await ort.InferenceSession.create(modelBytes, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all'
     });
-    console.log(`[PP-OCR] ${modelName} successfully loaded on WASM via CDN fallback!`);
+    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM via local assets!`);
     return session;
   }
 }
@@ -126,6 +153,33 @@ async function loadArrayBufferCached(filename: string, cacheKey: string): Promis
   return validBuf;
 }
 
+export async function isPaddleOcrCached(): Promise<boolean> {
+  if (typeof window === "undefined" || !("caches" in window)) return false;
+  try {
+    const cache = await caches.open("ppocr-models-cache-v1");
+    const detMatch = await cache.match("http://localhost/Models/det.onnx");
+    const recMatch = await cache.match("http://localhost/Models/rec.onnx");
+    return !!(detMatch && recMatch);
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function downloadAndCachePaddleOcr(progressCallback?: (status: string) => void): Promise<boolean> {
+  try {
+    progressCallback?.("Downloading character dictionary (dict.txt)...");
+    await loadArrayBufferCached('dict.txt', 'dict_txt');
+    progressCallback?.("Downloading text detection model (det.onnx)...");
+    await loadArrayBufferCached('det.onnx', 'det_onnx');
+    progressCallback?.("Downloading text recognition model (rec.onnx)...");
+    await loadArrayBufferCached('rec.onnx', 'rec_onnx');
+    return await loadPaddleOcrModels((_, status) => progressCallback?.(status));
+  } catch (err: any) {
+    console.error("[PP-OCR] downloadAndCachePaddleOcr failed:", err);
+    throw err;
+  }
+}
+
 export async function loadPaddleOcrModels(progressCallback?: (progress: number, status: string) => void): Promise<boolean> {
   if (detSession && recSession && characterDict.length > 0) return true;
   if (isModelLoading) {
@@ -163,7 +217,7 @@ export async function loadPaddleOcrModels(progressCallback?: (progress: number, 
       console.warn("[PP-OCR] Detection model loading failed, will use fallback page-level detection:", e);
     }
 
-    progressCallback?.(60, "Loading text recognition model (rec.onnx)...");
+    progressCallback?.(60, "Loading text recognition model (rec.onnx FP16/FP32)...");
     try {
       const recBuf = await loadArrayBufferCached('rec.onnx', 'rec_onnx');
       if (recBuf) {
@@ -234,7 +288,7 @@ export async function runInBrowserOCR(
       };
     }
 
-    // Extract text boxes using detSession (PP-OCRv6 tiny det)
+    // Extract text boxes using detSession (PP-OCR ONNX det)
     let boxes: { box: [number, number, number, number]; canvas: HTMLCanvasElement }[] = [];
 
     if (detSession) {
@@ -469,11 +523,12 @@ async function runTextDetection(
   const imgData = ctx.getImageData(0, 0, detW, detH);
   const data = imgData.data;
 
-  const float32Data = new Float32Array(3 * detH * detW);
   const channelSize = detH * detW;
   const mean = [0.485, 0.456, 0.406]; // B, G, R
   const std = [0.229, 0.224, 0.225];
 
+  // ONNX standard NCHW dimensions: [1, 3, detH, detW]
+  const float32Data = new Float32Array(3 * detH * detW);
   for (let i = 0; i < channelSize; i++) {
     const r = data[i * 4] / 255.0;
     const g = data[i * 4 + 1] / 255.0;
@@ -484,8 +539,9 @@ async function runTextDetection(
     float32Data[2 * channelSize + i] = (r - mean[2]) / std[2];
   }
 
+  const inputName = session.inputNames[0] || 'x';
   const tensor = new ort.Tensor('float32', float32Data, [1, 3, detH, detW]);
-  const results = await session.run({ x: tensor });
+  const results = await session.run({ [inputName]: tensor });
   const outputName = session.outputNames[0] || 'fetch_name_0';
   const probMap = results[outputName].data as Float32Array;
 
@@ -744,11 +800,10 @@ async function runTextRecognition(
 
     const recImgData = recCtx.getImageData(0, 0, targetW, targetH);
     const rData = recImgData.data;
-
-    // BGR channel order, (pixel/255 - 0.5) / 0.5
-    const float32Data = new Float32Array(3 * targetH * targetW);
     const channelSize = targetH * targetW;
 
+    // ONNX standard NCHW dimensions: [1, 3, targetH, targetW]
+    const float32Data = new Float32Array(3 * targetH * targetW);
     for (let i = 0; i < channelSize; i++) {
       const r = rData[i * 4] / 255.0;
       const g = rData[i * 4 + 1] / 255.0;
@@ -759,14 +814,49 @@ async function runTextRecognition(
       float32Data[2 * channelSize + i] = (r - 0.5) / 0.5;
     }
 
-    const tensor = new ort.Tensor('float32', float32Data, [1, 3, targetH, targetW]);
-    const results = await session.run({ x: tensor });
+    const inputName = session.inputNames[0] || 'x';
+    const inputType = (session as any).inputMetadata?.[inputName]?.type;
+
+    let tensor: ort.Tensor;
+    let isFp16Mode = inputType === 'float16';
+
+    if (isFp16Mode) {
+      const f16Data = float32ToHalfArray(float32Data);
+      tensor = new ort.Tensor('float16', f16Data, [1, 3, targetH, targetW]);
+    } else {
+      tensor = new ort.Tensor('float32', float32Data, [1, 3, targetH, targetW]);
+    }
+
+    let results: Record<string, ort.Tensor>;
+    try {
+      results = await session.run({ [inputName]: tensor });
+    } catch (runErr: any) {
+      const errMsg = String(runErr?.message || runErr).toLowerCase();
+      // If error indicates float16/float32 mismatch, automatically convert and retry
+      if (!isFp16Mode && (errMsg.includes('float16') || errMsg.includes('type') || errMsg.includes('mismatch'))) {
+        const f16Data = float32ToHalfArray(float32Data);
+        const f16Tensor = new ort.Tensor('float16', f16Data, [1, 3, targetH, targetW]);
+        results = await session.run({ [inputName]: f16Tensor });
+      } else if (isFp16Mode) {
+        const f32Tensor = new ort.Tensor('float32', float32Data, [1, 3, targetH, targetW]);
+        results = await session.run({ [inputName]: f32Tensor });
+      } else {
+        throw runErr;
+      }
+    }
+
     const outputName = session.outputNames[0] || 'fetch_name_0';
     const outputTensor = results[outputName];
-
     if (!outputTensor) return { text: "", conf: 0 };
 
-    return decodeCtc(outputTensor, table, charMask);
+    let outputData: Float32Array;
+    if (outputTensor.type === 'float16' || outputTensor.data instanceof Uint16Array) {
+      outputData = halfToFloat32(outputTensor.data as Uint16Array);
+    } else {
+      outputData = outputTensor.data as Float32Array;
+    }
+
+    return decodeCtcRaw(outputData, outputTensor.dims as number[], table, charMask);
   } catch (err) {
     console.warn("[PP-OCR] Recognition error on crop:", err);
     return { text: "", conf: 0 };
@@ -774,9 +864,11 @@ async function runTextRecognition(
 }
 
 function decodeCtc(outputTensor: ort.Tensor, table: string[], charMask: Float32Array): { text: string; conf: number } {
+  return decodeCtcRaw(outputTensor.data as Float32Array, outputTensor.dims as number[], table, charMask);
+}
+
+function decodeCtcRaw(data: Float32Array, dims: number[], table: string[], charMask: Float32Array): { text: string; conf: number } {
   try {
-    const data = outputTensor.data as Float32Array;
-    const dims = outputTensor.dims;
     if (!dims || dims.length < 3) return { text: "", conf: 0 };
 
     const seqLen = dims[1];

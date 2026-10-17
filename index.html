@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <script>
+      (function() {
+        var asyncifyShim = {
+          handleAsync: async function(startAsync) {
+            try {
+              return await startAsync();
+            } finally {}
+          },
+          handleSleep: function(startAsync) {
+            return new Promise(startAsync);
+          }
+        };
+        if (typeof globalThis !== 'undefined' && !globalThis.Asyncify) globalThis.Asyncify = asyncifyShim;
+        if (typeof window !== 'undefined' && !window.Asyncify) window.Asyncify = asyncifyShim;
+        if (typeof self !== 'undefined' && !self.Asyncify) self.Asyncify = asyncifyShim;
+      })();
+    </script>
     <title>EBookCC | Your Ultimate All-in-One E-book & Comic Suite</title>
     <meta name="description" content="Free Online Comic Book & Manga Creator, AI Translator, and eBook Converter. Plan custom comic layouts, localize dialogue with high-precision AI OCR, and export high-res EPUB files." />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />

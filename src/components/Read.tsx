@@ -2014,7 +2014,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       // Update table of contents with new page offsets
       const headings = container.querySelectorAll('h1, h2, h3');
       if (headings.length > 0) {
-        const newToc = Array.from(headings).map(h => {
+        const newToc = Array.from(headings).map((h: any) => {
           let current: HTMLElement | null = h as HTMLElement;
           let offsetLeft = 0;
           while (current && current !== container) {
@@ -3231,19 +3231,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           </div>
                         </div>
                       )}
-                      {(selectedBook.fileBuffer || selectedBook.file) && !isDownloadingEpub && (
-                        <EpubView
-                          key={`epub-${selectedBook.id}-${selectedBook.fileBuffer ? 'buffer' : 'file'}`}
-                          url={selectedBook.fileBuffer || (selectedBook.file as any)}
-                          location={location}
-                          locationChanged={(epubcition: string) => {
+                      {(selectedBook.fileBuffer || selectedBook.file) && !isDownloadingEpub && React.createElement(EpubView as any, {
+                        key: `epub-${selectedBook.id}-${selectedBook.fileBuffer ? 'buffer' : 'file'}`,
+                        url: selectedBook.fileBuffer || (selectedBook.file as any),
+                        location: location,
+                        locationChanged: (epubcition: string) => {
                           setLocation(epubcition);
                           if (renditionRef.current && renditionRef.current.location) {
                             setEpubCurrentPage(renditionRef.current.location.start.location);
                           }
-                        }}
-                        tocChanged={(toc: any) => setEpubToc(toc)}
-                        epubViewStyles={{
+                        },
+                        tocChanged: (toc: any) => setEpubToc(toc),
+                        epubViewStyles: {
                           viewHolder: {
                             position: 'relative',
                             height: '100%',
@@ -3254,14 +3253,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             height: '100%',
                             backgroundColor: 'transparent'
                           }
-                        }}
-                        epubOptions={{
+                        },
+                        epubOptions: {
                           flow: "paginated",
                           width: "100%",
                           height: "100%",
                           spread: "none",
-                        }}
-                        getRendition={(rendition: any) => {
+                        },
+                        getRendition: (rendition: any) => {
                           renditionRef.current = rendition;
                           const isDark = (theme === 'dark') || 
                                          (theme === 'system' && (resolvedTheme === 'dark' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches))) ||
@@ -3341,9 +3340,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               else rendition.next();
                             }
                           });
-                        }}
-                      />
-                    )}
+                        }
+                      })}
                   </div>
                 ) : selectedBook.fileType === 'pdf' && selectedBook.file ? (
                     <div className="absolute inset-0 flex items-center justify-center p-0 bg-transparent">

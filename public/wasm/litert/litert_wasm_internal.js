@@ -7438,6 +7438,15 @@ function JsGetDeviceMaxSubgroupSize(deviceId) {
   return device.adapterInfo.subgroupMaxSize || device.limits.maxSubgroupSize;
 }
 
+var Asyncify = (typeof globalThis !== "undefined" && globalThis.Asyncify) || {
+  handleAsync: async (startAsync) => {
+    try {
+      return await startAsync();
+    } finally {}
+  },
+  handleSleep: (startAsync) => new Promise(startAsync)
+};
+
 function __asyncjs__ReadBufferDataJs(buffer_handle, data_ptr) {
   return Asyncify.handleAsync(async () => {
     const gpuReadBuffer = WebGPU.getJsObject(buffer_handle);

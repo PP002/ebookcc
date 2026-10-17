@@ -8,10 +8,16 @@ import { ComicText } from '../services/gemini';
 export type ReadingDirection = 'ltr' | 'rtl';
 import { Lexicon, BookVocab, normalizeLine, correctLine, detectLanguage, isAllCaps, buildCharMask, DEFAULTS } from './postprocess';
 
+function initOnnxWasmEnv() {
+  if (typeof window !== 'undefined') {
+    ort.env.wasm.wasmPaths = '/wasm/onnx/';
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
+  }
+}
+
 if (typeof window !== 'undefined') {
-  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
-  ort.env.wasm.numThreads = 1;
-  ort.env.wasm.proxy = false;
+  initOnnxWasmEnv();
 }
 
 // ─────────────────────────────────────────────
@@ -69,21 +75,25 @@ function halfToFloat32(u16: Uint16Array): Float32Array {
 
 async function createOcrSession(modelBytes: Uint8Array, modelName: string): Promise<ort.InferenceSession> {
   console.log(`[PP-OCR ONNX] Initializing ${modelName} on WebAssembly...`);
+  initOnnxWasmEnv();
   try {
     const session = await ort.InferenceSession.create(modelBytes, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all'
     });
-    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM!`);
+    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM via local assets!`);
     return session;
   } catch (wasmErr: any) {
-    console.warn(`[PP-OCR ONNX] WASM CDN init failed for ${modelName} (${wasmErr?.message || wasmErr}), retrying with local path...`);
-    ort.env.wasm.wasmPaths = '/wasm/onnx/';
+    console.warn(`[PP-OCR ONNX] WASM local init attempt 1 for ${modelName} failed (${wasmErr?.message || wasmErr}), retrying...`);
+    // Ensure absolute origin path in case relative path resolution varied
+    if (typeof window !== 'undefined' && window.location) {
+      ort.env.wasm.wasmPaths = `${window.location.origin}/wasm/onnx/`;
+    }
     const session = await ort.InferenceSession.create(modelBytes, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all'
     });
-    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM via local assets!`);
+    console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM (attempt 2)!`);
     return session;
   }
 }

@@ -2620,13 +2620,13 @@ const PanelMaskItem = ({
 
   const isInteractingRef = useRef<'drag' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w' | null>(null);
   const startPosRef = useRef<{ clientX: number; clientY: number; box: [number, number, number, number] }>({ clientX: 0, clientY: 0, box: [...box] });
+  const hasMovedRef = useRef<boolean>(false);
+  const lastClickTimeRef = useRef<number>(0);
 
   const handlePointerDown = (e: React.PointerEvent, action: 'drag' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w') => {
     e.stopPropagation();
-    if (!isSelected) {
-      onSelect();
-    }
     isInteractingRef.current = action;
+    hasMovedRef.current = false;
     startPosRef.current = { clientX: e.clientX, clientY: e.clientY, box: [...box] };
     try {
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -2636,17 +2636,22 @@ const PanelMaskItem = ({
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isInteractingRef.current || !containerRef.current) return;
     e.stopPropagation();
-
     const rect = containerRef.current.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const dx = ((e.clientX - startPosRef.current.clientX) / rect.width) * 1000;
-    const dy = ((e.clientY - startPosRef.current.clientY) / rect.height) * 1000;
+    const diffX = e.clientX - startPosRef.current.clientX;
+    const diffY = e.clientY - startPosRef.current.clientY;
+    if (Math.hypot(diffX, diffY) > 5) {
+      hasMovedRef.current = true;
+    }
+
+    const dx = (diffX / rect.width) * 1000;
+    const dy = (diffY / rect.height) * 1000;
+
     const [origY1, origX1, origY2, origX2] = startPosRef.current.box;
-
     let newBox: [number, number, number, number] = [origY1, origX1, origY2, origX2];
-    const action = isInteractingRef.current;
 
+    const action = isInteractingRef.current;
     if (action === 'drag') {
       const w = origX2 - origX1;
       const h = origY2 - origY1;
@@ -2672,68 +2677,73 @@ const PanelMaskItem = ({
     }
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // If dragging actually occurred, do not treat as a click
+    if (hasMovedRef.current) {
+      hasMovedRef.current = false;
+      return;
+    }
+
+    const now = Date.now();
+    // Double click to delete: detected via standard e.detail === 2 or two clicks within 300ms
+    if (e.detail === 2 || (now - lastClickTimeRef.current > 0 && now - lastClickTimeRef.current < 300)) {
+      lastClickTimeRef.current = 0;
+      onDelete();
+      return;
+    }
+
+    lastClickTimeRef.current = now;
+    // Single click: immediately activate mask for editing/resizing
+    if (!isSelected) {
+      onSelect();
+    }
+  };
+
   return (
     <div
+      data-panel-mask="true"
       className={cn(
-        "absolute border-2 pointer-events-auto transition-colors select-none",
+        "absolute border-2 pointer-events-auto select-none transition-none",
         isSelected
-          ? "border-indigo-500 bg-indigo-500/20 ring-2 ring-indigo-400/80 z-40 shadow-lg cursor-move"
-          : "border-indigo-600 bg-indigo-500/10 hover:border-indigo-400 hover:bg-indigo-500/15 z-20 cursor-pointer"
+          ? "border-indigo-600 ring-2 ring-indigo-400/80 z-40 shadow-sm cursor-move bg-transparent"
+          : "border-indigo-600 hover:border-indigo-500 z-20 cursor-pointer bg-transparent"
       )}
       style={style}
-      onClick={(e) => {
+      onClick={handleClick}
+      onDoubleClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        onDelete();
       }}
-      onPointerDown={(e) => handlePointerDown(e, 'drag')}
+      onPointerDown={(e) => {
+        if (isSelected) {
+          handlePointerDown(e, 'drag');
+        }
+      }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      title={`Panel ${label}: [${box.map((v: number) => Math.round(v)).join(', ')}]`}
+      title={`Panel ${label} (Click to select, double click to delete)`}
     >
-      {/* Top action badge */}
-      <div 
-        className="absolute -top-6 left-0 flex items-center gap-1 z-50 pointer-events-auto"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <span className="bg-indigo-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
-          {label}
-        </span>
-        {isSelected && (
-          <div className="flex items-center gap-1 bg-background/95 backdrop-blur-xs p-0.5 rounded border border-border shadow-xs">
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded cursor-move"
-              title="Drag to Move"
-            >
-              <Move className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              className="text-destructive hover:bg-destructive/15 p-0.5 rounded transition-colors cursor-pointer"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              title="Delete Panel"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors cursor-pointer"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect();
-              }}
-              title="Close"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Top-left label badge */}
+      <span className="absolute -top-5 left-0 bg-indigo-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none pointer-events-none transition-none">
+        {label}
+      </span>
+
+      {/* Delete button moved inside the mask at top-right to avoid covering the corner resize handle */}
+      {isSelected && (
+        <button
+          type="button"
+          className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center bg-red-600 hover:bg-red-700 active:scale-90 text-white rounded-full shadow-md z-40 pointer-events-auto cursor-pointer border border-white transition-none"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title="Delete Panel (or double click mask)"
+        >
+          <X className="w-3 h-3 stroke-[2.5]" />
+        </button>
+      )}
 
       {mask && (
         <img
@@ -2743,57 +2753,88 @@ const PanelMaskItem = ({
         />
       )}
 
-      {/* Resize handles when selected */}
+      {/* Resize handles with generous touch targets when selected */}
       {isSelected && (
         <>
+          {/* Top-Left NW */}
           <div
-            className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -top-3.5 -left-3.5 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'nw')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Top-Right NE */}
           <div
-            className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -top-3.5 -right-3.5 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'ne')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Bottom-Left SW */}
           <div
-            className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nesw-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -bottom-3.5 -left-3.5 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'sw')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Bottom-Right SE */}
           <div
-            className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-full cursor-nwse-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -bottom-3.5 -right-3.5 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'se')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Left Edge W */}
           <div
-            className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ew-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute top-1/2 -left-3.5 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'w')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3 h-3 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Right Edge E */}
           <div
-            className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ew-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute top-1/2 -right-3.5 -translate-y-1/2 w-7 h-7 flex items-center justify-center cursor-ew-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'e')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3 h-3 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Top Edge N */}
           <div
-            className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ns-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -top-3.5 left-1/2 -translate-x-1/2 w-7 h-7 flex items-center justify-center cursor-ns-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 'n')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3 h-3 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
+
+          {/* Bottom Edge S */}
           <div
-            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 border-indigo-600 rounded-full cursor-ns-resize z-50 pointer-events-auto shadow-xs"
+            className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 w-7 h-7 flex items-center justify-center cursor-ns-resize z-50 pointer-events-auto touch-none"
             onPointerDown={(e) => handlePointerDown(e, 's')}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-          />
+          >
+            <div className="w-3 h-3 bg-white border-2 border-indigo-600 rounded-full shadow-sm" />
+          </div>
         </>
       )}
     </div>
@@ -3205,6 +3246,34 @@ export default function Convert({
   const [showPanelMasks, setShowPanelMasks] = useState(false);
   const [showTextMasks, setShowTextMasks] = useState(false);
   const [selectedPanelIdx, setSelectedPanelIdx] = useState<number | null>(null);
+
+  // Exit panel mask edit mode on ESC key or tap/click outside of masks
+  useEffect(() => {
+    if (selectedPanelIdx === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        setSelectedPanelIdx(null);
+      }
+    };
+    const handlePointerDownOutside = (e: PointerEvent | MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-panel-mask]')) {
+        return;
+      }
+      setSelectedPanelIdx(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => {
+      window.addEventListener('pointerdown', handlePointerDownOutside);
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('pointerdown', handlePointerDownOutside);
+    };
+  }, [selectedPanelIdx]);
   const showDetectionMasks = showPanelMasks || showTextMasks;
   const [batchTargetLanguage, setBatchTargetLanguage] = useState("English");
   const [readingDirection, setReadingDirection] = useState<ReadingDirection>('ltr');
@@ -6002,7 +6071,7 @@ ${navItems}    </ol>
                               setShowPanelMasks(!showPanelMasks);
                             }}
                             className={cn(
-                              "cursor-pointer",
+                              "cursor-pointer bg-transparent hover:bg-transparent transition-none",
                               showPanelMasks && "text-indigo-600 font-semibold"
                             )}
                           >
@@ -6015,7 +6084,7 @@ ${navItems}    </ol>
                               setShowTextMasks(!showTextMasks);
                             }}
                             className={cn(
-                              "cursor-pointer",
+                              "cursor-pointer bg-transparent hover:bg-transparent transition-none",
                               showTextMasks && "text-emerald-600 font-semibold"
                             )}
                           >
@@ -6101,20 +6170,20 @@ ${navItems}    </ol>
                       <Type className="w-3.5 h-3.5" /> <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>{t("addText")}</span>
                     </Button>
                     <Button
-                      variant={showPanelMasks ? "secondary" : "ghost"}
+                      variant="ghost"
                       size="sm"
                       onClick={() => setShowPanelMasks(!showPanelMasks)}
-                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs bg-transparent hover:bg-transparent shadow-none transition-none text-foreground font-normal"
                       title="Toggle Panel Masks"
                     >
                       {showPanelMasks ? <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />}
                       <span className={cn(isPortrait ? "hidden" : "hidden md:inline")}>Panel</span>
                     </Button>
                     <Button
-                      variant={showTextMasks ? "secondary" : "ghost"}
+                      variant="ghost"
                       size="sm"
                       onClick={() => setShowTextMasks(!showTextMasks)}
-                      className="gap-1.5 h-8 px-2 shrink-0 text-xs"
+                      className="gap-1.5 h-8 px-2 shrink-0 text-xs bg-transparent hover:bg-transparent shadow-none transition-none text-foreground font-normal"
                       title="Toggle Text Masks"
                     >
                       {showTextMasks ? <Eye className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />}
@@ -6672,11 +6741,11 @@ ${navItems}    </ol>
                                               return (
                                                 <div
                                                   key={`text-mask-${tIdx}`}
-                                                  className="absolute border-2 border-emerald-600 bg-emerald-500/15 pointer-events-auto transition-all"
+                                                  className="absolute border-2 border-emerald-600 bg-transparent pointer-events-auto select-none transition-none"
                                                   style={style}
                                                   title={`${label}${pIdx !== undefined ? ` [Panel ${pIdx + 1}]` : ''}: ${txt.text || ''}`}
                                                 >
-                                                  <span className="absolute -top-3.5 right-0 bg-emerald-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none">
+                                                  <span className="absolute -top-3.5 right-0 bg-emerald-600 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow select-none leading-none pointer-events-none transition-none">
                                                     {label}{pIdx !== undefined ? ` [Panel ${pIdx + 1}]` : ''}
                                                   </span>
                                                   {mask && (

@@ -2,7 +2,7 @@
  * Complete On-Device PaddleOCR Pipeline (det.onnx + ppocr_v4_rec_slim.onnx + dict.txt + Lexicon + BookVocab + AI fallback)
  */
 
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { get, set } from 'idb-keyval';
 import { ComicText } from '../services/gemini';
 export type ReadingDirection = 'ltr' | 'rtl';

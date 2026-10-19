@@ -1362,31 +1362,38 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
     return n;
   }, [tree, expandedPanelPath, expandedPanelId, leafBoxes]);
 
-  // Sync with parent isExpanded prop
+  const prevIsExpandedRef = useRef<boolean>(!!isExpanded);
+
+  // Sync with parent isExpanded prop: only trigger collapse when parent transitions from expanded (true) to collapsed (false)
   useEffect(() => {
-    if (isExpanded === false && expandedPanelPath !== null) {
+    if (prevIsExpandedRef.current === true && isExpanded === false) {
       setExpandedPanelPath(null);
       setExpandedPanelId(null);
     }
-  }, [isExpanded, expandedPanelPath]);
+    prevIsExpandedRef.current = !!isExpanded;
+  }, [isExpanded]);
 
   // Auto-reset expanded panel if external collapseSignal triggers
   useEffect(() => {
     if (collapseSignal && collapseSignal > 0) {
       setExpandedPanelPath(null);
       setExpandedPanelId(null);
+      prevIsExpandedRef.current = false;
     }
   }, [collapseSignal]);
 
   // Notify parent component when expanded state changes
   useEffect(() => {
-    onExpandedChange?.(expandedPanelPath !== null && expandedNode !== null);
+    const isNowExpanded = expandedPanelPath !== null && expandedNode !== null;
+    prevIsExpandedRef.current = isNowExpanded;
+    onExpandedChange?.(isNowExpanded);
   }, [expandedPanelPath, expandedNode, onExpandedChange]);
 
   useEffect(() => {
     if (expandedPanelPath !== null && !expandedNode) {
       setExpandedPanelPath(null);
       setExpandedPanelId(null);
+      prevIsExpandedRef.current = false;
     }
   }, [expandedPanelPath, expandedNode]);
 
@@ -1398,11 +1405,14 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
       const node = getNodeByPath(tree, p);
       if (node?.id) setExpandedPanelId(node.id);
     }
-  }, [tree]);
+    prevIsExpandedRef.current = true;
+    onExpandedChange?.(true);
+  }, [tree, onExpandedChange]);
 
   const handleExitExpanded = useCallback(() => {
     setExpandedPanelPath(null);
     setExpandedPanelId(null);
+    prevIsExpandedRef.current = false;
     onExitExpanded?.();
     onExpandedChange?.(false);
   }, [onExitExpanded, onExpandedChange]);
@@ -2607,7 +2617,7 @@ const PanelView: React.FC<{
         {!hideExpandButton && (
           <div 
             className={cn(
-              "absolute top-2 right-2 z-40 transition-all duration-200 pointer-events-auto",
+              "absolute top-2 right-2 z-20 transition-all duration-200 pointer-events-auto",
               isExpanded 
                 ? "opacity-100" 
                 : "opacity-90 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 hover:opacity-100"

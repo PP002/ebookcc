@@ -7927,7 +7927,7 @@ ${manifestImages}  </manifest>
         className={cn(
           "shrink-0",
           isVertical
-            ? "w-9 p-1 flex flex-col items-center justify-center gap-1 bg-background/95 backdrop-blur-md border border-border/80 shadow-2xl rounded-2xl z-[45]"
+            ? "w-9 p-1 flex flex-col items-center justify-center gap-1 bg-background/95 backdrop-blur-md border border-border/80 shadow-2xl rounded-2xl z-[220]"
             : "flex items-center justify-center gap-0.5 max-h-[34px]"
         )}
       >
@@ -7971,7 +7971,7 @@ ${manifestImages}  </manifest>
           {isPenMenuOpen && (
             <div
               className={cn(
-                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[210px] duration-150 z-[110]",
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[210px] duration-150 z-[300]",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
                   : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
@@ -8133,7 +8133,7 @@ ${manifestImages}  </manifest>
           {isEraserMenuOpen && (
             <div
               className={cn(
-                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[190px] duration-150 z-[110]",
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[190px] duration-150 z-[300]",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
                   : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
@@ -8268,7 +8268,7 @@ ${manifestImages}  </manifest>
           {isLassoMenuOpen && (
             <div
               className={cn(
-                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[200px] duration-150 z-[110]",
+                "p-1.5 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-xl flex flex-col gap-1 min-w-[200px] duration-150 z-[300]",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
                   : "absolute top-full left-1/2 -translate-x-1/2 mt-2 animate-in fade-in slide-in-from-top-2"
@@ -8515,59 +8515,365 @@ ${manifestImages}  </manifest>
           {isBrushSizePickerOpen && (
             <div
               className={cn(
-                "p-3 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-3 min-w-[190px] w-52 sm:w-56 duration-150 z-[99999] select-none",
+                "p-3 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl duration-150 z-[99999] select-none flex flex-col gap-3 min-w-[190px] w-52 sm:w-56",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
                   : "absolute top-full left-0 sm:left-auto sm:right-0 mt-2 animate-in fade-in slide-in-from-top-2"
               )}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* 1. Brush Size Slider (without 'brush size' label, without quick set numbers, without dot) */}
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center justify-end text-xs">
-                  <span className="text-[11px] font-mono font-bold text-primary">
-                    {drawRadius}px
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="50"
-                  step="0.5"
-                  value={drawRadius}
-                  onChange={(e) => {
-                    const num = parseFloat(e.target.value);
-                    setDrawRadius(num);
-                    setBrushSizeInput(String(num));
-                  }}
-                  className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
-                  title={`Size: ${drawRadius}px`}
-                />
-              </div>
+              {isPortrait ? (
+                /* On portrait screen: align brush size and opacity sliders vertically side-by-side maintaining full window width */
+                <div className="flex flex-col gap-2.5 w-full">
+                  <div className="flex items-stretch justify-between gap-3 w-full">
+                    {/* 1. Brush Size Vertical Slider */}
+                    <div
+                      className="flex-1 flex flex-col items-center gap-1.5 min-w-0"
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const delta = e.deltaY < 0 ? 0.5 : -0.5;
+                        const next = Math.max(0.5, Math.min(50, Math.round((drawRadius + delta) * 2) / 2));
+                        setDrawRadius(next);
+                        setBrushSizeInput(String(next));
+                      }}
+                    >
+                      {/* Size Header */}
+                      <div className="flex flex-col items-center gap-0.5 w-full text-center">
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          {t("size") || "Size"}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold text-primary">
+                          {drawRadius}px
+                        </span>
+                      </div>
 
-              {/* 2. Brush Opacity Slider (without quick set numbers) */}
-              <div className="flex flex-col gap-1 pt-1.5 border-t border-border/40">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[11px] font-semibold text-foreground">
-                    {t("opacity") || "Opacity"}
-                  </span>
-                  <span className="text-[11px] font-mono font-bold text-primary">
-                    {Math.round(drawOpacity * 100)}%
-                  </span>
+                      {/* Quick Increase (+) Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(50, Math.round((drawRadius + 0.5) * 2) / 2);
+                          setDrawRadius(next);
+                          setBrushSizeInput(String(next));
+                        }}
+                        className="w-8 h-5.5 flex items-center justify-center rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer border border-border/40"
+                        title={t("increaseBrushSize") || "Increase Size"}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Vertical Slider Track */}
+                      <div
+                        role="slider"
+                        tabIndex={0}
+                        aria-label="Brush Size"
+                        aria-valuemin={0.5}
+                        aria-valuemax={50}
+                        aria-valuenow={drawRadius}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                            e.preventDefault();
+                            const next = Math.min(50, Math.round((drawRadius + 0.5) * 2) / 2);
+                            setDrawRadius(next);
+                            setBrushSizeInput(String(next));
+                          } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+                            e.preventDefault();
+                            const next = Math.max(0.5, Math.round((drawRadius - 0.5) * 2) / 2);
+                            setDrawRadius(next);
+                            setBrushSizeInput(String(next));
+                          } else if (e.key === "PageUp") {
+                            e.preventDefault();
+                            const next = Math.min(50, Math.round((drawRadius + 2.5) * 2) / 2);
+                            setDrawRadius(next);
+                            setBrushSizeInput(String(next));
+                          } else if (e.key === "PageDown") {
+                            e.preventDefault();
+                            const next = Math.max(0.5, Math.round((drawRadius - 2.5) * 2) / 2);
+                            setDrawRadius(next);
+                            setBrushSizeInput(String(next));
+                          }
+                        }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const el = e.currentTarget;
+                          el.setPointerCapture(e.pointerId);
+                          const updateFromPointer = (clientY: number) => {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.height <= 0) return;
+                            const ratio = Math.max(0, Math.min(1, (rect.bottom - clientY) / rect.height));
+                            const next = Math.max(0.5, Math.min(50, Math.round((0.5 + ratio * (50 - 0.5)) * 2) / 2));
+                            setDrawRadius(next);
+                            setBrushSizeInput(String(next));
+                          };
+                          updateFromPointer(e.clientY);
+                          const onMove = (moveEvt: PointerEvent) => {
+                            if (moveEvt.buttons === 1 || moveEvt.pointerType === "touch") {
+                              updateFromPointer(moveEvt.clientY);
+                            }
+                          };
+                          const onUp = (upEvt: PointerEvent) => {
+                            try {
+                              el.releasePointerCapture(upEvt.pointerId);
+                            } catch {}
+                            window.removeEventListener("pointermove", onMove);
+                            window.removeEventListener("pointerup", onUp);
+                            window.removeEventListener("pointercancel", onUp);
+                          };
+                          window.addEventListener("pointermove", onMove);
+                          window.addEventListener("pointerup", onUp);
+                          window.addEventListener("pointercancel", onUp);
+                        }}
+                        className="relative w-8.5 h-36 rounded-xl bg-muted/80 dark:bg-muted/40 border border-border/70 overflow-hidden cursor-ns-resize touch-none select-none flex flex-col justify-end shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
+                        title={`Size: ${drawRadius}px (Scroll or drag up/down)`}
+                      >
+                        {/* Visual tick marks */}
+                        <div className="absolute inset-x-1.5 top-1/4 h-px bg-border/40 pointer-events-none" />
+                        <div className="absolute inset-x-1.5 top-2/4 h-px bg-border/40 pointer-events-none" />
+                        <div className="absolute inset-x-1.5 top-3/4 h-px bg-border/40 pointer-events-none" />
+
+                        {/* Fill Bar */}
+                        {(() => {
+                          const fillPct = Math.max(0, Math.min(100, ((drawRadius - 0.5) / (50 - 0.5)) * 100));
+                          return (
+                            <>
+                              <div
+                                className="absolute bottom-0 left-0 right-0 bg-primary/80 rounded-b-xl pointer-events-none transition-all duration-75"
+                                style={{ height: `${fillPct}%` }}
+                              />
+                              <div
+                                className="absolute left-1 right-1 h-3 rounded-full bg-white shadow-md border border-black/20 pointer-events-none transition-all duration-75 flex items-center justify-center"
+                                style={{ bottom: `calc(${fillPct}% - 6px)` }}
+                              >
+                                <div className="w-2.5 h-0.5 bg-neutral-400 rounded-full" />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Quick Decrease (-) Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(0.5, Math.round((drawRadius - 0.5) * 2) / 2);
+                          setDrawRadius(next);
+                          setBrushSizeInput(String(next));
+                        }}
+                        className="w-8 h-5.5 flex items-center justify-center rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer border border-border/40"
+                        title={t("decreaseBrushSize") || "Decrease Size"}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Subtle Vertical Divider */}
+                    <div className="w-px bg-border/50 shrink-0 self-stretch my-1" />
+
+                    {/* 2. Brush Opacity Vertical Slider */}
+                    <div
+                      className="flex-1 flex flex-col items-center gap-1.5 min-w-0"
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const delta = e.deltaY < 0 ? 0.05 : -0.05;
+                        const next = Math.max(0.05, Math.min(1, Math.round((drawOpacity + delta) * 100) / 100));
+                        setDrawOpacity(next);
+                      }}
+                    >
+                      {/* Opacity Header */}
+                      <div className="flex flex-col items-center gap-0.5 w-full text-center">
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          {t("opacity") || "Opacity"}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold text-primary">
+                          {Math.round(drawOpacity * 100)}%
+                        </span>
+                      </div>
+
+                      {/* Quick Increase (+) Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(1, Math.round((drawOpacity + 0.05) * 100) / 100);
+                          setDrawOpacity(next);
+                        }}
+                        className="w-8 h-5.5 flex items-center justify-center rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer border border-border/40"
+                        title={t("increaseOpacity") || "Increase Opacity"}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Vertical Slider Track */}
+                      <div
+                        role="slider"
+                        tabIndex={0}
+                        aria-label="Opacity"
+                        aria-valuemin={0.05}
+                        aria-valuemax={1}
+                        aria-valuenow={drawOpacity}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                            e.preventDefault();
+                            const next = Math.min(1, Math.round((drawOpacity + 0.05) * 100) / 100);
+                            setDrawOpacity(next);
+                          } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+                            e.preventDefault();
+                            const next = Math.max(0.05, Math.round((drawOpacity - 0.05) * 100) / 100);
+                            setDrawOpacity(next);
+                          } else if (e.key === "PageUp") {
+                            e.preventDefault();
+                            const next = Math.min(1, Math.round((drawOpacity + 0.2) * 100) / 100);
+                            setDrawOpacity(next);
+                          } else if (e.key === "PageDown") {
+                            e.preventDefault();
+                            const next = Math.max(0.05, Math.round((drawOpacity - 0.2) * 100) / 100);
+                            setDrawOpacity(next);
+                          }
+                        }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const el = e.currentTarget;
+                          el.setPointerCapture(e.pointerId);
+                          const updateFromPointer = (clientY: number) => {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.height <= 0) return;
+                            const ratio = Math.max(0, Math.min(1, (rect.bottom - clientY) / rect.height));
+                            const next = Math.max(0.05, Math.min(1, Math.round((0.05 + ratio * 0.95) * 20) / 20));
+                            setDrawOpacity(next);
+                          };
+                          updateFromPointer(e.clientY);
+                          const onMove = (moveEvt: PointerEvent) => {
+                            if (moveEvt.buttons === 1 || moveEvt.pointerType === "touch") {
+                              updateFromPointer(moveEvt.clientY);
+                            }
+                          };
+                          const onUp = (upEvt: PointerEvent) => {
+                            try {
+                              el.releasePointerCapture(upEvt.pointerId);
+                            } catch {}
+                            window.removeEventListener("pointermove", onMove);
+                            window.removeEventListener("pointerup", onUp);
+                            window.removeEventListener("pointercancel", onUp);
+                          };
+                          window.addEventListener("pointermove", onMove);
+                          window.addEventListener("pointerup", onUp);
+                          window.addEventListener("pointercancel", onUp);
+                        }}
+                        className="relative w-8.5 h-36 rounded-xl bg-muted/80 dark:bg-muted/40 border border-border/70 overflow-hidden cursor-ns-resize touch-none select-none flex flex-col justify-end shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/60"
+                        title={`Opacity: ${Math.round(drawOpacity * 100)}% (Scroll or drag up/down)`}
+                      >
+                        {/* Visual tick marks */}
+                        <div className="absolute inset-x-1.5 top-1/4 h-px bg-border/40 pointer-events-none" />
+                        <div className="absolute inset-x-1.5 top-2/4 h-px bg-border/40 pointer-events-none" />
+                        <div className="absolute inset-x-1.5 top-3/4 h-px bg-border/40 pointer-events-none" />
+
+                        {/* Fill Bar */}
+                        {(() => {
+                          const fillPct = Math.max(0, Math.min(100, drawOpacity * 100));
+                          return (
+                            <>
+                              <div
+                                className="absolute bottom-0 left-0 right-0 bg-primary/80 rounded-b-xl pointer-events-none transition-all duration-75"
+                                style={{ height: `${fillPct}%` }}
+                              />
+                              <div
+                                className="absolute left-1 right-1 h-3 rounded-full bg-white shadow-md border border-black/20 pointer-events-none transition-all duration-75 flex items-center justify-center"
+                                style={{ bottom: `calc(${fillPct}% - 6px)` }}
+                              >
+                                <div className="w-2.5 h-0.5 bg-neutral-400 rounded-full" />
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Quick Decrease (-) Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(0.05, Math.round((drawOpacity - 0.05) * 100) / 100);
+                          setDrawOpacity(next);
+                        }}
+                        className="w-8 h-5.5 flex items-center justify-center rounded-md bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer border border-border/40"
+                        title={t("decreaseOpacity") || "Decrease Opacity"}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scroll or drag hint */}
+                  <div className="text-[9px] text-muted-foreground/70 text-center font-medium pt-1.5 border-t border-border/30 w-full flex items-center justify-center gap-1">
+                    <span>↕</span>
+                    <span>{t("scrollOrDrag") || "Scroll or drag up/down"}</span>
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="1"
-                  step="0.05"
-                  value={drawOpacity}
-                  onChange={(e) => {
-                    setDrawOpacity(parseFloat(e.target.value));
-                  }}
-                  className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
-                  title={`Opacity: ${Math.round(drawOpacity * 100)}%`}
-                />
-              </div>
+              ) : (
+                /* Landscape Screen: Horizontal Sliders */
+                <>
+                  {/* 1. Brush Size Slider */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-end text-xs">
+                      <span className="text-[11px] font-mono font-bold text-primary">
+                        {drawRadius}px
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="50"
+                      step="0.5"
+                      value={drawRadius}
+                      onChange={(e) => {
+                        const num = parseFloat(e.target.value);
+                        setDrawRadius(num);
+                        setBrushSizeInput(String(num));
+                      }}
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY < 0 ? 0.5 : -0.5;
+                        const num = Math.max(0.5, Math.min(50, Math.round((drawRadius + delta) * 2) / 2));
+                        setDrawRadius(num);
+                        setBrushSizeInput(String(num));
+                      }}
+                      className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
+                      title={`Size: ${drawRadius}px`}
+                    />
+                  </div>
+
+                  {/* 2. Brush Opacity Slider */}
+                  <div className="flex flex-col gap-1 pt-1.5 border-t border-border/40">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-semibold text-foreground">
+                        {t("opacity") || "Opacity"}
+                      </span>
+                      <span className="text-[11px] font-mono font-bold text-primary">
+                        {Math.round(drawOpacity * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="1"
+                      step="0.05"
+                      value={drawOpacity}
+                      onChange={(e) => {
+                        setDrawOpacity(parseFloat(e.target.value));
+                      }}
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY < 0 ? 0.05 : -0.05;
+                        const next = Math.max(0.05, Math.min(1, Math.round((drawOpacity + delta) * 100) / 100));
+                        setDrawOpacity(next);
+                      }}
+                      className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
+                      title={`Opacity: ${Math.round(drawOpacity * 100)}%`}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -8623,11 +8929,14 @@ ${manifestImages}  </manifest>
               className={cn(
                 "z-[99999]",
                 isVertical
-                  ? "absolute left-full top-0 ml-2"
+                  ? isPortrait
+                    ? "fixed left-12 sm:left-14 top-14 max-h-[calc(100dvh-4.5rem)] max-w-[calc(100vw-3.5rem)]"
+                    : "absolute left-full top-0 ml-2"
                   : "absolute top-full left-0 sm:left-auto sm:right-0 mt-2"
               )}
             >
               <LayerManagerUI
+                isPortrait={isPortrait}
                 layers={comicLayers}
                 activeLayerId={activeLayerId}
                 selectedLayerIds={selectedLayerIds}
@@ -8655,7 +8964,7 @@ ${manifestImages}  </manifest>
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-      <header className={cn("w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all", isComicPanelExpanded ? "fixed top-0 inset-x-0 z-[10001] shadow-md" : "sticky top-0 z-[150]")}>
+      <header className={cn("w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all", isComicPanelExpanded ? "fixed top-0 inset-x-0 z-[10001] shadow-md" : "sticky top-0 z-[250]")}>
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
           {/* Left Actions */}
           <div className="flex items-center gap-0.5 overflow-visible py-1 shrink-0 z-20 relative">
@@ -8675,6 +8984,7 @@ ${manifestImages}  </manifest>
               onClick={() => {
                 if (isComicPanelExpanded) {
                   setIsComicPanelExpanded(false);
+                  setCollapseFullPanelSignal((s) => s + 1);
                 } else {
                   setCreateMode("select");
                 }
@@ -8788,7 +9098,7 @@ ${manifestImages}  </manifest>
             data-portrait-drawing-sidebar="true"
             className={cn(
               "left-2 sm:left-3 pointer-events-auto",
-              isComicPanelExpanded ? "fixed top-14 z-[10002]" : "absolute top-3 z-[45]"
+              isComicPanelExpanded ? "fixed top-14 z-[10002]" : "absolute top-3 z-[220]"
             )}
           >
             {renderDrawingToolbar(true)}
@@ -8836,7 +9146,7 @@ ${manifestImages}  </manifest>
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-30 bg-black/5"
+                className="absolute inset-0 z-[190] bg-black/5"
                 onClick={() => setIsSidebarOpen(false)}
               />
               <motion.aside
@@ -8844,7 +9154,7 @@ ${manifestImages}  </manifest>
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -200, opacity: 0 }}
                 transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-                className="absolute top-0 left-0 bottom-0 z-40 w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-visible shrink-0"
+                className="absolute top-0 left-0 bottom-0 z-[200] w-[180px] sm:w-[200px] border-r bg-background/95 backdrop-blur-md shadow-2xl flex flex-col overflow-visible shrink-0"
               >
                 {/* Left Sidebar Header with Comic Title and Page Controls */}
                 <div className="p-2.5 border-b shrink-0 flex flex-col gap-2 bg-muted/20">
@@ -8936,7 +9246,7 @@ ${manifestImages}  </manifest>
                 {isDrawingMode && createMode === "comic" && isPortrait && (
                   <div
                     data-portrait-drawing-sidebar="true"
-                    className="absolute top-3 left-full ml-2.5 z-50 pointer-events-auto shrink-0"
+                    className="absolute top-3 left-full ml-2.5 z-[220] pointer-events-auto shrink-0"
                   >
                     {renderDrawingToolbar(true)}
                   </div>
@@ -8991,7 +9301,11 @@ ${manifestImages}  </manifest>
                   touchOff={touchOff}
                   setTouchOff={setTouchOff}
                   isExpanded={isComicPanelExpanded}
-                  onExitExpanded={() => setIsComicPanelExpanded(false)}
+                  collapseSignal={collapseFullPanelSignal}
+                  onExitExpanded={() => {
+                    setIsComicPanelExpanded(false);
+                    setCollapseFullPanelSignal((s) => s + 1);
+                  }}
                   onExpandedChange={setIsComicPanelExpanded}
                   layers={comicLayers}
                   activeLayerId={activeLayerId}
@@ -9003,10 +9317,10 @@ ${manifestImages}  </manifest>
                   isTextPanelSelectMode={isTextPanelSelectMode}
                 />
 
-                {/* Bubble overlays layer - ALWAYS on the top, regardless of whether draw is active or not */}
+                {/* Bubble overlays layer - below sidebars, toolbars, and popups */}
                 {!isComicPanelExpanded && (
                   <div
-                    className="absolute inset-0 pointer-events-none z-[70] overflow-visible"
+                    className="absolute inset-0 pointer-events-none z-30 overflow-visible"
                     data-bubbles-layer="true"
                   >
                     {bubbles.map((b, bIdx) => (
@@ -9023,13 +9337,13 @@ ${manifestImages}  </manifest>
                         className={`bubble-overlay pointer-events-auto absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer select-none touch-none ${
                           activeBubbleId === b.id
                             ? b.style === "freehand"
-                              ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-[80]"
-                              : "ring-2 ring-primary ring-offset-2 z-[80]"
-                            : "z-[70]"
+                              ? "ring-2 ring-dashed ring-slate-400 ring-offset-2 rounded-[30%] z-[35]"
+                              : "ring-2 ring-primary ring-offset-2 z-[35]"
+                            : "z-30"
                         }`}
                       >
                         {/* Speech Bubble Label B+number placed on left-top of bubble */}
-                        <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 z-[100] pointer-events-none select-none bg-blue-600 hover:bg-blue-700 text-white text-[9px] font-mono font-black px-1 py-0.2 rounded shadow-sm border border-white/30" title={`Bubble B${bIdx + 1}`}>
+                        <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 z-[36] pointer-events-none select-none bg-blue-600 hover:bg-blue-700 text-white text-[9px] font-mono font-black px-1 py-0.2 rounded shadow-sm border border-white/30" title={`Bubble B${bIdx + 1}`}>
                           B{bIdx + 1}
                         </div>
                         <InteractiveBubble
@@ -9700,7 +10014,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
 
         {/* Top-Right corner Full Panel toggle button only when draw button is active (hidden when folded) */}
         {isDrawingMode && (
-          <div className="absolute top-1.5 right-1.5 z-30 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/canvas:opacity-100 transition-opacity">
+          <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/canvas:opacity-100 transition-opacity">
             <Button
               size="icon"
               variant="secondary"

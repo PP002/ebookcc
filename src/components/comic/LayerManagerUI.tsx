@@ -40,6 +40,7 @@ export interface LayerManagerUIProps {
   onUpdateGroup?: (groupId: string, updates: Partial<ComicLayerGroup>) => void;
   onReorderLayers?: (newLayers: ComicLayer[]) => void;
   className?: string;
+  isPortrait?: boolean;
   engine?: any; // backward-compat
 }
 
@@ -74,7 +75,28 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
   onUpdateGroup = (groupId: string, updates: Partial<ComicLayerGroup>) => {},
   onReorderLayers = (newLayers: ComicLayer[]) => {},
   className,
+  isPortrait,
 }) => {
+  // Viewport-based fallback if isPortrait prop is not passed
+  const [isViewportPortrait, setIsViewportPortrait] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerHeight > window.innerWidth || window.matchMedia('(orientation: portrait)').matches;
+  });
+
+  useEffect(() => {
+    const handleCheck = () => {
+      setIsViewportPortrait(window.innerHeight > window.innerWidth || window.matchMedia('(orientation: portrait)').matches);
+    };
+    window.addEventListener('resize', handleCheck);
+    window.addEventListener('orientationchange', handleCheck);
+    return () => {
+      window.removeEventListener('resize', handleCheck);
+      window.removeEventListener('orientationchange', handleCheck);
+    };
+  }, []);
+
+  const portraitMode = isPortrait !== undefined ? isPortrait : isViewportPortrait;
+
   // Layer renaming state
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -309,14 +331,20 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
     <div
       ref={panelRef}
       className={cn(
-        'w-88 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col text-popover-foreground select-none overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 z-50',
+        portraitMode
+          ? 'w-[min(290px,calc(100vw-3.5rem))] max-h-[min(500px,calc(100dvh-5.5rem))] text-xs'
+          : 'w-88 max-h-[85vh]',
+        'bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col text-popover-foreground select-none overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 z-50',
         className
       )}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border/60 bg-muted/30">
-        <div className="flex items-center gap-2">
+      <div className={cn(
+        "flex items-center justify-between border-b border-border/60 bg-muted/30",
+        portraitMode ? "px-2.5 py-1.5" : "px-3.5 py-2.5"
+      )}>
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <Layers className="w-4 h-4 text-primary" />
           <span className="text-xs font-bold tracking-wide uppercase">Layers</span>
           <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">
@@ -371,7 +399,10 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
       </div>
 
       {/* Layer Stack with Drag-to-Reorder, Group Folding, Group Opacity, and Front Hide/Show Buttons */}
-      <div className="flex-1 overflow-y-auto max-h-80 p-2 space-y-1 divide-y divide-border/20">
+      <div className={cn(
+        "flex-1 overflow-y-auto space-y-1 divide-y divide-border/20",
+        portraitMode ? "max-h-44 sm:max-h-56 p-1.5" : "max-h-80 p-2"
+      )}>
         {displayLayers.map((layer) => {
           const isActive = layer.id === activeLayerId;
           const isSelected = selectedLayerIds.includes(layer.id);
@@ -842,16 +873,21 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
       )}
 
       {/* Shortcuts & Guide Footer */}
-      <div className="px-3 py-2 border-t border-border/40 bg-muted/40 text-[10px] text-muted-foreground flex flex-col gap-1">
+      <div className={cn(
+        "border-t border-border/40 bg-muted/40 text-muted-foreground flex flex-col",
+        portraitMode ? "px-2.5 py-1 text-[9px] gap-0.5" : "px-3 py-2 text-[10px] gap-1"
+      )}>
         <div className="flex items-center justify-between font-mono">
-          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+J</kbd> New</span>
-          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+E</kbd> Combine</span>
-          <span><kbd className="bg-background border px-1 py-0.5 rounded text-[9px]">Ctrl+G</kbd> Group</span>
+          <span><kbd className="bg-background border px-1 py-0.2 rounded text-[8px] sm:text-[9px]">Ctrl+J</kbd> New</span>
+          <span><kbd className="bg-background border px-1 py-0.2 rounded text-[8px] sm:text-[9px]">Ctrl+E</kbd> Combine</span>
+          <span><kbd className="bg-background border px-1 py-0.2 rounded text-[8px] sm:text-[9px]">Ctrl+G</kbd> Group</span>
         </div>
-        <div className="text-[9px] text-muted-foreground/80 flex items-center justify-between pt-0.5 border-t border-border/30">
-          <span>• Double tap to rename</span>
-          <span>• Hold & drag to reorder</span>
-        </div>
+        {!portraitMode && (
+          <div className="text-[9px] text-muted-foreground/80 flex items-center justify-between pt-0.5 border-t border-border/30">
+            <span>• Double tap to rename</span>
+            <span>• Hold & drag to reorder</span>
+          </div>
+        )}
       </div>
     </div>
   );

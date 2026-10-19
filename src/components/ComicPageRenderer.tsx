@@ -424,6 +424,7 @@ export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
                   width={s.bounds.w}
                   y={s.bounds.y}
                   height={s.bounds.h}
+                  opacity={s.opacity !== undefined ? s.opacity : 1}
                   preserveAspectRatio="none"
                 />
               </g>
@@ -432,7 +433,14 @@ export function ComicPanelDrawingLayer({ drawings }: { drawings: Stroke[] }) {
           if (!s.points || s.points.length === 0) return null;
           const d = getSvgPathFromPoints(s.points, s.brushRadius || 2, aspect);
           if (!d) return null;
-          return <path key={strokeKey} d={d} fill={s.color || '#000000'} />;
+          return (
+            <path
+              key={strokeKey}
+              d={d}
+              fill={s.color || '#000000'}
+              opacity={s.opacity !== undefined ? s.opacity : 1}
+            />
+          );
         })}
       </g>
     </svg>

@@ -19,6 +19,7 @@ interface RasterDrawingCanvasProps {
   eraserType?: 'stroke' | 'pixel';
   drawColor: string;
   drawRadius: number;
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   aspectRatio?: number;
@@ -134,6 +135,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
   eraserType = 'pixel',
   drawColor,
   drawRadius,
+  drawOpacity = 1,
   touchOff = false,
   setTouchOff,
   aspectRatio,
@@ -370,14 +372,25 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       );
     }
 
-    // 2. Render drafting tempBuffer (in-progress stroke) with EXACT same transformation
+    // 2. Render drafting tempBuffer (in-progress stroke) with active layer & stroke opacity applied
     const tempBuf = tempBufferRef.current;
     if (tempBuf && ((isPointerDownRef.current && activeStrokeRef.current) || transformStateRef.current)) {
+      ctx.save();
+      const activeLayer = layers?.find((l) => l.id === activeLayerId);
+      const activeGroup = activeLayer?.groupId ? layerGroups.find((g) => g.id === activeLayer.groupId) : null;
+      const layerAlpha = activeLayer?.opacity !== undefined ? activeLayer.opacity : 1;
+      const groupAlpha = activeGroup?.opacity !== undefined ? activeGroup.opacity : 1;
+      const strokeAlpha = activeStrokeRef.current?.opacity !== undefined
+        ? activeStrokeRef.current.opacity
+        : (drawOpacity !== undefined ? drawOpacity : 1);
+      ctx.globalAlpha = Math.max(0, Math.min(1, layerAlpha * groupAlpha * strokeAlpha));
+
       ctx.drawImage(
         tempBuf.canvas as CanvasImageSource,
         0, 0, tempBuf.canvas.width, tempBuf.canvas.height,
         0, 0, pixelW, pixelH
       );
+      ctx.restore();
     }
 
     // 3. Render lasso selection overlay if active
@@ -498,6 +511,11 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         );
 
         for (const stroke of layerStrokes) {
+          const sOpacity = stroke.opacity !== undefined ? stroke.opacity : 1;
+          const strokeAlpha = Math.max(0, Math.min(1, effectiveAlpha * sOpacity));
+          ctx.save();
+          ctx.globalAlpha = strokeAlpha;
+
           if (stroke.type === 'fill' && stroke.imageUrl && stroke.bounds) {
             const drawImg = (img: HTMLImageElement) => {
               const bx = (stroke.bounds!.x / 100) * bufW;
@@ -532,12 +550,17 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
               stroke.smartShapeType
             );
           }
+          ctx.restore();
         }
         ctx.restore();
       }
     } else {
       // Single layer fallback
       for (const stroke of strokes) {
+        const sOpacity = stroke.opacity !== undefined ? stroke.opacity : 1;
+        ctx.save();
+        ctx.globalAlpha = sOpacity;
+
         if (stroke.type === 'fill' && stroke.imageUrl && stroke.bounds) {
           const drawImg = (img: HTMLImageElement) => {
             const bx = (stroke.bounds!.x / 100) * bufW;
@@ -572,6 +595,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
             stroke.smartShapeType
           );
         }
+        ctx.restore();
       }
     }
   }, [layers, layerGroups, backgroundColor, requestRender]);
@@ -789,15 +813,24 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
     requestRender();
   }, [dimensions, requestRender]);
 
-  // Re-bake when drawings, layers, or background color change externally
+  // Re-bake when drawings, layers, layerGroups, or background color change externally
+  const layersKey = layers ? layers.map((l) => `${l.id}:${l.opacity ?? 1}:${l.visible !== false}:${l.color || ''}:${l.groupId || ''}`).join(';') : '';
+  const groupsKey = layerGroups ? layerGroups.map((g) => `${g.id}:${g.opacity ?? 1}:${g.visible !== false}`).join(';') : '';
+  const lastLayersKeyRef = useRef<string>('');
+  const lastGroupsKeyRef = useRef<string>('');
+
   useEffect(() => {
     if (
       drawings !== lastDrawingsRef.current ||
       layers !== lastLayersRef.current ||
+      layersKey !== lastLayersKeyRef.current ||
+      groupsKey !== lastGroupsKeyRef.current ||
       backgroundColor !== lastBgColorRef.current
     ) {
       lastDrawingsRef.current = drawings;
       lastLayersRef.current = layers;
+      lastLayersKeyRef.current = layersKey;
+      lastGroupsKeyRef.current = groupsKey;
       lastBgColorRef.current = backgroundColor;
       const buf = layerBufferRef.current;
       if (buf) {
@@ -805,7 +838,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         requestRender();
       }
     }
-  }, [drawings, layers, backgroundColor, bakeAllDrawings, requestRender]);
+  }, [drawings, layers, layersKey, groupsKey, backgroundColor, bakeAllDrawings, requestRender]);
 
   // Trigger render when lasso or selection changes
   useEffect(() => {
@@ -982,12 +1015,14 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
 
     if (drawTool === 'pen') {
       const initialPt = { ...pt };
+      const currentBrushOpacity = drawOpacity !== undefined ? drawOpacity : 1;
       const newStroke: Stroke = {
         id: Math.random().toString(36).substring(2, 9),
         layerId: activeLayerId,
         points: [initialPt],
         color: drawColor,
         brushRadius: getActualRadius(),
+        opacity: currentBrushOpacity,
       };
       activeStrokeRef.current = newStroke;
 
@@ -1480,17 +1515,12 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
         return;
       }
 
+      const nextDrawings = [...drawings, stroke];
+      lastDrawingsRef.current = nextDrawings;
+
       if (layer && temp) {
-        // 1. Bake stroke onto layerBuffer using EXACT same local coordinates and resolution
-        renderStrokeToCtx(
-          layer.ctx,
-          stroke.points,
-          stroke.brushRadius,
-          stroke.color,
-          false,
-          layer.canvas.width,
-          layer.canvas.height
-        );
+        // 1. Bake all drawings onto layerBuffer respecting active layer, group, and stroke opacities
+        bakeAllDrawings(nextDrawings, layer.ctx, layer.canvas.width, layer.canvas.height);
 
         // 2. Clear drafting buffer
         temp.ctx.clearRect(0, 0, temp.canvas.width, temp.canvas.height);
@@ -1499,9 +1529,7 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
       // 3. Immediately redraw display canvas with zero frame lag or jump
       drawMainFrame();
 
-      // 4. Update drawings state & memoized ref
-      const nextDrawings = [...drawings, stroke];
-      lastDrawingsRef.current = nextDrawings;
+      // 4. Update drawings state
       onChange(nextDrawings);
     } else if (drawTool === 'erase' && eraserType === 'pixel' && activeStrokeRef.current) {
       const stroke = activeStrokeRef.current;

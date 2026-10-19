@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Plus, Bot, Image as ImageIcon, Trash2, Contrast, Square, ArrowUp, ArrowDown, Crop, Move, Maximize, Minimize, ZoomIn, ZoomOut, RotateCcw, Play, Pause, SkipBack, SkipForward, Sparkles } from 'lucide-react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { Plus, Bot, Image as ImageIcon, Trash2, Contrast, Square, ArrowUp, ArrowDown, Crop, Move, Maximize, Minimize, ZoomIn, ZoomOut, RotateCcw, Play, Pause, SkipBack, SkipForward, Sparkles, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -152,6 +152,7 @@ export type Stroke = {
   points: Point[], 
   color: string, 
   brushRadius: number, 
+  opacity?: number,
   fill?: string,
   imageUrl?: string,
   bounds?: {x: number, y: number, w: number, h: number},
@@ -1264,8 +1265,12 @@ interface ComicCanvasProps {
   eraserType?: 'stroke'|'pixel';
   drawColor?: string;
   drawRadius?: number;
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
+  isExpanded?: boolean;
+  collapseSignal?: number;
+  onExitExpanded?: () => void;
   onExpandedChange?: (isExpanded: boolean) => void;
   layers?: ComicLayer[];
   activeLayerId?: string;
@@ -1296,8 +1301,12 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   eraserType = 'pixel',
   drawColor = '#000000', 
   drawRadius = 2,
+  drawOpacity = 1,
   touchOff = false,
   setTouchOff,
+  isExpanded,
+  collapseSignal,
+  onExitExpanded,
   onExpandedChange,
   layers,
   activeLayerId,
@@ -1318,6 +1327,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
 }) => {
   const { t } = useLanguage();
   const [expandedPanelPath, setExpandedPanelPath] = useState<number[] | null>(null);
+  const [expandedPanelId, setExpandedPanelId] = useState<string | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [containerAspect, setContainerAspect] = useState<number>(COMIC_PAGE_ASPECT);
 
@@ -1338,23 +1348,64 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
     return () => ro.disconnect();
   }, [expandedPanelPath]);
 
-  // Auto-reset expanded panel if root tree changes (e.g., page switch or complete layout rebuild)
-  useEffect(() => {
-    setExpandedPanelPath(null);
-  }, [tree.id]);
+  const leafBoxes = useMemo(() => getLeafBoxes(tree), [tree]);
 
-  useEffect(() => {
-    onExpandedChange?.(expandedPanelPath !== null);
-  }, [expandedPanelPath, onExpandedChange]);
+  const expandedNode = useMemo(() => {
+    if (expandedPanelPath === null) return null;
+    let n = getNodeByPath(tree, expandedPanelPath);
+    if (!n && expandedPanelId) {
+      const b = leafBoxes.find((box) => box.node.id === expandedPanelId);
+      if (b && b.node.type === 'panel') {
+        n = b.node as PanelNode;
+      }
+    }
+    return n;
+  }, [tree, expandedPanelPath, expandedPanelId, leafBoxes]);
 
-  const expandedNode = expandedPanelPath !== null ? getNodeByPath(tree, expandedPanelPath) : null;
+  // Sync with parent isExpanded prop
+  useEffect(() => {
+    if (isExpanded === false && expandedPanelPath !== null) {
+      setExpandedPanelPath(null);
+      setExpandedPanelId(null);
+    }
+  }, [isExpanded, expandedPanelPath]);
+
+  // Auto-reset expanded panel if external collapseSignal triggers
+  useEffect(() => {
+    if (collapseSignal && collapseSignal > 0) {
+      setExpandedPanelPath(null);
+      setExpandedPanelId(null);
+    }
+  }, [collapseSignal]);
+
+  // Notify parent component when expanded state changes
+  useEffect(() => {
+    onExpandedChange?.(expandedPanelPath !== null && expandedNode !== null);
+  }, [expandedPanelPath, expandedNode, onExpandedChange]);
+
   useEffect(() => {
     if (expandedPanelPath !== null && !expandedNode) {
       setExpandedPanelPath(null);
+      setExpandedPanelId(null);
     }
-  }, [tree, expandedPanelPath, expandedNode]);
+  }, [expandedPanelPath, expandedNode]);
 
-  const leafBoxes = useMemo(() => getLeafBoxes(tree), [tree]);
+  const handleExpandPanel = useCallback((p: number[], panelId?: string) => {
+    setExpandedPanelPath(p);
+    if (panelId) {
+      setExpandedPanelId(panelId);
+    } else {
+      const node = getNodeByPath(tree, p);
+      if (node?.id) setExpandedPanelId(node.id);
+    }
+  }, [tree]);
+
+  const handleExitExpanded = useCallback(() => {
+    setExpandedPanelPath(null);
+    setExpandedPanelId(null);
+    onExitExpanded?.();
+    onExpandedChange?.(false);
+  }, [onExitExpanded, onExpandedChange]);
   const panelLabels = useMemo(() => {
     if (customPanelLabel && tree.type === 'panel') {
       const map = new Map<string, string>();
@@ -1479,12 +1530,15 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
           eraserType={eraserType}
           drawColor={drawColor}
           drawRadius={drawRadius}
+          drawOpacity={drawOpacity}
           touchOff={touchOff}
           setTouchOff={setTouchOff}
           penMode={penMode}
           onConvertFreehandBubble={onConvertFreehandBubble}
-          onExitExpanded={() => setExpandedPanelPath(null)}
-          onSelectPanelPath={(p) => setExpandedPanelPath(p)}
+          onExitExpanded={handleExitExpanded}
+          onSelectPanelPath={(p) => {
+            handleExpandPanel(p);
+          }}
           panelLabels={panelLabels}
           originalRatio={(() => {
             const box = leafBoxes.find(b => b.node.id === expandedNode.id);
@@ -1514,9 +1568,11 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             eraserType={eraserType}
             drawColor={drawColor} 
             drawRadius={drawRadius} 
+            drawOpacity={drawOpacity}
             touchOff={touchOff} 
             setTouchOff={setTouchOff} 
-            onExpandPanel={(p) => setExpandedPanelPath(p)}
+            onExpandPanel={handleExpandPanel}
+            onToggleExpand={handleExitExpanded}
             containerAspect={containerAspect}
             leafBoxes={leafBoxes}
             layers={layers}
@@ -1645,9 +1701,11 @@ const SplitView: React.FC<{
   eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
-  onExpandPanel?: (path: number[]) => void;
+  onExpandPanel?: (path: number[], panelId?: string) => void;
+  onToggleExpand?: () => void;
   containerAspect?: number;
   leafBoxes?: PanelBox[];
   layers?: ComicLayer[];
@@ -1674,9 +1732,11 @@ const SplitView: React.FC<{
   eraserType = 'pixel',
   drawColor, 
   drawRadius, 
+  drawOpacity = 1,
   touchOff, 
   setTouchOff, 
   onExpandPanel,
+  onToggleExpand,
   containerAspect = 3 / 4,
   leafBoxes,
   layers,
@@ -1710,9 +1770,11 @@ const SplitView: React.FC<{
         eraserType={eraserType}
         drawColor={drawColor} 
         drawRadius={drawRadius} 
+        drawOpacity={drawOpacity}
         touchOff={touchOff} 
         setTouchOff={setTouchOff} 
         onExpandPanel={onExpandPanel}
+        onToggleExpand={onToggleExpand}
         aspectRatio={panelAspect}
         panelBox={box}
         layers={layers}
@@ -1737,13 +1799,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
       </div>
       
       <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
 
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
       </div>
     </div>
   );
@@ -2254,6 +2316,7 @@ const PanelView: React.FC<{
   eraserType?: 'stroke'|'pixel';
   drawColor: string; 
   drawRadius: number; 
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   isExpanded?: boolean;
@@ -2285,6 +2348,7 @@ const PanelView: React.FC<{
   eraserType = 'pixel',
   drawColor, 
   drawRadius, 
+  drawOpacity = 1,
   touchOff, 
   setTouchOff, 
   isExpanded = false,
@@ -2663,6 +2727,7 @@ const PanelView: React.FC<{
               eraserType={eraserType}
               drawColor={drawColor} 
               drawRadius={drawRadius} 
+              drawOpacity={drawOpacity}
               touchOff={touchOff} 
               setTouchOff={setTouchOff} 
               aspectRatio={aspectRatio}
@@ -2693,6 +2758,7 @@ const ExpandedPanelWorkspace: React.FC<{
   eraserType?: 'stroke'|'pixel';
   drawColor: string;
   drawRadius: number;
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   onExitExpanded: () => void;
@@ -2718,6 +2784,7 @@ const ExpandedPanelWorkspace: React.FC<{
   eraserType = 'pixel',
   drawColor,
   drawRadius,
+  drawOpacity = 1,
   touchOff,
   setTouchOff,
   onExitExpanded,
@@ -3091,6 +3158,19 @@ const ExpandedPanelWorkspace: React.FC<{
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
+      {/* Top Left Floating Back Button to exit full panel mode */}
+      <div className="absolute top-3 left-3 z-50 pointer-events-auto">
+        <button
+          type="button"
+          onClick={onExitExpanded}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-background/95 hover:bg-background text-foreground backdrop-blur-md rounded-full shadow-lg border border-border/80 transition-all cursor-pointer text-xs font-bold hover:scale-105 active:scale-95"
+          title={`${t("back") || "Back"} / ${t("restorePanel") || "Exit Full Panel"} (Esc)`}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>{t("back") || "Back"}</span>
+        </button>
+      </div>
+
       {/* Main Panel Viewport Area */}
       <div
         ref={panelAreaRef}
@@ -3119,6 +3199,7 @@ const ExpandedPanelWorkspace: React.FC<{
             eraserType={eraserType}
             drawColor={drawColor}
             drawRadius={drawRadius}
+            drawOpacity={drawOpacity}
             touchOff={touchOff}
             setTouchOff={setTouchOff}
             isExpanded={true}
@@ -3230,14 +3311,15 @@ const ExpandedPanelWorkspace: React.FC<{
               <span className="hidden sm:inline">Refine AI</span>
             </button>
 
-            {/* Exit Full Panel */}
+            {/* Exit Full Panel / Back Button */}
             <button
               type="button"
               onClick={onExitExpanded}
-              className="p-1 hover:bg-muted rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer border border-border/40"
-              title={`${t("restorePanel") || "Restore Page"} (Esc)`}
+              className="flex items-center gap-1 px-2.5 py-1 bg-muted/80 hover:bg-muted text-foreground rounded-lg transition-colors cursor-pointer border border-border/60 text-xs font-semibold shadow-xs"
+              title={`${t("back") || "Back"} / ${t("restorePanel") || "Restore Page"} (Esc)`}
             >
-              <Minimize className="w-4 h-4" />
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>{t("back") || "Back"}</span>
             </button>
           </div>
         </div>

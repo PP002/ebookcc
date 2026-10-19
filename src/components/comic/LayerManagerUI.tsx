@@ -94,6 +94,22 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
   const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'above' | 'below' | null>(null);
+  const [isSliderActive, setIsSliderActive] = useState(false);
+
+  // Reset slider active state on pointer/mouse/touch release
+  useEffect(() => {
+    const handleGlobalRelease = () => {
+      setIsSliderActive(false);
+    };
+    window.addEventListener('pointerup', handleGlobalRelease);
+    window.addEventListener('mouseup', handleGlobalRelease);
+    window.addEventListener('touchend', handleGlobalRelease);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalRelease);
+      window.removeEventListener('mouseup', handleGlobalRelease);
+      window.removeEventListener('touchend', handleGlobalRelease);
+    };
+  }, []);
 
   const activeLayer = layers.find((l) => l.id === activeLayerId) || layers[0];
   const activeGroup = activeLayer?.groupId ? layerGroups.find((g) => g.id === activeLayer.groupId) : null;
@@ -215,6 +231,21 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
 
   // HTML5 Drag Handlers
   const handleDragStart = (e: React.DragEvent, layerId: string) => {
+    if (isSliderActive) {
+      e.preventDefault();
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest('input') ||
+      target?.closest('button') ||
+      target?.closest('[data-no-drag]') ||
+      target?.tagName === 'INPUT' ||
+      target?.tagName === 'BUTTON'
+    ) {
+      e.preventDefault();
+      return;
+    }
     const layer = layers.find((l) => l.id === layerId);
     if (layer?.isBackground) {
       e.preventDefault();
@@ -452,23 +483,63 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
 
                   {/* Group Opacity Slider Control */}
                   <div
-                    className="flex items-center gap-1 shrink-0 ml-1"
+                    data-no-drag="true"
+                    draggable={false}
+                    className="flex items-center gap-1 shrink-0 ml-1 opacity-slider-container"
+                    onMouseEnter={() => setIsSliderActive(true)}
+                    onMouseLeave={() => setIsSliderActive(false)}
                     onClick={(e) => e.stopPropagation()}
+                    onMouseDownCapture={(e) => {
+                      setIsSliderActive(true);
+                      e.stopPropagation();
+                    }}
+                    onPointerDownCapture={(e) => {
+                      setIsSliderActive(true);
+                      e.stopPropagation();
+                    }}
+                    onTouchStartCapture={(e) => {
+                      setIsSliderActive(true);
+                      e.stopPropagation();
+                    }}
+                    onTouchMoveCapture={(e) => e.stopPropagation()}
+                    onDragStart={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                   >
-                    <Sliders className="w-3 h-3 text-muted-foreground/70" />
+                    <Sliders className="w-3 h-3 text-muted-foreground/70 pointer-events-none" />
                     <input
                       type="range"
                       min="0"
                       max="1"
                       step="0.05"
+                      draggable={false}
                       value={groupOpacity}
                       onChange={(e) => {
+                        e.stopPropagation();
                         onUpdateGroup(group.id, { opacity: parseFloat(e.target.value) });
+                      }}
+                      onMouseDownCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onPointerDownCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onTouchStartCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onTouchMoveCapture={(e) => e.stopPropagation()}
+                      onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                       }}
                       className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-amber-500"
                       title={`Group Opacity: ${Math.round(groupOpacity * 100)}%`}
                     />
-                    <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">
+                    <span className="text-[9px] font-mono text-muted-foreground w-6 text-right select-none pointer-events-none">
                       {Math.round(groupOpacity * 100)}%
                     </span>
                   </div>
@@ -478,7 +549,7 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
               {/* Layer Row (STRICT: Never displayed when the parent group is folded/collapsed) */}
               {!isGroupCollapsed && (
                 <div
-                  draggable={!isBg}
+                  draggable={!isBg && !isSliderActive}
                   onDragStart={(e) => handleDragStart(e, layer.id)}
                   onDragOver={(e) => handleDragOver(e, layer.id)}
                   onDragLeave={handleDragLeave}
@@ -604,23 +675,63 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                   {/* Layer Opacity Slider upon the layer row */}
                   {!isBg && (
                     <div
-                      className="flex items-center gap-1 shrink-0 ml-auto mr-1"
+                      data-no-drag="true"
+                      draggable={false}
+                      className="flex items-center gap-1 shrink-0 ml-auto mr-1 opacity-slider-container"
+                      onMouseEnter={() => setIsSliderActive(true)}
+                      onMouseLeave={() => setIsSliderActive(false)}
                       onClick={(e) => e.stopPropagation()}
+                      onMouseDownCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onPointerDownCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onTouchStartCapture={(e) => {
+                        setIsSliderActive(true);
+                        e.stopPropagation();
+                      }}
+                      onTouchMoveCapture={(e) => e.stopPropagation()}
+                      onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
                     >
-                      <Sliders className="w-3 h-3 text-muted-foreground/60" />
+                      <Sliders className="w-3 h-3 text-muted-foreground/60 pointer-events-none" />
                       <input
                         type="range"
                         min="0"
                         max="1"
                         step="0.05"
+                        draggable={false}
                         value={layer.opacity !== undefined ? layer.opacity : 1}
                         onChange={(e) => {
+                          e.stopPropagation();
                           onUpdateLayer(layer.id, { opacity: parseFloat(e.target.value) });
+                        }}
+                        onMouseDownCapture={(e) => {
+                          setIsSliderActive(true);
+                          e.stopPropagation();
+                        }}
+                        onPointerDownCapture={(e) => {
+                          setIsSliderActive(true);
+                          e.stopPropagation();
+                        }}
+                        onTouchStartCapture={(e) => {
+                          setIsSliderActive(true);
+                          e.stopPropagation();
+                        }}
+                        onTouchMoveCapture={(e) => e.stopPropagation()}
+                        onDragStart={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
                         }}
                         className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-primary"
                         title={`Opacity: ${Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}%`}
                       />
-                      <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">
+                      <span className="text-[9px] font-mono text-muted-foreground w-6 text-right select-none pointer-events-none">
                         {Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}%
                       </span>
                     </div>

@@ -1847,7 +1847,9 @@ export const Create: React.FC<CreateProps> = ({
   );
   const [drawColor, setDrawColor] = useState("#000000");
   const [drawRadius, setDrawRadius] = useState(1);
+  const [drawOpacity, setDrawOpacity] = useState(1);
   const [brushSizeInput, setBrushSizeInput] = useState<string>("1");
+  const [collapseFullPanelSignal, setCollapseFullPanelSignal] = useState(0);
   const [drawToolbarPos, setDrawToolbarPos] = useState({
     x: window.innerWidth / 2 - 120,
     y: 16,
@@ -1928,6 +1930,7 @@ export const Create: React.FC<CreateProps> = ({
     setDrawTool("pen");
     setDrawColor("#000000");
     setDrawRadius(1);
+    setDrawOpacity(1);
     setBrushSizeInput("1");
     setTouchOff(false);
     setComicBackgroundColor("#ffffff");
@@ -4134,6 +4137,16 @@ export const Create: React.FC<CreateProps> = ({
   useEffect(() => {
     if (isComicPanelExpanded) {
       setIsBubbleSidebarOpen(false);
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setIsComicPanelExpanded(false);
+          setCollapseFullPanelSignal((s) => s + 1);
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
     }
   }, [isComicPanelExpanded]);
 
@@ -7828,6 +7841,7 @@ ${manifestImages}  </manifest>
               eraserType={eraserType}
               drawColor={drawColor}
               drawRadius={drawRadius}
+              drawOpacity={drawOpacity}
               touchOff={touchOff}
               setTouchOff={setTouchOff}
               isDrawingMode={isDrawingMode}
@@ -8497,66 +8511,62 @@ ${manifestImages}  </manifest>
             </>
           )}
 
-          {/* Foldable brush size picker */}
+          {/* Foldable brush size & opacity picker */}
           {isBrushSizePickerOpen && (
             <div
               className={cn(
-                "p-2 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-2 min-w-[150px] duration-150 z-[99999]",
+                "p-3 bg-popover/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl flex flex-col gap-3 min-w-[190px] w-52 sm:w-56 duration-150 z-[99999] select-none",
                 isVertical
                   ? "absolute left-full top-0 ml-2 animate-in fade-in slide-in-from-left-2"
-                  : "absolute top-full left-0 mt-2 animate-in fade-in slide-in-from-top-2"
+                  : "absolute top-full left-0 sm:left-auto sm:right-0 mt-2 animate-in fade-in slide-in-from-top-2"
               )}
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase px-1">
-                {t("sizePresets") || "Size Presets"}
+              {/* 1. Brush Size Slider (without 'brush size' label, without quick set numbers, without dot) */}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-end text-xs">
+                  <span className="text-[11px] font-mono font-bold text-primary">
+                    {drawRadius}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="50"
+                  step="0.5"
+                  value={drawRadius}
+                  onChange={(e) => {
+                    const num = parseFloat(e.target.value);
+                    setDrawRadius(num);
+                    setBrushSizeInput(String(num));
+                  }}
+                  className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
+                  title={`Size: ${drawRadius}px`}
+                />
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { size: 0.5, px: 2 },
-                  { size: 1, px: 3 },
-                  { size: 1.8, px: 5 },
-                  { size: 2.8, px: 7 },
-                  { size: 4, px: 9 },
-                  { size: 5.5, px: 11 },
-                  { size: 7, px: 13 },
-                  { size: 10, px: 15 },
-                  { size: 15, px: 17 },
-                ].map(({ size, px }) => {
-                  const isSelected = drawRadius === size;
-                  return (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => {
-                        setDrawRadius(size);
-                        setBrushSizeInput(String(size));
-                        setIsBrushSizePickerOpen(false);
-                      }}
-                      title={`${size}px`}
-                      className={cn(
-                        "h-10 rounded flex flex-col items-center justify-center gap-1 transition-all p-1 cursor-pointer",
-                        isSelected
-                          ? "bg-primary/20 text-primary ring-1 ring-primary/60 dark:bg-primary/30 font-bold"
-                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <div className="w-5 h-5 flex items-center justify-center">
-                        <span
-                          className={cn(
-                            "rounded-full brush-circle-dot transition-transform shrink-0",
-                            isSelected ? "bg-primary scale-110" : "bg-foreground"
-                          )}
-                          style={{
-                            width: `${px}px`,
-                            height: `${px}px`,
-                            borderRadius: "9999px",
-                          }}
-                        />
-                      </div>
-                      <span className="text-[9px] font-mono leading-none">{size}</span>
-                    </button>
-                  );
-                })}
+
+              {/* 2. Brush Opacity Slider (without quick set numbers) */}
+              <div className="flex flex-col gap-1 pt-1.5 border-t border-border/40">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-semibold text-foreground">
+                    {t("opacity") || "Opacity"}
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-primary">
+                    {Math.round(drawOpacity * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="1"
+                  step="0.05"
+                  value={drawOpacity}
+                  onChange={(e) => {
+                    setDrawOpacity(parseFloat(e.target.value));
+                  }}
+                  className="w-full h-1.5 bg-muted-foreground/30 rounded-lg appearance-none cursor-pointer accent-primary"
+                  title={`Opacity: ${Math.round(drawOpacity * 100)}%`}
+                />
               </div>
             </div>
           )}
@@ -8977,8 +8987,11 @@ ${manifestImages}  </manifest>
                   eraserType={eraserType}
                   drawColor={drawColor}
                   drawRadius={drawRadius}
+                  drawOpacity={drawOpacity}
                   touchOff={touchOff}
                   setTouchOff={setTouchOff}
+                  isExpanded={isComicPanelExpanded}
+                  onExitExpanded={() => setIsComicPanelExpanded(false)}
                   onExpandedChange={setIsComicPanelExpanded}
                   layers={comicLayers}
                   activeLayerId={activeLayerId}
@@ -9577,6 +9590,7 @@ interface InlineStoryCanvasProps {
   eraserType?: 'stroke' | 'pixel';
   drawColor?: string;
   drawRadius?: number;
+  drawOpacity?: number;
   touchOff?: boolean;
   setTouchOff?: (val: boolean) => void;
   isDrawingMode?: boolean;
@@ -9601,6 +9615,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
   eraserType = 'pixel',
   drawColor = '#000000',
   drawRadius = 2,
+  drawOpacity = 1,
   touchOff = false,
   setTouchOff,
   isDrawingMode = true,
@@ -9660,6 +9675,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
           eraserType={eraserType}
           drawColor={drawColor}
           drawRadius={drawRadius}
+          drawOpacity={drawOpacity}
           touchOff={touchOff}
           setTouchOff={setTouchOff}
           layers={layers}
@@ -9719,6 +9735,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
                 eraserType={eraserType}
                 drawColor={drawColor}
                 drawRadius={drawRadius}
+                drawOpacity={drawOpacity}
                 touchOff={touchOff}
                 setTouchOff={setTouchOff}
                 layers={layers}

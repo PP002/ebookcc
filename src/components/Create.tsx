@@ -4150,13 +4150,58 @@ export const Create: React.FC<CreateProps> = ({
     }
   }, [isComicPanelExpanded]);
 
+  // Full-panel mode immersive fullscreen handling in portrait orientation (similar to READ mode)
   useEffect(() => {
-    // CREATE does not trigger immersive fullscreen
-    onFullscreenChange?.(false);
-    return () => {
+    const shouldBeFullscreen = createMode === "comic" && isComicPanelExpanded && isPortrait;
+
+    if (shouldBeFullscreen) {
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+        const el = document.documentElement;
+        if (el.requestFullscreen) {
+          el.requestFullscreen().catch(() => {});
+        } else if ((el as any).webkitRequestFullscreen) {
+          (el as any).webkitRequestFullscreen();
+        }
+      }
+      onFullscreenChange?.(true);
+    } else {
+      if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if ((document as any).webkitExitFullscreen) {
+          (document as any).webkitExitFullscreen();
+        }
+      }
       onFullscreenChange?.(false);
+    }
+  }, [createMode, isComicPanelExpanded, isPortrait, onFullscreenChange]);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      const isFs = Boolean(
+        document.fullscreenElement || (document as any).webkitFullscreenElement
+      );
+      if (!isFs) {
+        // If user exited browser fullscreen via gesture / hardware key while in portrait full-panel mode
+        if (isComicPanelExpanded && isPortrait) {
+          setIsComicPanelExpanded(false);
+          setCollapseFullPanelSignal((s) => s + 1);
+        }
+        onFullscreenChange?.(false);
+      } else {
+        if (isComicPanelExpanded && isPortrait) {
+          onFullscreenChange?.(true);
+        }
+      }
     };
-  }, [onFullscreenChange]);
+
+    document.addEventListener("fullscreenchange", handleFsChange);
+    document.addEventListener("webkitfullscreenchange", handleFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFsChange);
+      document.removeEventListener("webkitfullscreenchange", handleFsChange);
+    };
+  }, [isComicPanelExpanded, isPortrait, onFullscreenChange]);
 
   const [newBubbleText, setNewBubbleText] = useState("");
   const [bubbleStyle, setBubbleStyle] = useState<
@@ -9283,7 +9328,7 @@ ${manifestImages}  </manifest>
                 className={cn(
                   "w-full h-full overflow-hidden",
                   isComicPanelExpanded
-                    ? "fixed inset-0 top-11 z-[9999] w-screen h-[calc(100vh-44px)] bg-background flex items-center justify-center select-none"
+                    ? "fixed inset-x-0 top-11 bottom-0 z-[9999] w-screen h-[calc(100dvh-44px)] bg-background flex items-center justify-center select-none"
                     : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
                 )}
               >

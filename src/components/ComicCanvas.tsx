@@ -3168,19 +3168,6 @@ const ExpandedPanelWorkspace: React.FC<{
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {/* Top Left Floating Back Button to exit full panel mode */}
-      <div className="absolute top-3 left-3 z-50 pointer-events-auto">
-        <button
-          type="button"
-          onClick={onExitExpanded}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-background/95 hover:bg-background text-foreground backdrop-blur-md rounded-full shadow-lg border border-border/80 transition-all cursor-pointer text-xs font-bold hover:scale-105 active:scale-95"
-          title={`${t("back") || "Back"} / ${t("restorePanel") || "Exit Full Panel"} (Esc)`}
-        >
-          <ChevronLeft className="w-4 h-4" />
-          <span>{t("back") || "Back"}</span>
-        </button>
-      </div>
-
       {/* Main Panel Viewport Area */}
       <div
         ref={panelAreaRef}
@@ -3228,9 +3215,9 @@ const ExpandedPanelWorkspace: React.FC<{
       </div>
 
       {/* Always Visible Bottom Bar (does not cover panel workspace) */}
-      <div className="shrink-0 w-full border-t border-border bg-card/95 backdrop-blur-md px-3 sm:px-6 py-2.5 z-40 select-none">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-          <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="shrink-0 w-full border-t border-border bg-card/95 backdrop-blur-md px-3 sm:px-6 py-2 sm:py-2.5 z-40 select-none">
+        <div className="max-w-4xl mx-auto flex items-center justify-between portrait:justify-center gap-2 portrait:gap-x-4 portrait:gap-y-1.5 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 portrait:justify-center">
             {/* Prev Panel */}
             <button
               type="button"
@@ -3269,7 +3256,7 @@ const ExpandedPanelWorkspace: React.FC<{
             </span>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 portrait:justify-center">
             {/* Zoom controls */}
             <button
               type="button"
@@ -3321,15 +3308,14 @@ const ExpandedPanelWorkspace: React.FC<{
               <span className="hidden sm:inline">Refine AI</span>
             </button>
 
-            {/* Exit Full Panel / Back Button */}
+            {/* Exit Full Panel / Restore Button (Un-fullscreen icon) */}
             <button
               type="button"
               onClick={onExitExpanded}
-              className="flex items-center gap-1 px-2.5 py-1 bg-muted/80 hover:bg-muted text-foreground rounded-lg transition-colors cursor-pointer border border-border/60 text-xs font-semibold shadow-xs"
-              title={`${t("back") || "Back"} / ${t("restorePanel") || "Restore Page"} (Esc)`}
+              className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
+              title={`${t("restorePanel") || "Exit Full Panel"} / ${t("back") || "Back"} (Esc)`}
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span>{t("back") || "Back"}</span>
+              <Minimize className="w-4 h-4" />
             </button>
           </div>
         </div>

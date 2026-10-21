@@ -417,32 +417,14 @@ export function transformDrawingsForBounds(
     // newRadius * newW === oldRadius * oldW => newRadius = oldRadius * scaleW
     const newRadius = (s.brushRadius !== undefined ? s.brushRadius : 2) * scaleW;
 
-    if (s.type === 'fill' && s.bounds) {
-      const pageX = oldBox.x + (s.bounds.x / 100) * oldBox.w;
-      const pageY = oldBox.y + (s.bounds.y / 100) * oldBox.h;
-      const pageW = (s.bounds.w / 100) * oldBox.w;
-      const pageH = (s.bounds.h / 100) * oldBox.h;
-
-      return {
-        ...s,
-        brushRadius: newRadius,
-        bounds: {
-          x: ((pageX - newBox.x) / safeNewW) * 100,
-          y: ((pageY - newBox.y) / safeNewH) * 100,
-          w: (pageW / safeNewW) * 100,
-          h: (pageH / safeNewH) * 100,
-        },
-        points: s.points && s.points.length > 0 ? s.points.map((p) => {
-          const ptPageX = oldBox.x + (p.x / 100) * oldBox.w;
-          const ptPageY = oldBox.y + (p.y / 100) * oldBox.h;
-          return {
-            ...p,
-            x: ((ptPageX - newBox.x) / safeNewW) * 100,
-            y: ((ptPageY - newBox.y) / safeNewH) * 100,
-          };
-        }) : s.points,
-      };
-    }
+    const newBounds = s.bounds
+      ? {
+          x: (((oldBox.x + (s.bounds.x / 100) * oldBox.w) - newBox.x) / safeNewW) * 100,
+          y: (((oldBox.y + (s.bounds.y / 100) * oldBox.h) - newBox.y) / safeNewH) * 100,
+          w: ((s.bounds.w / 100) * oldBox.w / safeNewW) * 100,
+          h: ((s.bounds.h / 100) * oldBox.h / safeNewH) * 100,
+        }
+      : undefined;
 
     const newPoints = (s.points || []).map((p) => {
       const ptPageX = oldBox.x + (p.x / 100) * oldBox.w;
@@ -457,6 +439,7 @@ export function transformDrawingsForBounds(
     return {
       ...s,
       brushRadius: newRadius,
+      bounds: newBounds,
       points: newPoints,
     };
   });
@@ -1179,6 +1162,45 @@ export function replaceNodeById(
   return node;
 }
 
+/**
+ * Automatically transforms all drawing strokes across panels when the panel layout tree changes,
+ * guaranteeing that strokes stay in their exact physical page positions and NEVER get stretched
+ * when panels are added, removed, collapsed, or resized (e.g. removing all panels underneath).
+ */
+export function transformTreeDrawingsForNewLayout(
+  oldTree: TreeNode,
+  newTree: TreeNode
+): TreeNode {
+  const oldBoxes = getLeafBoxes(oldTree);
+  const oldBoxesMap = new Map(oldBoxes.map((b) => [b.id, b]));
+  const newBoxes = getLeafBoxes(newTree);
+
+  let resultTree = newTree;
+  for (const nb of newBoxes) {
+    const ob = oldBoxesMap.get(nb.id);
+    if (
+      ob &&
+      nb.node.type === 'panel' &&
+      nb.node.drawings &&
+      nb.node.drawings.length > 0
+    ) {
+      const dx = Math.abs(nb.x - ob.x);
+      const dy = Math.abs(nb.y - ob.y);
+      const dw = Math.abs(nb.w - ob.w);
+      const dh = Math.abs(nb.h - ob.h);
+
+      if (dx > 0.0001 || dy > 0.0001 || dw > 0.0001 || dh > 0.0001) {
+        const transformed = transformDrawingsForBounds(nb.node.drawings, ob, nb);
+        resultTree = replacePanelById(resultTree, nb.id, (node) => ({
+          ...node,
+          drawings: transformed,
+        }));
+      }
+    }
+  }
+  return resultTree;
+}
+
 
 export function splitPanelWithDrawings(
   tree: TreeNode,
@@ -1493,28 +1515,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
     }
 
     // Transform drawings of all existing panels to match their new positions in newTree
-    const oldBoxes = getLeafBoxes(tree);
-    const oldBoxesMap = new Map(oldBoxes.map(b => [b.id, b]));
-    const newBoxes = getLeafBoxes(newTree);
-
-    let transformedTree: TreeNode = newTree;
-    for (const nb of newBoxes) {
-      const ob = oldBoxesMap.get(nb.id);
-      if (ob && nb.node.type === 'panel' && nb.node.drawings && nb.node.drawings.length > 0) {
-        if (
-          Math.abs(nb.x - ob.x) > 0.0001 ||
-          Math.abs(nb.y - ob.y) > 0.0001 ||
-          Math.abs(nb.w - ob.w) > 0.0001 ||
-          Math.abs(nb.h - ob.h) > 0.0001
-        ) {
-          const transformed = transformDrawingsForBounds(nb.node.drawings, ob, nb);
-          transformedTree = replacePanelById(transformedTree, nb.id, (node) => ({
-            ...node,
-            drawings: transformed,
-          }));
-        }
-      }
-    }
+    const transformedTree = transformTreeDrawingsForNewLayout(tree, newTree);
     onChange(transformedTree);
   };
 
@@ -2072,6 +2073,7 @@ const SharedEdgesOverlay: React.FC<{
       } else {
         const boxesToBuild = nonCollapsed.length > 0 ? nonCollapsed : updatedBoxes;
         newTree = boxesToTree(boxesToBuild);
+        newTree = transformTreeDrawingsForNewLayout(tree, newTree);
       }
       onChange(newTree);
     };
@@ -2481,7 +2483,10 @@ const PanelView: React.FC<{
     };
     
     const newTree = removeNode(rootTree, path);
-    if (newTree) onChange(newTree);
+    if (newTree) {
+      const transformedTree = transformTreeDrawingsForNewLayout(rootTree, newTree);
+      onChange(transformedTree);
+    }
   };
 
   const handleImgClick = (e: React.MouseEvent) => {

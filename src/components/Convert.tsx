@@ -31,9 +31,13 @@ import {
   detectDeviceCapability,
   DeviceCapability,
   BatchSize,
+  YoloModelId,
+  SPLIT_MODELS,
   YOLO_MODELS,
   isModelCached,
   getModelBytesFromCacheOrR2,
+  getConvertSplitModelPreference,
+  setConvertSplitModelPreference,
   getConvertBatchPreference,
   setConvertBatchPreference
 } from '@/lib/yoloModelManager';
@@ -1367,17 +1371,12 @@ const panelsCache = new Map<string, ExportPanel[]>();
   return exportPanels;
 };
 
-export const PREDICT_URLS = [
-  "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
-  "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
-  "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
-];
-
 export async function runPredictAPI(
   base64Data: string, 
   customYoloUrl?: string, 
   customYoloKey?: string,
-  preferredBatchSize?: BatchSize
+  preferredBatchSize?: BatchSize,
+  preferredModel?: YoloModelId
 ): Promise<LayoutResult> {
   // If custom user-configured YOLO is specified, attempt inference through the backend proxy
   if (customYoloUrl) {
@@ -1391,10 +1390,11 @@ export async function runPredictAPI(
     }
   }
 
-  // In-browser YOLO ONNX panel detection via ONNX Runtime Web using cached dp.onnx
+  // In-browser YOLO ONNX panel detection via ONNX Runtime Web using cached dp.onnx / dpt.onnx
   try {
-    const batch = preferredBatchSize || getConvertBatchPreference() || 1;
-    const yoloResult = await detectPanelsYolo(base64Data, { batchSize: batch });
+    const batch = preferredBatchSize || getConvertBatchPreference() || 32;
+    const model = preferredModel || getConvertSplitModelPreference() || 'dp';
+    const yoloResult = await detectPanelsYolo(base64Data, { batchSize: batch, model });
     if (yoloResult) {
       return {
         panels: yoloResult.panels || [],
@@ -2893,43 +2893,40 @@ export default function Convert({
   const [isAddingTextMode, setIsAddingTextMode] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
   
-  // Split Model hardware capability and batch selection states
+  // Split Model hardware capability and model selection states (dp vs dpt)
   const [deviceCapability, setDeviceCapability] = useState<DeviceCapability | null>(null);
-  const [activeBatchSize, setActiveBatchSize] = useState<BatchSize>(() => getConvertBatchPreference() || 1);
-  const [batchCacheStatus, setBatchCacheStatus] = useState<Record<BatchSize, boolean>>({ 1: true, 4: false, 8: false, 16: false, 32: false });
-  const [isDownloadingModel, setIsDownloadingModel] = useState<BatchSize | null>(null);
+  const [activeSplitModel, setActiveSplitModel] = useState<YoloModelId>(() => getConvertSplitModelPreference() || 'dp');
+  const [activeBatchSize, setActiveBatchSize] = useState<BatchSize>(() => getConvertBatchPreference() || 32);
+  const [modelCacheStatus, setModelCacheStatus] = useState<Record<YoloModelId, boolean>>({ dp: true, dpt: false });
+  const [isDownloadingSplitModel, setIsDownloadingSplitModel] = useState<YoloModelId | null>(null);
 
-  // CONVERT page: When the user opens CONVERT, detect device capability:
-  // If WebGPU is available -> offer batch 8
-  // If WebGPU is unavailable but the device has a capable GPU (check via WebGL renderer string) -> offer batch 4
-  // Fallback -> batch 1 (already cached)
-  // Once cached, use it for all CONVERT inference via Split Model (LiteRT)
+  // CONVERT page: Check cache and preload dp.onnx
   useEffect(() => {
     let isMounted = true;
     detectDeviceCapability().then(async (cap) => {
       if (!isMounted) return;
       setDeviceCapability(cap);
 
-      const isCached = await isModelCached("dp.onnx");
+      const isDpCached = await isModelCached("dp.onnx");
+      const isDptCached = await isModelCached("dpt.onnx");
       if (!isMounted) return;
-      setBatchCacheStatus({ 1: isCached, 2: isCached, 4: isCached, 8: isCached, 16: isCached, 32: isCached });
+      setModelCacheStatus({ dp: isDpCached, dpt: isDptCached });
 
-      const savedPref = getConvertBatchPreference();
-      const targetBatch = savedPref || cap.recommendedBatch;
-      setActiveBatchSize(targetBatch);
+      const savedPref = getConvertSplitModelPreference();
+      setActiveSplitModel(savedPref || 'dp');
 
-      if (!isCached) {
-        setIsDownloadingModel(targetBatch);
+      if (!isDpCached) {
+        setIsDownloadingSplitModel('dp');
         getModelBytesFromCacheOrR2("dp.onnx")
           .then(() => {
             if (isMounted) {
-              setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
-              setIsDownloadingModel(null);
+              setModelCacheStatus(prev => ({ ...prev, dp: true }));
+              setIsDownloadingSplitModel(null);
             }
           })
           .catch((err) => {
             console.warn("[Convert] Failed to auto-cache dp.onnx:", err);
-            if (isMounted) setIsDownloadingModel(null);
+            if (isMounted) setIsDownloadingSplitModel(null);
           });
       }
     });
@@ -2942,25 +2939,40 @@ export default function Convert({
     return () => { isMounted = false; };
   }, []);
 
-  const handleSelectBatchSize = async (batch: BatchSize) => {
-    setActiveBatchSize(batch);
-    setConvertBatchPreference(batch);
-    const cached = await isModelCached("dp.onnx");
+  const handleSelectSplitModel = async (modelId: YoloModelId) => {
+    setActiveSplitModel(modelId);
+    setConvertSplitModelPreference(modelId);
+
+    const modelInfo = SPLIT_MODELS[modelId];
+    const cached = await isModelCached(modelInfo.filename);
     if (!cached) {
-      setIsDownloadingModel(batch);
-      toast.info(`Caching YOLO ONNX (dp.onnx) model into browser (~9.6 MB)...`);
+      setIsDownloadingSplitModel(modelId);
+      if (modelId === 'dpt') {
+        toast.info(`Checking for dpt.onnx in R2 /Models/...`);
+      } else {
+        toast.info(`Caching dp.onnx (~9.6 MB) into browser storage...`);
+      }
       try {
-        await getModelBytesFromCacheOrR2("dp.onnx");
-        setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
-        toast.success(`YOLO ONNX cached! Ready for Split Model inference.`);
+        await getModelBytesFromCacheOrR2(modelInfo.filename);
+        setModelCacheStatus(prev => ({ ...prev, [modelId]: true }));
+        toast.success(`${modelInfo.name} cached! Ready for Split Model inference.`);
       } catch (err: any) {
-        toast.error(`Failed to download dp.onnx: ${err.message || 'Network error'}`);
+        if (modelId === 'dpt') {
+          toast.info(`dpt.onnx is not yet uploaded to /Models/. dp.onnx will be used until dpt.onnx is added.`);
+        } else {
+          toast.error(`Failed to download ${modelInfo.filename}: ${err.message || 'Network error'}`);
+        }
       } finally {
-        setIsDownloadingModel(null);
+        setIsDownloadingSplitModel(null);
       }
     } else {
-      setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
+      toast.success(`Split model switched to ${modelInfo.name}`);
     }
+  };
+
+  const handleSelectBatchSize = (batch: BatchSize) => {
+    setActiveBatchSize(batch);
+    setConvertBatchPreference(batch);
   };
 
   const isPortraitScreen = () =>
@@ -3949,7 +3961,7 @@ export default function Convert({
       if (needYolo && (!localPanels || localPanels.length === 0)) {
         try {
           console.log("Running layout detection for panels...");
-          const layoutResult = await runPredictAPI(aiBase64, undefined, undefined, activeBatchSize);
+          const layoutResult = await runPredictAPI(aiBase64, undefined, undefined, activeBatchSize, activeSplitModel);
           if (layoutResult) {
             localPanels = layoutResult.panels || [];
             // If the model also outputs text or masks, keep them
@@ -4396,22 +4408,26 @@ export default function Convert({
 
     toast.info(`Processing ${preservedIndices.length} content pages...`);
     
-    // Pre-detect comic panels in parallel batches using the chosen Split Model (Batch 8 or 4)
-    if (splitDuringBatch && activeBatchSize > 1) {
+    // Pre-detect comic panels in parallel batches using the chosen Split Model (dp or dpt)
+    if (splitDuringBatch) {
       const layoutIndices = preservedIndices.filter(i => {
         const p = pages[i];
         return p && !p.hasLayoutRun && (!p.detectedPanels || p.detectedPanels.length === 0);
       });
 
       if (layoutIndices.length > 0) {
-        toast.info(`Split Model: Detecting panels across ${layoutIndices.length} pages (Batch size: ${activeBatchSize})...`);
-        for (let cStart = 0; cStart < layoutIndices.length; cStart += activeBatchSize) {
+        const batchChunk = Math.min(32, activeBatchSize || 32);
+        toast.info(`Split Model (${activeSplitModel}): Detecting panels across ${layoutIndices.length} pages...`);
+        for (let cStart = 0; cStart < layoutIndices.length; cStart += batchChunk) {
           if (cancelProcessRef.current) break;
-          const chunkIdxs = layoutIndices.slice(cStart, cStart + activeBatchSize);
+          const chunkIdxs = layoutIndices.slice(cStart, cStart + batchChunk);
           const chunkImages = chunkIdxs.map(idx => pages[idx].originalImage);
 
           try {
-            const batchResults = await detectPanelsBatchYolo(chunkImages, { batchSize: activeBatchSize });
+            const batchResults = await detectPanelsBatchYolo(chunkImages, { 
+              batchSize: batchChunk as BatchSize,
+              model: activeSplitModel
+            });
             setPages(prev => prev.map((p, pIdx) => {
               const resIdx = chunkIdxs.indexOf(pIdx);
               if (resIdx !== -1 && batchResults[resIdx]) {
@@ -5542,40 +5558,58 @@ ${navItems}    </ol>
                 {/* Split Model Dropdown on the right */}
                 <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                   <Select
-                    value={String(activeBatchSize)}
-                    onValueChange={(val) => handleSelectBatchSize(Number(val) as BatchSize)}
+                    value={activeSplitModel}
+                    onValueChange={(val) => handleSelectSplitModel(val as YoloModelId)}
                   >
-                    <SelectTrigger className="h-6 text-[10px] font-medium cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[70px] text-muted-foreground">
-                      <span>{YOLO_MODELS[activeBatchSize].label}</span>
+                    <SelectTrigger className="h-6 text-[11px] font-semibold cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[50px] text-muted-foreground hover:text-foreground">
+                      <span className="flex items-center gap-1 font-bold text-foreground">
+                        {SPLIT_MODELS[activeSplitModel]?.label || activeSplitModel}
+                        {SPLIT_MODELS[activeSplitModel]?.isPro && (
+                          <span className="text-[7px] font-extrabold uppercase px-1 py-0.2 rounded-xs bg-amber-500/20 text-amber-500">
+                            PRO
+                          </span>
+                        )}
+                      </span>
                     </SelectTrigger>
-                    <SelectContent align="end" className="w-[190px]">
-                      {([1, 4, 8, 16, 32] as BatchSize[]).map((batch) => {
-                        const isRecommended = deviceCapability?.recommendedBatch === batch;
-                        const isCached = batchCacheStatus[batch];
-                        const isDownloading = isDownloadingModel === batch;
-                        const modelInfo = YOLO_MODELS[batch];
+                    <SelectContent align="end" className="w-[300px]">
+                      {(['dp', 'dpt'] as YoloModelId[]).map((modelId) => {
+                        const modelInfo = SPLIT_MODELS[modelId];
+                        const isCached = modelCacheStatus[modelId];
+                        const isDownloading = isDownloadingSplitModel === modelId;
+                        const isSelected = activeSplitModel === modelId;
 
                         return (
-                          <SelectItem key={batch} value={String(batch)} className="text-xs py-1.5 cursor-pointer">
-                            <div className="flex items-center justify-between w-full gap-2">
-                              <span className="font-semibold flex items-center gap-1">
-                                {modelInfo.label}
-                                {isRecommended && (
-                                  <span className="text-[8px] font-semibold bg-primary text-primary-foreground px-1 rounded-xs uppercase">
-                                    Rec
-                                  </span>
-                                )}
-                              </span>
-                              <span className="text-[10px]">
-                                {isDownloading ? (
-                                  <span className="flex items-center gap-0.5 text-amber-500 font-bold">
-                                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
-                                  </span>
-                                ) : isCached ? (
-                                  <span className="text-emerald-500 font-medium">Cached ✓</span>
-                                ) : (
-                                  <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
-                                )}
+                          <SelectItem key={modelId} value={modelId} className="text-xs py-2 cursor-pointer">
+                            <div className="flex flex-col w-full gap-1">
+                              <div className="flex items-center justify-between w-full gap-2">
+                                <span className="font-bold flex items-center gap-1.5">
+                                  {modelInfo.label}
+                                  {modelInfo.isPro ? (
+                                    <span className="text-[8px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-1 py-0.2 rounded-xs uppercase">
+                                      Pro Model
+                                    </span>
+                                  ) : (
+                                    <span className="text-[8px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded-xs uppercase">
+                                      Active
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-[10px]">
+                                  {isDownloading ? (
+                                    <span className="flex items-center gap-0.5 text-amber-500 font-bold">
+                                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
+                                    </span>
+                                  ) : isCached ? (
+                                    <span className="text-emerald-500 font-medium">Cached ✓</span>
+                                  ) : modelInfo.isPro ? (
+                                    <span className="text-muted-foreground text-[10px]">Future Model</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
+                                  )}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground leading-tight font-mono">
+                                {modelInfo.specs}
                               </span>
                             </div>
                           </SelectItem>

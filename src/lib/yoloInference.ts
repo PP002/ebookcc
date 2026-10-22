@@ -8,6 +8,9 @@
 import * as ort from "onnxruntime-web/wasm";
 import {
   BatchSize,
+  YoloModelId,
+  SPLIT_MODELS,
+  getConvertSplitModelPreference,
   getModelBytesFromCacheOrR2,
   detectDeviceCapability
 } from "./yoloModelManager";
@@ -41,20 +44,37 @@ if (typeof window !== "undefined") {
 }
 
 // ─────────────────────────────────────────────
-// Cached ONNX Inference Session Singleton
+// Cached ONNX Inference Session Map
 // ─────────────────────────────────────────────
 
-let yoloSession: ort.InferenceSession | null = null;
-let sessionLoadingPromise: Promise<ort.InferenceSession> | null = null;
+const yoloSessions = new Map<string, ort.InferenceSession>();
+const sessionLoadingPromises = new Map<string, Promise<ort.InferenceSession>>();
 
-export async function getYoloSession(preferWebGpu: boolean = true): Promise<ort.InferenceSession> {
-  if (yoloSession) return yoloSession;
-  if (sessionLoadingPromise) return sessionLoadingPromise;
+export async function getYoloSession(
+  preferWebGpu: boolean = true,
+  modelIdOrFilename?: YoloModelId | string
+): Promise<ort.InferenceSession> {
+  const modelKey = modelIdOrFilename || getConvertSplitModelPreference() || "dp";
+  const modelInfo = SPLIT_MODELS[modelKey as YoloModelId];
+  const filename = modelInfo?.filename || (modelKey.endsWith(".onnx") ? modelKey : `${modelKey}.onnx`);
 
-  sessionLoadingPromise = (async () => {
+  if (yoloSessions.has(filename)) return yoloSessions.get(filename)!;
+  if (sessionLoadingPromises.has(filename)) return sessionLoadingPromises.get(filename)!;
+
+  const loadPromise = (async () => {
     initOnnxWasmEnv();
-    console.log("[YOLO ONNX Engine] Loading dp.onnx from cache or R2...");
-    const modelBytes = await getModelBytesFromCacheOrR2("dp.onnx");
+    console.log(`[YOLO ONNX Engine] Loading ${filename} from cache or R2...`);
+    let modelBytes: Uint8Array;
+    try {
+      modelBytes = await getModelBytesFromCacheOrR2(filename);
+    } catch (loadErr) {
+      if (filename !== "dp.onnx") {
+        console.warn(`[YOLO ONNX Engine] ${filename} not available yet, falling back to dp.onnx:`, loadErr);
+        modelBytes = await getModelBytesFromCacheOrR2("dp.onnx");
+      } else {
+        throw loadErr;
+      }
+    }
 
     // Attempt 1: Load session with wasm
     try {
@@ -62,11 +82,11 @@ export async function getYoloSession(preferWebGpu: boolean = true): Promise<ort.
         executionProviders: ["wasm"],
         graphOptimizationLevel: "all"
       });
-      console.log("[YOLO ONNX Engine] dp.onnx session initialized successfully!");
-      yoloSession = session;
+      console.log(`[YOLO ONNX Engine] ${filename} session initialized successfully!`);
+      yoloSessions.set(filename, session);
       return session;
     } catch (err: any) {
-      console.warn("[YOLO ONNX Engine] Init attempt 1 failed, retrying with origin wasm path:", err);
+      console.warn(`[YOLO ONNX Engine] Init attempt 1 failed for ${filename}, retrying with origin wasm path:`, err);
       if (typeof window !== "undefined" && window.location) {
         ort.env.wasm.wasmPaths = `${window.location.origin}/wasm/onnx/`;
       }
@@ -74,15 +94,16 @@ export async function getYoloSession(preferWebGpu: boolean = true): Promise<ort.
         executionProviders: ["wasm"],
         graphOptimizationLevel: "all"
       });
-      console.log("[YOLO ONNX Engine] dp.onnx session initialized successfully (attempt 2)!");
-      yoloSession = session;
+      console.log(`[YOLO ONNX Engine] ${filename} session initialized successfully (attempt 2)!`);
+      yoloSessions.set(filename, session);
       return session;
     } finally {
-      sessionLoadingPromise = null;
+      sessionLoadingPromises.delete(filename);
     }
   })();
 
-  return sessionLoadingPromise;
+  sessionLoadingPromises.set(filename, loadPromise);
+  return loadPromise;
 }
 
 // ─────────────────────────────────────────────
@@ -319,10 +340,11 @@ export interface DetectPanelsOptions {
   preferWebGpu?: boolean;
   confThreshold?: number;
   iouThreshold?: number;
+  model?: YoloModelId | string;
 }
 
 /**
- * Runs YOLO ONNX panel detection (dp.onnx) on a single image.
+ * Runs YOLO ONNX panel detection (dp.onnx / dpt.onnx) on a single image.
  */
 export async function detectPanelsYolo(
   imageSource: string | HTMLImageElement | HTMLCanvasElement | Blob | ImageData,
@@ -336,7 +358,7 @@ export async function detectPanelsYolo(
     const loadedImg = await loadImageElement(imageSource);
     const prep = preprocessImageTo640(loadedImg);
 
-    const session = await getYoloSession(options.preferWebGpu);
+    const session = await getYoloSession(options.preferWebGpu, options.model);
     const inputName = session.inputNames[0] || "images";
     const outputName = session.outputNames[0] || "output0";
 
@@ -401,7 +423,7 @@ export async function detectPanelsBatchYolo(
 
   let session: ort.InferenceSession;
   try {
-    session = await getYoloSession(options.preferWebGpu);
+    session = await getYoloSession(options.preferWebGpu, options.model);
   } catch (loadErr) {
     console.warn("[YOLO ONNX Engine] Batch load failed, falling back to sequential:", loadErr);
     for (const img of images) {

@@ -4,70 +4,55 @@
  * hosted on Cloudflare R2 (/Models/dp.onnx) using browser Cache Storage API.
  */
 
+export type YoloModelId = "dp" | "dpt";
+
 export type BatchSize = 1 | 2 | 4 | 8 | 16 | 32;
 
-export interface ModelInfo {
-  batch: BatchSize;
+export interface SplitModelInfo {
+  id: YoloModelId;
   filename: string;
+  label: string;
+  name: string;
+  description: string;
+  specs: string;
   sizeBytes: number;
   sizeFormatted: string;
-  label: string;
-  description: string;
+  batch: number;
+  isPro?: boolean;
 }
 
-export const YOLO_MODELS: Record<BatchSize, ModelInfo> = {
-  1: {
-    batch: 1,
+export type ModelInfo = SplitModelInfo;
+
+export const SPLIT_MODELS: Record<YoloModelId, SplitModelInfo> = {
+  dp: {
+    id: "dp",
     filename: "dp.onnx",
+    label: "dp",
+    name: "dp (YOLO)",
+    description: "Current dp.onnx model",
+    specs: "imgsz=640, quantize=32, dynamic=true, simplify=true, batch=32",
     sizeBytes: 10055221,
     sizeFormatted: "~9.6 MB",
-    label: "1 CPU",
-    description: "Single-page CPU / WASM"
-  },
-  2: {
-    batch: 2,
-    filename: "dp.onnx",
-    sizeBytes: 10055221,
-    sizeFormatted: "~9.6 MB",
-    label: "2 Dual",
-    description: "2 Pages Dual-Core"
-  },
-  4: {
-    batch: 4,
-    filename: "dp.onnx",
-    sizeBytes: 10055221,
-    sizeFormatted: "~9.6 MB",
-    label: "4 GPU",
-    description: "4 Pages Parallel GPU"
-  },
-  8: {
-    batch: 8,
-    filename: "dp.onnx",
-    sizeBytes: 10055221,
-    sizeFormatted: "~9.6 MB",
-    label: "8 WebGPU",
-    description: "8 Pages High Throughput"
-  },
-  16: {
-    batch: 16,
-    filename: "dp.onnx",
-    sizeBytes: 10055221,
-    sizeFormatted: "~9.6 MB",
-    label: "16 UltraGPU",
-    description: "16 Pages Max Acceleration"
-  },
-  32: {
     batch: 32,
-    filename: "dp.onnx",
-    sizeBytes: 10055221,
-    sizeFormatted: "~9.6 MB",
-    label: "32 Max Throughput",
-    description: "32 Pages Burst Throughput"
+    isPro: false
+  },
+  dpt: {
+    id: "dpt",
+    filename: "dpt.onnx",
+    label: "dpt",
+    name: "dpt (Pro)",
+    description: "Pro panel detection model (future)",
+    specs: "Pro model feature",
+    sizeBytes: 15000000,
+    sizeFormatted: "Pro",
+    batch: 32,
+    isPro: true
   }
 };
 
-// Backward-compatibility alias
-export const LITE_RT_MODELS = YOLO_MODELS;
+// Aliases for compatibility
+export const YOLO_MODELS: any = SPLIT_MODELS;
+export const LITE_RT_MODELS: any = SPLIT_MODELS;
 
 export const CACHE_NAME = "yolo-models-cache-v1";
 const PREF_KEY = "ebookcc_yolo_batch_pref";
@@ -405,6 +390,25 @@ export async function retryStartupModelDownload(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────
+// User Split Model Preference (CONVERT & READ)
+// ─────────────────────────────────────────────
+
+const SPLIT_MODEL_PREF_KEY = "ebookcc_split_model_pref";
+
+export function getConvertSplitModelPreference(): YoloModelId {
+  if (typeof localStorage === "undefined") return "dp";
+  const val = localStorage.getItem(SPLIT_MODEL_PREF_KEY);
+  if (val === "dp" || val === "dpt") return val;
+  return "dp";
+}
+
+export function setConvertSplitModelPreference(model: YoloModelId): void {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(SPLIT_MODEL_PREF_KEY, model);
+  }
+}
+
+// ─────────────────────────────────────────────
 // User Batch Preference (CONVERT page)
 // ─────────────────────────────────────────────
 
@@ -414,7 +418,7 @@ export function getConvertBatchPreference(): BatchSize | null {
   if (val === "1" || val === "2" || val === "4" || val === "8" || val === "16" || val === "32") {
     return parseInt(val, 10) as BatchSize;
   }
-  return null;
+  return 32;
 }
 
 export function setConvertBatchPreference(batch: BatchSize): void {
@@ -422,3 +426,4 @@ export function setConvertBatchPreference(batch: BatchSize): void {
     localStorage.setItem(PREF_KEY, String(batch));
   }
 }
+

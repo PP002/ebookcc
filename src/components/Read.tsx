@@ -14,6 +14,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import JSZip from 'jszip';
 import { autoCropImageBorders } from '@/components/Convert';
 import { detectPanelsYolo } from '@/lib/yoloInference';
+import { getConvertSplitModelPreference, SPLIT_MODELS } from '@/lib/yoloModelManager';
 import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 import { useLanguage } from '@/context/LanguageContext';
@@ -1576,8 +1577,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             });
 
             if (!isActive || !gridView) return;
-            // READ page: Detect comic panels using ONNX YOLO (dp.onnx).
-            const layoutResult = await detectPanelsYolo(base64Source, { batchSize: 1 });
+            // READ page: Detect and split comic panels using in-browser ONNX model (dp.onnx).
+            const activeSplitModel = getConvertSplitModelPreference();
+            const layoutResult = await detectPanelsYolo(base64Source, { batchSize: 1, model: activeSplitModel });
             if (!isActive || !gridView) return;
             let regions = layoutResult?.panels || [];
             
@@ -2158,23 +2160,41 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
+  const nextPageRef = React.useRef(nextPage);
   useEffect(() => {
-    if (isPlayingSlideshow && isFullscreen) {
+    nextPageRef.current = nextPage;
+  }, [nextPage]);
+
+  useEffect(() => {
+    if (isPlayingSlideshow) {
       slideshowTimerRef.current = setInterval(() => {
-        nextPage();
+        nextPageRef.current?.();
       }, slideshowIntervalMs);
       return () => {
-        if (slideshowTimerRef.current) clearInterval(slideshowTimerRef.current);
+        if (slideshowTimerRef.current) {
+          clearInterval(slideshowTimerRef.current);
+          slideshowTimerRef.current = null;
+        }
       };
     } else {
-      if (slideshowTimerRef.current) clearInterval(slideshowTimerRef.current);
+      if (slideshowTimerRef.current) {
+        clearInterval(slideshowTimerRef.current);
+        slideshowTimerRef.current = null;
+      }
     }
-  }, [isPlayingSlideshow, isFullscreen, nextPage, slideshowIntervalMs]);
+  }, [isPlayingSlideshow, slideshowIntervalMs]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     // Disable touch gesture handling on desktop/mouse
     if (!isTouchDevice()) return;
     if (hasTextSelection()) return;
+
+    // Do not capture touch gesture if interacting with HUD, buttons, inputs, or controls
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.fullscreen-hud, button, input, select, textarea, [role="button"], [data-no-swipe]')) {
+      touchStartRef.current = null;
+      return;
+    }
 
     if (e.touches.length === 1) {
       touchStartRef.current = {
@@ -2195,6 +2215,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         touchStartRef.current = null;
         return;
       }
+
+      // Do not process gestures if touch originated inside HUD, buttons, or controls
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.fullscreen-hud, button, input, select, textarea, [role="button"], [data-no-swipe]')) {
+        touchStartRef.current = null;
+        return;
+      }
+
       if (!touchStartRef.current) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
@@ -3148,6 +3176,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     "fullscreen-hud absolute top-3 inset-x-3 sm:inset-x-8 z-50 flex items-center justify-between pointer-events-none transition-all duration-300",
                     isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
                   )}
+                  onClick={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
                 >
                   <div className="pointer-events-auto bg-card/90 text-card-foreground border border-border px-3.5 py-1.5 rounded-full flex items-center gap-2.5 shadow-2xl backdrop-blur-md">
                     <BookOpen className="w-3.5 h-3.5 text-primary shrink-0" />
@@ -3593,11 +3624,14 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                     isHudVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
                   )}
                   onClick={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
                 >
                   <div className="bg-card/90 dark:bg-card/90 text-card-foreground border border-border px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col gap-2">
                     {/* Timeline Scrubber Bar */}
                     <div 
-                      className="w-full flex items-center gap-2 group/scrubber cursor-pointer py-1"
+                      className="w-full flex items-center gap-2 group/scrubber cursor-pointer py-1 touch-manipulation"
+                      onTouchStart={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const clickX = e.clientX - rect.left;
@@ -3621,9 +3655,18 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         {/* Prev Page */}
                         <button
                           type="button"
-                          onClick={prevPage}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            prevPage();
+                          }}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            prevPage();
+                          }}
                           disabled={currentPage === 0}
-                          className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+                          className="p-2 sm:p-1.5 min-w-[36px] min-h-[36px] sm:min-w-[32px] sm:min-h-[32px] hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer touch-manipulation flex items-center justify-center select-none"
                           title="Previous Page (Left Arrow)"
                         >
                           <SkipBack className="w-4 h-4" />
@@ -3632,9 +3675,19 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         {/* Play / Slideshow Toggle (Icon only, no text) */}
                         <button
                           type="button"
-                          onClick={() => setIsPlayingSlideshow(p => !p)}
-                          className="p-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors cursor-pointer flex items-center justify-center shadow-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsPlayingSlideshow(p => !p);
+                          }}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setIsPlayingSlideshow(p => !p);
+                          }}
+                          className="p-2 sm:p-1.5 min-w-[38px] min-h-[38px] sm:min-w-[32px] sm:min-h-[32px] bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-transform active:scale-95 cursor-pointer flex items-center justify-center shadow-xs touch-manipulation select-none"
                           title={isPlayingSlideshow ? "Pause Auto-play (Space)" : "Auto-play Slideshow (Space)"}
+                          aria-label={isPlayingSlideshow ? "Pause Auto-play" : "Auto-play Slideshow"}
                         >
                           {isPlayingSlideshow ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
                         </button>
@@ -3642,23 +3695,37 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         {/* Next Page */}
                         <button
                           type="button"
-                          onClick={nextPage}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            nextPage();
+                          }}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            nextPage();
+                          }}
                           disabled={currentPage >= totalBookPages - 1}
-                          className="p-1.5 hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer"
+                          className="p-2 sm:p-1.5 min-w-[36px] min-h-[36px] sm:min-w-[32px] sm:min-h-[32px] hover:bg-muted disabled:opacity-30 rounded-lg text-foreground/80 hover:text-foreground transition-colors cursor-pointer touch-manipulation flex items-center justify-center select-none"
                           title="Next Page (Right Arrow)"
                         >
                           <SkipForward className="w-4 h-4" />
                         </button>
 
                         {/* Page Counter */}
-                        <span className="text-xs font-mono font-bold text-foreground ml-1">
+                        <span className="text-xs font-mono font-bold text-foreground ml-1 select-none">
                           {currentPage + 1} / {totalBookPages}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-1 sm:gap-2">
                         {/* Manual Play Speed Input */}
-                        <div className="flex items-center gap-1 bg-muted/60 border border-border/50 rounded-lg px-2 py-0.5 text-xs text-foreground" title="Slideshow interval in seconds">
+                        <div 
+                          className="flex items-center gap-1 bg-muted/60 border border-border/50 rounded-lg px-2 py-0.5 text-xs text-foreground touch-manipulation" 
+                          title="Slideshow interval in seconds"
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
+                        >
                           <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider select-none">Speed</span>
                           <input
                             type="number"
@@ -3675,6 +3742,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                               }
                             }}
                             onKeyDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
+                            onTouchEnd={(e) => e.stopPropagation()}
                             className="w-12 h-5 text-center text-xs font-mono font-bold bg-background text-foreground border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                           />
                           <span className="text-[11px] text-muted-foreground font-mono select-none">s</span>
@@ -3688,7 +3757,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                             setReadingDirection(nextDir);
                             setSelectedBook(prev => prev ? { ...prev, readingDirection: nextDir } : null);
                           }}
-                          className="p-1.5 hover:bg-muted text-foreground/80 hover:text-foreground rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-border/40"
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const nextDir = readingDirection === 'rtl' ? 'ltr' : 'rtl';
+                            setReadingDirection(nextDir);
+                            setSelectedBook(prev => prev ? { ...prev, readingDirection: nextDir } : null);
+                          }}
+                          className="p-1.5 hover:bg-muted text-foreground/80 hover:text-foreground rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-border/40 touch-manipulation select-none"
                           title={readingDirection === 'rtl' ? "Reading direction: Right to Left (Click for LTR)" : "Reading direction: Left to Right (Click for RTL)"}
                         >
                           {readingDirection === 'rtl' ? (

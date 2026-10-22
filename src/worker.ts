@@ -1013,7 +1013,6 @@ export default {
             const candidateKeys = [
               `Models/${filename}`,
               `models/${filename}`,
-              `wasm/onnx/${filename}`,
               filename
             ];
 
@@ -1055,11 +1054,7 @@ export default {
         const r2 = getR2Bucket(env);
         if (r2) {
           const candidateKeys = [
-            `wasm/${subPath}`,
-            `wasm/onnx/${filename}`,
-            `Models/${filename}`,
-            `models/${filename}`,
-            filename
+            `wasm/onnx/${filename}`
           ];
 
           for (const key of candidateKeys) {

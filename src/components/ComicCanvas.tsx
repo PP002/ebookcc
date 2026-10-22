@@ -2863,6 +2863,32 @@ const ExpandedPanelWorkspace: React.FC<{
   const currentLabel = panelLabels?.get(node.id) || (leafBoxes && leafBoxes[currentPanelIndex] ? panelLabels?.get(leafBoxes[currentPanelIndex].node.id) : `A${currentPanelIndex + 1}`) || `A${currentPanelIndex + 1}`;
 
   useEffect(() => {
+    if (isMobileDevice) {
+      try {
+        if (!document.fullscreenElement) {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else if ((document.documentElement as any).webkitRequestFullscreen) {
+            (document.documentElement as any).webkitRequestFullscreen();
+          }
+        }
+      } catch (_) {}
+
+      return () => {
+        try {
+          if (document.fullscreenElement) {
+            if (document.exitFullscreen) {
+              document.exitFullscreen().catch(() => {});
+            } else if ((document as any).webkitExitFullscreen) {
+              (document as any).webkitExitFullscreen();
+            }
+          }
+        } catch (_) {}
+      };
+    }
+  }, [isMobileDevice]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const targetEl = (e.target || document.activeElement) as HTMLElement | null;
       if (targetEl?.tagName === 'INPUT' || targetEl?.tagName === 'TEXTAREA' || targetEl?.isContentEditable) return;
@@ -3213,7 +3239,10 @@ const ExpandedPanelWorkspace: React.FC<{
       {/* Main Panel Viewport Area */}
       <div
         ref={panelAreaRef}
-        className="flex-1 w-full min-h-0 relative flex items-center justify-center p-2 sm:p-4 overflow-hidden"
+        className={cn(
+          "flex-1 w-full min-h-0 relative flex items-center justify-center overflow-hidden",
+          isMobileDevice ? "p-1" : "p-2 sm:p-4"
+        )}
         data-workspace-bg="true"
       >
         {/* Panel Box with zoom & pan transforms and consistent panel mask clipping */}
@@ -3256,8 +3285,30 @@ const ExpandedPanelWorkspace: React.FC<{
         </div>
       </div>
 
+      {/* Mobile Immersive Exit / Restore Button on Top-Right */}
+      {isMobileDevice && (
+        <button
+          type="button"
+          onClick={() => {
+            if (document.fullscreenElement) {
+              try {
+                if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+              } catch (_) {}
+            }
+            onExitExpanded();
+          }}
+          className="fixed top-2.5 right-2.5 z-50 w-8 h-8 rounded-full bg-card/90 hover:bg-card text-foreground border border-border shadow-md backdrop-blur-md flex items-center justify-center transition-all active:scale-95 cursor-pointer pointer-events-auto"
+          title={`${t("restorePanel") || "Exit Full Panel"} (Esc)`}
+        >
+          <Minimize className="w-4 h-4 stroke-[2.5]" />
+        </button>
+      )}
+
       {/* Always Visible Bottom Bar (does not cover panel workspace) */}
-      <div className="shrink-0 w-full border-t border-border bg-card/95 backdrop-blur-md px-3 sm:px-6 py-2 sm:py-2.5 z-40 select-none">
+      <div className={cn(
+        "shrink-0 w-full border-t border-border bg-card/95 backdrop-blur-md z-40 select-none",
+        isMobileDevice ? "px-2 py-1.5" : "px-3 sm:px-6 py-2 sm:py-2.5"
+      )}>
         <div className="max-w-4xl mx-auto flex items-center justify-between portrait:justify-center gap-2 portrait:gap-x-4 portrait:gap-y-1.5 flex-wrap sm:flex-nowrap">
           <div className="flex items-center gap-1.5 sm:gap-2 portrait:justify-center">
             {/* Prev Panel */}
@@ -3353,7 +3404,14 @@ const ExpandedPanelWorkspace: React.FC<{
             {/* Exit Full Panel / Restore Button (Un-fullscreen icon) */}
             <button
               type="button"
-              onClick={onExitExpanded}
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  try {
+                    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                  } catch (_) {}
+                }
+                onExitExpanded();
+              }}
               className="p-1 hover:bg-muted text-foreground/80 hover:text-foreground transition-colors cursor-pointer rounded"
               title={`${t("restorePanel") || "Exit Full Panel"} / ${t("back") || "Back"} (Esc)`}
             >

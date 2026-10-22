@@ -28,7 +28,7 @@ export default defineConfig(({mode}) => {
     },
     optimizeDeps: {
       include: ['react', 'react-dom', 'react-dropzone'],
-      exclude: ['onnxruntime-web', 'onnxruntime-web/wasm']
+      exclude: ['onnxruntime-web', 'onnxruntime-web/wasm', 'onnxruntime-web/webgpu']
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

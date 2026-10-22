@@ -4154,8 +4154,26 @@ export const Create: React.FC<CreateProps> = ({
   const [isComicPanelExpanded, setIsComicPanelExpanded] = useState(false);
 
   useEffect(() => {
+    if (onFullscreenChange) {
+      onFullscreenChange(isComicPanelExpanded);
+    }
+  }, [isComicPanelExpanded, onFullscreenChange]);
+
+  useEffect(() => {
     if (isComicPanelExpanded) {
       setIsBubbleSidebarOpen(false);
+      setIsSidebarOpen(false);
+      if (isMobileDevice) {
+        try {
+          if (!document.fullscreenElement) {
+            if (document.documentElement.requestFullscreen) {
+              document.documentElement.requestFullscreen().catch(() => {});
+            } else if ((document.documentElement as any).webkitRequestFullscreen) {
+              (document.documentElement as any).webkitRequestFullscreen();
+            }
+          }
+        } catch (_) {}
+      }
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
           setIsComicPanelExpanded(false);
@@ -4165,9 +4183,18 @@ export const Create: React.FC<CreateProps> = ({
       window.addEventListener("keydown", handleKeyDown);
       return () => {
         window.removeEventListener("keydown", handleKeyDown);
+        if (isMobileDevice && document.fullscreenElement) {
+          try {
+            if (document.exitFullscreen) {
+              document.exitFullscreen().catch(() => {});
+            } else if ((document as any).webkitExitFullscreen) {
+              (document as any).webkitExitFullscreen();
+            }
+          } catch (_) {}
+        }
       };
     }
-  }, [isComicPanelExpanded]);
+  }, [isComicPanelExpanded, isMobileDevice]);
 
   const [newBubbleText, setNewBubbleText] = useState("");
   const [bubbleStyle, setBubbleStyle] = useState<
@@ -8997,7 +9024,12 @@ ${manifestImages}  </manifest>
 
   return (
     <div className="flex-1 bg-background flex flex-col overflow-hidden h-full min-h-0">
-      <header className={cn("w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all", isComicPanelExpanded ? "fixed top-0 inset-x-0 z-[10001] shadow-md" : "sticky top-0 z-[250]")}>
+      <header className={cn(
+        "w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all",
+        isComicPanelExpanded
+          ? (isMobileDevice ? "hidden" : "fixed top-0 inset-x-0 z-[10001] shadow-md")
+          : "sticky top-0 z-[250]"
+      )}>
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
           {/* Left Actions */}
           <div className="flex items-center gap-0.5 overflow-visible py-1 shrink-0 z-20 relative">
@@ -9131,7 +9163,9 @@ ${manifestImages}  </manifest>
             data-portrait-drawing-sidebar="true"
             className={cn(
               "left-2 sm:left-3 pointer-events-auto",
-              isComicPanelExpanded ? "fixed top-14 z-[10002]" : "absolute top-3 z-[220]"
+              isComicPanelExpanded
+                ? (isMobileDevice ? "fixed top-2.5 z-[10002]" : "fixed top-14 z-[10002]")
+                : "absolute top-3 z-[220]"
             )}
           >
             {renderDrawingToolbar(true)}
@@ -9316,7 +9350,9 @@ ${manifestImages}  </manifest>
                 className={cn(
                   "w-full h-full overflow-hidden",
                   isComicPanelExpanded
-                    ? "fixed inset-x-0 top-11 bottom-0 z-[9999] w-screen h-[calc(100dvh-44px)] bg-background flex items-center justify-center select-none"
+                    ? (isMobileDevice
+                        ? "fixed inset-0 z-[9999] w-screen h-screen h-[100dvh] bg-background flex items-center justify-center select-none"
+                        : "fixed inset-x-0 top-11 bottom-0 z-[9999] w-screen h-[calc(100dvh-44px)] bg-background flex items-center justify-center select-none")
                     : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
                 )}
               >
@@ -9976,8 +10012,35 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
   onChange,
   onWidthChange,
 }) => {
+  const isMobile = useIsMobileDevice();
   const [isFullPanel, setIsFullPanel] = useState(false);
   const [zoom, setZoom] = useState(100);
+
+  useEffect(() => {
+    if (isFullPanel && isMobile) {
+      try {
+        if (!document.fullscreenElement) {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else if ((document.documentElement as any).webkitRequestFullscreen) {
+            (document.documentElement as any).webkitRequestFullscreen();
+          }
+        }
+      } catch (_) {}
+
+      return () => {
+        try {
+          if (document.fullscreenElement) {
+            if (document.exitFullscreen) {
+              document.exitFullscreen().catch(() => {});
+            } else if ((document as any).webkitExitFullscreen) {
+              (document as any).webkitExitFullscreen();
+            }
+          }
+        } catch (_) {}
+      };
+    }
+  }, [isFullPanel, isMobile]);
 
   const displayLabel = canvasLabel || `L${canvasIndex + 1}`;
 
@@ -10075,9 +10138,29 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
 
       {/* Full-panel overlay filling entire area except toolbar, preserving ratio and displaying Comic Creator zoom bar */}
       {isFullPanel && createPortal(
-        <div className="fixed inset-0 top-11 z-[99] bg-background flex flex-col items-center justify-between p-4 sm:p-6 select-none pointer-events-auto overflow-hidden border-t border-border">
+        <div className={cn(
+          "fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-between select-none pointer-events-auto overflow-hidden",
+          isMobile ? "top-0 p-1 sm:p-2 border-0" : "top-11 p-4 sm:p-6 border-t border-border"
+        )}>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  try {
+                    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                  } catch (_) {}
+                }
+                setIsFullPanel(false);
+              }}
+              className="fixed top-2.5 right-2.5 z-50 w-8 h-8 rounded-full bg-card/90 hover:bg-card text-foreground border border-border shadow-md backdrop-blur-md flex items-center justify-center transition-all active:scale-95 cursor-pointer pointer-events-auto"
+              title="Exit Full Panel"
+            >
+              <Minimize className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          )}
           {/* Centered Canvas Container with exact aspect ratio and margin space matching Comic Creator */}
-          <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden relative p-2 sm:p-4">
+          <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden relative p-1 sm:p-4">
             <div 
               style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}
               className="relative max-h-full max-w-full aspect-[4/3] w-full max-w-4xl shadow-2xl ring-1 ring-border bg-card transition-transform duration-150 flex items-center justify-center"
@@ -10110,7 +10193,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
           </div>
 
           {/* Bottom Zoom & Action Bar following global colour */}
-          <div className="shrink-0 flex items-center justify-center pt-3 pb-1 z-50">
+          <div className="shrink-0 flex items-center justify-center pt-2 pb-1 z-50">
             <div className="flex items-center gap-1.5 px-3 py-1 bg-card/95 backdrop-blur-md border border-border shadow-md rounded-none text-xs font-mono text-foreground">
               <Button
                 size="icon"
@@ -10147,7 +10230,14 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setIsFullPanel(false)}
+                onClick={() => {
+                  if (document.fullscreenElement) {
+                    try {
+                      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                    } catch (_) {}
+                  }
+                  setIsFullPanel(false);
+                }}
                 className="w-6 h-6 hover:bg-muted text-foreground"
                 title="Exit Full Panel"
               >

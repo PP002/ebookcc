@@ -69,6 +69,7 @@ import {
   StartupPreloadState,
   getStartupPreloadState
 } from "./lib/yoloModelManager";
+import { preloadOnnxRuntimesInBackground } from "./lib/onnxPipelineEnv";
 
 function GoogleAuthProviderWrapper({ children }: { children: ReactNode }) {
   const { googleClientId } = useAppSettings();
@@ -182,6 +183,7 @@ function AppContent() {
   useEffect(() => {
     preloadStartupModel();
     loadPaddleOcrModels().catch(e => console.warn("[App] PaddleOCR preload notice:", e));
+    preloadOnnxRuntimesInBackground().catch(e => console.warn("[App] ONNX Runtime preload notice:", e));
     const unsub = subscribeStartupPreload(setPreloadState);
     return unsub;
   }, []);

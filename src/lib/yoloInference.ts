@@ -1,11 +1,11 @@
 /**
- * ONNX YOLO Comic Panel Detection Engine (dp.onnx)
+ * ONNX YOLO Comic Panel Detection Engine (dp.onnx / dpt.onnx)
  * High-performance on-device comic panel detection using ONNX Runtime Web.
- * Models are hosted on Cloudflare R2 at /Models/dp.onnx.
- * ONNX WASM runtime files are hosted on Cloudflare R2 at /wasm/onnx/.
+ * Models are hosted on Cloudflare R2 at /Models/dp.onnx and /Models/dpt.onnx.
+ * ONNX WASM & WebGPU runtime files are hosted on Cloudflare R2 at /wasm/onnx/.
  */
 
-import * as ort from "onnxruntime-web/wasm";
+import * as ort from "onnxruntime-web/webgpu";
 import {
   BatchSize,
   YoloModelId,
@@ -14,6 +14,16 @@ import {
   getModelBytesFromCacheOrR2,
   detectDeviceCapability
 } from "./yoloModelManager";
+import {
+  logOnnxEnvInitOnce,
+  configureOnnxEnvironment,
+  getReusableYoloCanvas
+} from "./onnxPipelineEnv";
+import {
+  isWorkerPipelineSupported,
+  workerPreprocessYolo,
+  PreprocessedYoloData
+} from "./pipelineWorkerBridge";
 
 export interface PanelBox {
   box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] in 0..1000 scale
@@ -31,38 +41,38 @@ export interface YoloLayoutResult {
 // Backward-compatibility alias
 export type LiteRTLayoutResult = YoloLayoutResult;
 
-export function initOnnxWasmEnv() {
-  if (typeof window !== "undefined") {
-    ort.env.wasm.wasmPaths = "/wasm/onnx/";
-    ort.env.wasm.numThreads = 1;
-    ort.env.wasm.proxy = false;
-  }
+export function initOnnxWasmEnv(provider: "webgpu" | "wasm" = "wasm") {
+  configureOnnxEnvironment(provider);
 }
 
 if (typeof window !== "undefined") {
-  initOnnxWasmEnv();
+  initOnnxWasmEnv("wasm");
 }
 
 // ─────────────────────────────────────────────
-// Cached ONNX Inference Session Map
+// Cached ONNX Inference Session Map & Tier Selection
 // ─────────────────────────────────────────────
 
-const yoloSessions = new Map<string, ort.InferenceSession>();
-const sessionLoadingPromises = new Map<string, Promise<ort.InferenceSession>>();
+const yoloSessions = new Map<string, { session: ort.InferenceSession; accelerator: "webgpu" | "wasm" }>();
+const sessionLoadingPromises = new Map<string, Promise<{ session: ort.InferenceSession; accelerator: "webgpu" | "wasm" }>>();
 
 export async function getYoloSession(
   preferWebGpu: boolean = true,
   modelIdOrFilename?: YoloModelId | string
-): Promise<ort.InferenceSession> {
+): Promise<{ session: ort.InferenceSession; accelerator: "webgpu" | "wasm" }> {
   const modelKey = modelIdOrFilename || getConvertSplitModelPreference() || "dp";
   const modelInfo = SPLIT_MODELS[modelKey as YoloModelId];
   const filename = modelInfo?.filename || (modelKey.endsWith(".onnx") ? modelKey : `${modelKey}.onnx`);
+  const sessionCacheKey = `${filename}::${preferWebGpu ? "webgpu_pref" : "wasm_only"}`;
 
-  if (yoloSessions.has(filename)) return yoloSessions.get(filename)!;
-  if (sessionLoadingPromises.has(filename)) return sessionLoadingPromises.get(filename)!;
+  if (yoloSessions.has(sessionCacheKey)) {
+    return yoloSessions.get(sessionCacheKey)!;
+  }
+  if (sessionLoadingPromises.has(sessionCacheKey)) {
+    return sessionLoadingPromises.get(sessionCacheKey)!;
+  }
 
   const loadPromise = (async () => {
-    initOnnxWasmEnv();
     console.log(`[YOLO ONNX Engine] Loading ${filename} from cache or R2...`);
     let modelBytes: Uint8Array;
     try {
@@ -76,42 +86,128 @@ export async function getYoloSession(
       }
     }
 
-    // Attempt 1: Load session with wasm
-    try {
-      const session = await ort.InferenceSession.create(modelBytes as any, {
-        executionProviders: ["wasm"],
-        graphOptimizationLevel: "all"
-      });
-      console.log(`[YOLO ONNX Engine] ${filename} session initialized successfully!`);
-      yoloSessions.set(filename, session);
-      return session;
-    } catch (err: any) {
-      console.warn(`[YOLO ONNX Engine] Init attempt 1 failed for ${filename}, retrying with origin wasm path:`, err);
-      if (typeof window !== "undefined" && window.location) {
-        ort.env.wasm.wasmPaths = `${window.location.origin}/wasm/onnx/`;
-      }
-      const session = await ort.InferenceSession.create(modelBytes as any, {
-        executionProviders: ["wasm"],
-        graphOptimizationLevel: "all"
-      });
-      console.log(`[YOLO ONNX Engine] ${filename} session initialized successfully (attempt 2)!`);
-      yoloSessions.set(filename, session);
-      return session;
-    } finally {
-      sessionLoadingPromises.delete(filename);
-    }
-  })();
+    // ─────────────────────────────────────────────
+    // Tier Selection: Tier A (WebGPU), Tier B (WASM)
+    // ─────────────────────────────────────────────
+    let session: ort.InferenceSession | null = null;
+    let acceleratorUsed: "webgpu" | "wasm" = "wasm";
 
-  sessionLoadingPromises.set(filename, loadPromise);
+    const hasWebGpu = typeof navigator !== "undefined" && "gpu" in navigator;
+
+    // Tier A: Try WebGPU first if preferred and supported
+    if (preferWebGpu && hasWebGpu) {
+      try {
+        configureOnnxEnvironment("webgpu");
+        session = await ort.InferenceSession.create(modelBytes as any, {
+          executionProviders: ["webgpu"],
+          graphOptimizationLevel: "all"
+        });
+        acceleratorUsed = "webgpu";
+        logOnnxEnvInitOnce("webgpu");
+        console.log(`[YOLO ONNX Engine] ${filename} successfully initialized with WebGPU (Tier A)!`);
+      } catch (gpuErr) {
+        console.warn(`[YOLO ONNX Engine] WebGPU Tier A failed for ${filename}, falling back to WASM Tier B:`, gpuErr);
+        session = null;
+      }
+    }
+
+    // Tier B: Fallback to WASM
+    if (!session) {
+      configureOnnxEnvironment("wasm");
+      logOnnxEnvInitOnce("wasm");
+      try {
+        session = await ort.InferenceSession.create(modelBytes as any, {
+          executionProviders: ["wasm"],
+          graphOptimizationLevel: "all"
+        });
+        acceleratorUsed = "wasm";
+        console.log(`[YOLO ONNX Engine] ${filename} session initialized with WASM (Tier B)!`);
+      } catch (wasmErr: any) {
+        console.warn(`[YOLO ONNX Engine] WASM init attempt 1 failed (${wasmErr?.message || wasmErr}), retrying with proxy=false:`, wasmErr);
+        // Fallback: if proxy failed or path failed, try with proxy=false and origin wasm path
+        if (typeof window !== "undefined" && window.location) {
+          ort.env.wasm.wasmPaths = `${window.location.origin}/wasm/onnx/`;
+        }
+        ort.env.wasm.proxy = false;
+        session = await ort.InferenceSession.create(modelBytes as any, {
+          executionProviders: ["wasm"],
+          graphOptimizationLevel: "all"
+        });
+        acceleratorUsed = "wasm";
+        console.log(`[YOLO ONNX Engine] ${filename} session initialized with WASM (attempt 2)!`);
+      }
+    }
+
+    const result = { session, accelerator: acceleratorUsed };
+    yoloSessions.set(sessionCacheKey, result);
+    return result;
+  })().finally(() => {
+    sessionLoadingPromises.delete(sessionCacheKey);
+  });
+
+  sessionLoadingPromises.set(sessionCacheKey, loadPromise);
   return loadPromise;
 }
 
 // ─────────────────────────────────────────────
-// Image Preprocessing & Helpers
+// In-Memory Layout Detection Cache & In-Flight Map (2.1)
+// ─────────────────────────────────────────────
+
+const layoutResultCache = new Map<string, YoloLayoutResult>();
+const inFlightLayoutRequests = new Map<string, Promise<YoloLayoutResult>>();
+
+export function generateLayoutCacheKey(
+  source: any,
+  modelName: string,
+  imgsz = 640,
+  conf = 0.25,
+  iou = 0.45
+): string {
+  let sourceId = "";
+  if (typeof source === "string") {
+    if (source.startsWith("data:")) {
+      sourceId = `data_${source.length}_${source.slice(0, 32)}_${source.slice(-32)}`;
+    } else {
+      sourceId = source;
+    }
+  } else if (source && typeof source === "object") {
+    if ("src" in source && typeof source.src === "string") {
+      sourceId = source.src;
+    } else if ("__layoutCacheId" in source) {
+      sourceId = (source as any).__layoutCacheId;
+    } else {
+      const w = ("width" in source ? source.width : 0) || 0;
+      const h = ("height" in source ? source.height : 0) || 0;
+      const id = `img_${w}x${h}_${Math.random().toString(36).slice(2, 9)}`;
+      try {
+        (source as any).__layoutCacheId = id;
+      } catch (_) {}
+      sourceId = id;
+    }
+  } else {
+    sourceId = `unknown_${Date.now()}`;
+  }
+
+  return `${sourceId}::${modelName}::${imgsz}::${conf.toFixed(3)}::${iou.toFixed(3)}`;
+}
+
+export function invalidateLayoutCache(sourcePattern?: string): void {
+  if (!sourcePattern) {
+    layoutResultCache.clear();
+  } else {
+    for (const key of layoutResultCache.keys()) {
+      if (key.includes(sourcePattern)) {
+        layoutResultCache.delete(key);
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Image Preprocessing & Helpers (with 1.2 Canvas Reuse & 2.2b Worker)
 // ─────────────────────────────────────────────
 
 interface PreprocessedImage {
-  canvas: HTMLCanvasElement;
   origWidth: number;
   origHeight: number;
   scale: number;
@@ -120,7 +216,9 @@ interface PreprocessedImage {
   rgbData: Float32Array; // 3 * 640 * 640 in NCHW [3, 640, 640]
 }
 
-async function loadImageElement(source: string | HTMLImageElement | HTMLCanvasElement | Blob | ImageData): Promise<HTMLImageElement | HTMLCanvasElement> {
+async function loadImageElement(
+  source: string | HTMLImageElement | HTMLCanvasElement | Blob | ImageData
+): Promise<HTMLImageElement | HTMLCanvasElement> {
   if (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement) {
     return source;
   }
@@ -144,20 +242,16 @@ async function loadImageElement(source: string | HTMLImageElement | HTMLCanvasEl
     } else if (typeof source === "string") {
       img.src = source;
     } else if (typeof ImageData !== "undefined" && source instanceof ImageData) {
-      const c = document.createElement("canvas");
-      c.width = source.width;
-      c.height = source.height;
-      const ctx = c.getContext("2d");
-      if (ctx) ctx.putImageData(source, 0, 0);
-      resolve(c);
-      return;
+      const { canvas, ctx } = getReusableYoloCanvas(source.width, source.height);
+      ctx.putImageData(source, 0, 0);
+      resolve(canvas);
     } else {
       reject(new Error("Unsupported image source type"));
     }
   });
 }
 
-function preprocessImageTo640(img: HTMLImageElement | HTMLCanvasElement): PreprocessedImage {
+function preprocessImageTo640MainThread(img: HTMLImageElement | HTMLCanvasElement): PreprocessedImage {
   const origWidth = ("naturalWidth" in img ? img.naturalWidth : img.width) || 640;
   const origHeight = ("naturalHeight" in img ? img.naturalHeight : img.height) || 640;
 
@@ -168,14 +262,8 @@ function preprocessImageTo640(img: HTMLImageElement | HTMLCanvasElement): Prepro
   const padX = Math.round((targetSize - newW) / 2);
   const padY = Math.round((targetSize - newH) / 2);
 
-  const canvas = document.createElement("canvas");
-  canvas.width = targetSize;
-  canvas.height = targetSize;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-  if (!ctx) {
-    throw new Error("Could not get 2D canvas context for image preprocessing");
-  }
+  // 1.2: Use reusable 640x640 canvas created with { willReadFrequently: true }
+  const { ctx } = getReusableYoloCanvas(targetSize, targetSize);
 
   // Neutral background fill
   ctx.fillStyle = "#727272";
@@ -186,7 +274,6 @@ function preprocessImageTo640(img: HTMLImageElement | HTMLCanvasElement): Prepro
   const rgba = imgData.data;
 
   // Float32 array for NCHW format: [3, 640, 640]
-  // Channel 0: R, Channel 1: G, Channel 2: B
   const rgbData = new Float32Array(3 * targetSize * targetSize);
   const channelSize = targetSize * targetSize;
 
@@ -198,7 +285,6 @@ function preprocessImageTo640(img: HTMLImageElement | HTMLCanvasElement): Prepro
   }
 
   return {
-    canvas,
     origWidth,
     origHeight,
     scale,
@@ -206,6 +292,35 @@ function preprocessImageTo640(img: HTMLImageElement | HTMLCanvasElement): Prepro
     padY,
     rgbData
   };
+}
+
+async function preprocessImageTo640(
+  imgSource: HTMLImageElement | HTMLCanvasElement | Blob | ImageData | string
+): Promise<PreprocessedImage> {
+  // 2.2b: Offload to Web Worker with OffscreenCanvas if supported
+  if (isWorkerPipelineSupported()) {
+    try {
+      let sourceToBitmap: any = imgSource;
+      if (typeof imgSource === "string") {
+        sourceToBitmap = await loadImageElement(imgSource);
+      }
+      const workerRes: PreprocessedYoloData = await workerPreprocessYolo(sourceToBitmap, 640);
+      return {
+        origWidth: workerRes.origWidth,
+        origHeight: workerRes.origHeight,
+        scale: workerRes.scale,
+        padX: workerRes.padX,
+        padY: workerRes.padY,
+        rgbData: workerRes.rgbData
+      };
+    } catch (workerErr) {
+      console.warn("[YOLO Preprocess] Web Worker offload failed, falling back to main-thread:", workerErr);
+    }
+  }
+
+  // Fallback: main-thread canvas preprocessing with canvas reuse
+  const loaded = await loadImageElement(imgSource);
+  return preprocessImageTo640MainThread(loaded);
 }
 
 // ─────────────────────────────────────────────
@@ -266,7 +381,6 @@ function postProcessOutput(
 
     if (isNaN(cx) || isNaN(cy) || isNaN(w) || isNaN(h) || w <= 0 || h <= 0) continue;
 
-    // YOLO ONNX export may output coordinates normalized to 0..1 OR in pixels 0..640.
     if (cx <= 1.05 && cy <= 1.05 && w <= 1.05 && h <= 1.05) {
       cx *= 640;
       cy *= 640;
@@ -274,31 +388,26 @@ function postProcessOutput(
       h *= 640;
     }
 
-    // Coordinates on 640x640 preprocessed canvas
     const canvasX1 = cx - w / 2;
     const canvasY1 = cy - h / 2;
     const canvasX2 = cx + w / 2;
     const canvasY2 = cy + h / 2;
 
-    // Remove letterboxing padding & scale to map back to original image coordinates
     const unpaddedX1 = (canvasX1 - prep.padX) / prep.scale;
     const unpaddedY1 = (canvasY1 - prep.padY) / prep.scale;
     const unpaddedX2 = (canvasX2 - prep.padX) / prep.scale;
     const unpaddedY2 = (canvasY2 - prep.padY) / prep.scale;
 
-    // Clamp to original image bounds
     const origX1 = Math.max(0, Math.min(prep.origWidth, unpaddedX1));
     const origY1 = Math.max(0, Math.min(prep.origHeight, unpaddedY1));
     const origX2 = Math.max(0, Math.min(prep.origWidth, unpaddedX2));
     const origY2 = Math.max(0, Math.min(prep.origHeight, unpaddedY2));
 
-    // Convert to 0..1000 scale [ymin, xmin, ymax, xmax]
     const ymin = Math.max(0, Math.min(1000, Math.round((origY1 / prep.origHeight) * 1000)));
     const xmin = Math.max(0, Math.min(1000, Math.round((origX1 / prep.origWidth) * 1000)));
     const ymax = Math.max(0, Math.min(1000, Math.round((origY2 / prep.origHeight) * 1000)));
     const xmax = Math.max(0, Math.min(1000, Math.round((origX2 / prep.origWidth) * 1000)));
 
-    // Discard boxes that are too small (< 1.5% of page width or height)
     if (xmax - xmin >= 15 && ymax - ymin >= 15) {
       rawBoxes.push({
         x1: xmin,
@@ -310,10 +419,8 @@ function postProcessOutput(
     }
   }
 
-  // Sort descending by confidence score
   rawBoxes.sort((a, b) => b.score - a.score);
 
-  // Apply Non-Maximum Suppression (NMS)
   const nmsBoxes: RawBox[] = [];
   for (const candidate of rawBoxes) {
     let shouldKeep = true;
@@ -325,7 +432,7 @@ function postProcessOutput(
     }
     if (shouldKeep) {
       nmsBoxes.push(candidate);
-      if (nmsBoxes.length >= 40) break; // Maximum 40 comic panels per page
+      if (nmsBoxes.length >= 40) break;
     }
   }
 
@@ -345,51 +452,96 @@ export interface DetectPanelsOptions {
 
 /**
  * Runs YOLO ONNX panel detection (dp.onnx / dpt.onnx) on a single image.
+ * Uses layout caching, in-flight deduplication, WebGPU / WASM tiering,
+ * worker preprocessing, and logs per-page timings.
  */
 export async function detectPanelsYolo(
   imageSource: string | HTMLImageElement | HTMLCanvasElement | Blob | ImageData,
   options: DetectPanelsOptions = {}
 ): Promise<YoloLayoutResult> {
-  const startTime = performance.now();
   const confThreshold = options.confThreshold ?? 0.25;
   const iouThreshold = options.iouThreshold ?? 0.45;
+  const modelKey = options.model || getConvertSplitModelPreference() || "dp";
+  const modelName = SPLIT_MODELS[modelKey as YoloModelId]?.filename || `${modelKey}.onnx`;
 
-  try {
-    const loadedImg = await loadImageElement(imageSource);
-    const prep = preprocessImageTo640(loadedImg);
-
-    const session = await getYoloSession(options.preferWebGpu, options.model);
-    const inputName = session.inputNames[0] || "images";
-    const outputName = session.outputNames[0] || "output0";
-
-    const inputTensor = new ort.Tensor("float32", prep.rgbData, [1, 3, 640, 640]);
-    const feeds = { [inputName]: inputTensor };
-    const results = await session.run(feeds);
-    const output = results[outputName];
-
-    const outputTypedArray = output.data as Float32Array;
-    const panels = postProcessOutput(outputTypedArray, prep, confThreshold, iouThreshold, true);
-
-    const inferenceTimeMs = Math.round(performance.now() - startTime);
-
+  // 2.1: Cache lookup
+  const cacheKey = generateLayoutCacheKey(imageSource, modelName, 640, confThreshold, iouThreshold);
+  if (layoutResultCache.has(cacheKey)) {
+    const cached = layoutResultCache.get(cacheKey)!;
     return {
-      panels,
-      texts: [],
-      batchSizeUsed: 1,
-      acceleratorUsed: "wasm",
-      inferenceTimeMs
-    };
-  } catch (err: any) {
-    console.debug("[YOLO ONNX Engine] Single image detection notice:", err?.message || err);
-
-    return {
-      panels: [],
-      texts: [],
-      batchSizeUsed: 1,
-      acceleratorUsed: "wasm",
-      inferenceTimeMs: Math.round(performance.now() - startTime)
+      ...cached,
+      panels: cached.panels.map((p) => ({ ...p, box_2d: [...p.box_2d] }))
     };
   }
+
+  // 2.1: In-flight deduplication map
+  if (inFlightLayoutRequests.has(cacheKey)) {
+    return inFlightLayoutRequests.get(cacheKey)!;
+  }
+
+  const detectionPromise = (async (): Promise<YoloLayoutResult> => {
+    const t0 = performance.now();
+
+    try {
+      const tPre0 = performance.now();
+      const prep = await preprocessImageTo640(imageSource);
+      const preMs = Math.round((performance.now() - tPre0) * 10) / 10;
+
+      const { session, accelerator } = await getYoloSession(options.preferWebGpu ?? true, options.model);
+      const inputName = session.inputNames[0] || "images";
+      const outputName = session.outputNames[0] || "output0";
+
+      const tInfer0 = performance.now();
+      const inputTensor = new ort.Tensor("float32", prep.rgbData, [1, 3, 640, 640]);
+      const feeds = { [inputName]: inputTensor };
+      const results = await session.run(feeds);
+      const output = results[outputName];
+      const inferMs = Math.round((performance.now() - tInfer0) * 10) / 10;
+
+      const tPost0 = performance.now();
+      const outputTypedArray = output.data as Float32Array;
+      const panels = postProcessOutput(outputTypedArray, prep, confThreshold, iouThreshold, true);
+      const postMs = Math.round((performance.now() - tPost0) * 10) / 10;
+
+      const totalMs = Math.round((performance.now() - t0) * 10) / 10;
+
+      // 1.1: Log ONE object for layout detection per processed page
+      console.log("[Layout Detection Timing]", {
+        preMs,
+        inferMs,
+        postMs,
+        totalMs,
+        imgsz: 640,
+        provider: accelerator
+      });
+
+      const layoutResult: YoloLayoutResult = {
+        panels,
+        texts: [],
+        batchSizeUsed: 1,
+        acceleratorUsed: accelerator,
+        inferenceTimeMs: totalMs
+      };
+
+      layoutResultCache.set(cacheKey, layoutResult);
+      return layoutResult;
+    } catch (err: any) {
+      console.debug("[YOLO ONNX Engine] Single image detection notice:", err?.message || err);
+      const totalMs = Math.round((performance.now() - t0) * 10) / 10;
+      return {
+        panels: [],
+        texts: [],
+        batchSizeUsed: 1,
+        acceleratorUsed: "wasm",
+        inferenceTimeMs: totalMs
+      };
+    }
+  })().finally(() => {
+    inFlightLayoutRequests.delete(cacheKey);
+  });
+
+  inFlightLayoutRequests.set(cacheKey, detectionPromise);
+  return detectionPromise;
 }
 
 // Backward-compatibility alias
@@ -397,7 +549,6 @@ export const detectPanelsLiteRT = detectPanelsYolo;
 
 /**
  * Runs YOLO ONNX panel detection on multiple images in batches.
- * Fully supports dynamic batch sizes (1, 2, 4, 8, etc.) via dp.onnx.
  */
 export async function detectPanelsBatchYolo(
   images: Array<string | HTMLImageElement | HTMLCanvasElement | Blob | ImageData>,
@@ -409,6 +560,8 @@ export async function detectPanelsBatchYolo(
   const batchSize: BatchSize = options.batchSize || capability.recommendedBatch || 4;
   const confThreshold = options.confThreshold ?? 0.25;
   const iouThreshold = options.iouThreshold ?? 0.45;
+  const modelKey = options.model || getConvertSplitModelPreference() || "dp";
+  const modelName = SPLIT_MODELS[modelKey as YoloModelId]?.filename || `${modelKey}.onnx`;
 
   const results: YoloLayoutResult[] = [];
 
@@ -421,9 +574,9 @@ export async function detectPanelsBatchYolo(
     return results;
   }
 
-  let session: ort.InferenceSession;
+  let sessionInfo: { session: ort.InferenceSession; accelerator: "webgpu" | "wasm" };
   try {
-    session = await getYoloSession(options.preferWebGpu, options.model);
+    sessionInfo = await getYoloSession(options.preferWebGpu ?? true, options.model);
   } catch (loadErr) {
     console.warn("[YOLO ONNX Engine] Batch load failed, falling back to sequential:", loadErr);
     for (const img of images) {
@@ -433,6 +586,7 @@ export async function detectPanelsBatchYolo(
     return results;
   }
 
+  const { session, accelerator } = sessionInfo;
   const inputName = session.inputNames[0] || "images";
   const outputName = session.outputNames[0] || "output0";
 
@@ -443,10 +597,11 @@ export async function detectPanelsBatchYolo(
 
     try {
       const preps: PreprocessedImage[] = [];
+      const tPre0 = performance.now();
       for (const imgSource of chunk) {
-        const loaded = await loadImageElement(imgSource);
-        preps.push(preprocessImageTo640(loaded));
+        preps.push(await preprocessImageTo640(imgSource));
       }
+      const preMs = Math.round(((performance.now() - tPre0) / currentBatch) * 10) / 10;
 
       // Construct dynamic batch tensor: [currentBatch, 3, 640, 640]
       const batchInput = new Float32Array(currentBatch * 3 * 640 * 640);
@@ -456,26 +611,44 @@ export async function detectPanelsBatchYolo(
         batchInput.set(preps[i].rgbData, i * itemSize);
       }
 
+      const tInfer0 = performance.now();
       const inputTensor = new ort.Tensor("float32", batchInput, [currentBatch, 3, 640, 640]);
       const feeds = { [inputName]: inputTensor };
       const outputMap = await session.run(feeds);
       const output = outputMap[outputName];
+      const inferMs = Math.round(((performance.now() - tInfer0) / currentBatch) * 10) / 10;
 
       const outputData = output.data as Float32Array;
       const sliceLen = 5 * 8400;
-      const chunkTime = Math.round((performance.now() - chunkStartTime) / currentBatch);
 
+      const tPost0 = performance.now();
       for (let i = 0; i < preps.length; i++) {
         const slice = outputData.subarray(i * sliceLen, (i + 1) * sliceLen);
         const panels = postProcessOutput(slice, preps[i], confThreshold, iouThreshold, true);
+        const postMs = Math.round(((performance.now() - tPost0) / currentBatch) * 10) / 10;
+        const totalMs = Math.round(((performance.now() - chunkStartTime) / currentBatch) * 10) / 10;
 
-        results.push({
+        // 1.1: Log ONE object per page for layout detection
+        console.log("[Layout Detection Timing]", {
+          preMs,
+          inferMs,
+          postMs,
+          totalMs,
+          imgsz: 640,
+          provider: accelerator
+        });
+
+        const singleResult: YoloLayoutResult = {
           panels,
           texts: [],
           batchSizeUsed: batchSize,
-          acceleratorUsed: "wasm",
-          inferenceTimeMs: chunkTime
-        });
+          acceleratorUsed: accelerator,
+          inferenceTimeMs: totalMs
+        };
+
+        const imgKey = generateLayoutCacheKey(chunk[i], modelName, 640, confThreshold, iouThreshold);
+        layoutResultCache.set(imgKey, singleResult);
+        results.push(singleResult);
       }
     } catch (chunkErr) {
       console.warn(`[YOLO ONNX Engine] Chunk error for batch ${currentBatch}, falling back to sequential:`, chunkErr);

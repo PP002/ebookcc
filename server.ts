@@ -120,10 +120,7 @@ async function startServer() {
       const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
       if (isConfigured && s3) {
         const candidateKeys = [
-          `wasm/onnx/${filename}`,
-          `Models/${filename}`,
-          `wasm/${filename}`,
-          filename
+          `wasm/onnx/${filename}`
         ];
         for (const candidateKey of candidateKeys) {
           try {
@@ -144,10 +141,15 @@ async function startServer() {
         return res.sendFile(localPublicPath);
       }
 
-      return next();
+      const nodeModulesDistPath = path.join(process.cwd(), 'node_modules', 'onnxruntime-web', 'dist', filename);
+      if (fs.existsSync(nodeModulesDistPath)) {
+        return res.sendFile(nodeModulesDistPath);
+      }
+
+      return res.status(404).send('WASM runtime file not found');
     } catch (e: any) {
       console.warn('[Server WASM R2 notice]:', e.message);
-      return next();
+      return res.status(500).send('WASM handler error');
     }
   });
 
@@ -1136,7 +1138,6 @@ async function startServer() {
         const candidateKeys = [
           `Models/${filename}`,
           `models/${filename}`,
-          `wasm/onnx/${filename}`,
           filename
         ];
 
@@ -3445,6 +3446,10 @@ STRICT INSTRUCTIONS:
     // SPA catch-all route for development mode with dynamic SEO injection & 301 redirects
     app.get('*', async (req, res, next) => {
       try {
+        if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/')) {
+          return res.status(404).send('Resource not found');
+        }
+
         const url = req.originalUrl;
         const resolution = resolveSEORoute(req.path);
         if (resolution.redirectTo && resolution.redirectTo !== req.path) {
@@ -3473,6 +3478,10 @@ STRICT INSTRUCTIONS:
 
       app.get('*', (req, res) => {
         try {
+          if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/')) {
+            return res.status(404).send('Resource not found');
+          }
+
           const resolution = resolveSEORoute(req.path);
           if (resolution.redirectTo && resolution.redirectTo !== req.path) {
             return res.redirect(301, resolution.redirectTo);

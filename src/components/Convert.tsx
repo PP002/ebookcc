@@ -2836,6 +2836,10 @@ export default function Convert({
 }) {
   const { t, formatDate, localeCode } = useLanguage();
   const [pages, setPages] = useState<PageData[]>([]);
+  const pagesRef = useRef<PageData[]>([]);
+  useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [conversionLogs, setConversionLogs] = useState<ConversionLog[]>([]);
   const [hasEditedTextOrImage, setHasEditedTextOrImage] = useState(false);
@@ -2986,9 +2990,13 @@ export default function Convert({
   const [isPortrait, setIsPortrait] = useState(() => isPortraitScreen());
   const prevPortraitRef = useRef<boolean>(isPortraitScreen());
   const cancelProcessRef = useRef(false);
+  const processingPagesRef = useRef<Set<number>>(new Set());
+  const isBatchRunningRef = useRef<boolean>(false);
 
   const handleCancelProcess = useCallback(() => {
     cancelProcessRef.current = true;
+    processingPagesRef.current.clear();
+    isBatchRunningRef.current = false;
     setIsBatchProcessing(false);
     setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
     toast.info("Process cancelled");
@@ -3858,7 +3866,12 @@ export default function Convert({
   } as any);
 
   const processPage = async (pageIndex: number) => {
-    const page = pages[pageIndex];
+    if (processingPagesRef.current.has(pageIndex)) {
+      console.log(`[Batch] Skipping duplicate request for page ${pageIndex + 1}: currently processing.`);
+      return;
+    }
+
+    const page = pagesRef.current[pageIndex] || pages[pageIndex];
     if (!page || page.status === 'processing' || page.isIgnored) return;
     if (cancelProcessRef.current) return;
 
@@ -3883,6 +3896,7 @@ export default function Convert({
       return;
     }
 
+    processingPagesRef.current.add(pageIndex);
     setPages(prev => prev.map((p, idx) => idx === pageIndex ? { ...p, status: 'processing' } : p));
     
     try {
@@ -4348,6 +4362,8 @@ export default function Convert({
           toast.error(`Failed to process page ${pageIndex + 1}: ${errorMsg}`);
         }
       }
+    } finally {
+      processingPagesRef.current.delete(pageIndex);
     }
   };
 
@@ -4357,94 +4373,105 @@ export default function Convert({
       return;
     }
 
+    if (isBatchRunningRef.current) {
+      console.log("[Batch] Batch already in progress, ignoring duplicate trigger.");
+      return;
+    }
+    isBatchRunningRef.current = true;
     cancelProcessRef.current = false;
     setIsBatchProcessing(true);
     setBatchProgress(0);
-    
-    // Determine which pages to process
-    const indicesToProcess = selectedPages.size > 0 
-      ? Array.from(selectedPages).filter(i => needsPageProcessing(pages[i]))
-      : pages.map((_, i) => i).filter(i => needsPageProcessing(pages[i]));
 
-    if (indicesToProcess.length === 0) {
-      toast.info("All requested pages are already processed. Ready to export.");
-      setIsBatchProcessing(false);
-      return;
-    }
+    try {
+      // Determine which pages to process
+      const currentPagesList = pagesRef.current.length > 0 ? pagesRef.current : pages;
+      const indicesToProcess = selectedPages.size > 0 
+        ? Array.from(selectedPages).filter(i => needsPageProcessing(currentPagesList[i]))
+        : currentPagesList.map((_, i) => i).filter(i => needsPageProcessing(currentPagesList[i]));
 
-    // Step 1: Blank Check Phase
-    toast.info(`Initial scan for blank pages...`);
-    const preservedIndices: number[] = [];
-    for (let idxIdx = 0; idxIdx < indicesToProcess.length; idxIdx++) {
-      if (cancelProcessRef.current) break;
-      const idx = indicesToProcess[idxIdx];
-      const page = pages[idx];
-      if (page.status === 'done' || page.hasOcrRun || page.hasLayoutRun) {
-        preservedIndices.push(idx); // Already did blank check previously, skip blank check but keep for processing
-        continue;
+      if (indicesToProcess.length === 0) {
+        toast.info("All requested pages are already processed. Ready to export.");
+        setIsBatchProcessing(false);
+        return;
       }
+
+      // Step 1: Blank Check Phase
+      toast.info(`Initial scan for blank pages...`);
+      const preservedIndices: number[] = [];
+      for (let idxIdx = 0; idxIdx < indicesToProcess.length; idxIdx++) {
+        if (cancelProcessRef.current) break;
+        const idx = indicesToProcess[idxIdx];
+        const page = (pagesRef.current && pagesRef.current[idx]) || pages[idx];
+        if (page.status === 'done' || page.hasOcrRun || page.hasLayoutRun) {
+          preservedIndices.push(idx); // Already did blank check previously, skip blank check but keep for processing
+          continue;
+        }
+        
+        const isBlank = await isPageLikelyBlank(page.originalImage);
+        if (isBlank) {
+          const updated = pagesRef.current.map((p, pIdx) => pIdx === idx ? { ...p, status: 'done' as const, isIgnored: true } : p);
+          pagesRef.current = updated;
+          setPages(updated);
+          console.log(`[Batch] Auto-ignored page ${idx + 1} (likely blank)`);
+        } else {
+          preservedIndices.push(idx);
+        }
+        setBatchProgress(Math.round(((idxIdx + 1) / indicesToProcess.length) * 10)); // Allocate 10% to scan
+      }
+
+      if (cancelProcessRef.current) {
+        setIsBatchProcessing(false);
+        setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
+        return;
+      }
+
+      if (preservedIndices.length === 0) {
+        setIsBatchProcessing(false);
+        toast.success("Batch review complete. All pages were empty.");
+        return;
+      }
+
+      toast.info(`Processing ${preservedIndices.length} content pages...`);
       
-      const isBlank = await isPageLikelyBlank(page.originalImage);
-      if (isBlank) {
-        setPages(prev => prev.map((p, pIdx) => pIdx === idx ? { ...p, status: 'done', isIgnored: true } : p));
-        console.log(`[Batch] Auto-ignored page ${idx + 1} (likely blank)`);
-      } else {
-        preservedIndices.push(idx);
-      }
-      setBatchProgress(Math.round(((idxIdx + 1) / indicesToProcess.length) * 10)); // Allocate 10% to scan
-    }
+      // Pre-detect comic panels in parallel batches using the chosen Split Model (dp or dpt)
+      if (splitDuringBatch) {
+        const layoutIndices = preservedIndices.filter(i => {
+          const p = (pagesRef.current && pagesRef.current[i]) || pages[i];
+          return p && !p.hasLayoutRun && (!p.detectedPanels || p.detectedPanels.length === 0);
+        });
 
-    if (cancelProcessRef.current) {
-      setIsBatchProcessing(false);
-      setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
-      return;
-    }
+        if (layoutIndices.length > 0) {
+          const batchChunk = Math.min(32, activeBatchSize || 32);
+          toast.info(`Split Model (${activeSplitModel}): Detecting panels across ${layoutIndices.length} pages...`);
+          for (let cStart = 0; cStart < layoutIndices.length; cStart += batchChunk) {
+            if (cancelProcessRef.current) break;
+            const chunkIdxs = layoutIndices.slice(cStart, cStart + batchChunk);
+            const chunkImages = chunkIdxs.map(idx => ((pagesRef.current && pagesRef.current[idx]) || pages[idx]).originalImage);
 
-    if (preservedIndices.length === 0) {
-      setIsBatchProcessing(false);
-      toast.success("Batch review complete. All pages were empty.");
-      return;
-    }
-
-    toast.info(`Processing ${preservedIndices.length} content pages...`);
-    
-    // Pre-detect comic panels in parallel batches using the chosen Split Model (dp or dpt)
-    if (splitDuringBatch) {
-      const layoutIndices = preservedIndices.filter(i => {
-        const p = pages[i];
-        return p && !p.hasLayoutRun && (!p.detectedPanels || p.detectedPanels.length === 0);
-      });
-
-      if (layoutIndices.length > 0) {
-        const batchChunk = Math.min(32, activeBatchSize || 32);
-        toast.info(`Split Model (${activeSplitModel}): Detecting panels across ${layoutIndices.length} pages...`);
-        for (let cStart = 0; cStart < layoutIndices.length; cStart += batchChunk) {
-          if (cancelProcessRef.current) break;
-          const chunkIdxs = layoutIndices.slice(cStart, cStart + batchChunk);
-          const chunkImages = chunkIdxs.map(idx => pages[idx].originalImage);
-
-          try {
-            const batchResults = await detectPanelsBatchYolo(chunkImages, { 
-              batchSize: batchChunk as BatchSize,
-              model: activeSplitModel
-            });
-            setPages(prev => prev.map((p, pIdx) => {
-              const resIdx = chunkIdxs.indexOf(pIdx);
-              if (resIdx !== -1 && batchResults[resIdx]) {
-                return {
-                  ...p,
-                  detectedPanels: batchResults[resIdx].panels || [],
-                  hasLayoutRun: true
-                };
-              }
-              return p;
-            }));
-          } catch (batchErr) {
-            console.warn(`[Batch Split] Chunk inference failed, will fallback to individual page:`, batchErr);
+            try {
+              const batchResults = await detectPanelsBatchYolo(chunkImages, { 
+                batchSize: batchChunk as BatchSize,
+                model: activeSplitModel
+              });
+              const updated = pagesRef.current.map((p, pIdx) => {
+                const resIdx = chunkIdxs.indexOf(pIdx);
+                if (resIdx !== -1 && batchResults[resIdx]) {
+                  return {
+                    ...p,
+                    detectedPanels: batchResults[resIdx].panels || [],
+                    hasLayoutRun: true
+                  };
+                }
+                return p;
+              });
+              pagesRef.current = updated;
+              setPages(updated);
+            } catch (batchErr) {
+              console.warn(`[Batch Split] Chunk inference failed, will fallback to individual page:`, batchErr);
+            }
           }
         }
       }
-    }
 
     let stoppedBecauseOfQuota = false;
 
@@ -4510,15 +4537,18 @@ export default function Convert({
       }
     }
     
-    setIsBatchProcessing(false);
-    if (cancelProcessRef.current) {
-      setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
-      return;
+      if (cancelProcessRef.current) {
+        setPages(prev => prev.map(p => p.status === 'processing' ? { ...p, status: 'pending' } : p));
+        return;
+      }
+      if (!stoppedBecauseOfQuota) {
+        toast.success("Batch processing complete!");
+      }
+    } finally {
+      setIsBatchProcessing(false);
+      isBatchRunningRef.current = false;
+      setSelectedPages(new Set());
     }
-    if (!stoppedBecauseOfQuota) {
-      toast.success("Batch processing complete!");
-    }
-    setSelectedPages(new Set());
   };
 
   const getBoxStyle = (boxInput: any, imgWidth: number, imgHeight: number) => {
@@ -5561,60 +5591,17 @@ ${navItems}    </ol>
                     value={activeSplitModel}
                     onValueChange={(val) => handleSelectSplitModel(val as YoloModelId)}
                   >
-                    <SelectTrigger className="h-6 text-[11px] font-semibold cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[50px] text-muted-foreground hover:text-foreground">
-                      <span className="flex items-center gap-1 font-bold text-foreground">
-                        {SPLIT_MODELS[activeSplitModel]?.label || activeSplitModel}
-                        {SPLIT_MODELS[activeSplitModel]?.isPro && (
-                          <span className="text-[7px] font-extrabold uppercase px-1 py-0.2 rounded-xs bg-amber-500/20 text-amber-500">
-                            PRO
-                          </span>
-                        )}
+                    <SelectTrigger className="h-6 text-[11px] font-semibold cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[46px] text-muted-foreground hover:text-foreground">
+                      <span className="font-bold text-foreground">
+                        {SPLIT_MODELS[activeSplitModel]?.label || (activeSplitModel === 'dpt' ? 'small' : 'nano')}
                       </span>
                     </SelectTrigger>
-                    <SelectContent align="end" className="w-[300px]">
-                      {(['dp', 'dpt'] as YoloModelId[]).map((modelId) => {
-                        const modelInfo = SPLIT_MODELS[modelId];
-                        const isCached = modelCacheStatus[modelId];
-                        const isDownloading = isDownloadingSplitModel === modelId;
-                        const isSelected = activeSplitModel === modelId;
-
-                        return (
-                          <SelectItem key={modelId} value={modelId} className="text-xs py-2 cursor-pointer">
-                            <div className="flex flex-col w-full gap-1">
-                              <div className="flex items-center justify-between w-full gap-2">
-                                <span className="font-bold flex items-center gap-1.5">
-                                  {modelInfo.label}
-                                  {modelInfo.isPro ? (
-                                    <span className="text-[8px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-1 py-0.2 rounded-xs uppercase">
-                                      Pro Model
-                                    </span>
-                                  ) : (
-                                    <span className="text-[8px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded-xs uppercase">
-                                      Active
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="text-[10px]">
-                                  {isDownloading ? (
-                                    <span className="flex items-center gap-0.5 text-amber-500 font-bold">
-                                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> DL
-                                    </span>
-                                  ) : isCached ? (
-                                    <span className="text-emerald-500 font-medium">Cached ✓</span>
-                                  ) : modelInfo.isPro ? (
-                                    <span className="text-muted-foreground text-[10px]">Future Model</span>
-                                  ) : (
-                                    <span className="text-muted-foreground">{modelInfo.sizeFormatted}</span>
-                                  )}
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground leading-tight font-mono">
-                                {modelInfo.specs}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
+                    <SelectContent align="end" className="w-28 min-w-[90px]">
+                      {(['dp', 'dpt'] as YoloModelId[]).map((modelId) => (
+                        <SelectItem key={modelId} value={modelId} className="text-xs py-1.5 cursor-pointer font-medium">
+                          {modelId === 'dp' ? 'nano' : 'small'}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

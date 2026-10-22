@@ -110,8 +110,6 @@ export interface Env {
   VITE_SUPABASE_ANON_KEY?: string;
   API_URL?: string;
   VITE_API_URL?: string;
-  ULTRALYTICS_API_KEY?: string;
-  VITE_ULTRALYTICS_API_KEY?: string;
   YOLO_API_KEY?: string;
 }
 
@@ -121,12 +119,6 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, X-Requested-With, Accept, Origin, x-r2-access-key, x-r2-secret-key, x-r2-bucket, x-r2-endpoint, apikey, x-yolo-url, x-yolo-key, x-yolo-panel-class, x-yolo-text-class, x-yolo-text-only",
 };
-
-const DEFAULT_PREDICT_URLS = [
-  "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
-  "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
-  "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
-];
 
 function getImageDimensions(buffer: Uint8Array): { width: number; height: number } {
   // Check PNG
@@ -182,7 +174,7 @@ function getImageDimensions(buffer: Uint8Array): { width: number; height: number
   return { width: 1000, height: 1000 };
 }
 
-async function executeUltralyticsYolo(
+async function executeRemoteYolo(
   imgBuffer: Uint8Array,
   options: {
     yoloUrl?: string;
@@ -195,7 +187,9 @@ async function executeUltralyticsYolo(
     imgsz?: string;
   }
 ) {
-  const apiKey = options.yoloKey || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
+  if (!options.yoloUrl) return null;
+
+  const apiKey = options.yoloKey;
   const conf = options.conf || "0.15";
   const iou = options.iou || "0.45";
   const imgsz = options.imgsz || "1280";
@@ -207,7 +201,7 @@ async function executeUltralyticsYolo(
   let origW = dims.width;
   let origH = dims.height;
 
-  const targetUrls = options.yoloUrl ? [options.yoloUrl] : DEFAULT_PREDICT_URLS;
+  const targetUrls = [options.yoloUrl];
 
   for (const targetUrl of targetUrls) {
     try {
@@ -257,7 +251,7 @@ async function executeUltralyticsYolo(
         continue;
       }
 
-      // Check if shape was provided by Ultralytics
+      // Check if shape was provided by YOLO model
       if (data.images?.[0]?.shape && Array.isArray(data.images[0].shape) && data.images[0].shape.length >= 2) {
         origH = data.images[0].shape[0] || origH;
         origW = data.images[0].shape[1] || origW;
@@ -1001,7 +995,8 @@ export default {
     }
 
     // ─────────────────────────────────────────────
-    // Route: GET /Models/*, /api/Models/*, /api/models/*, /models/* (Split Models on R2 or static assets)
+    // ─────────────────────────────────────────────
+    // Route: GET /Models/*, /api/Models/*, /api/models/*, /models/* (ONNX & OCR Models on R2)
     // ─────────────────────────────────────────────
     if (
       (url.pathname.startsWith("/Models/") ||
@@ -1012,19 +1007,14 @@ export default {
     ) {
       try {
         const filename = url.pathname.split("/").pop();
-        if (filename && (filename.endsWith(".tflite") || filename.endsWith(".bin") || filename.endsWith(".json"))) {
-          const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
-          const bNum = batchMatch ? batchMatch[1] : "1";
-
+        if (filename && !filename.includes("..")) {
           const r2 = getR2Bucket(env);
           if (r2) {
             const candidateKeys = [
               `Models/${filename}`,
               `models/${filename}`,
-              `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-              `models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-              `Models/panel-batch${bNum}.tflite`,
-              `models/panel-batch${bNum}.tflite`
+              `wasm/onnx/${filename}`,
+              filename
             ];
 
             for (const key of candidateKeys) {
@@ -1032,36 +1022,21 @@ export default {
               if (obj) {
                 const headers = new Headers(corsHeaders);
                 obj.writeHttpMetadata(headers);
-                headers.set("Content-Type", "application/octet-stream");
+                if (filename.endsWith(".wasm")) {
+                  headers.set("Content-Type", "application/wasm");
+                } else if (filename.endsWith(".mjs") || filename.endsWith(".js")) {
+                  headers.set("Content-Type", "application/javascript");
+                } else if (filename.endsWith(".json")) {
+                  headers.set("Content-Type", "application/json");
+                } else if (filename.endsWith(".txt")) {
+                  headers.set("Content-Type", "text/plain");
+                } else {
+                  headers.set("Content-Type", "application/octet-stream");
+                }
                 headers.set("Cache-Control", "public, max-age=31536000, immutable");
+                headers.set("Cross-Origin-Resource-Policy", "cross-origin");
                 return new Response(obj.body, { headers });
               }
-            }
-          }
-
-          // Fallback: Serve model bundled in static assets (dist/models)
-          if (env.ASSETS) {
-            const candidateAssetPaths = [
-              `/models/panel-batch${bNum}.tflite`,
-              `/models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-              `/models/${filename}`,
-              `/Models/panel-batch${bNum}.tflite`,
-              `/Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-              `/Models/${filename}`
-            ];
-
-            for (const aPath of candidateAssetPaths) {
-              try {
-                const assetReq = new Request(new URL(aPath, url.origin).toString());
-                const assetRes = await env.ASSETS.fetch(assetReq);
-                const cType = assetRes.headers.get("content-type") || "";
-                if (assetRes.ok && !cType.includes("text/html")) {
-                  const headers = new Headers(corsHeaders);
-                  headers.set("Content-Type", "application/octet-stream");
-                  headers.set("Cache-Control", "public, max-age=31536000, immutable");
-                  return new Response(assetRes.body, { status: 200, headers });
-                }
-              } catch (_) {}
             }
           }
         }
@@ -1071,11 +1046,41 @@ export default {
     }
 
     // ─────────────────────────────────────────────
-    // Route: GET /wasm/* (LiteRT WASM & JS runtime files with explicit MIME types)
+    // Route: GET /wasm/* (Serve ORT WASM runtime files streamed directly from R2)
     // ─────────────────────────────────────────────
     if (url.pathname.startsWith("/wasm/") && request.method === "GET") {
-      if (env.ASSETS) {
-        try {
+      try {
+        const subPath = url.pathname.replace(/^\/wasm\//, "");
+        const filename = subPath.split("/").pop() || "";
+        const r2 = getR2Bucket(env);
+        if (r2) {
+          const candidateKeys = [
+            `wasm/${subPath}`,
+            `wasm/onnx/${filename}`,
+            `Models/${filename}`,
+            `models/${filename}`,
+            filename
+          ];
+
+          for (const key of candidateKeys) {
+            const obj = await r2.get(key);
+            if (obj) {
+              const headers = new Headers(corsHeaders);
+              obj.writeHttpMetadata(headers);
+              if (url.pathname.endsWith(".wasm")) {
+                headers.set("Content-Type", "application/wasm");
+              } else if (url.pathname.endsWith(".mjs") || url.pathname.endsWith(".js")) {
+                headers.set("Content-Type", "application/javascript");
+              }
+              headers.set("Cache-Control", "public, max-age=31536000, immutable");
+              headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+              return new Response(obj.body, { headers });
+            }
+          }
+        }
+
+        // Secondary fallback to static assets if present
+        if (env.ASSETS) {
           const assetRes = await env.ASSETS.fetch(request);
           if (assetRes.ok) {
             const headers = new Headers(assetRes.headers);
@@ -1084,15 +1089,16 @@ export default {
             }
             if (url.pathname.endsWith(".wasm")) {
               headers.set("Content-Type", "application/wasm");
-            } else if (url.pathname.endsWith(".js")) {
+            } else if (url.pathname.endsWith(".js") || url.pathname.endsWith(".mjs")) {
               headers.set("Content-Type", "application/javascript");
             }
             headers.set("Cache-Control", "public, max-age=31536000, immutable");
+            headers.set("Cross-Origin-Resource-Policy", "cross-origin");
             return new Response(assetRes.body, { status: assetRes.status, headers });
           }
-        } catch (wasmErr: any) {
-          console.warn("[Worker WASM] fetch notice:", wasmErr.message);
         }
+      } catch (wasmErr: any) {
+        console.warn("[Worker WASM R2] fetch notice:", wasmErr.message);
       }
     }
 
@@ -1819,12 +1825,23 @@ export default {
         }
 
         const yoloUrl = (request.headers.get("x-yolo-url") || body.yoloUrl || "").trim() || undefined;
-        const yoloKey = (request.headers.get("x-yolo-key") || body.yoloKey || env.ULTRALYTICS_API_KEY || env.VITE_ULTRALYTICS_API_KEY || env.YOLO_API_KEY || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b").trim();
+        if (!yoloUrl) {
+          return jsonResponse({
+            success: false,
+            fallback: true,
+            message: "In-browser YOLO model is used. External prediction API is disabled.",
+            panels: [],
+            texts: [],
+            boxes: []
+          }, 200);
+        }
+
+        const yoloKey = (request.headers.get("x-yolo-key") || body.yoloKey || "").trim() || undefined;
         const textOnly = request.headers.get("x-yolo-text-only") === "true" || !!body.textOnly;
         const panelClass = request.headers.get("x-yolo-panel-class") ? parseInt(request.headers.get("x-yolo-panel-class")!, 10) : (body.panelClass ?? 0);
         const textClass = request.headers.get("x-yolo-text-class") ? parseInt(request.headers.get("x-yolo-text-class")!, 10) : (body.textClass ?? 1);
 
-        const result = await executeUltralyticsYolo(imgBuffer, {
+        const result = await executeRemoteYolo(imgBuffer, {
           yoloUrl,
           yoloKey,
           textOnly,
@@ -1847,12 +1864,12 @@ export default {
           });
         }
 
-        // If YOLO endpoints failed, return clean graceful fallback JSON
-        console.warn("[Cloudflare Worker YOLO] All Ultralytics inference endpoints failed or were unreachable");
+        // If custom YOLO endpoint failed, return clean graceful fallback JSON
+        console.warn("[Cloudflare Worker YOLO] Custom YOLO inference endpoint unreachable or failed");
         return jsonResponse({
           success: false,
           fallback: true,
-          error: "Ultralytics inference endpoints unreachable or failed",
+          error: "Custom YOLO inference endpoint unreachable or failed",
           panels: [],
           texts: [],
           boxes: []

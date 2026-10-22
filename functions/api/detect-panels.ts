@@ -7,11 +7,6 @@ const corsHeaders: Record<string, string> = {
     "Content-Type, Authorization, X-Requested-With, Accept, Origin, x-r2-access-key, x-r2-secret-key, x-r2-bucket, x-r2-endpoint, apikey, x-yolo-url, x-yolo-key, x-yolo-panel-class, x-yolo-text-class, x-yolo-text-only",
 };
 
-const DEFAULT_PREDICT_URLS = [
-  "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
-  "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
-  "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
-];
 
 function getImageDimensions(buffer: Uint8Array): { width: number; height: number } {
   if (buffer.length >= 24 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
@@ -136,7 +131,21 @@ export const onRequestPost = async (context: any) => {
     }
 
     const yoloUrl = (request.headers.get("x-yolo-url") || body.yoloUrl || "").trim() || undefined;
-    const yoloKey = (request.headers.get("x-yolo-key") || body.yoloKey || env.ULTRALYTICS_API_KEY || env.VITE_ULTRALYTICS_API_KEY || env.YOLO_API_KEY || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b").trim();
+    if (!yoloUrl) {
+      return new Response(JSON.stringify({
+        success: false,
+        fallback: true,
+        message: "In-browser YOLO model is used. External prediction API is disabled.",
+        panels: [],
+        texts: [],
+        boxes: [],
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const yoloKey = (request.headers.get("x-yolo-key") || body.yoloKey || "").trim() || undefined;
     const textOnly = request.headers.get("x-yolo-text-only") === "true" || !!body.textOnly;
     const panelClass = request.headers.get("x-yolo-panel-class") ? parseInt(request.headers.get("x-yolo-panel-class")!, 10) : (body.panelClass ?? 0);
     const textClass = request.headers.get("x-yolo-text-class") ? parseInt(request.headers.get("x-yolo-text-class")!, 10) : (body.textClass ?? 1);
@@ -147,7 +156,7 @@ export const onRequestPost = async (context: any) => {
     const dims = getImageDimensions(imgBuffer);
     let origW = dims.width;
     let origH = dims.height;
-    const targetUrls = yoloUrl ? [yoloUrl] : DEFAULT_PREDICT_URLS;
+    const targetUrls = [yoloUrl];
 
     for (const targetUrl of targetUrls) {
       try {
@@ -272,7 +281,7 @@ export const onRequestPost = async (context: any) => {
     return new Response(JSON.stringify({
       success: false,
       fallback: true,
-      error: "Ultralytics YOLO inference endpoints unreachable",
+      error: "YOLO inference endpoint unreachable",
       panels: [],
       texts: [],
       boxes: [],

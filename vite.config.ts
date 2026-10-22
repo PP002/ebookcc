@@ -5,7 +5,21 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(({mode}) => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'no-bundle-wasm',
+        generateBundle(_, bundle) {
+          for (const fileName in bundle) {
+            if (fileName.endsWith('.wasm')) {
+              console.log(`[Vite no-bundle-wasm] Stripping ${fileName} from static assets bundle (hosted on R2)`);
+              delete bundle[fileName];
+            }
+          }
+        }
+      }
+    ],
     resolve: {
       alias: {
         '@': path.resolve(process.cwd(), './src'),

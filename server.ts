@@ -91,7 +91,7 @@ function normalizeBlockText(text: string): string {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors({
     origin: '*',
@@ -100,30 +100,55 @@ async function startServer() {
   }));
 
   // Ensure wasm and wasm helper modules have explicit correct MIME types and Cross-Origin-Resource-Policy
-  const publicWasmDir = path.join(process.cwd(), 'public', 'wasm');
-  if (fs.existsSync(publicWasmDir)) {
-    app.use('/wasm', express.static(publicWasmDir, {
-      setHeaders: (res, filepath) => {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        if (filepath.endsWith('.wasm')) {
-          res.setHeader('Content-Type', 'application/wasm');
-        } else if (filepath.endsWith('.js') || filepath.endsWith('.mjs')) {
-          res.setHeader('Content-Type', 'application/javascript');
+  // Stream directly from Cloudflare R2 (or local cache)
+  app.get(['/wasm/*', '/wasm/onnx/*'], async (req, res, next): Promise<any> => {
+    try {
+      const filename = path.basename(req.path);
+      if (!filename || (!filename.endsWith('.wasm') && !filename.endsWith('.mjs') && !filename.endsWith('.js'))) {
+        return next();
+      }
+
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      if (filename.endsWith('.wasm')) {
+        res.setHeader('Content-Type', 'application/wasm');
+      } else if (filename.endsWith('.js') || filename.endsWith('.mjs')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      }
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
+      const { s3, bucket, isConfigured } = getR2ClientAndBucket(req);
+      if (isConfigured && s3) {
+        const candidateKeys = [
+          `wasm/onnx/${filename}`,
+          `Models/${filename}`,
+          `wasm/${filename}`,
+          filename
+        ];
+        for (const candidateKey of candidateKeys) {
+          try {
+            const s3Obj = await s3.send(new GetObjectCommand({
+              Bucket: bucket,
+              Key: candidateKey
+            }));
+            if (s3Obj.Body) {
+              const byteArray = await s3Obj.Body.transformToByteArray();
+              return res.send(Buffer.from(byteArray));
+            }
+          } catch (_) {}
         }
       }
-    }));
-  }
 
-  app.use('/wasm', (req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    if (req.path.endsWith('.wasm')) {
-      res.setHeader('Content-Type', 'application/wasm');
-    } else if (req.path.endsWith('.js') || req.path.endsWith('.mjs')) {
-      res.setHeader('Content-Type', 'application/javascript');
+      const localPublicPath = path.join(process.cwd(), 'public', 'wasm', filename);
+      if (fs.existsSync(localPublicPath)) {
+        return res.sendFile(localPublicPath);
+      }
+
+      return next();
+    } catch (e: any) {
+      console.warn('[Server WASM R2 notice]:', e.message);
+      return next();
     }
-    next();
   });
 
   // Proxy to Supabase removed for direct connection
@@ -1097,10 +1122,10 @@ async function startServer() {
   });
 
   // Route 2.5: Serve LiteRT panel detection models hosted on Cloudflare R2 (R2/models/) or local cache
-  app.get(["/api/models/:filename", "/models/:filename"], async (req, res): Promise<any> => {
+  app.get(["/api/models/:filename", "/models/:filename", "/Models/:filename", "/api/Models/:filename"], async (req, res): Promise<any> => {
     try {
       const filename = path.basename(req.params.filename);
-      if (!filename || (!filename.endsWith(".tflite") && !filename.endsWith(".bin") && !filename.endsWith(".json"))) {
+      if (!filename || filename.includes("..")) {
         return res.status(400).send("Invalid model filename");
       }
 
@@ -1110,19 +1135,10 @@ async function startServer() {
       if (isConfigured && s3) {
         const candidateKeys = [
           `Models/${filename}`,
-          `models/${filename}`
+          `models/${filename}`,
+          `wasm/onnx/${filename}`,
+          filename
         ];
-
-        const batchMatch = filename.match(/batch(\d+)/i) || filename.match(/batch=(\d+)/i);
-        if (batchMatch) {
-          const bNum = batchMatch[1];
-          candidateKeys.push(
-            `Models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-            `models/imagez=640-quantize=w8a32-batch=${bNum}.tflite`,
-            `Models/panel-batch${bNum}.tflite`,
-            `models/panel-batch${bNum}.tflite`
-          );
-        }
 
         for (const candidateKey of candidateKeys) {
           try {
@@ -1131,9 +1147,20 @@ async function startServer() {
               Key: candidateKey
             }));
             if (s3Obj.Body) {
-              res.setHeader("Content-Type", "application/octet-stream");
+              if (filename.endsWith(".wasm")) {
+                res.setHeader("Content-Type", "application/wasm");
+              } else if (filename.endsWith(".mjs") || filename.endsWith(".js")) {
+                res.setHeader("Content-Type", "application/javascript");
+              } else if (filename.endsWith(".json")) {
+                res.setHeader("Content-Type", "application/json");
+              } else if (filename.endsWith(".txt")) {
+                res.setHeader("Content-Type", "text/plain");
+              } else {
+                res.setHeader("Content-Type", "application/octet-stream");
+              }
               res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
               res.setHeader("Access-Control-Allow-Origin", "*");
+              res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
               const byteArray = await s3Obj.Body.transformToByteArray();
               return res.send(Buffer.from(byteArray));
             }
@@ -1845,16 +1872,21 @@ async function startServer() {
     }
   });
 
-  const DEFAULT_PREDICT_URLS = [
-    "https://predict-6a94f60a162b7aab56911582-dproatj77a-du.a.run.app/predict",
-    "https://predict-6a94f5d7162b7aab56911580-dproatj77a-vp.a.run.app/predict",
-    "https://predict-6a94f57e162b7aab5691157e-dproatj77a-ew.a.run.app/predict"
-  ];
-
   async function handleYoloInference(req: express.Request, res: express.Response) {
     try {
       const yoloUrl = (req.headers["x-yolo-url"] as string) || req.body?.yoloUrl;
-      const yoloKey = (req.headers["x-yolo-key"] as string) || req.body?.yoloKey || process.env.ULTRALYTICS_API_KEY || "ul_2c576727830ac3f6a98acfb1b82e5c3fb7b4899b";
+      if (!yoloUrl) {
+        return res.json({
+          success: false,
+          fallback: true,
+          message: "In-browser YOLO model is used. External prediction API is disabled.",
+          panels: [],
+          texts: [],
+          boxes: []
+        });
+      }
+
+      const yoloKey = (req.headers["x-yolo-key"] as string) || req.body?.yoloKey;
       const yoloTextOnly = req.headers["x-yolo-text-only"] === "true" || !!req.body?.textOnly;
       const yoloPanelClass = parseInt((req.headers["x-yolo-panel-class"] as string) || req.body?.panelClass || "0", 10);
       const yoloTextClass = parseInt((req.headers["x-yolo-text-class"] as string) || req.body?.textClass || "1", 10);
@@ -1871,7 +1903,7 @@ async function startServer() {
         return res.status(400).json({ error: e.message });
       }
 
-      const urlsToTry = yoloUrl ? [yoloUrl] : DEFAULT_PREDICT_URLS;
+      const urlsToTry = [yoloUrl];
 
       for (const targetUrl of urlsToTry) {
         try {
@@ -3464,6 +3496,14 @@ STRICT INSTRUCTIONS:
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  if (PORT !== 3000) {
+    try {
+      app.listen(3000, "0.0.0.0", () => {
+        console.log(`Server also running on http://localhost:3000`);
+      });
+    } catch (_) {}
+  }
 }
 
 startServer();

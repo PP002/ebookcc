@@ -68,7 +68,7 @@ import {
   retryStartupModelDownload,
   StartupPreloadState,
   getStartupPreloadState
-} from "./lib/litertModelManager";
+} from "./lib/yoloModelManager";
 
 function GoogleAuthProviderWrapper({ children }: { children: ReactNode }) {
   const { googleClientId } = useAppSettings();
@@ -175,7 +175,7 @@ function AppContent() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // App startup — always, unconditionally:
-  // On app load, immediately start downloading panel-batch1.tflite in the background using Cache Storage API.
+  // On app load, immediately start downloading dp.onnx in the background using Cache Storage API.
   // Do not wait for it to complete before rendering UI.
   const [preloadState, setPreloadState] = useState<StartupPreloadState>(() => getStartupPreloadState());
 
@@ -281,7 +281,7 @@ function AppContent() {
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground selection:bg-primary/30 flex flex-col">
-      {/* LiteRT Startup Model Preload Status Banner */}
+      {/* YOLO ONNX Startup Model Preload Status Banner */}
       {preloadState.hasError && (
         <div className="w-full bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-center text-xs font-semibold text-amber-900 dark:text-amber-200 flex items-center justify-center gap-3 z-[110] relative">
           <span>{preloadState.errorMessage || "Detection unavailable — please check your connection and reload."}</span>

@@ -117,10 +117,12 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'above' | 'below' | null>(null);
   const [isSliderActive, setIsSliderActive] = useState(false);
+  const isSliderActiveRef = useRef(false);
 
   // Reset slider active state on pointer/mouse/touch release
   useEffect(() => {
     const handleGlobalRelease = () => {
+      isSliderActiveRef.current = false;
       setIsSliderActive(false);
     };
     window.addEventListener('pointerup', handleGlobalRelease);
@@ -253,7 +255,7 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
 
   // HTML5 Drag Handlers
   const handleDragStart = (e: React.DragEvent, layerId: string) => {
-    if (isSliderActive) {
+    if (isSliderActive || isSliderActiveRef.current) {
       e.preventDefault();
       return;
     }
@@ -262,6 +264,7 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
       target?.closest('input') ||
       target?.closest('button') ||
       target?.closest('[data-no-drag]') ||
+      target?.closest('.opacity-slider-container') ||
       target?.tagName === 'INPUT' ||
       target?.tagName === 'BUTTON'
     ) {
@@ -517,18 +520,27 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                     data-no-drag="true"
                     draggable={false}
                     className="flex items-center gap-1 shrink-0 ml-1 opacity-slider-container"
-                    onMouseEnter={() => setIsSliderActive(true)}
-                    onMouseLeave={() => setIsSliderActive(false)}
+                    onMouseEnter={() => {
+                      isSliderActiveRef.current = true;
+                      setIsSliderActive(true);
+                    }}
+                    onMouseLeave={() => {
+                      isSliderActiveRef.current = false;
+                      setIsSliderActive(false);
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onMouseDownCapture={(e) => {
+                      isSliderActiveRef.current = true;
                       setIsSliderActive(true);
                       e.stopPropagation();
                     }}
                     onPointerDownCapture={(e) => {
+                      isSliderActiveRef.current = true;
                       setIsSliderActive(true);
                       e.stopPropagation();
                     }}
                     onTouchStartCapture={(e) => {
+                      isSliderActiveRef.current = true;
                       setIsSliderActive(true);
                       e.stopPropagation();
                     }}
@@ -551,14 +563,17 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                         onUpdateGroup(group.id, { opacity: parseFloat(e.target.value) });
                       }}
                       onMouseDownCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
                       onPointerDownCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
                       onTouchStartCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
@@ -567,7 +582,7 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                         e.preventDefault();
                         e.stopPropagation();
                       }}
-                      className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-amber-500"
+                      className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-amber-500 pointer-events-auto"
                       title={`Group Opacity: ${Math.round(groupOpacity * 100)}%`}
                     />
                     <span className="text-[9px] font-mono text-muted-foreground w-6 text-right select-none pointer-events-none">
@@ -580,12 +595,42 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
               {/* Layer Row (STRICT: Never displayed when the parent group is folded/collapsed) */}
               {!isGroupCollapsed && (
                 <div
-                  draggable={!isBg && !isSliderActive}
+                  draggable={!isBg && !isSliderActive && !isSliderActiveRef.current}
                   onDragStart={(e) => handleDragStart(e, layer.id)}
                   onDragOver={(e) => handleDragOver(e, layer.id)}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, layer.id)}
                   onDragEnd={handleDragEnd}
+                  onPointerDownCapture={(e) => {
+                    const isSlider = Boolean(
+                      (e.target as HTMLElement)?.closest('.opacity-slider-container') ||
+                      (e.target as HTMLElement)?.closest('input')
+                    );
+                    if (isSlider) {
+                      isSliderActiveRef.current = true;
+                      setIsSliderActive(true);
+                    }
+                  }}
+                  onMouseDownCapture={(e) => {
+                    const isSlider = Boolean(
+                      (e.target as HTMLElement)?.closest('.opacity-slider-container') ||
+                      (e.target as HTMLElement)?.closest('input')
+                    );
+                    if (isSlider) {
+                      isSliderActiveRef.current = true;
+                      setIsSliderActive(true);
+                    }
+                  }}
+                  onTouchStartCapture={(e) => {
+                    const isSlider = Boolean(
+                      (e.target as HTMLElement)?.closest('.opacity-slider-container') ||
+                      (e.target as HTMLElement)?.closest('input')
+                    );
+                    if (isSlider) {
+                      isSliderActiveRef.current = true;
+                      setIsSliderActive(true);
+                    }
+                  }}
                   className={cn(
                     'group relative flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs transition-all cursor-pointer border select-none',
                     isGrouped && 'ml-4 border-l-2 border-l-amber-500/50',
@@ -709,18 +754,27 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                       data-no-drag="true"
                       draggable={false}
                       className="flex items-center gap-1 shrink-0 ml-auto mr-1 opacity-slider-container"
-                      onMouseEnter={() => setIsSliderActive(true)}
-                      onMouseLeave={() => setIsSliderActive(false)}
+                      onMouseEnter={() => {
+                        isSliderActiveRef.current = true;
+                        setIsSliderActive(true);
+                      }}
+                      onMouseLeave={() => {
+                        isSliderActiveRef.current = false;
+                        setIsSliderActive(false);
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       onMouseDownCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
                       onPointerDownCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
                       onTouchStartCapture={(e) => {
+                        isSliderActiveRef.current = true;
                         setIsSliderActive(true);
                         e.stopPropagation();
                       }}
@@ -743,14 +797,17 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                           onUpdateLayer(layer.id, { opacity: parseFloat(e.target.value) });
                         }}
                         onMouseDownCapture={(e) => {
+                          isSliderActiveRef.current = true;
                           setIsSliderActive(true);
                           e.stopPropagation();
                         }}
                         onPointerDownCapture={(e) => {
+                          isSliderActiveRef.current = true;
                           setIsSliderActive(true);
                           e.stopPropagation();
                         }}
                         onTouchStartCapture={(e) => {
+                          isSliderActiveRef.current = true;
                           setIsSliderActive(true);
                           e.stopPropagation();
                         }}
@@ -759,7 +816,7 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                           e.preventDefault();
                           e.stopPropagation();
                         }}
-                        className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-primary"
+                        className="w-12 h-1 bg-muted-foreground/30 rounded appearance-none cursor-pointer accent-primary pointer-events-auto"
                         title={`Opacity: ${Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}%`}
                       />
                       <span className="text-[9px] font-mono text-muted-foreground w-6 text-right select-none pointer-events-none">

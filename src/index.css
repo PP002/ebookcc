@@ -250,6 +250,9 @@ html.dark .prose *:not(img):not(svg):not(path):not(button):not(input):not(audio)
   }
 }
 
-
-
-
+/* Hide text of buttons on mobile devices no matter landscape or portrait */
+@media (pointer: coarse), (max-width: 768px), (max-height: 550px) {
+  .comic-btn-text {
+    display: none !important;
+  }
+}

@@ -118,8 +118,7 @@ import {
   detectCornersAndProtrusions,
 } from "./comic/bubbleContour";
 import { ShapeAwareTextLayout } from "./comic/ShapeAwareTextLayout";
-
-
+import { useIsMobileDevice } from "@/lib/isMobile";
 interface CreateProps {
   setActiveView: (view: "home" | "read" | "create" | "convert") => void;
   onActiveStateChange?: (active: boolean) => void;
@@ -996,6 +995,7 @@ interface InteractiveBubbleProps {
   onUpdateText: (text: string) => void;
   removeBubble: () => void;
   onActivate?: () => void;
+  scale?: number;
 }
 
 const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
@@ -1005,13 +1005,21 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
   onUpdateText,
   removeBubble,
   onActivate,
+  scale = 1,
 }) => {
   const { t } = useLanguage();
-  const [dimensions, setDimensions] = useState({ w: 120, h: 60 });
+  const scaleRatio = Math.max(0.4, Math.min(2.5, scale));
+  const baseFontSize = bubble.style === "action" ? 13 : 12;
+  const activeFontSize = Math.max(7, Math.round(baseFontSize * scaleRatio));
+  const minW = Math.max(45, Math.round((bubble.style === "freehand" ? 130 : 120) * scaleRatio));
+  const minH = Math.max(25, Math.round((bubble.style === "freehand" ? 65 : 55) * scaleRatio));
+  const maxW = Math.max(100, Math.round(240 * scaleRatio));
+
+  const [dimensions, setDimensions] = useState({ w: minW, h: minH });
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Measure dimensions when text changes or on mount
+  // Measure dimensions when text changes, scale changes, or on mount
   useEffect(() => {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -1023,9 +1031,9 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         );
       }
     }
-  }, [bubble.text]);
+  }, [bubble.text, scaleRatio]);
 
-  // Use a ResizeObserver for real-time measurements (as the user types)
+  // Use a ResizeObserver for real-time measurements (as the user types or scale changes)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -1049,14 +1057,16 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [scaleRatio]);
 
-  const W = Math.max(bubble.style === "freehand" ? 130 : 120, dimensions.w);
-  const H = Math.max(bubble.style === "freehand" ? 65 : 55, dimensions.h);
+  const W = Math.max(minW, dimensions.w);
+  const H = Math.max(minH, dimensions.h);
 
-  // Initialize tail if not set
-  const tailX = bubble.tailX !== undefined ? bubble.tailX : (bubble.style === "freehand" ? 15 : W * 0.15);
-  const tailY = bubble.tailY !== undefined ? bubble.tailY : (bubble.style === "freehand" ? 120 : H + 35);
+  // Initialize tail with resolution scaling
+  const defaultTailX = bubble.style === "freehand" ? 15 : W * 0.15;
+  const defaultTailY = bubble.style === "freehand" ? 120 : H + 35 * scaleRatio;
+  const tailX = bubble.tailX !== undefined ? (bubble.style === "freehand" ? bubble.tailX : bubble.tailX * scaleRatio) : defaultTailX;
+  const tailY = bubble.tailY !== undefined ? (bubble.style === "freehand" ? bubble.tailY : bubble.tailY * scaleRatio) : defaultTailY;
 
   // Generate SVG path based on style
   let dPath = "";
@@ -1348,7 +1358,7 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
           d={dPath}
           fill="#ffffff"
           stroke="#000000"
-          strokeWidth={bubble.style === "freehand" ? 2.5 : 1.5}
+          strokeWidth={Math.max(1, (bubble.style === "freehand" ? 2.5 : 1.5) * scaleRatio)}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -1361,10 +1371,10 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
           polygon={bubblePolygon}
           width={W}
           height={H}
-          fontSize={bubble.style === "action" ? 13 : 12}
+          fontSize={activeFontSize}
           fontWeight={bubble.style === "action" ? "800" : "600"}
           fontStyle={bubble.style === "freehand" ? "italic" : "normal"}
-          margin={bubble.style === "action" ? 3 : (bubble.style === "freehand" ? 3 : 2)}
+          margin={Math.max(1, Math.round((bubble.style === "action" ? 3 : (bubble.style === "freehand" ? 3 : 2)) * scaleRatio))}
           color="#000000"
         />
       )}
@@ -1417,14 +1427,20 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
         onKeyDown={(e) => {
           e.stopPropagation();
         }}
-        className={`text-xs break-words text-center min-w-[100px] max-w-[240px] whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
+        style={{
+          fontSize: `${activeFontSize}px`,
+          minWidth: `${minW}px`,
+          maxWidth: `${maxW}px`,
+          padding: `${Math.max(2, Math.round(4 * scaleRatio))}px ${Math.max(4, Math.round(8 * scaleRatio))}px`,
+        }}
+        className={`break-words text-center whitespace-pre-wrap outline-none cursor-text select-text font-semibold ${
           !isEditing ? "opacity-0" : "opacity-100"
         } ${
           bubble.style === "action"
-            ? "font-extrabold uppercase text-black py-1.5 px-3"
+            ? "font-extrabold uppercase text-black"
             : bubble.style === "freehand"
-            ? "text-black py-1.5 px-3 italic font-sans leading-tight"
-            : "text-black py-1 px-1.5"
+            ? "text-black italic font-sans leading-tight"
+            : "text-black"
         }`}
       >
         {bubble.text}
@@ -1434,10 +1450,12 @@ const InteractiveBubble: React.FC<InteractiveBubbleProps> = ({
       {isActive && bubble.style !== "freehand" && (
         <div
           onPointerDown={handleTailPointerDown}
-          className="absolute w-4 h-4 bg-red-500 border-2 border-white rounded-full cursor-crosshair z-50 flex items-center justify-center shadow-lg transform -translate-x-1/2 -translate-y-1/2"
+          className="absolute bg-red-500 border-2 border-white rounded-full cursor-crosshair z-50 flex items-center justify-center shadow-lg transform -translate-x-1/2 -translate-y-1/2"
           style={{
             left: `${tailX}px`,
             top: `${tailY}px`,
+            width: `${Math.max(12, Math.round(16 * scaleRatio))}px`,
+            height: `${Math.max(12, Math.round(16 * scaleRatio))}px`,
           }}
           title={t("dragToResizeTail")}
         >
@@ -1828,6 +1846,7 @@ export const Create: React.FC<CreateProps> = ({
 }) => {
   const { t, formatDate } = useLanguage();
   const { llmEngine, geminiApiKey, user, setShowAuthDialog } = useAppSettings();
+  const isMobileDevice = useIsMobileDevice();
   const [showPublishAuthHint, setShowPublishAuthHint] = useState(false);
   const [createMode, setCreateMode] = useState<"select" | "comic" | "document">(
     "select",
@@ -4150,59 +4169,6 @@ export const Create: React.FC<CreateProps> = ({
     }
   }, [isComicPanelExpanded]);
 
-  // Full-panel mode immersive fullscreen handling in portrait orientation (similar to READ mode)
-  useEffect(() => {
-    const shouldBeFullscreen = createMode === "comic" && isComicPanelExpanded && isPortrait;
-
-    if (shouldBeFullscreen) {
-      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
-        const el = document.documentElement;
-        if (el.requestFullscreen) {
-          el.requestFullscreen().catch(() => {});
-        } else if ((el as any).webkitRequestFullscreen) {
-          (el as any).webkitRequestFullscreen();
-        }
-      }
-      onFullscreenChange?.(true);
-    } else {
-      if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if ((document as any).webkitExitFullscreen) {
-          (document as any).webkitExitFullscreen();
-        }
-      }
-      onFullscreenChange?.(false);
-    }
-  }, [createMode, isComicPanelExpanded, isPortrait, onFullscreenChange]);
-
-  useEffect(() => {
-    const handleFsChange = () => {
-      const isFs = Boolean(
-        document.fullscreenElement || (document as any).webkitFullscreenElement
-      );
-      if (!isFs) {
-        // If user exited browser fullscreen via gesture / hardware key while in portrait full-panel mode
-        if (isComicPanelExpanded && isPortrait) {
-          setIsComicPanelExpanded(false);
-          setCollapseFullPanelSignal((s) => s + 1);
-        }
-        onFullscreenChange?.(false);
-      } else {
-        if (isComicPanelExpanded && isPortrait) {
-          onFullscreenChange?.(true);
-        }
-      }
-    };
-
-    document.addEventListener("fullscreenchange", handleFsChange);
-    document.addEventListener("webkitfullscreenchange", handleFsChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFsChange);
-      document.removeEventListener("webkitfullscreenchange", handleFsChange);
-    };
-  }, [isComicPanelExpanded, isPortrait, onFullscreenChange]);
-
   const [newBubbleText, setNewBubbleText] = useState("");
   const [bubbleStyle, setBubbleStyle] = useState<
     "classic" | "action" | "freehand"
@@ -4399,6 +4365,31 @@ export const Create: React.FC<CreateProps> = ({
     }
   }, [createMode, storyTitle, currentStoryId, pushStoryDocHistory, getCleanStoryHtml]);
   const comicRef = useRef<HTMLDivElement>(null);
+  const [comicCanvasSize, setComicCanvasSize] = useState({ width: 600, height: 800 });
+
+  useEffect(() => {
+    const el = comicRef.current;
+    if (!el) return;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setComicCanvasSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          setComicCanvasSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+        }
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [createMode, activePageIndex, isComicPanelExpanded]);
+
+  const autoBubbleScale = Math.max(0.5, Math.min(2.2, comicCanvasSize.width / 600));
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -6691,7 +6682,7 @@ ${manifestImages}  </manifest>
           className="gap-2 shrink-0 h-8 text-xs font-semibold"
         >
           <Download className="w-4 h-4" />{" "}
-          <span className="hidden sm:inline">{t("export")}</span>{" "}
+          <span className={cn("hidden", !isMobileDevice && "sm:inline")}>{t("export")}</span>{" "}
           <ChevronDown className="w-3 h-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
@@ -8585,9 +8576,6 @@ ${manifestImages}  </manifest>
                     >
                       {/* Size Header */}
                       <div className="flex flex-col items-center gap-0.5 w-full text-center">
-                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          {t("size") || "Size"}
-                        </span>
                         <span className="text-[11px] font-mono font-bold text-primary">
                           {drawRadius}px
                         </span>
@@ -9082,12 +9070,12 @@ ${manifestImages}  </manifest>
                 {isTextPanelSelectMode ? (
                   <>
                     <span className="w-4 h-4 inline-flex items-center justify-center font-bold text-sm">A</span>{" "}
-                    <span className="hidden sm:inline">Image Panel</span>
+                    <span className={cn("hidden", !isMobileDevice && "sm:inline")}>Image Panel</span>
                   </>
                 ) : (
                   <>
                     <span className="w-4 h-4 inline-flex items-center justify-center font-bold text-sm">T</span>{" "}
-                    <span className="hidden sm:inline">Text Panel</span>
+                    <span className={cn("hidden", !isMobileDevice && "sm:inline")}>Text Panel</span>
                   </>
                 )}
               </Button>
@@ -9104,7 +9092,7 @@ ${manifestImages}  </manifest>
                 title={t("drawModeTooltip") || "Draw Mode (Hotkey: D)"}
               >
                 <PenTool className="w-4 h-4" />{" "}
-                <span className="hidden sm:inline">{t("draw") || "Draw"}</span>
+                <span className={cn("hidden", !isMobileDevice && "sm:inline")}>{t("draw") || "Draw"}</span>
               </Button>
             </div>
 
@@ -9129,7 +9117,7 @@ ${manifestImages}  </manifest>
                 title={t("bubbles") || "Bubbles"}
               >
                 <MessageSquare className="w-3.5 h-3.5" />{" "}
-                <span className="hidden sm:inline">{t("bubbles") || "Bubbles"}</span>
+                <span className={cn("hidden", !isMobileDevice && "sm:inline")}>{t("bubbles") || "Bubbles"}</span>
               </Button>
             </div>
           )}
@@ -9400,6 +9388,7 @@ ${manifestImages}  </manifest>
                             updateBubbleText(b.id, text);
                           }}
                           removeBubble={() => removeBubble(b.id)}
+                          scale={autoBubbleScale}
                           onActivate={() => {
                             setActiveBubbleId(b.id);
                             setNewBubbleText(b.text);
@@ -10059,19 +10048,27 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
 
         {/* Top-Right corner Full Panel toggle button only when draw button is active (hidden when folded) */}
         {isDrawingMode && (
-          <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/canvas:opacity-100 transition-opacity">
-            <Button
-              size="icon"
-              variant="secondary"
+          <div
+            className="absolute top-1.5 right-1.5 z-40 flex items-center gap-1.5 opacity-90 sm:opacity-0 group-hover/canvas:opacity-100 transition-opacity pointer-events-auto"
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 setIsFullPanel(true);
               }}
-              className="w-6 h-6 bg-card/95 border border-border hover:bg-muted text-foreground hover:scale-105 active:scale-95 rounded flex items-center justify-center shadow-xs cursor-pointer"
+              className="w-6 h-6 bg-card/95 border border-border hover:bg-muted text-foreground hover:scale-105 active:scale-95 rounded flex items-center justify-center shadow-xs cursor-pointer pointer-events-auto"
               title="Full panel"
             >
               <Maximize className="w-3.5 h-3.5 stroke-[2.5]" />
-            </Button>
+            </button>
           </div>
         )}
       </div>

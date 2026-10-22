@@ -31,13 +31,13 @@ import {
   detectDeviceCapability,
   DeviceCapability,
   BatchSize,
-  LITE_RT_MODELS,
+  YOLO_MODELS,
   isModelCached,
   getModelBytesFromCacheOrR2,
   getConvertBatchPreference,
   setConvertBatchPreference
-} from '@/lib/litertModelManager';
-import { detectPanelsLiteRT, detectPanelsBatchLiteRT } from '@/lib/litertInference';
+} from '@/lib/yoloModelManager';
+import { detectPanelsYolo, detectPanelsBatchYolo } from '@/lib/yoloInference';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -1391,32 +1391,18 @@ export async function runPredictAPI(
     }
   }
 
-  // 1. Primary: LiteRT panel detection via LiteRT.js using cached model from Cache Storage API
-  let liteRtRan = false;
+  // In-browser YOLO ONNX panel detection via ONNX Runtime Web using cached dp.onnx
   try {
     const batch = preferredBatchSize || getConvertBatchPreference() || 1;
-    const liteResult = await detectPanelsLiteRT(base64Data, { batchSize: batch });
-    liteRtRan = true;
-    if (liteResult) {
+    const yoloResult = await detectPanelsYolo(base64Data, { batchSize: batch });
+    if (yoloResult) {
       return {
-        panels: liteResult.panels || [],
-        texts: liteResult.texts || []
+        panels: yoloResult.panels || [],
+        texts: yoloResult.texts || []
       };
     }
-  } catch (litertErr: any) {
-    console.warn("[LiteRT In-Browser Detection Notice]:", litertErr);
-  }
-
-  // 2. Secondary fallback: backend proxy only if LiteRT failed to execute
-  if (!liteRtRan) {
-    try {
-      const result = await detectLayoutLocalYolo(base64Data, undefined, undefined, false, 0, 1);
-      if (result && (result.panels.length > 0 || result.texts.length > 0)) {
-        return result;
-      }
-    } catch (err: any) {
-      console.warn("Backend proxy detection failed:", err);
-    }
+  } catch (yoloErr: any) {
+    console.warn("[In-Browser YOLO Detection Notice]:", yoloErr);
   }
 
   return { panels: [], texts: [] };
@@ -2924,30 +2910,25 @@ export default function Convert({
       if (!isMounted) return;
       setDeviceCapability(cap);
 
-      const c1 = await isModelCached(LITE_RT_MODELS[1].filename);
-      const c4 = await isModelCached(LITE_RT_MODELS[4].filename);
-      const c8 = await isModelCached(LITE_RT_MODELS[8].filename);
-      const c16 = await isModelCached(LITE_RT_MODELS[16].filename);
-      const c32 = await isModelCached(LITE_RT_MODELS[32].filename);
+      const isCached = await isModelCached("dp.onnx");
       if (!isMounted) return;
-      setBatchCacheStatus({ 1: c1, 4: c4, 8: c8, 16: c16, 32: c32 });
+      setBatchCacheStatus({ 1: isCached, 2: isCached, 4: isCached, 8: isCached, 16: isCached, 32: isCached });
 
       const savedPref = getConvertBatchPreference();
       const targetBatch = savedPref || cap.recommendedBatch;
       setActiveBatchSize(targetBatch);
 
-      const isTargetCached = targetBatch === 32 ? c32 : targetBatch === 16 ? c16 : targetBatch === 8 ? c8 : targetBatch === 4 ? c4 : c1;
-      if (!isTargetCached) {
+      if (!isCached) {
         setIsDownloadingModel(targetBatch);
-        getModelBytesFromCacheOrR2(LITE_RT_MODELS[targetBatch].filename)
+        getModelBytesFromCacheOrR2("dp.onnx")
           .then(() => {
             if (isMounted) {
-              setBatchCacheStatus(prev => ({ ...prev, [targetBatch]: true }));
+              setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
               setIsDownloadingModel(null);
             }
           })
           .catch((err) => {
-            console.warn(`[Convert] Failed to auto-cache model for batch ${targetBatch}:`, err);
+            console.warn("[Convert] Failed to auto-cache dp.onnx:", err);
             if (isMounted) setIsDownloadingModel(null);
           });
       }
@@ -2964,22 +2945,21 @@ export default function Convert({
   const handleSelectBatchSize = async (batch: BatchSize) => {
     setActiveBatchSize(batch);
     setConvertBatchPreference(batch);
-    const modelInfo = LITE_RT_MODELS[batch];
-    const cached = await isModelCached(modelInfo.filename);
+    const cached = await isModelCached("dp.onnx");
     if (!cached) {
       setIsDownloadingModel(batch);
-      toast.info(`Caching ${modelInfo.label} model into browser (~2.8 MB)...`);
+      toast.info(`Caching YOLO ONNX (dp.onnx) model into browser (~9.6 MB)...`);
       try {
-        await getModelBytesFromCacheOrR2(modelInfo.filename);
-        setBatchCacheStatus(prev => ({ ...prev, [batch]: true }));
-        toast.success(`${modelInfo.label} cached! Ready for Split Model inference.`);
+        await getModelBytesFromCacheOrR2("dp.onnx");
+        setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
+        toast.success(`YOLO ONNX cached! Ready for Split Model inference.`);
       } catch (err: any) {
-        toast.error(`Failed to download ${modelInfo.filename}: ${err.message || 'Network error'}`);
+        toast.error(`Failed to download dp.onnx: ${err.message || 'Network error'}`);
       } finally {
         setIsDownloadingModel(null);
       }
     } else {
-      setBatchCacheStatus(prev => ({ ...prev, [batch]: true }));
+      setBatchCacheStatus({ 1: true, 2: true, 4: true, 8: true, 16: true, 32: true });
     }
   };
 
@@ -4431,7 +4411,7 @@ export default function Convert({
           const chunkImages = chunkIdxs.map(idx => pages[idx].originalImage);
 
           try {
-            const batchResults = await detectPanelsBatchLiteRT(chunkImages, { batchSize: activeBatchSize });
+            const batchResults = await detectPanelsBatchYolo(chunkImages, { batchSize: activeBatchSize });
             setPages(prev => prev.map((p, pIdx) => {
               const resIdx = chunkIdxs.indexOf(pIdx);
               if (resIdx !== -1 && batchResults[resIdx]) {
@@ -5566,14 +5546,14 @@ ${navItems}    </ol>
                     onValueChange={(val) => handleSelectBatchSize(Number(val) as BatchSize)}
                   >
                     <SelectTrigger className="h-6 text-[10px] font-medium cursor-pointer !bg-transparent hover:!bg-transparent focus:!bg-transparent data-[state=open]:!bg-transparent border-0 shadow-none px-1 py-0 min-w-[70px] text-muted-foreground">
-                      <span>{LITE_RT_MODELS[activeBatchSize].label}</span>
+                      <span>{YOLO_MODELS[activeBatchSize].label}</span>
                     </SelectTrigger>
                     <SelectContent align="end" className="w-[190px]">
                       {([1, 4, 8, 16, 32] as BatchSize[]).map((batch) => {
                         const isRecommended = deviceCapability?.recommendedBatch === batch;
                         const isCached = batchCacheStatus[batch];
                         const isDownloading = isDownloadingModel === batch;
-                        const modelInfo = LITE_RT_MODELS[batch];
+                        const modelInfo = YOLO_MODELS[batch];
 
                         return (
                           <SelectItem key={batch} value={String(batch)} className="text-xs py-1.5 cursor-pointer">

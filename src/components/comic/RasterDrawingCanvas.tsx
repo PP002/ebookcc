@@ -1904,25 +1904,6 @@ export const RasterDrawingCanvas: React.FC<RasterDrawingCanvasProps> = ({
           </button>
         </div>
       )}
-
-      {/* Live Brush Hover/Drawing Indicator Circle */}
-      {hoverPt && isDrawingMode && (drawTool === 'pen' || drawTool === 'erase' || drawTool === 'fill') && (
-        <div
-          className="pointer-events-none absolute rounded-full border border-black/80 dark:border-white/80 -translate-x-1/2 -translate-y-1/2 z-30 transition-none"
-          style={{
-            left: `${hoverPt.x}%`,
-            top: `${hoverPt.y}%`,
-            width: `${brushCssDiameter}px`,
-            height: `${brushCssDiameter}px`,
-            boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(0, 0, 0, 0.15)',
-            backgroundColor: drawTool === 'erase' ? 'rgba(255, 255, 255, 0.35)' : `${drawColor}25`,
-          }}
-        >
-          {brushCssDiameter >= 8 && (
-            <div className="absolute top-1/2 left-1/2 w-1 h-1 -translate-x-1/2 -translate-y-1/2 bg-black dark:bg-white rounded-full opacity-60" />
-          )}
-        </div>
-      )}
     </div>
   );
 };

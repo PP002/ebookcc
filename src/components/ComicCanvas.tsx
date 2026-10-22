@@ -10,6 +10,7 @@ import { RasterDrawingCanvas } from './comic/RasterDrawingCanvas';
 import { ComicLayer, ComicLayerGroup } from './comic/drawingTypes';
 import { BubbleData, SpeechBubbleRenderer } from './ComicPageRenderer';
 import { toast } from 'sonner';
+import { useIsMobileDevice } from '@/lib/isMobile';
 
 export type Point = { 
   x: number; 
@@ -1370,15 +1371,39 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
     return () => ro.disconnect();
   }, [expandedPanelPath]);
 
+  const [resolutionScale, setResolutionScale] = useState<number>(1.0);
+
+  useEffect(() => {
+    if (!canvasContainerRef.current) return;
+    const updateResolution = () => {
+      if (canvasContainerRef.current) {
+        const rect = canvasContainerRef.current.getBoundingClientRect();
+        if (rect.width > 0) {
+          setResolutionScale(Math.max(0.5, Math.min(2.5, rect.width / 600)));
+        }
+      }
+    };
+    updateResolution();
+    const ro = new ResizeObserver(updateResolution);
+    ro.observe(canvasContainerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const leafBoxes = useMemo(() => getLeafBoxes(tree), [tree]);
 
   const expandedNode = useMemo(() => {
-    if (expandedPanelPath === null) return null;
-    let n = getNodeByPath(tree, expandedPanelPath);
+    if (expandedPanelPath === null && !expandedPanelId) return null;
+    let n: PanelNode | null = null;
+    if (expandedPanelPath !== null) {
+      n = getNodeByPath(tree, expandedPanelPath);
+    }
     if (!n && expandedPanelId) {
       const b = leafBoxes.find((box) => box.node.id === expandedPanelId);
       if (b && b.node.type === 'panel') {
         n = b.node as PanelNode;
+        if (b.path && (!expandedPanelPath || expandedPanelPath.join(',') !== b.path.join(','))) {
+          setExpandedPanelPath(b.path);
+        }
       }
     }
     return n;
@@ -1599,6 +1624,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             hideExpandButton={hideExpandButton}
             noPadding={noPadding}
             onDeleteRootPanel={onDeleteRootPanel}
+            resolutionScale={resolutionScale}
           />
 
           {!hideEdgeAddButtons && (
@@ -1732,6 +1758,7 @@ const SplitView: React.FC<{
   hideExpandButton?: boolean;
   noPadding?: boolean;
   onDeleteRootPanel?: () => void;
+  resolutionScale?: number;
 }> = ({ 
   node, 
   path, 
@@ -1763,6 +1790,7 @@ const SplitView: React.FC<{
   hideExpandButton = false,
   noPadding = false,
   onDeleteRootPanel,
+  resolutionScale = 1,
 }) => {
   const boxes = leafBoxes || useMemo(() => getLeafBoxes(rootTree), [rootTree]);
 
@@ -1781,7 +1809,7 @@ const SplitView: React.FC<{
         eraserType={eraserType}
         drawColor={drawColor} 
         drawRadius={drawRadius} 
-        drawOpacity={drawOpacity}
+        drawOpacity={drawOpacity} 
         touchOff={touchOff} 
         setTouchOff={setTouchOff} 
         onExpandPanel={onExpandPanel}
@@ -1801,6 +1829,7 @@ const SplitView: React.FC<{
         hideExpandButton={hideExpandButton}
         noPadding={noPadding}
         onDeleteRootPanel={onDeleteRootPanel}
+        resolutionScale={resolutionScale}
       />
     );
   }
@@ -1810,13 +1839,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
       </div>
       
       <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
 
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
       </div>
     </div>
   );
@@ -2333,7 +2362,7 @@ const PanelView: React.FC<{
   setTouchOff?: (val: boolean) => void;
   isExpanded?: boolean;
   hideExpandButton?: boolean;
-  onExpandPanel?: (path: number[]) => void;
+  onExpandPanel?: (path: number[], panelId?: string) => void;
   onToggleExpand?: () => void;
   aspectRatio?: number;
   panelBox?: PanelBox;
@@ -2349,6 +2378,7 @@ const PanelView: React.FC<{
   hidePanelLabel?: boolean;
   noPadding?: boolean;
   onDeleteRootPanel?: () => void;
+  resolutionScale?: number;
 }> = ({ 
   node, 
   path, 
@@ -2381,6 +2411,7 @@ const PanelView: React.FC<{
   hidePanelLabel = false,
   noPadding = false,
   onDeleteRootPanel,
+  resolutionScale = 1,
 }) => {
   const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2622,24 +2653,29 @@ const PanelView: React.FC<{
         {!hideExpandButton && (
           <div 
             className={cn(
-              "absolute top-2 right-2 z-20 transition-all duration-200 pointer-events-auto",
+              "absolute top-2 right-2 z-40 transition-all duration-200 pointer-events-auto",
               isExpanded 
                 ? "opacity-100" 
                 : "opacity-90 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 hover:opacity-100"
             )}
             data-export-ignore="true"
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            <Button
-              size="icon"
-              variant="secondary"
+            <button
               type="button"
-              className="w-8 h-8 sm:w-7 sm:h-7 rounded-md bg-white/95 hover:bg-white text-zinc-900 border border-zinc-300 shadow-md hover:scale-105 active:scale-95 transition-all p-0 flex items-center justify-center cursor-pointer dark:bg-zinc-800/95 dark:hover:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700"
+              className="w-8 h-8 sm:w-7 sm:h-7 rounded-md bg-white/95 hover:bg-white text-zinc-900 border border-zinc-300 shadow-md hover:scale-105 active:scale-95 transition-all p-0 flex items-center justify-center cursor-pointer dark:bg-zinc-800/95 dark:hover:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700 pointer-events-auto"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 if (isExpanded) {
                   onToggleExpand?.();
                 } else {
-                  onExpandPanel?.(path);
+                  onExpandPanel?.(path, node.id);
                 }
               }}
               title={isExpanded ? (t("restorePanel") || "Restore panel") : (t("expandPanel") || "Full Panel")}
@@ -2649,7 +2685,7 @@ const PanelView: React.FC<{
               ) : (
                 <Maximize className="w-4 h-4 sm:w-3.5 sm:h-3.5 stroke-[2.5]" />
               )}
-            </Button>
+            </button>
           </div>
         )}
 
@@ -2667,7 +2703,7 @@ const PanelView: React.FC<{
               className="w-full h-full resize-none bg-transparent border-none outline-none font-sans text-sm sm:text-base font-semibold leading-relaxed placeholder:text-zinc-400 focus:ring-0 p-1"
               style={{
                 color: isLightColor(backgroundColor || node.color || '#ffffff') ? '#000000' : '#ffffff',
-                fontSize: node.textFontSize ? `${node.textFontSize}px` : undefined,
+                fontSize: node.textFontSize ? `${Math.round(node.textFontSize * resolutionScale)}px` : `${Math.round(15 * resolutionScale)}px`,
                 textAlign: node.textAlign || 'left',
               }}
               onClick={(e) => e.stopPropagation()}
@@ -2816,6 +2852,7 @@ const ExpandedPanelWorkspace: React.FC<{
   onConvertFreehandBubble,
 }) => {
   const { t } = useLanguage();
+  const isMobileDevice = useIsMobileDevice();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const panelAreaRef = useRef<HTMLDivElement>(null);
   const panelBoxRef = useRef<HTMLDivElement>(null);
@@ -3310,7 +3347,7 @@ const ExpandedPanelWorkspace: React.FC<{
               title={`Refine Panel ${currentLabel} with AI`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Refine AI</span>
+              <span className={cn("hidden", !isMobileDevice && "sm:inline")}>Refine AI</span>
             </button>
 
             {/* Exit Full Panel / Restore Button (Un-fullscreen icon) */}

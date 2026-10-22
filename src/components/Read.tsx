@@ -13,7 +13,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 
 import JSZip from 'jszip';
 import { autoCropImageBorders } from '@/components/Convert';
-import { detectPanelsLiteRT } from '@/lib/litertInference';
+import { detectPanelsYolo } from '@/lib/yoloInference';
 import { toast } from 'sonner';
 import { saveRecentBook, getRecentBooksMeta, getFullBookFile, deleteRecentBook, RecentBookMetadata, clearAllHistory } from '@/lib/historyCache';
 import { useLanguage } from '@/context/LanguageContext';
@@ -1576,8 +1576,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             });
 
             if (!isActive || !gridView) return;
-            // READ page: Always use batch1.tflite exclusively. Load it from Cache Storage (already downloaded at startup). Use LiteRT.js to run inference.
-            const layoutResult = await detectPanelsLiteRT(base64Source, { batchSize: 1 });
+            // READ page: Detect comic panels using ONNX YOLO (dp.onnx).
+            const layoutResult = await detectPanelsYolo(base64Source, { batchSize: 1 });
             if (!isActive || !gridView) return;
             let regions = layoutResult?.panels || [];
             

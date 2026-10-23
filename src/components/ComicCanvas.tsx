@@ -2695,6 +2695,9 @@ const PanelView: React.FC<{
             style={{ backgroundColor: node.color || backgroundColor || '#ffffff' }}
           >
             <textarea
+              id={`panel-text-${path.join('-')}`}
+              name={`panelText_${path.join('_')}`}
+              aria-label="Panel text"
               value={node.textContent || ''}
               onChange={(e) => {
                 onChange(replaceNodeByPath(rootTree, path, { ...node, textContent: e.target.value }));
@@ -2792,7 +2795,7 @@ const PanelView: React.FC<{
             />
           </>
         )}
-        <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
+        <input id={`panel-file-upload-${path.join('-')}`} name={`panelFileUpload_${path.join('_')}`} aria-label="Upload panel image" type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
       </div>
     </div>
   );

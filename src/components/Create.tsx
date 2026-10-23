@@ -7309,6 +7309,9 @@ ${manifestImages}  </manifest>
                 </div>
               ) : (
                 <input
+                  id="create-story-title-input"
+                  name="storyTitle"
+                  aria-label={t("storyTitlePlaceholder")}
                   value={storyTitle}
                   onChange={(e) => {
                     setStoryTitle(e.target.value);
@@ -8490,6 +8493,9 @@ ${manifestImages}  </manifest>
             title={t("colorTooltip") || "Color"}
           />
           <input
+            id="create-draw-color-input"
+            name="drawColor"
+            aria-label="Draw color"
             ref={drawColorInputRef}
             type="color"
             value={drawColor}
@@ -8522,6 +8528,9 @@ ${manifestImages}  </manifest>
           ) : (
             <>
               <input
+                id="create-brush-size-input"
+                name="brushSize"
+                aria-label="Brush size"
                 type="text"
                 inputMode="decimal"
                 value={brushSizeInput}
@@ -8881,6 +8890,9 @@ ${manifestImages}  </manifest>
                       </span>
                     </div>
                     <input
+                      id="create-brush-size-slider"
+                      name="brushSizeSlider"
+                      aria-label={`Brush size: ${drawRadius}px`}
                       type="range"
                       min="0.5"
                       max="50"
@@ -8914,6 +8926,9 @@ ${manifestImages}  </manifest>
                       </span>
                     </div>
                     <input
+                      id="create-brush-opacity-slider"
+                      name="brushOpacitySlider"
+                      aria-label={`Brush opacity: ${Math.round(drawOpacity * 100)}%`}
                       type="range"
                       min="0.05"
                       max="1"
@@ -9228,6 +9243,9 @@ ${manifestImages}  </manifest>
                   <div className="flex items-center gap-1.5 w-full bg-background border border-border/70 rounded-md px-2 py-1 shadow-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all">
                     <BookOpen className="w-3.5 h-3.5 text-primary shrink-0" />
                     <input
+                      id="create-comic-title-input"
+                      name="comicTitle"
+                      aria-label={t("comicTitlePlaceholder") || "Comic Title"}
                       value={comicTitle}
                       onChange={(e) => {
                         setComicTitle(e.target.value);
@@ -9534,6 +9552,9 @@ ${manifestImages}  </manifest>
                             <Sparkles className="w-3 h-3 text-primary" /> {t("aiWriter")}
                           </span>
                           <input
+                            id="create-ai-speech-prompt"
+                            name="aiSpeechPrompt"
+                            aria-label="Speech bubble AI prompt"
                             value={aiPrompt}
                             onChange={(e) => setAiPrompt(e.target.value)}
                             placeholder={t("heroEntrancePlaceholder")}
@@ -9552,10 +9573,13 @@ ${manifestImages}  </manifest>
                           {isGeneratingText ? "..." : t("generate")}
                         </Button>
                       </div>
-                      <label className="text-[10px] font-mono font-bold text-muted-foreground block mt-4">
+                      <label htmlFor="create-bubble-text-area" className="text-[10px] font-mono font-bold text-muted-foreground block mt-4">
                         {t("textValue")}
                       </label>
                       <textarea
+                        id="create-bubble-text-area"
+                        name="bubbleText"
+                        aria-label={t("textValue")}
                         ref={textareaRef}
                         value={newBubbleText}
                         onChange={(e) => {
@@ -9578,9 +9602,9 @@ ${manifestImages}  </manifest>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-mono font-bold text-muted-foreground block">
+                      <span className="text-[10px] font-mono font-bold text-muted-foreground block">
                         {t("bubbleExpressionStyle")}
-                      </label>
+                      </span>
                       <div className="grid grid-cols-2 gap-2">
                         {(["classic", "action"] as const).map(
                           (style) => (
@@ -9889,6 +9913,9 @@ const StoryDrawingBoard: React.FC<{
               />
             ))}
             <input
+              id="create-drawing-color-picker"
+              name="drawingColorPicker"
+              aria-label="Drawing color"
               type="color"
               value={color}
               onChange={(e) => setColor(e.target.value)}

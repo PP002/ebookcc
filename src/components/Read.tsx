@@ -2620,7 +2620,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             )}
             style={{ outline: "none" }}
           >
-            <input {...getInputProps()} />
+            <input {...getInputProps()} id="read-file-upload-input" name="readUploadFiles" aria-label="Upload ebook or image files" />
             <div className="flex flex-col items-center gap-1.5 max-w-xl">
               <Layers className="w-8 h-8 sm:w-9 sm:h-9 text-primary mb-1" />
               <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
@@ -2869,15 +2869,15 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   >
                   <div className="space-y-3 p-1">
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontSizeLabel")}</label>
+                        <label htmlFor="reader-font-size-input" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontSizeLabel")}</label>
                         <div className="flex bg-muted rounded-md overflow-hidden p-0.5 items-center justify-between">
                              <button onClick={() => updateFontSize(f => Math.max(8, f - 2))} className="px-3 py-1 flex-1 text-center font-bold hover:bg-background rounded text-muted-foreground cursor-pointer">-</button>
-                             <input type="number" value={fontSize} onChange={(e) => updateFontSize(Number(e.target.value) || 18)} className="w-16 bg-transparent text-center focus:outline-none focus:ring-0 text-sm font-semibold text-foreground mx-1" />
+                             <input id="reader-font-size-input" name="readerFontSize" aria-label={t("fontSizeLabel")} type="number" value={fontSize} onChange={(e) => updateFontSize(Number(e.target.value) || 18)} className="w-16 bg-transparent text-center focus:outline-none focus:ring-0 text-sm font-semibold text-foreground mx-1" />
                              <button onClick={() => updateFontSize(f => Math.min(100, f + 2))} className="px-3 py-1 flex-1 text-center font-bold hover:bg-background rounded text-muted-foreground cursor-pointer">+</button>
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("alignmentLabel")}</label>
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("alignmentLabel")}</span>
                         <div className="flex bg-muted rounded-md overflow-hidden p-0.5">
                            {[
                              {id: 'text-left', label: t("leftLabel")},
@@ -2896,7 +2896,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontLabel")}</label>
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("fontLabel")}</span>
                         <div className="flex flex-col gap-1">
                            {[
                              {id: 'font-serif', label: t("serifLabel")},
@@ -2915,7 +2915,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("themeLabel")}</label>
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t("themeLabel")}</span>
                         <div className="flex bg-muted rounded-md overflow-hidden p-0.5">
                            {[
                              { id: 'light', label: t("lightTheme") || "Light", icon: Sun },
@@ -2979,6 +2979,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           <span className="text-[10px] font-mono font-bold text-foreground select-none mr-0.5">P</span>
                         )}
                         <input
+                          id="reader-page-jump-input"
+                          name="readerPageNumber"
+                          aria-label="Go to page number"
                           type="text"
                           value={pageInputValue || (currentPage + 1).toString()}
                           onChange={(e) => {
@@ -3726,8 +3729,11 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           onTouchStart={(e) => e.stopPropagation()}
                           onTouchEnd={(e) => e.stopPropagation()}
                         >
-                          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider select-none">Speed</span>
+                          <label htmlFor="reader-slideshow-speed-input" className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider select-none">Speed</label>
                           <input
+                            id="reader-slideshow-speed-input"
+                            name="readerSlideshowSpeed"
+                            aria-label="Slideshow interval in seconds"
                             type="number"
                             min="0.5"
                             max="60"

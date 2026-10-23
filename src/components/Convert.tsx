@@ -2458,6 +2458,9 @@ const ManualTextItem = ({
                     <div className="h-6 w-px bg-border flex-shrink-0" />
                     <div className="relative w-6 h-6 rounded-full border overflow-hidden shadow-inner">
                       <input 
+                        id="manual-text-color-picker"
+                        name="manualTextColor"
+                        aria-label="Text Color"
                         type="color" 
                         value={mt.color}
                         onChange={(e) => {
@@ -5475,6 +5478,9 @@ ${navItems}    </ol>
                   >
                     {isEditing ? (
                       <textarea
+                        id={`text-block-edit-${i}`}
+                        name={`textBlockEdit_${i}`}
+                        aria-label="Edit translated text"
                         autoFocus
                         className="w-full min-h-[76px] resize-y border-0 bg-transparent p-0 text-xs focus:outline-none font-mono leading-relaxed text-foreground placeholder:text-muted-foreground"
                         rows={3}
@@ -5547,7 +5553,7 @@ ${navItems}    </ol>
               <div className={`shrink-0 w-4 h-4 border flex items-center justify-center transition-colors ${ocrDuringBatch && splitDuringBatch && translateDuringBatch ? 'bg-primary border-primary' : 'border-muted-foreground'}`}>
                 {ocrDuringBatch && splitDuringBatch && translateDuringBatch && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
               </div>
-              <label className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">{t("allProcessAll")}</label>
+              <span className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground whitespace-nowrap">{t("allProcessAll")}</span>
             </div>
 
             <div className="pl-2 space-y-2.5 border-l-2 border-muted ml-0.5 w-full flex flex-col items-start">
@@ -5569,6 +5575,7 @@ ${navItems}    </ol>
                     activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
                   )} />
                   <Checkbox 
+                    id="detect-bg-batch-cb"
                     checked={detectBgDuringBatch} 
                     onCheckedChange={(c) => {
                       const val = !!c;
@@ -5580,7 +5587,7 @@ ${navItems}    </ol>
                   />
                 </div>
                 <div className="flex flex-col min-w-0 flex-1">
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
+                  <label htmlFor="detect-bg-batch-cb" className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("cropPageBorders")}</label>
                   <span className="text-[10px] text-muted-foreground leading-tight">{t("cropPageBordersDesc")}</span>
                 </div>
               </div>
@@ -5603,6 +5610,7 @@ ${navItems}    </ol>
                       activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
                     )} />
                     <Checkbox 
+                      id="split-panels-batch-cb"
                       checked={splitDuringBatch} 
                       onCheckedChange={(c) => {
                         const val = !!c;
@@ -5614,7 +5622,7 @@ ${navItems}    </ol>
                     />
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
-                    <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
+                    <label htmlFor="split-panels-batch-cb" className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("splitPanels")}</label>
                     <span className="text-[10px] text-muted-foreground leading-tight">{t("splitPanelsDesc")}</span>
                   </div>
                 </div>
@@ -5655,13 +5663,14 @@ ${navItems}    </ol>
                       activePage?.status === 'error' ? "bg-red-500" : "bg-muted-foreground/40"
                     )} />
                     <Checkbox 
+                      id="extract-ocr-batch-cb"
                       checked={ocrDuringBatch} 
                       onCheckedChange={(c) => setOcrDuringBatch(!!c)}
                       onClick={(e) => e.stopPropagation()}
                       className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
                     />
                   </div>
-                  <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
+                  <label htmlFor="extract-ocr-batch-cb" className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("extractTextOcr")}</label>
                 </div>
 
                 {/* OCR Engine Dropdown on the right */}
@@ -5709,7 +5718,7 @@ ${navItems}    </ol>
                     className="w-4 h-4 border-muted-foreground rounded-none shrink-0"
                   />
                 </div>
-                <label className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
+                <label htmlFor="translate-batch-sb" className="text-sm font-medium cursor-pointer group-hover:text-primary transition-colors whitespace-nowrap">{t("translateText")}</label>
               </div>
 
               <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/40 w-full">
@@ -5900,7 +5909,7 @@ ${navItems}    </ol>
             )}
             style={{ outline: "none" }}
           >
-            <input {...getInputProps()} />
+            <input {...getInputProps()} id="convert-file-upload-input" name="convertFiles" aria-label="Upload ebook or image files" />
             <div className="flex flex-col items-center gap-4 max-w-md">
               <div className="p-4 bg-background rounded-none shrink-0 text-center">
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
@@ -6475,6 +6484,9 @@ ${navItems}    </ol>
                       </Button>
                       <div className="flex items-center gap-0.5">
                         <input
+                          id="convert-page-jump-input"
+                          name="convertPageNumber"
+                          aria-label="Go to page number"
                           type="text"
                           value={pageInputValue}
                           onChange={(e) => {

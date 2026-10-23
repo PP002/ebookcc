@@ -491,6 +491,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                     {/* Group Name / Inline Rename Input */}
                     {editingGroupId === group.id ? (
                       <input
+                        id={`group-rename-${group.id}`}
+                        name={`groupRename_${group.id}`}
+                        aria-label="Group name"
                         type="text"
                         value={editingGroupName}
                         autoFocus
@@ -552,6 +555,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                   >
                     <Sliders className="w-3 h-3 text-muted-foreground/70 pointer-events-none" />
                     <input
+                      id={`group-opacity-${group.id}`}
+                      name={`groupOpacity_${group.id}`}
+                      aria-label="Group opacity"
                       type="range"
                       min="0"
                       max="1"
@@ -722,6 +728,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                   <div className="flex-1 min-w-0 flex items-center">
                     {editingLayerId === layer.id && !isBg ? (
                       <input
+                        id={`layer-rename-${layer.id}`}
+                        name={`layerRename_${layer.id}`}
+                        aria-label="Layer name"
                         type="text"
                         value={editingName}
                         autoFocus
@@ -786,6 +795,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
                     >
                       <Sliders className="w-3 h-3 text-muted-foreground/60 pointer-events-none" />
                       <input
+                        id={`layer-opacity-${layer.id}`}
+                        name={`layerOpacity_${layer.id}`}
+                        aria-label="Layer opacity"
                         type="range"
                         min="0"
                         max="1"
@@ -864,6 +876,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
 
       {/* Hidden Native Color Input for Background Layer */}
       <input
+        id="bg-layer-color-native"
+        name="bgLayerColorNative"
+        aria-label="Background color native picker"
         ref={colorInputRef}
         type="color"
         value={backgroundLayer?.color || '#ffffff'}
@@ -915,6 +930,9 @@ export const LayerManagerUI: React.FC<LayerManagerUIProps> = ({
           <div className="flex items-center gap-2 pt-1">
             <span className="text-[10px] text-muted-foreground">Custom:</span>
             <input
+              id="bg-layer-color-custom"
+              name="bgLayerColorCustom"
+              aria-label="Custom background color"
               type="color"
               value={backgroundLayer.color || '#ffffff'}
               onChange={(e) => {

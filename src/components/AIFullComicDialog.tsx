@@ -134,7 +134,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
                   <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">Click to upload an optional character sketch</p>
                 </div>
-                <input id="comic-sketch-upload" type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                <input id="comic-sketch-upload" name="comicSketchUpload" type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               </label>
             )}
           </div>
@@ -142,6 +142,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
             <Label htmlFor="prompt">Story Prompt</Label>
             <Textarea
               id="prompt"
+              name="prompt"
               placeholder="A story about an astronaut finding a magical plant on Mars..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -152,6 +153,7 @@ export function AIFullComicDialog({ open, onOpenChange, onComicGenerated, initia
             <Label htmlFor="pagesCount">Number of Pages</Label>
             <input 
               id="pagesCount" 
+              name="pagesCount"
               type="number"
               min="1"
               max="20"

@@ -1042,6 +1042,9 @@ export function Bookshelf({
             <div className="relative w-full sm:w-80 group">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               <input
+                id="bookshelf-catalog-search-input"
+                name="catalogSearch"
+                aria-label="Search Gutenberg and Archive public domain books"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}

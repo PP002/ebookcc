@@ -1034,6 +1034,7 @@ export default {
                 }
                 headers.set("Cache-Control", "public, max-age=31536000, immutable");
                 headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+                headers.set("Cross-Origin-Embedder-Policy", "require-corp");
                 return new Response(obj.body, { headers });
               }
             }
@@ -1069,6 +1070,7 @@ export default {
               }
               headers.set("Cache-Control", "public, max-age=31536000, immutable");
               headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+              headers.set("Cross-Origin-Embedder-Policy", "require-corp");
               return new Response(obj.body, { headers });
             }
           }
@@ -1089,6 +1091,7 @@ export default {
             }
             headers.set("Cache-Control", "public, max-age=31536000, immutable");
             headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+            headers.set("Cross-Origin-Embedder-Policy", "require-corp");
             return new Response(assetRes.body, { status: assetRes.status, headers });
           }
         }

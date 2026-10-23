@@ -654,8 +654,10 @@ export function GoogleDriveDialog({
             <div className="space-y-4 max-w-xl mx-auto py-2">
               <Card className="p-4 border-border space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-foreground">File to Export</label>
+                  <label htmlFor="gdrive-export-filename-input" className="text-xs font-semibold text-foreground">File to Export</label>
                   <Input
+                    id="gdrive-export-filename-input"
+                    name="exportFileName"
                     type="text"
                     value={exportFileName}
                     onChange={(e) => setExportFileName(e.target.value)}
@@ -671,7 +673,7 @@ export function GoogleDriveDialog({
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-foreground">Destination Folder</label>
+                    <label htmlFor="gdrive-export-folder-select" className="text-xs font-semibold text-foreground">Destination Folder</label>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -686,6 +688,9 @@ export function GoogleDriveDialog({
                   {showCreateFolder && (
                     <div className="flex items-center gap-1.5 p-2 bg-muted/30 rounded-md border border-border">
                       <Input
+                        id="gdrive-new-folder-name-input"
+                        name="newFolderName"
+                        aria-label="New folder name"
                         type="text"
                         value={newFolderName}
                         onChange={(e) => setNewFolderName(e.target.value)}
@@ -704,6 +709,8 @@ export function GoogleDriveDialog({
                   )}
 
                   <select
+                    id="gdrive-export-folder-select"
+                    name="exportFolderId"
                     value={exportFolderId}
                     onChange={(e) => setExportFolderId(e.target.value)}
                     className="w-full h-8.5 text-xs px-2.5 rounded-md border border-input bg-background text-foreground"

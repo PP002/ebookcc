@@ -103,8 +103,10 @@ export function AppSettingsDialog() {
           <div className="space-y-4 py-2">
             {/* Engine Selector Dropdown */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold">{t("aiProvider")}</label>
+              <label htmlFor="settings-ai-engine-select" className="text-sm font-semibold">{t("aiProvider")}</label>
               <select
+                id="settings-ai-engine-select"
+                name="aiEngine"
                 value={localEngine}
                 onChange={(e) => {
                   const engine = e.target.value as any;
@@ -148,9 +150,12 @@ export function AppSettingsDialog() {
                 </p>
                 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold block text-foreground">{t("geminiApiKeyLabel")}</label>
+                  <label htmlFor="settings-gemini-api-key" className="text-xs font-bold block text-foreground">{t("geminiApiKeyLabel")}</label>
                   <input
+                    id="settings-gemini-api-key"
+                    name="geminiApiKey"
                     type="password"
+                    autoComplete="off"
                     value={localGeminiKey}
                     onChange={(e) => setLocalGeminiKey(e.target.value)}
                     placeholder="AIzaSy..."
@@ -158,8 +163,10 @@ export function AppSettingsDialog() {
                   />
                   <p className="text-[10px] text-muted-foreground mt-1 mb-2">{t("geminiKeyStorageNote")}</p>
                   
-                  <label className="text-xs font-bold block text-foreground mt-3">{t("modelNameLabel")}</label>
+                  <label htmlFor="settings-gemini-model-select" className="text-xs font-bold block text-foreground mt-3">{t("modelNameLabel")}</label>
                    <select
+                    id="settings-gemini-model-select"
+                    name="geminiModel"
                     value={['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'].includes(localModel) ? localModel : 'gemini-flash-latest'}
                     onChange={(e) => setLocalModel(e.target.value)}
                     className="w-full text-xs p-2 border border-border bg-background text-foreground rounded-md outline-none focus:border-emerald-500 shadow-sm h-9"
@@ -185,8 +192,10 @@ export function AppSettingsDialog() {
                   </p>
                   <div className="space-y-3">
                     <div>
-                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("apiBaseUrl")}</label>
+                      <label htmlFor="settings-api-base-url" className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("apiBaseUrl")}</label>
                       <input
+                        id="settings-api-base-url"
+                        name="apiBaseUrl"
                         value={localUrl}
                         onChange={(e) => setLocalUrl(e.target.value)}
                         placeholder={
@@ -199,8 +208,10 @@ export function AppSettingsDialog() {
                       />
                     </div>
                     <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("modelNameLabel")}</label>
+                      <label htmlFor="settings-provider-model-select" className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">{t("modelNameLabel")}</label>
                       <select
+                        id="settings-provider-model-select"
+                        name="providerModel"
                         value={
                           (localEngine === 'openai' && ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o3-mini'].includes(localModel)) ? localModel :
                           (localEngine === 'claude' && ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'].includes(localModel)) ? localModel :
@@ -262,6 +273,9 @@ export function AppSettingsDialog() {
                         (localEngine === 'local' && ['llama3.2-vision', 'llava', 'llama3', 'qwen2.5', 'deepseek-r1'].includes(localModel))
                       ) && (
                         <input
+                          id="settings-custom-model-input"
+                          name="customModelName"
+                          aria-label="Custom model name"
                           value={localModel}
                           onChange={(e) => setLocalModel(e.target.value)}
                           placeholder="Type custom model name..."
@@ -270,9 +284,12 @@ export function AppSettingsDialog() {
                       )}
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Key {localEngine === 'local' ? '(Optional)' : '(Required)'}</label>
+                      <label htmlFor="settings-provider-api-key" className="text-[10px] font-bold block text-muted-foreground uppercase tracking-wider mb-1">API Key {localEngine === 'local' ? '(Optional)' : '(Required)'}</label>
                       <input
+                        id="settings-provider-api-key"
+                        name="providerApiKey"
                         type="password"
+                        autoComplete="off"
                         value={localApiKey}
                         onChange={(e) => setLocalApiKey(e.target.value)}
                         placeholder="Bearer token..."

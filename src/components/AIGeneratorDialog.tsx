@@ -171,7 +171,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
                     <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">Click to upload a sketch</p>
                   </div>
-                  <input id="sketch-upload" type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                  <input id="sketch-upload" name="sketchUpload" type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                 </label>
               )}
             </div>
@@ -179,6 +179,7 @@ export function AIGeneratorDialog({ open, onOpenChange, onGeneratorSuccess }: AI
               <Label htmlFor="prompt">Prompt</Label>
               <Textarea
                 id="prompt"
+                name="prompt"
                 placeholder="A superhero flying over a futuristic city at sunset..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}

@@ -118,6 +118,7 @@ async function startServer() {
 
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
       if (filename.endsWith('.wasm')) {
         res.setHeader('Content-Type', 'application/wasm');
       } else if (filename.endsWith('.js') || filename.endsWith('.mjs')) {

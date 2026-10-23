@@ -548,10 +548,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
           <form onSubmit={handleUpdatePassword} className="space-y-4 pt-2">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+              <label htmlFor="auth-recovery-new-password" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5" /> New Password
               </label>
               <input
+                id="auth-recovery-new-password"
+                name="newPassword"
                 type="password"
                 placeholder="At least 6 characters"
                 value={newPassword}
@@ -563,10 +565,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+              <label htmlFor="auth-recovery-confirm-password" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5" /> Confirm New Password
               </label>
               <input
+                id="auth-recovery-confirm-password"
+                name="confirmPassword"
                 type="password"
                 placeholder="Re-enter new password"
                 value={confirmPassword}
@@ -630,10 +634,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
 
           <form onSubmit={handleVerifySignupOtp} className="space-y-4 pt-2">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-muted-foreground block text-center">
+              <label htmlFor="auth-verify-signup-otp" className="text-xs font-bold text-muted-foreground block text-center">
                 Authorization Code
               </label>
               <input
+                id="auth-verify-signup-otp"
+                name="signupOtpCode"
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -763,10 +769,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
         <form onSubmit={handleAuth} className="space-y-4 pt-2">
               {isSignUp && (
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                  <label htmlFor="auth-signup-name" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                     <User className="w-3.5 h-3.5" /> {t("displayName")}
                   </label>
                   <input
+                    id="auth-signup-name"
+                    name="name"
                     type="text"
                     placeholder="e.g. Author Name"
                     value={name}
@@ -777,10 +785,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                <label htmlFor="auth-email" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                   <Mail className="w-3.5 h-3.5" /> {t("emailAddress")}
                 </label>
                 <input
+                  id="auth-email"
+                  name="email"
                   type="email"
                   placeholder="name@example.com"
                   value={email}
@@ -794,7 +804,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                 <>
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                      <label htmlFor="auth-password" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                         <Lock className="w-3.5 h-3.5" /> {t("password")}
                       </label>
                       {!isSignUp && (
@@ -808,6 +818,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                       )}
                     </div>
                     <input
+                      id="auth-password"
+                      name="password"
                       type="password"
                       placeholder="••••••••"
                       value={password}
@@ -821,7 +833,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   {isSignUp && (
                     <div className="p-3 bg-muted/40 border border-border rounded-lg space-y-2 text-left animate-in fade-in zoom-in duration-200">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                        <label htmlFor="auth-signup-inline-code" className="text-xs font-bold text-foreground flex items-center gap-1">
                           <Shield className="w-3.5 h-3.5 text-primary" /> {t("authorizationCode")}
                         </label>
                         <button
@@ -849,6 +861,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                       )}
 
                       <input
+                        id="auth-signup-inline-code"
+                        name="signupInlineCode"
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
@@ -940,7 +954,11 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   </div>
 
                   <div className="space-y-1">
+                    <label htmlFor="auth-reset-otp-code" className="sr-only">Reset Authorization Code</label>
                     <input
+                      id="auth-reset-otp-code"
+                      name="resetOtpCode"
+                      aria-label="Authorization code"
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
@@ -994,10 +1012,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   </div>
 
                   <div className="space-y-1 text-left">
-                    <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                    <label htmlFor="auth-reset-new-password" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5" /> New Password
                     </label>
                     <input
+                      id="auth-reset-new-password"
+                      name="resetNewPassword"
                       type="password"
                       placeholder="At least 6 characters"
                       value={newPassword}
@@ -1009,10 +1029,12 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   </div>
 
                   <div className="space-y-1 text-left">
-                    <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                    <label htmlFor="auth-reset-confirm-password" className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5" /> Confirm New Password
                     </label>
                     <input
+                      id="auth-reset-confirm-password"
+                      name="resetConfirmPassword"
                       type="password"
                       placeholder="Re-enter new password"
                       value={confirmPassword}

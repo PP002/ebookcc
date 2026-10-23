@@ -82,6 +82,9 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
           <div className="relative max-w-xl mx-auto pt-2">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
+              id="faq-search-input"
+              name="faqSearch"
+              aria-label={ui.searchPlaceholder}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

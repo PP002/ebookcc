@@ -349,6 +349,9 @@ export const ReaderNotesSidebar: React.FC<ReaderNotesSidebarProps> = ({
               <form onSubmit={handleSubmit} className="flex flex-col gap-2">
                 <div className="relative">
                   <textarea
+                    id="reader-note-input"
+                    name="noteText"
+                    aria-label="Reader note or comment"
                     ref={textareaRef}
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}

@@ -1311,6 +1311,9 @@ export function AIAgentChat({
 
             <div className="flex flex-col bg-background border rounded-md focus-within:ring-2 focus-within:ring-ring focus-within:border-primary shadow-sm transition-all overflow-hidden">
               <textarea
+                id="ai-agent-chat-input"
+                name="agentChatPrompt"
+                aria-label={t("askAiAgent")}
                 placeholder={t("askAiAgent")}
                 value={input}
                 onChange={(e) => {
@@ -1419,6 +1422,9 @@ export function AIAgentChat({
           </div>
 
           <input
+            id="ai-agent-file-upload"
+            name="agentFileUpload"
+            aria-label="Upload reference image"
             type="file"
             ref={fileInputRef}
             className="hidden"
@@ -1426,6 +1432,9 @@ export function AIAgentChat({
             onChange={handleFileUpload}
           />
           <input
+            id="ai-agent-camera-upload"
+            name="agentCameraUpload"
+            aria-label="Take reference photo"
             type="file"
             ref={cameraInputRef}
             className="hidden"

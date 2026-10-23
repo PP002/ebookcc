@@ -40,14 +40,19 @@ export function configureOnnxEnvironment(provider: "webgpu" | "wasm" = "wasm"): 
   const threads = isIsolated ? Math.min(4, concurrency) : 1;
 
   ort.env.wasm.numThreads = threads;
-  ort.env.wasm.wasmPaths = "/wasm/onnx/";
 
-  // 2.2a: For WASM execution provider only, set proxy = true. NEVER enable with WebGPU!
-  if (provider === "wasm") {
-    ort.env.wasm.proxy = true;
-  } else {
-    ort.env.wasm.proxy = false;
-  }
+  // Resolve absolute origin so worker/pthread scripts are fetched from /wasm/onnx/ directly,
+  // never falling back to current page route (e.g. /convert)
+  const origin = typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin
+    : (typeof self !== "undefined" && self.location?.origin ? self.location.origin : "");
+  const basePath = origin ? `${origin}/wasm/onnx/` : "/wasm/onnx/";
+
+  ort.env.wasm.wasmPaths = basePath;
+
+  // NEVER set proxy = true. In bundled ESM web apps and Web Workers, proxy = true triggers
+  // self.location.href fetch (SPA HTML /convert) causing COEP frame blocks and crashes.
+  ort.env.wasm.proxy = false;
 }
 
 // ─────────────────────────────────────────────

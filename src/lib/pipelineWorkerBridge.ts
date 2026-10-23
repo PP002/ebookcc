@@ -31,6 +31,7 @@ export interface PreprocessedRecItem {
   float32Data: Float32Array;
   targetW: number;
   targetH: number;
+  validW?: number;
   box: [number, number, number, number];
 }
 
@@ -155,10 +156,11 @@ export async function workerPreprocessYolo(
 
 /**
  * Offloads OCR detection image resizing & normalization to the Web Worker.
+ * Defaults to 960 (standard PaddleOCR mobile limit) for maximum WebGPU speed.
  */
 export async function workerPreprocessOcrDet(
   source: CanvasImageSource | Blob | ImageData,
-  longSide = 1536
+  longSide = 960
 ): Promise<PreprocessedDetData> {
   const bitmap = await createImageBitmap(source as any);
   const resp = await postToWorker<any>(
@@ -228,14 +230,18 @@ export async function workerDecodeCtc(
   data: Float32Array,
   dims: number[],
   table: string[],
-  charMask?: Float32Array
+  charMask?: Float32Array,
+  validW?: number,
+  targetW?: number
 ): Promise<{ text: string; conf: number }> {
   const resp = await postToWorker<any>({
     type: "OCR_CTC_DECODE",
     data,
     dims,
     table,
-    charMask
+    charMask,
+    validW,
+    targetW
   });
   return { text: resp.text, conf: resp.conf };
 }

@@ -45,6 +45,8 @@ interface OcrCtcDecodeMessage {
   dims: number[];
   table: string[];
   charMask?: Float32Array;
+  validW?: number;
+  targetW?: number;
 }
 
 type WorkerMessage =
@@ -53,6 +55,21 @@ type WorkerMessage =
   | OcrDetPostprocessMessage
   | OcrRecPreprocessBatchMessage
   | OcrCtcDecodeMessage;
+
+// Quantize recognition width into fixed buckets to avoid WebGPU WGSL shader recompilations
+function getQuantizedRecWidth(calcW: number): number {
+  if (calcW <= 64) return 64;
+  if (calcW <= 128) return 128;
+  if (calcW <= 192) return 192;
+  if (calcW <= 256) return 256;
+  if (calcW <= 320) return 320;
+  if (calcW <= 384) return 384;
+  if (calcW <= 512) return 512;
+  if (calcW <= 640) return 640;
+  if (calcW <= 768) return 768;
+  if (calcW <= 1024) return 1024;
+  return Math.min(2048, Math.ceil(calcW / 64) * 64);
+}
 
 // Reusable offscreen canvases for the worker
 let yoloOffscreenCanvas: OffscreenCanvas | null = null;
@@ -126,7 +143,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
 
       case "OCR_DET_PREPROCESS": {
-        const { id, bitmap, longSide } = msg;
+        const { id, bitmap, longSide = 960 } = msg;
         const origW = bitmap.width;
         const origH = bitmap.height;
 
@@ -399,6 +416,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           float32Data: Float32Array;
           targetW: number;
           targetH: number;
+          validW?: number;
           box: [number, number, number, number];
         }[] = [];
 
@@ -432,10 +450,10 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
             cropCtx.drawImage(bitmap, xmin, ymin, cropW, cropH, 0, 0, cropW, cropH);
           }
 
-          // Target height 48, aspect-ratio width
+          // Target height 48, aspect-ratio width quantized to standard bucket
           const targetH = 48;
           const calcW = Math.max(1, Math.ceil((targetH * cropW) / cropH));
-          const targetW = Math.min(3200, Math.max(48, calcW));
+          const targetW = getQuantizedRecWidth(calcW);
 
           if (!recOffscreenCanvas || recOffscreenCanvas.width < targetW || recOffscreenCanvas.height < targetH) {
             recOffscreenCanvas = new OffscreenCanvas(Math.max(targetW, 512), targetH);
@@ -468,6 +486,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
             float32Data,
             targetW,
             targetH,
+            validW: calcW,
             box: item.box
           });
         }
@@ -486,7 +505,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
 
       case "OCR_CTC_DECODE": {
-        const { id, data, dims, table, charMask } = msg;
+        const { id, data, dims, table, charMask, validW, targetW } = msg;
         if (!dims || dims.length < 3) {
           (self as any).postMessage({ type: "OCR_CTC_DECODE_SUCCESS", id, text: "", conf: 0 });
           break;
@@ -495,12 +514,17 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         const seqLen = dims[1];
         const numClasses = dims[2];
 
+        // Restrict evaluation sequence to valid character region
+        const maxT = validW && targetW && targetW > 0
+          ? Math.min(seqLen, Math.ceil((seqLen * validW) / targetW) + 2)
+          : seqLen;
+
         let text = "";
         let lastIdx = -1;
         let totalConf = 0;
         let charCount = 0;
 
-        for (let t = 0; t < seqLen; t++) {
+        for (let t = 0; t < maxT; t++) {
           let maxClass = 0;
           let maxProb = -Infinity;
           const offset = t * numClasses;

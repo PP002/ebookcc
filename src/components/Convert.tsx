@@ -458,7 +458,11 @@ export async function autoCropImageBorders(imgSrc: string): Promise<{ url: strin
 }
 
 // Helper to scan outward to find accurate text bubble rectangle
-function refineTextBubbleBounds(ctx: CanvasRenderingContext2D, box2d: [number, number, number, number]): [number, number, number, number] {
+function refineTextBubbleBounds(
+  ctx: CanvasRenderingContext2D,
+  box2d: [number, number, number, number],
+  cachedData?: Uint8ClampedArray
+): [number, number, number, number] {
   const [ymin, xmin, ymax, xmax] = box2d;
   const canvas = ctx.canvas;
   const startX = (xmin / 1000) * canvas.width;
@@ -466,8 +470,7 @@ function refineTextBubbleBounds(ctx: CanvasRenderingContext2D, box2d: [number, n
   const startWidth = ((xmax - xmin) / 1000) * canvas.width;
   const startHeight = ((ymax - ymin) / 1000) * canvas.height;
 
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
+  const data = cachedData || ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
   let top = Math.max(0, Math.floor(startY));
   let bottom = Math.min(canvas.height - 1, Math.floor(startY + startHeight));
@@ -658,34 +661,59 @@ function calculateOptimalFontSize(
   return Math.max(6, Math.floor(optimalSize));
 }
 
-function getAverageColorFromCanvas(ctx: CanvasRenderingContext2D, box: [number, number, number, number]): string {
+function getAverageColorFromCanvas(
+  ctx: CanvasRenderingContext2D,
+  box: [number, number, number, number],
+  cachedData?: Uint8ClampedArray
+): string {
   const [ymin, xmin, ymax, xmax] = box;
   const canvas = ctx.canvas;
-  const sx = Math.max(0, (xmin / 1000) * canvas.width);
-  const sy = Math.max(0, (ymin / 1000) * canvas.height);
-  const sw = Math.min(canvas.width - sx, ((xmax - xmin) / 1000) * canvas.width);
-  const sh = Math.min(canvas.height - sy, ((ymax - ymin) / 1000) * canvas.height);
+  const sx = Math.max(0, Math.floor((xmin / 1000) * canvas.width));
+  const sy = Math.max(0, Math.floor((ymin / 1000) * canvas.height));
+  const sw = Math.min(canvas.width - sx, Math.floor(((xmax - xmin) / 1000) * canvas.width));
+  const sh = Math.min(canvas.height - sy, Math.floor(((ymax - ymin) / 1000) * canvas.height));
 
   if (sw <= 0 || sh <= 0) return '#ffffff';
 
   try {
-    const imageData = ctx.getImageData(sx, sy, sw, sh).data;
     const colorCounts: Record<string, number> = {};
     let maxCount = 0;
     let dominantColor = [255, 255, 255];
 
-    // Sampling step to keep it fast
-    const step = imageData.length > 5000 ? 8 : 4;
-    for (let i = 0; i < imageData.length; i += step) {
-      const r = Math.floor(imageData[i] / 16) * 16;
-      const g = Math.floor(imageData[i + 1] / 16) * 16;
-      const b = Math.floor(imageData[i + 2] / 16) * 16;
-      const key = `${r},${g},${b}`;
+    if (cachedData) {
+      const cW = canvas.width;
+      const totalPixels = sw * sh;
+      const step = totalPixels > 5000 ? 8 : (totalPixels > 1000 ? 4 : 1);
+      const inc = Math.max(1, Math.floor(Math.sqrt(step)));
+      for (let y = sy; y < sy + sh; y += inc) {
+        for (let x = sx; x < sx + sw; x += inc) {
+          const idx = (y * cW + x) * 4;
+          const r = Math.floor(cachedData[idx] / 16) * 16;
+          const g = Math.floor(cachedData[idx + 1] / 16) * 16;
+          const b = Math.floor(cachedData[idx + 2] / 16) * 16;
+          const key = `${r},${g},${b}`;
+          const count = (colorCounts[key] || 0) + 1;
+          colorCounts[key] = count;
+          if (count > maxCount) {
+            maxCount = count;
+            dominantColor = [cachedData[idx], cachedData[idx + 1], cachedData[idx + 2]];
+          }
+        }
+      }
+    } else {
+      const imageData = ctx.getImageData(sx, sy, sw, sh).data;
+      const step = imageData.length > 5000 ? 8 : 4;
+      for (let i = 0; i < imageData.length; i += step) {
+        const r = Math.floor(imageData[i] / 16) * 16;
+        const g = Math.floor(imageData[i + 1] / 16) * 16;
+        const b = Math.floor(imageData[i + 2] / 16) * 16;
+        const key = `${r},${g},${b}`;
 
-      colorCounts[key] = (colorCounts[key] || 0) + 1;
-      if (colorCounts[key] > maxCount) {
-        maxCount = colorCounts[key];
-        dominantColor = [imageData[i], imageData[i + 1], imageData[i + 2]];
+        colorCounts[key] = (colorCounts[key] || 0) + 1;
+        if (colorCounts[key] > maxCount) {
+          maxCount = colorCounts[key];
+          dominantColor = [imageData[i], imageData[i + 1], imageData[i + 2]];
+        }
       }
     }
     return `rgb(${dominantColor[0]}, ${dominantColor[1]}, ${dominantColor[2]})`;
@@ -711,7 +739,7 @@ async function isPageLikelyBlank(imgSrc: string): Promise<boolean> {
       const size = 32;
       canvas.width = size;
       canvas.height = size;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return resolve(false);
       ctx.drawImage(img, 0, 0, size, size);
       const data = ctx.getImageData(0, 0, size, size).data;
@@ -830,7 +858,7 @@ const panelsCache = new Map<string, ExportPanel[]>();
   const canvas = document.createElement('canvas');
   canvas.width = img.width;
   canvas.height = img.height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (ctx) {
     ctx.drawImage(img, 0, 0);
   }
@@ -3963,7 +3991,7 @@ export default function Convert({
       const canvas = document.createElement('canvas');
       canvas.width = fullImg.naturalWidth;
       canvas.height = fullImg.naturalHeight;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) throw new Error("Could not create canvas context");
       ctx.drawImage(fullImg, 0, 0);
 
@@ -4210,11 +4238,17 @@ export default function Convert({
 
       const isBookMode = !localPanels || localPanels.length === 0;
 
+      // Single readback of full page ImageData to accelerate bubble boundary refine & dominant color sampling
+      let cachedFullImageData: Uint8ClampedArray | undefined = undefined;
+      try {
+        cachedFullImageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      } catch (_) {}
+
       const processedResults = result.map((item) => {
         // Only refine if it's likely a short comic bubble AND we are in comic mode
         const shouldRefine = !isBookMode && item.text.length < 50;
-        const refinedBox = shouldRefine ? refineTextBubbleBounds(ctx, item.box_2d) : item.box_2d;
-        const bgColor = getAverageColorFromCanvas(ctx, refinedBox);
+        const refinedBox = shouldRefine ? refineTextBubbleBounds(ctx, item.box_2d, cachedFullImageData) : item.box_2d;
+        const bgColor = getAverageColorFromCanvas(ctx, refinedBox, cachedFullImageData);
         let maskBase64 = undefined;
         let mask_box_2d = undefined;
         if (localTexts) {

@@ -101,6 +101,28 @@ async function createOcrSession(modelBytes: Uint8Array, modelName: string): Prom
       });
       logOnnxEnvInitOnce('webgpu');
       console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WebGPU (Tier A)!`);
+
+      // Warm up standard tensor shapes to pre-compile WebGPU WGSL compute pipelines
+      try {
+        const inputName = session.inputNames[0] || 'x';
+        const inputType = (session as any).inputMetadata?.[inputName]?.type;
+        const isFp16 = inputType === 'float16';
+        if (modelName === 'rec.onnx') {
+          // Pre-compile the 3 most common speech bubble width buckets
+          for (const w of [128, 256, 384]) {
+            const numFloats = 3 * 48 * w;
+            const dummy = isFp16
+              ? new ort.Tensor('float16', new Uint16Array(numFloats).fill(0x3c00), [1, 3, 48, w])
+              : new ort.Tensor('float32', new Float32Array(numFloats).fill(1.0), [1, 3, 48, w]);
+            await session.run({ [inputName]: dummy });
+          }
+        } else if (modelName === 'det.onnx') {
+          // Pre-compile det input shape 960x640
+          const dummy = new ort.Tensor('float32', new Float32Array(3 * 960 * 640), [1, 3, 960, 640]);
+          await session.run({ [inputName]: dummy });
+        }
+      } catch (_) {}
+
       return session;
     } catch (gpuErr: any) {
       console.warn(`[PP-OCR ONNX] WebGPU Tier A for ${modelName} failed, falling back to WASM Tier B:`, gpuErr);
@@ -299,7 +321,7 @@ function preprocessDetMainThread(
   img: HTMLImageElement | HTMLCanvasElement,
   origW: number,
   origH: number,
-  longSide = 1536
+  longSide = 960
 ): { float32Data: Float32Array; detW: number; detH: number } {
   let detW: number;
   let detH: number;
@@ -542,16 +564,30 @@ function postprocessDetMainThread(
 }
 
 // ─────────────────────────────────────────────
-// Recognition Preprocessing (1.2 Canvas Reuse)
+// Recognition Preprocessing (Quantized Width Bucketing & Reusable Canvas)
 // ─────────────────────────────────────────────
+export function getQuantizedRecWidth(calcW: number): number {
+  if (calcW <= 64) return 64;
+  if (calcW <= 128) return 128;
+  if (calcW <= 192) return 192;
+  if (calcW <= 256) return 256;
+  if (calcW <= 320) return 320;
+  if (calcW <= 384) return 384;
+  if (calcW <= 512) return 512;
+  if (calcW <= 640) return 640;
+  if (calcW <= 768) return 768;
+  if (calcW <= 1024) return 1024;
+  return Math.min(2048, Math.ceil(calcW / 64) * 64);
+}
+
 function preprocessRecCropMainThread(
   cropCanvas: HTMLCanvasElement | HTMLImageElement,
   srcW: number,
   srcH: number
-): { float32Data: Float32Array; targetW: number; targetH: number } {
+): { float32Data: Float32Array; targetW: number; targetH: number; validW: number } {
   const targetH = 48;
   const calcW = Math.max(1, Math.ceil((targetH * srcW) / srcH));
-  const targetW = Math.min(3200, Math.max(48, calcW));
+  const targetW = getQuantizedRecWidth(calcW);
 
   // 1.2: Reusable recognition canvas with willReadFrequently: true
   const { ctx: recCtx } = getReusableRecCanvas(targetW, targetH);
@@ -575,7 +611,7 @@ function preprocessRecCropMainThread(
     float32Data[2 * channelSize + i] = (r - 0.5) / 0.5;
   }
 
-  return { float32Data, targetW, targetH };
+  return { float32Data, targetW, targetH, validW: calcW };
 }
 
 // ─────────────────────────────────────────────
@@ -585,7 +621,9 @@ function decodeCtcRaw(
   data: Float32Array,
   dims: number[],
   table: string[],
-  charMask?: Float32Array
+  charMask?: Float32Array,
+  validW?: number,
+  targetW?: number
 ): { text: string; conf: number } {
   try {
     if (!dims || dims.length < 3) return { text: '', conf: 0 };
@@ -593,12 +631,17 @@ function decodeCtcRaw(
     const seqLen = dims[1];
     const numClasses = dims[2];
 
+    // Restrict CTC sequence evaluation to valid text width to prevent padding artifacts
+    const maxT = validW && targetW && targetW > 0
+      ? Math.min(seqLen, Math.ceil((seqLen * validW) / targetW) + 2)
+      : seqLen;
+
     let text = '';
     let lastIdx = -1;
     let totalConf = 0;
     let charCount = 0;
 
-    for (let t = 0; t < seqLen; t++) {
+    for (let t = 0; t < maxT; t++) {
       let maxClass = 0;
       let maxProb = -Infinity;
       const offset = t * numClasses;
@@ -643,7 +686,8 @@ async function runSingleRecognitionTensor(
   targetH: number,
   session: ort.InferenceSession,
   table: string[],
-  charMask: Float32Array
+  charMask: Float32Array,
+  validW?: number
 ): Promise<{ text: string; conf: number; inferenceMs: number }> {
   const t0 = performance.now();
   const inputName = session.inputNames[0] || 'x';
@@ -691,12 +735,12 @@ async function runSingleRecognitionTensor(
   // 2.2b: Offload CTC decoding to Web Worker if supported
   if (isWorkerPipelineSupported()) {
     try {
-      const decoded = await workerDecodeCtc(outputData, outputTensor.dims as number[], table, charMask);
+      const decoded = await workerDecodeCtc(outputData, outputTensor.dims as number[], table, charMask, validW, targetW);
       return { text: decoded.text, conf: decoded.conf, inferenceMs };
     } catch (_) {}
   }
 
-  const decoded = decodeCtcRaw(outputData, outputTensor.dims as number[], table, charMask);
+  const decoded = decodeCtcRaw(outputData, outputTensor.dims as number[], table, charMask, validW, targetW);
   return { text: decoded.text, conf: decoded.conf, inferenceMs };
 }
 
@@ -758,21 +802,21 @@ export async function runInBrowserOCR(
       let detW: number;
       let detH: number;
 
-      // 2.2b: Worker prep offload with fallback to main thread
+      // 2.2b: Worker prep offload with fallback to main thread (standard 960 det limit)
       if (isWorkerPipelineSupported()) {
         try {
-          const detPrep = await workerPreprocessOcrDet(img, 1536);
+          const detPrep = await workerPreprocessOcrDet(img, 960);
           float32Data = detPrep.float32Data;
           detW = detPrep.detW;
           detH = detPrep.detH;
         } catch (wErr) {
-          const fallbackPrep = preprocessDetMainThread(img, origW, origH, 1536);
+          const fallbackPrep = preprocessDetMainThread(img, origW, origH, 960);
           float32Data = fallbackPrep.float32Data;
           detW = fallbackPrep.detW;
           detH = fallbackPrep.detH;
         }
       } else {
-        const fallbackPrep = preprocessDetMainThread(img, origW, origH, 1536);
+        const fallbackPrep = preprocessDetMainThread(img, origW, origH, 960);
         float32Data = fallbackPrep.float32Data;
         detW = fallbackPrep.detW;
         detH = fallbackPrep.detH;
@@ -818,6 +862,7 @@ export async function runInBrowserOCR(
       float32Data: Float32Array;
       targetW: number;
       targetH: number;
+      validW?: number;
       box: [number, number, number, number];
     }[] = [];
 
@@ -862,6 +907,7 @@ export async function runInBrowserOCR(
           float32Data: prepRec.float32Data,
           targetW: prepRec.targetW,
           targetH: prepRec.targetH,
+          validW: prepRec.validW,
           box: b.box
         });
       }
@@ -887,7 +933,8 @@ export async function runInBrowserOCR(
         item.targetH,
         recSession,
         characterDict,
-        charMask
+        charMask,
+        item.validW
       );
 
       totalRecInferenceMs += recRes.inferenceMs;

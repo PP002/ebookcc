@@ -99,6 +99,14 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint', 'apikey']
   }));
 
+  // Cross-Origin Isolation headers for WASM multi-threading (SharedArrayBuffer)
+  app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  });
+
   // Ensure wasm and wasm helper modules have explicit correct MIME types and Cross-Origin-Resource-Policy
   // Stream directly from Cloudflare R2 (or local cache)
   app.get(['/wasm/*', '/wasm/onnx/*'], async (req, res, next): Promise<any> => {

@@ -2612,7 +2612,16 @@ export default {
     // Static Assets serving (SPA fallback)
     // ─────────────────────────────────────────────
     if (env.ASSETS) {
-      return await env.ASSETS.fetch(request);
+      const assetRes = await env.ASSETS.fetch(request);
+      const headers = new Headers(assetRes.headers);
+      headers.set("Cross-Origin-Opener-Policy", "same-origin");
+      headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+      headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+      return new Response(assetRes.body, {
+        status: assetRes.status,
+        statusText: assetRes.statusText,
+        headers,
+      });
     }
 
     return new Response("Not Found", { status: 404 });

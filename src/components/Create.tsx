@@ -53,6 +53,8 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  Film,
+  Upload,
 } from "lucide-react";
 import {
   Dialog,
@@ -97,6 +99,8 @@ import {
   cloneTreeWithEmptyPanels,
   fillFirstEmptyPanel,
   updatePanelImage,
+  updatePanelImages,
+  getSortedLeafBoxes,
   TreeNode,
   Stroke,
   PanelNode,
@@ -119,6 +123,8 @@ import {
 } from "./comic/bubbleContour";
 import { ShapeAwareTextLayout } from "./comic/ShapeAwareTextLayout";
 import { useIsMobileDevice } from "@/lib/isMobile";
+import { VideoToComicDialog } from "./comic/VideoToComicDialog";
+import { populateTreeWithImages } from "@/lib/videoToComic";
 interface CreateProps {
   setActiveView: (view: "home" | "read" | "create" | "convert") => void;
   onActiveStateChange?: (active: boolean) => void;
@@ -3901,6 +3907,365 @@ export const Create: React.FC<CreateProps> = ({
     );
   };
 
+  // Workspace Drag and Drop & Media Upload (Images & Video)
+  const [isWorkspaceMediaDragging, setIsWorkspaceMediaDragging] = useState(false);
+  const [videoToComicModalOpen, setVideoToComicModalOpen] = useState(false);
+  const [pendingVideoFile, setPendingVideoFile] = useState<File | null>(null);
+  const [videoToComicTargetPanel, setVideoToComicTargetPanel] = useState<{
+    panelId: string;
+    path: number[];
+    additionalImageFiles?: File[];
+  } | null>(null);
+  const workspaceMediaInputRef = useRef<HTMLInputElement>(null);
+
+  const handleWorkspaceMediaFiles = useCallback(
+    async (files: FileList | File[]) => {
+      if (!files || files.length === 0) return;
+
+      const fileList = Array.from(files);
+
+      // Check for video file first (expanded format support: MP4, WebM, MOV, MKV, AVI, M4V, 3GP, WMV, FLV, OGV, TS, MTS, M2TS, VOB, ASF)
+      const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+      const videoFile = fileList.find(
+        (f) =>
+          f.type.startsWith("video/") ||
+          videoExtensions.test(f.name)
+      );
+
+      if (videoFile) {
+        setCreateMode("comic");
+        setPendingVideoFile(videoFile);
+        setVideoToComicModalOpen(true);
+        return;
+      }
+
+      // Filter image files
+      const imageFiles = fileList.filter(
+        (f) =>
+          f.type.startsWith("image/") ||
+          /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f.name)
+      );
+
+      if (imageFiles.length === 0) {
+        toast.error("Please drop or select valid image or video files.");
+        return;
+      }
+
+      setCreateMode("comic");
+
+      // Read image files into data URLs
+      try {
+        const readImagePromises = imageFiles.map((file) => {
+          return new Promise<{ name: string; dataUrl: string }>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve({ name: file.name, dataUrl: reader.result as string });
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        });
+
+        const loadedImages = await Promise.all(readImagePromises);
+
+        // Single image dropped
+        if (loadedImages.length === 1) {
+          const { name, dataUrl } = loadedImages[0];
+          const currentPages = comicPagesRef.current;
+          const currentIdx = activePageIndexRef.current;
+          const currentTree = currentPages[currentIdx]?.tree || comicTree;
+          const { tree, updated } = fillFirstEmptyPanel(currentTree, dataUrl);
+          if (updated) {
+            updateActivePageTree(tree);
+            toast.success(`Placed image "${name}" into comic panel`);
+          } else {
+            // No empty panel on current page: create a new 6-panel page and place image in first panel
+            const newGrid = createGridTree(3, 2);
+            const populated = populateTreeWithImages(newGrid, [dataUrl]);
+            const newPage: ComicPage = {
+              id: Date.now().toString(),
+              tree: populated,
+              bubbles: [],
+            };
+            const nextPages = [...currentPages, newPage];
+            setComicPages(nextPages);
+            setActivePageIndex(nextPages.length - 1);
+            toast.success(`Created new page with image "${name}"`);
+          }
+          return;
+        }
+
+        // Multiple images dropped
+        const currentPages = comicPagesRef.current;
+        const currentIdx = activePageIndexRef.current;
+        let currentTree = currentPages[currentIdx]?.tree || comicTree;
+        let remainingImages = [...loadedImages];
+        let filledCount = 0;
+
+        while (remainingImages.length > 0) {
+          const nextImg = remainingImages[0];
+          const { tree, updated } = fillFirstEmptyPanel(currentTree, nextImg.dataUrl);
+          if (updated) {
+            currentTree = tree;
+            filledCount++;
+            remainingImages.shift();
+          } else {
+            break;
+          }
+        }
+
+        if (filledCount > 0) {
+          updateActivePageTree(currentTree);
+        }
+
+        // If there are still remaining images, chunk them into 6-panel comic pages
+        if (remainingImages.length > 0) {
+          const newPages: ComicPage[] = [];
+          const chunkSize = 6;
+          for (let i = 0; i < remainingImages.length; i += chunkSize) {
+            const chunk = remainingImages.slice(i, i + chunkSize);
+            const grid = createGridTree(3, 2);
+            const populated = populateTreeWithImages(
+              grid,
+              chunk.map((c) => c.dataUrl)
+            );
+            newPages.push({
+              id: `${Date.now()}-${i}`,
+              tree: populated,
+              bubbles: [],
+            });
+          }
+
+          const nextPages = [...currentPages, ...newPages];
+          setComicPages(nextPages);
+          setActivePageIndex(currentPages.length);
+          toast.success(
+            `Filled ${filledCount} panels and created ${newPages.length} new 6-panel comic page(s)!`
+          );
+        } else {
+          toast.success(`Placed all ${filledCount} images into comic panels!`);
+        }
+      } catch (err: any) {
+        toast.error("Failed to load dropped images: " + (err?.message || "error"));
+      }
+    },
+    [comicTree, setComicPages]
+  );
+
+  const placeImagesStartingAtPanel = useCallback(
+    (imageUrls: string[], startPanelId: string) => {
+      if (imageUrls.length === 0) return;
+
+      const currentPages = comicPagesRef.current;
+      const currentIdx = activePageIndexRef.current;
+      const updatedPages: ComicPage[] = currentPages.map((page) => ({
+        ...page,
+        tree: JSON.parse(JSON.stringify(page.tree)),
+        bubbles: [...page.bubbles],
+      }));
+
+      let remaining = [...imageUrls];
+      let placedCount = 0;
+
+      // 1. Fill current active page starting from the clicked panel
+      if (currentIdx >= 0 && currentIdx < updatedPages.length) {
+        const activeTree = updatedPages[currentIdx].tree;
+        const sortedBoxes = getSortedLeafBoxes(activeTree);
+        let startIdx = sortedBoxes.findIndex((b) => b.id === startPanelId);
+        if (startIdx === -1) startIdx = 0;
+
+        const pageUpdates = new Map<string, string>();
+        for (let i = startIdx; i < sortedBoxes.length && remaining.length > 0; i++) {
+          const box = sortedBoxes[i];
+          const pNode = box.node as PanelNode;
+          // Skip text panels and panels that ALREADY contain an image
+          if (pNode.isTextPanel || (pNode.imageUrl && pNode.imageUrl.trim() !== '')) {
+            continue;
+          }
+          const nextImg = remaining.shift()!;
+          pageUpdates.set(box.id, nextImg);
+          placedCount++;
+        }
+
+        if (pageUpdates.size > 0) {
+          updatedPages[currentIdx].tree = updatePanelImages(activeTree, pageUpdates);
+        }
+      }
+
+      // 2. If there are still remaining images, flow to subsequent existing pages (skipping non-empty panels)
+      for (let p = currentIdx + 1; p < updatedPages.length && remaining.length > 0; p++) {
+        const pageTree = updatedPages[p].tree;
+        const sortedBoxes = getSortedLeafBoxes(pageTree);
+        const pageUpdates = new Map<string, string>();
+
+        for (let i = 0; i < sortedBoxes.length && remaining.length > 0; i++) {
+          const box = sortedBoxes[i];
+          const pNode = box.node as PanelNode;
+          if (pNode.isTextPanel || (pNode.imageUrl && pNode.imageUrl.trim() !== '')) {
+            continue;
+          }
+          const nextImg = remaining.shift()!;
+          pageUpdates.set(box.id, nextImg);
+          placedCount++;
+        }
+
+        if (pageUpdates.size > 0) {
+          updatedPages[p].tree = updatePanelImages(pageTree, pageUpdates);
+        }
+      }
+
+      // 3. If there are STILL remaining images, create new 6-panel pages
+      while (remaining.length > 0) {
+        const chunk = remaining.splice(0, 6);
+        const grid = createGridTree(3, 2);
+        const populated = populateTreeWithImages(grid, chunk);
+        updatedPages.push({
+          id: `page-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          tree: populated,
+          bubbles: [],
+        });
+        placedCount += chunk.length;
+      }
+
+      setComicPages(updatedPages);
+      if (currentIdx >= 0 && currentIdx < updatedPages.length) {
+        updateActivePageTree(updatedPages[currentIdx].tree);
+      }
+      toast.success(`Placed ${placedCount} images into comic panels (skipped existing images)`);
+    },
+    [setComicPages, updateActivePageTree]
+  );
+
+  const handlePanelInsertMedia = useCallback(
+    async (files: FileList | File[], startPanelId: string, startPath: number[]) => {
+      if (!files || files.length === 0) return;
+      const fileList = Array.from(files);
+
+      const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+      const videoFile = fileList.find(
+        (f) => f.type.startsWith("video/") || videoExtensions.test(f.name)
+      );
+      const nonVideoFiles = fileList.filter(
+        (f) => f !== videoFile && (f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f.name))
+      );
+
+      if (videoFile) {
+        setVideoToComicTargetPanel({
+          panelId: startPanelId,
+          path: startPath,
+          additionalImageFiles: nonVideoFiles,
+        });
+        setPendingVideoFile(videoFile);
+        setVideoToComicModalOpen(true);
+        return;
+      }
+
+      // Only images were selected
+      if (nonVideoFiles.length > 0) {
+        try {
+          const readPromises = nonVideoFiles.map((file) => {
+            return new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+          });
+          const imageUrls = await Promise.all(readPromises);
+          placeImagesStartingAtPanel(imageUrls, startPanelId);
+        } catch (err: any) {
+          toast.error("Failed to read image files: " + (err?.message || "error"));
+        }
+      }
+    },
+    [placeImagesStartingAtPanel]
+  );
+
+  const handleVideoToComicComplete = useCallback(
+    async (newPages: any[], keyframes: any[]) => {
+      if (!newPages || newPages.length === 0) return;
+
+      if (videoToComicTargetPanel) {
+        const keyframeUrls = keyframes.map((k: any) => (typeof k === "string" ? k : k.dataUrl));
+        let additionalUrls: string[] = [];
+        if (
+          videoToComicTargetPanel.additionalImageFiles &&
+          videoToComicTargetPanel.additionalImageFiles.length > 0
+        ) {
+          try {
+            additionalUrls = await Promise.all(
+              videoToComicTargetPanel.additionalImageFiles.map((file) => {
+                return new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(file);
+                });
+              })
+            );
+          } catch (_) {}
+        }
+        const allUrls = [...keyframeUrls, ...additionalUrls];
+        placeImagesStartingAtPanel(allUrls, videoToComicTargetPanel.panelId);
+        setVideoToComicTargetPanel(null);
+        return;
+      }
+
+      const currentPages = comicPagesRef.current;
+      if (isComicDefaultState(currentPages)) {
+        // Replace default placeholder comic
+        setComicPages(newPages);
+        setActivePageIndex(0);
+      } else {
+        // Append to existing comic
+        const startIdx = currentPages.length;
+        setComicPages([...currentPages, ...newPages]);
+        setActivePageIndex(startIdx);
+      }
+      toast.success(
+        `Added ${newPages.length} comic pages from ${keyframes.length} video keyframes!`
+      );
+    },
+    [setComicPages, videoToComicTargetPanel, placeImagesStartingAtPanel]
+  );
+
+  const handleWorkspaceDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "copy";
+    }
+    if (!isWorkspaceMediaDragging) {
+      setIsWorkspaceMediaDragging(true);
+    }
+  };
+
+  const handleWorkspaceDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceMediaDragging(true);
+  };
+
+  const handleWorkspaceDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (
+      comicWorkspaceRef.current &&
+      !comicWorkspaceRef.current.contains(e.relatedTarget as Node)
+    ) {
+      setIsWorkspaceMediaDragging(false);
+    }
+  };
+
+  const handleWorkspaceDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceMediaDragging(false);
+
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await handleWorkspaceMediaFiles(e.dataTransfer.files);
+    }
+  };
+
   const handleFullComicGenerated = async (
     scriptData: any,
     sketch: string | null,
@@ -6814,7 +7179,19 @@ ${manifestImages}  </manifest>
         
         <div className="grid md:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl mx-auto">
           <Card
-            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none"
+            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none relative"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleWorkspaceMediaFiles(e.dataTransfer.files);
+              }
+            }}
             onClick={() => {
               resetDrawToolSettingsToDefault();
               setCurrentComicId(null);
@@ -6842,11 +7219,28 @@ ${manifestImages}  </manifest>
             <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
               <Layout className="w-7 h-7" />
             </div>
-            <div>
+            <div className="flex flex-col items-center gap-2">
               <h3 className="font-bold mb-0.5 text-foreground uppercase tracking-wide text-sm">
                 {t("freeComicCreatorTitle")}
               </h3>
               <p className="text-xs text-muted-foreground">{t("freeComicCreatorDesc")}</p>
+
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    workspaceMediaInputRef.current?.click();
+                  }}
+                  className="h-8 px-3 text-xs font-semibold border-primary/40 hover:border-primary hover:bg-primary/10 text-primary flex items-center gap-1.5 rounded-full transition-all shadow-xs cursor-pointer pointer-events-auto"
+                  title="Upload image or convert video directly into comic canvas"
+                >
+                  <Film className="w-3.5 h-3.5" />
+                  <span>Upload Image / Video</span>
+                </Button>
+              </div>
             </div>
           </Card>
 
@@ -7144,6 +7538,32 @@ ${manifestImages}  </manifest>
         )}
       </div>
       {renderGoogleDriveDialog()}
+
+      {/* Hidden Media Input */}
+      <input
+        ref={workspaceMediaInputRef}
+        type="file"
+        accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleWorkspaceMediaFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
+      />
+
+      <VideoToComicDialog
+        isOpen={videoToComicModalOpen}
+        onClose={() => {
+          setVideoToComicModalOpen(false);
+          setPendingVideoFile(null);
+          setVideoToComicTargetPanel(null);
+        }}
+        videoFile={pendingVideoFile}
+        onComplete={handleVideoToComicComplete}
+      />
     </div>
     );
   }
@@ -9345,7 +9765,14 @@ ${manifestImages}  </manifest>
           {/* Main Canvas Area */}
           <div
             ref={comicWorkspaceRef}
-            className="flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden"
+            onDragOver={handleWorkspaceDragOver}
+            onDragEnter={handleWorkspaceDragEnter}
+            onDragLeave={handleWorkspaceDragLeave}
+            onDrop={handleWorkspaceDrop}
+            className={cn(
+              "flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden transition-colors",
+              isWorkspaceMediaDragging && "bg-primary/5 ring-2 ring-primary ring-inset"
+            )}
           >
             <div
               className={cn(
@@ -9361,6 +9788,7 @@ ${manifestImages}  </manifest>
                   className="block h-full max-w-full max-h-full w-auto opacity-0 pointer-events-none"
                 />
               )}
+
               <div
                 ref={comicRef}
                 data-comic-container="true"
@@ -9402,6 +9830,7 @@ ${manifestImages}  </manifest>
                   bubbles={bubbles}
                   onConvertFreehandBubble={handleConvertStrokeToBubble}
                   isTextPanelSelectMode={isTextPanelSelectMode}
+                  onInsertMedia={handlePanelInsertMedia}
                 />
 
                 {/* Bubble overlays layer - below sidebars, toolbars, and popups */}
@@ -9520,6 +9949,34 @@ ${manifestImages}  </manifest>
                 )}
               </div>
             </div>
+
+            {/* Hidden Media Input for Canvas Workspace */}
+            <input
+              ref={workspaceMediaInputRef}
+              type="file"
+              accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleWorkspaceMediaFiles(e.target.files);
+                  e.target.value = "";
+                }
+              }}
+            />
+
+            {/* Drag & Drop Visual Overlay */}
+            {isWorkspaceMediaDragging && (
+              <div className="absolute inset-0 z-50 pointer-events-none flex flex-col items-center justify-center bg-background/85 backdrop-blur-sm border-2 border-dashed border-primary m-3 rounded-2xl animate-in fade-in duration-150">
+                <div className="p-4 rounded-full bg-primary/10 border border-primary/20 text-primary mb-3 shadow-inner">
+                  <Upload className="w-8 h-8 animate-bounce" />
+                </div>
+                <h3 className="text-base font-bold text-foreground">Drop Image or Video Here</h3>
+                <p className="text-xs text-muted-foreground mt-1 max-w-xs text-center">
+                  Images will be placed directly into canvas panels. Videos will be converted to 6-panel comic pages.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Sidebar Controls */}
@@ -9736,6 +10193,17 @@ ${manifestImages}  </manifest>
         </Dialog>
 
         {renderGoogleDriveDialog()}
+
+        <VideoToComicDialog
+          isOpen={videoToComicModalOpen}
+          onClose={() => {
+            setVideoToComicModalOpen(false);
+            setPendingVideoFile(null);
+            setVideoToComicTargetPanel(null);
+          }}
+          videoFile={pendingVideoFile}
+          onComplete={handleVideoToComicComplete}
+        />
       </main>
     </div>
   );

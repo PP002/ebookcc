@@ -25,6 +25,7 @@ import {
   deleteConversionLog,
   ConversionLog
 } from '@/lib/historyCache';
+import { extractVideoKeyframes } from '@/lib/videoToComic';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from './GoogleDriveDialog';
 import {
@@ -3705,6 +3706,73 @@ export default function Convert({
     const isArchived = fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.cbz') || fileNameLower.endsWith('.epub') || fileNameLower.endsWith('.pdf');
     const isEbook = fileNameLower.endsWith('.mobi') || fileNameLower.endsWith('.cbr');
     
+    // Check if video file(s) are uploaded
+    const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+    const videoFiles = acceptedFiles.filter(
+      (f) => f.type.startsWith("video/") || videoExtensions.test(f.name)
+    );
+    const nonVideoFiles = acceptedFiles.filter(
+      (f) => !f.type.startsWith("video/") && !videoExtensions.test(f.name)
+    );
+
+    if (videoFiles.length > 0) {
+      setIsUploading(true);
+      setUploadProgress(10);
+      setLoadingText("Extracting video scenes...");
+
+      try {
+        const extractedImageFiles: File[] = [];
+
+        for (let vIdx = 0; vIdx < videoFiles.length; vIdx++) {
+          const vFile = videoFiles[vIdx];
+          const keyframes = await extractVideoKeyframes(vFile, {
+            stepSeconds: 0.5,
+            sceneThreshold: 24,
+            maxKeyframes: 36,
+            onProgress: (p) => {
+              setUploadProgress(Math.min(95, Math.round(10 + p.percent * 0.85)));
+              setLoadingText(`Video ${vIdx + 1}/${videoFiles.length}: ${p.statusText}`);
+            },
+          });
+
+          keyframes.forEach((kf, kfIdx) => {
+            const baseName = vFile.name.replace(/\.[^/.]+$/, "");
+            const frameFile = new File(
+              [kf.blob],
+              `${baseName}_scene_${String(kfIdx + 1).padStart(3, "0")}.jpg`,
+              { type: "image/jpeg", lastModified: Date.now() }
+            );
+            extractedImageFiles.push(frameFile);
+          });
+        }
+
+        if (extractedImageFiles.length === 0) {
+          toast.error("No clear scenes could be extracted from the video.");
+          setIsUploading(false);
+          setUploadProgress(0);
+          return;
+        }
+
+        // Combine extracted video keyframe images with any other uploaded images
+        const combinedFiles = [...extractedImageFiles, ...nonVideoFiles];
+
+        setUploadProgress(100);
+        setIsUploading(false);
+        setPendingFiles(combinedFiles);
+        setShowCollageModal(true);
+        toast.success(
+          `Extracted ${extractedImageFiles.length} scenes from video. Choose a layout to collage!`
+        );
+        return;
+      } catch (videoErr: any) {
+        console.error("Video conversion in Convert failed:", videoErr);
+        toast.error(`Video conversion failed: ${videoErr?.message || "Unknown error"}`);
+        setIsUploading(false);
+        setUploadProgress(0);
+        return;
+      }
+    }
+
     // If it's an unsupported ebook type, let user know it's detected but not yet processed
     if (isEbook) {
       toast.info("This feature is still in development. Please stay tuned!");
@@ -3890,7 +3958,8 @@ export default function Convert({
       'application/pdf': ['.pdf'],
       'application/epub+zip': ['.epub'],
       'application/x-mobipocket-ebook': ['.mobi'],
-      'application/x-cbr': ['.cbr']
+      'application/x-cbr': ['.cbr'],
+      'video/*': ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.3gp', '.wmv', '.flv', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.asf']
     },
     useFsAccessApi: false,
     multiple: true,
@@ -5915,7 +5984,7 @@ ${navItems}    </ol>
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
                 <h2 className="text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
                 <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
-                  {t("supportedFormats")}: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP</span>
+                  {t("supportedFormats")}: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, MP4, AVI, MKV, MOV, WEBM</span>
                 </p>
                 <p className="text-[10px] text-muted-foreground/80 mt-1">
                   {t("browseLocalFiles")}

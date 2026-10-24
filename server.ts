@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
+import { exec } from "child_process";
 import sizeOf from "image-size";
 import HTMLtoDOCX from 'html-to-docx';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -2803,6 +2804,98 @@ STRICT INSTRUCTIONS:
     } catch (e: any) {
       console.error(e);
       return handleGeminiError(e, res);
+    }
+  });
+
+  // Video to comic keyframe extraction endpoint (handles ANY video format/codec: AVI, MKV, WMV, FLV, MP4, etc.)
+  app.post("/api/extract-video-keyframes", express.raw({ type: '*/*', limit: '250mb' }), async (req, res): Promise<any> => {
+    try {
+      const rawBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+      if (!rawBuffer || rawBuffer.length === 0) {
+        return res.status(400).json({ success: false, error: "Empty video payload" });
+      }
+
+      const filename = String(req.query.filename || "video.avi");
+      const tempId = `v2c_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const ext = path.extname(filename) || ".avi";
+      const tempInput = path.join("/tmp", `${tempId}${ext}`);
+      const tempOutputDir = path.join("/tmp", `${tempId}_frames`);
+
+      try {
+        await fs.promises.mkdir(tempOutputDir, { recursive: true });
+        await fs.promises.writeFile(tempInput, rawBuffer);
+
+        // Step 1: Attempt scene detection and keyframe extraction with ffmpeg
+        const maxFrames = Math.min(48, Math.max(6, Number(req.query.maxKeyframes) || 36));
+        const sceneCmd = `ffmpeg -y -i "${tempInput}" -vf "select='gt(scene\\,0.22)+eq(n\\,0)',scale='min(1280,iw)':-2" -vsync vfr -q:v 2 -frames:v ${maxFrames} "${tempOutputDir}/scene_%03d.jpg"`;
+
+        try {
+          await new Promise<void>((resolve, reject) => {
+            exec(sceneCmd, { timeout: 30000 }, (error) => {
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+        } catch (sceneErr) {
+          console.warn("[FFmpeg Scene Extraction Warning]:", sceneErr);
+        }
+
+        // Check extracted frames
+        let files = await fs.promises.readdir(tempOutputDir);
+        let jpgFiles = files.filter((f) => f.endsWith(".jpg")).sort();
+
+        // Step 2: Fallback to evenly-spaced frames if scene detection found fewer than 6 frames
+        if (jpgFiles.length < 6) {
+          const fallbackCmd = `ffmpeg -y -i "${tempInput}" -vf "fps=1/1.5,scale='min(1280,iw)':-2" -vsync vfr -q:v 2 -frames:v ${maxFrames} "${tempOutputDir}/fallback_%03d.jpg"`;
+          try {
+            await new Promise<void>((resolve, reject) => {
+              exec(fallbackCmd, { timeout: 30000 }, (error) => {
+                if (error) reject(error);
+                else resolve();
+              });
+            });
+            files = await fs.promises.readdir(tempOutputDir);
+            jpgFiles = files.filter((f) => f.endsWith(".jpg")).sort();
+          } catch (fallbackErr) {
+            console.warn("[FFmpeg Fallback Extraction Warning]:", fallbackErr);
+          }
+        }
+
+        if (jpgFiles.length === 0) {
+          return res.status(422).json({ success: false, error: "Could not extract frames from video" });
+        }
+
+        // Read extracted frames as base64 data URLs
+        const keyframes: { dataUrl: string; timestamp: number; index: number }[] = [];
+        for (let i = 0; i < jpgFiles.length; i++) {
+          const filePath = path.join(tempOutputDir, jpgFiles[i]);
+          const imgBuf = await fs.promises.readFile(filePath);
+          keyframes.push({
+            dataUrl: `data:image/jpeg;base64,${imgBuf.toString("base64")}`,
+            timestamp: i * 1.5,
+            index: i,
+          });
+        }
+
+        return res.json({
+          success: true,
+          keyframes,
+          count: keyframes.length,
+        });
+      } finally {
+        // Cleanup temporary files and directory
+        try {
+          await fs.promises.unlink(tempInput).catch(() => {});
+          const leftover = await fs.promises.readdir(tempOutputDir).catch(() => []);
+          for (const file of leftover) {
+            await fs.promises.unlink(path.join(tempOutputDir, file)).catch(() => {});
+          }
+          await fs.promises.rmdir(tempOutputDir).catch(() => {});
+        } catch (_) {}
+      }
+    } catch (err: any) {
+      console.error("[Video Extraction Error]:", err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to extract keyframes" });
     }
   });
 

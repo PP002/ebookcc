@@ -283,6 +283,23 @@ export function updatePanelImage(tree: TreeNode, targetIndex: number, url: strin
   return { tree, updated: false };
 }
 
+export function updatePanelImages(tree: TreeNode, updates: Map<string, string>): TreeNode {
+  function walk(node: TreeNode): TreeNode {
+    if (node.type === 'panel') {
+      if (updates.has(node.id)) {
+        return { ...node, imageUrl: updates.get(node.id) };
+      }
+      return node;
+    }
+    return {
+      ...node,
+      c1: walk(node.c1),
+      c2: walk(node.c2),
+    };
+  }
+  return walk(tree);
+}
+
 export function getNodeByPath(tree: TreeNode, path: number[]): PanelNode | null {
   if (path.length === 0) {
     return tree.type === 'panel' ? tree : null;
@@ -352,20 +369,24 @@ export function getLeafBoxes(node: TreeNode, x = 0, y = 0, w = 100, h = 100, pat
   }
 }
 
+export function getSortedLeafBoxes(tree: TreeNode): PanelBox[] {
+  const leafBoxes = getLeafBoxes(tree);
+  // Ascending order: left to right, then top to bottom (row bands with 2% tolerance)
+  return [...leafBoxes].sort((a, b) => {
+    if (Math.abs(a.y - b.y) > 2) {
+      return a.y - b.y;
+    }
+    return a.x - b.x;
+  });
+}
+
 /**
  * Calculates panel labels:
  * - Panel: A+number (ascending order from left to right, then from top to bottom)
  * - Text panel: T+number (place on left-top of text panel)
  */
 export function getSortedPanelLabels(tree: TreeNode, indexOffset: number = 0): Map<string, string> {
-  const leafBoxes = getLeafBoxes(tree);
-  // Ascending order: left to right, then top to bottom (row bands with 2% tolerance)
-  const sorted = [...leafBoxes].sort((a, b) => {
-    if (Math.abs(a.y - b.y) > 2) {
-      return a.y - b.y;
-    }
-    return a.x - b.x;
-  });
+  const sorted = getSortedLeafBoxes(tree);
 
   const labelMap = new Map<string, string>();
   let imagePanelCount = indexOffset;
@@ -1302,6 +1323,7 @@ interface ComicCanvasProps {
   backgroundColor?: string;
   bubbles?: BubbleData[];
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  onInsertMedia?: (files: FileList | File[], startPanelId: string, startPath: number[]) => void;
   isTextPanelSelectMode?: boolean;
   disableTapToInsertImage?: boolean;
   hidePanelLabel?: boolean;
@@ -1338,6 +1360,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
   backgroundColor,
   bubbles,
   onConvertFreehandBubble,
+  onInsertMedia,
   isTextPanelSelectMode = false,
   disableTapToInsertImage = false,
   hidePanelLabel = false,
@@ -1617,6 +1640,7 @@ export const ComicCanvas: React.FC<ComicCanvasProps> = ({
             layerGroups={layerGroups}
             backgroundColor={backgroundColor}
             onConvertFreehandBubble={onConvertFreehandBubble}
+            onInsertMedia={onInsertMedia}
             panelLabels={panelLabels}
             isTextPanelSelectMode={isTextPanelSelectMode}
             disableTapToInsertImage={disableTapToInsertImage}
@@ -1751,6 +1775,7 @@ const SplitView: React.FC<{
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  onInsertMedia?: (files: FileList | File[], startPanelId: string, startPath: number[]) => void;
   panelLabels?: Map<string, string>;
   isTextPanelSelectMode?: boolean;
   disableTapToInsertImage?: boolean;
@@ -1783,6 +1808,7 @@ const SplitView: React.FC<{
   layerGroups,
   backgroundColor,
   onConvertFreehandBubble,
+  onInsertMedia,
   panelLabels,
   isTextPanelSelectMode,
   disableTapToInsertImage = false,
@@ -1822,6 +1848,7 @@ const SplitView: React.FC<{
         layerGroups={layerGroups}
         backgroundColor={backgroundColor}
         onConvertFreehandBubble={onConvertFreehandBubble}
+        onInsertMedia={onInsertMedia}
         panelLabels={panelLabels}
         isTextPanelSelectMode={isTextPanelSelectMode}
         disableTapToInsertImage={disableTapToInsertImage}
@@ -1839,13 +1866,13 @@ const SplitView: React.FC<{
   return (
     <div className={`split-container relative flex w-full h-full min-w-0 min-h-0 ${dir === 'row' ? 'flex-row' : 'flex-col'}`}>
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
+        <SplitView node={c1} path={[...path, 0]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} onInsertMedia={onInsertMedia} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
       </div>
       
       <Resizer node={node} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} />
 
       <div style={{ [dir === 'row' ? 'width' : 'height']: `${100 - percent}%` }} className="relative min-w-0 min-h-0 overflow-hidden">
-        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
+        <SplitView node={c2} path={[...path, 1]} onChange={onChange} rootTree={rootTree} isDrawingMode={isDrawingMode} drawTool={drawTool} penMode={penMode} eraserType={eraserType} drawColor={drawColor} drawRadius={drawRadius} drawOpacity={drawOpacity} touchOff={touchOff} setTouchOff={setTouchOff} onExpandPanel={onExpandPanel} onToggleExpand={onToggleExpand} containerAspect={containerAspect} leafBoxes={boxes} layers={layers} activeLayerId={activeLayerId} selectedLayerIds={selectedLayerIds} layerGroups={layerGroups} backgroundColor={backgroundColor} onConvertFreehandBubble={onConvertFreehandBubble} onInsertMedia={onInsertMedia} panelLabels={panelLabels} isTextPanelSelectMode={isTextPanelSelectMode} disableTapToInsertImage={disableTapToInsertImage} hidePanelLabel={hidePanelLabel} hideExpandButton={hideExpandButton} noPadding={noPadding} onDeleteRootPanel={onDeleteRootPanel} resolutionScale={resolutionScale} />
       </div>
     </div>
   );
@@ -2372,6 +2399,7 @@ const PanelView: React.FC<{
   layerGroups?: ComicLayerGroup[];
   backgroundColor?: string;
   onConvertFreehandBubble?: (stroke: Stroke, panelBox?: { x: number; y: number; w: number; h: number }) => void;
+  onInsertMedia?: (files: FileList | File[], startPanelId: string, startPath: number[]) => void;
   panelLabels?: Map<string, string>;
   isTextPanelSelectMode?: boolean;
   disableTapToInsertImage?: boolean;
@@ -2405,6 +2433,7 @@ const PanelView: React.FC<{
   layerGroups,
   backgroundColor,
   onConvertFreehandBubble,
+  onInsertMedia,
   panelLabels,
   isTextPanelSelectMode,
   disableTapToInsertImage = false,
@@ -2458,13 +2487,19 @@ const PanelView: React.FC<{
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        onChange(replaceNode(rootTree, path, { ...node, imageUrl: ev.target?.result as string }));
-      };
-      reader.readAsDataURL(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      if (onInsertMedia) {
+        onInsertMedia(files, node.id, path);
+      } else {
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          onChange(replaceNode(rootTree, path, { ...node, imageUrl: ev.target?.result as string }));
+        };
+        reader.readAsDataURL(file);
+      }
+      e.target.value = '';
     }
   };
   
@@ -2795,7 +2830,17 @@ const PanelView: React.FC<{
             />
           </>
         )}
-        <input id={`panel-file-upload-${path.join('-')}`} name={`panelFileUpload_${path.join('_')}`} aria-label="Upload panel image" type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
+        <input 
+          id={`panel-file-upload-${path.join('-')}`} 
+          name={`panelFileUpload_${path.join('_')}`} 
+          aria-label="Upload panel media" 
+          type="file" 
+          accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf" 
+          multiple 
+          ref={fileInputRef} 
+          className="hidden" 
+          onChange={handleImageUpload} 
+        />
       </div>
     </div>
   );

@@ -7340,9 +7340,9 @@ ${manifestImages}  </manifest>
               <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedComics")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedComics.length))}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
+            <div className="flex flex-col w-full divide-y divide-border/60 bg-card rounded-none">
               {unfinishedComics.map((comic) => (
-                <Card 
+                <div 
                   key={comic.id}
                   onClick={() => {
                     setCurrentComicId(comic.id);
@@ -7351,107 +7351,64 @@ ${manifestImages}  </manifest>
                     setActivePageIndex(comic.activePageIndex || 0);
                     setCreateMode("comic");
                   }}
-                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md animate-fade-in w-full"
+                  className="group flex items-center justify-between gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer w-full select-none"
                 >
-                  {/* Miniature Panel Tree Layout Preview: 4/3 aspect ratio */}
-                  <div className="relative aspect-[3/4] bg-muted/10 p-1.5 border-b flex items-stretch">
-                    <div className="w-full h-full flex flex-col items-stretch overflow-hidden border border-foreground/15 p-0.5 rounded-none bg-background">
-                      {comic.pages[0] && (
-                        <div className="w-full h-full flex flex-col min-h-0 min-w-0">
-                          <div className="flex-1 flex flex-col min-h-0 min-w-0">
-                            {(() => {
-                              const MiniGridTree = ({ node }: { node: any }): any => {
-                                if (!node) return null;
-                                if (node.type === "panel") {
-                                  return (
-                                    <div 
-                                      className="flex-1 border border-foreground/10 bg-muted/30 flex items-center justify-center overflow-hidden m-0.5"
-                                      style={node.bgColor ? { backgroundColor: node.bgColor } : {}}
-                                    >
-                                      {node.imageUrl ? (
-                                        <img src={node.imageUrl || undefined} className="w-full h-full object-cover opacity-60 scale-95" />
-                                      ) : (
-                                        <span className="text-[6px] text-muted-foreground/60 font-black">P</span>
-                                      )}
-                                    </div>
-                                  );
-                                }
-                                const isRow = node.dir === "row";
-                                const pct = node.percent || 50;
-                                return (
-                                  <div className={cn("flex flex-1 w-full h-full min-w-0 min-h-0", isRow ? "flex-row" : "flex-col")}>
-                                    <div style={isRow ? { width: `${pct}%` } : { height: `${pct}%` }} className="flex min-w-0 min-h-0">
-                                      <MiniGridTree node={node.c1} />
-                                    </div>
-                                    <div style={isRow ? { width: `${100 - pct}%` } : { height: `${100 - pct}%` }} className="flex min-w-0 min-h-0">
-                                      <MiniGridTree node={node.c2} />
-                                    </div>
-                                  </div>
-                                );
-                              };
-                              return <MiniGridTree node={comic.pages[0].tree} />;
-                            })()}
-                          </div>
-                          {comic.pages[0].bubbles?.length > 0 && (
-                            <div className="absolute bottom-1 right-1 bg-primary text-primary-foreground text-[7px] font-black px-1">
-                              {comic.pages[0].bubbles.length} {t("bubbles")}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="p-2 bg-primary/10 text-primary shrink-0 group-hover:scale-105 transition-transform rounded-none">
+                      <Layout className="w-4 h-4" />
                     </div>
-                    {/* Hover Play Button Overlay */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-md transform scale-90 group-hover:scale-100 transition-transform">
-                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h4 className="text-xs sm:text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors" title={comic.title}>
+                          {comic.title}
+                        </h4>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 bg-muted text-muted-foreground border border-border/50 shrink-0 font-semibold uppercase">
+                          Comic Draft
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mt-0.5 min-w-0 flex-wrap">
+                        <span className="truncate flex items-center gap-1 font-sans">
+                          <span>{t("pagesCountLabel").replace("{count}", String(comic.pages.length))}</span>
+                        </span>
+                        <span className="text-muted-foreground/40 hidden sm:inline">•</span>
+                        <span className="truncate flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                          <span>{formatTime(comic.timestamp)}</span>
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Metadata: Line 1 Title + delete/drive, Line 2 pages count & timestamp */}
-                  <div className="p-1.5 flex flex-col w-full min-w-0">
-                    <div className="flex items-center justify-between gap-1 w-full min-w-0">
-                      <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={comic.title}>
-                        {comic.title}
-                      </h4>
-                      <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickExportComicDraftToDrive(comic);
-                          }}
-                          className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Save to Google Drive"
-                        >
-                          <GoogleDriveIcon className="w-2.5 h-2.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            await deleteUnfinishedComic(comic.id);
-                            getUnfinishedComics().then(setUnfinishedComics);
-                            toast.success("Comic project deleted");
-                          }}
-                          className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          title={t("deleteWork")}
-                        >
-                          <Trash2 className="w-2.5 h-2.5" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono mt-0.5 min-w-0">
-                      <span className="truncate">
-                        {t("pagesCountLabel").replace("{count}", String(comic.pages.length))}
-                      </span>
-                      <span className="truncate text-[9px]">{formatTime(comic.timestamp)}</span>
-                    </div>
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleQuickExportComicDraftToDrive(comic);
+                      }}
+                      className="h-8 px-2 text-muted-foreground hover:text-primary hover:bg-primary/10 gap-1.5 cursor-pointer"
+                      title="Save to Google Drive"
+                    >
+                      <GoogleDriveIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden md:inline text-xs font-semibold">Drive</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await deleteUnfinishedComic(comic.id);
+                        getUnfinishedComics().then(setUnfinishedComics);
+                        toast.success("Comic project deleted");
+                      }}
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                      title={t("deleteWork")}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
@@ -7464,7 +7421,7 @@ ${manifestImages}  </manifest>
               <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedStories.length))}</span>
             </div>
-            <div className="flex flex-col w-full border border-border divide-y divide-border/60 bg-card rounded-none shadow-xs">
+            <div className="flex flex-col w-full divide-y divide-border/60 bg-card rounded-none">
               {unfinishedStories.map((story) => (
                 <div 
                   key={story.id}
@@ -9463,7 +9420,7 @@ ${manifestImages}  </manifest>
       <header className={cn(
         "w-full border-b bg-background/95 backdrop-blur-md shrink-0 overflow-visible transition-all",
         isComicPanelExpanded
-          ? (isMobileDevice ? "hidden" : "fixed top-0 inset-x-0 z-[10001] shadow-md")
+          ? "fixed top-0 inset-x-0 z-[10001] shadow-md"
           : "sticky top-0 z-[250]"
       )}>
         <div className="w-full px-2 h-11 flex items-center justify-between gap-2 relative overflow-visible">
@@ -9600,7 +9557,7 @@ ${manifestImages}  </manifest>
             className={cn(
               "left-2 sm:left-3 pointer-events-auto",
               isComicPanelExpanded
-                ? (isMobileDevice ? "fixed top-2.5 z-[10002]" : "fixed top-14 z-[10002]")
+                ? "fixed top-14 z-[10002]"
                 : "absolute top-3 z-[220]"
             )}
           >
@@ -9797,9 +9754,7 @@ ${manifestImages}  </manifest>
                 className={cn(
                   "w-full h-full overflow-hidden",
                   isComicPanelExpanded
-                    ? (isMobileDevice
-                        ? "fixed inset-0 z-[9999] w-screen h-screen h-[100dvh] bg-background flex items-center justify-center select-none"
-                        : "fixed inset-x-0 top-11 bottom-0 z-[9999] w-screen h-[calc(100dvh-44px)] bg-background flex items-center justify-center select-none")
+                    ? "fixed inset-x-0 top-11 bottom-0 z-[9999] w-screen h-[calc(100dvh-44px)] bg-background flex items-center justify-center select-none"
                     : "absolute top-0 left-0 ring-1 ring-border shadow-2xl"
                 )}
               >
@@ -10638,23 +10593,7 @@ const InlineStoryCanvas: React.FC<InlineStoryCanvasProps> = ({
           "fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-between select-none pointer-events-auto overflow-hidden",
           isMobile ? "top-0 p-1 sm:p-2 border-0" : "top-11 p-4 sm:p-6 border-t border-border"
         )}>
-          {isMobile && (
-            <button
-              type="button"
-              onClick={() => {
-                if (document.fullscreenElement) {
-                  try {
-                    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-                  } catch (_) {}
-                }
-                setIsFullPanel(false);
-              }}
-              className="fixed top-2.5 right-2.5 z-50 w-8 h-8 rounded-full bg-card/90 hover:bg-card text-foreground border border-border shadow-md backdrop-blur-md flex items-center justify-center transition-all active:scale-95 cursor-pointer pointer-events-auto"
-              title="Exit Full Panel"
-            >
-              <Minimize className="w-4 h-4 stroke-[2.5]" />
-            </button>
-          )}
+
           {/* Centered Canvas Container with exact aspect ratio and margin space matching Comic Creator */}
           <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden relative p-1 sm:p-4">
             <div 

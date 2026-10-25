@@ -30,6 +30,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({
     "faq-1": true,
     "faq-5": true,
+    "faq-18": true,
   });
 
   const ui = useMemo(() => getFAQUIStrings(language), [language]);

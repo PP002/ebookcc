@@ -2685,14 +2685,9 @@ const PanelView: React.FC<{
         )}
 
         {/* Fullscreen / Expand button on right-top of panel */}
-        {!hideExpandButton && (
+        {!hideExpandButton && !isExpanded && (
           <div 
-            className={cn(
-              "absolute top-2 right-2 z-40 transition-all duration-200 pointer-events-auto",
-              isExpanded 
-                ? "opacity-100" 
-                : "opacity-90 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 hover:opacity-100"
-            )}
+            className="absolute top-2 right-2 z-40 transition-all duration-200 pointer-events-auto opacity-90 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 hover:opacity-100"
             data-export-ignore="true"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -2707,19 +2702,11 @@ const PanelView: React.FC<{
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (isExpanded) {
-                  onToggleExpand?.();
-                } else {
-                  onExpandPanel?.(path, node.id);
-                }
+                onExpandPanel?.(path, node.id);
               }}
-              title={isExpanded ? (t("restorePanel") || "Restore panel") : (t("expandPanel") || "Full Panel")}
+              title={t("expandPanel") || "Full Panel"}
             >
-              {isExpanded ? (
-                <Minimize className="w-4 h-4 sm:w-3.5 sm:h-3.5 stroke-[2.5]" />
-              ) : (
-                <Maximize className="w-4 h-4 sm:w-3.5 sm:h-3.5 stroke-[2.5]" />
-              )}
+              <Maximize className="w-4 h-4 sm:w-3.5 sm:h-3.5 stroke-[2.5]" />
             </button>
           </div>
         )}
@@ -3333,24 +3320,6 @@ const ExpandedPanelWorkspace: React.FC<{
         </div>
       </div>
 
-      {/* Mobile Immersive Exit / Restore Button on Top-Right */}
-      {isMobileDevice && (
-        <button
-          type="button"
-          onClick={() => {
-            if (document.fullscreenElement) {
-              try {
-                if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-              } catch (_) {}
-            }
-            onExitExpanded();
-          }}
-          className="fixed top-2.5 right-2.5 z-50 w-8 h-8 rounded-full bg-card/90 hover:bg-card text-foreground border border-border shadow-md backdrop-blur-md flex items-center justify-center transition-all active:scale-95 cursor-pointer pointer-events-auto"
-          title={`${t("restorePanel") || "Exit Full Panel"} (Esc)`}
-        >
-          <Minimize className="w-4 h-4 stroke-[2.5]" />
-        </button>
-      )}
 
       {/* Always Visible Bottom Bar (does not cover panel workspace) */}
       <div className={cn(

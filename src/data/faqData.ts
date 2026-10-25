@@ -755,6 +755,17 @@ const EN_FAQ_ITEMS: FAQItem[] = [
       { text: "Access Web Reader & Drive", view: "read", description: "Import books and comics from Google Drive" },
       { text: "Convert & Save to Drive", view: "convert", description: "Batch convert files with cloud storage support" }
     ]
+  },
+  {
+    id: "faq-18",
+    category: "comics",
+    question: "How does Video-to-Comic work, and how can I convert videos into comic pages?",
+    answer: "EBookCC includes an intelligent Video-to-Comic engine that converts video files (MP4, WebM, MOV, MKV, and more) into multi-panel comics. It uses scene change detection and Laplacian sharpness scoring to capture the crispest, in-focus keyframes without motion blur. In the Batch Converter, you can extract video scenes and collage them directly into e-books. In the Comic Studio, you can drop a video directly onto the canvas or into specific panels to auto-populate 6-panel comic pages, ready for speech bubbles, dialogue, and drawing.",
+    keywords: ["video to comic", "video to manga", "convert video", "video keyframes", "scene detection", "video collage", "comic studio", "mp4 to comic", "animation to comic"],
+    links: [
+      { text: "Convert Video in Studio", view: "create", description: "Drop videos directly onto comic canvas" },
+      { text: "Batch Video Converter", view: "convert", description: "Extract keyframes and collage scenes into comics" }
+    ]
   }
 ];
 
@@ -921,6 +932,17 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
             { text: "Accéder au Lecteur & Drive", view: "read", description: "Importer des livres depuis Google Drive" },
             { text: "Convertir & Sauvegarder sur Drive", view: "convert", description: "Conversion avec prise en charge Google Drive" }
           ]
+        },
+        {
+          id: "faq-18",
+          category: "comics",
+          question: "Comment fonctionne la conversion Vidéo en BD et comment transformer des vidéos en planches de BD ?",
+          answer: "EBookCC intègre un outil performant de conversion Vidéo en BD qui transforme vos fichiers vidéo (MP4, WebM, MOV, MKV, etc.) en bandes dessinées à plusieurs cases. Il utilise une détection automatique des scènes et une analyse de netteté laplacienne pour capturer les meilleures images sans flou de mouvement. Vous pouvez convertir vos vidéos dans le Convertisseur pour créer des collages, ou glisser-déposer une vidéo directement dans le Studio BD pour générer automatiquement des planches de 6 cases, prêtes pour vos bulles et dialogues.",
+          keywords: ["vidéo en bd", "vidéo en manga", "convertir vidéo", "images clés", "détection scènes", "studio bd", "mp4 en bd"],
+          links: [
+            { text: "Convertir une Vidéo dans le Studio", view: "create", description: "Glisser des vidéos directement sur la planche de BD" },
+            { text: "Ouvrir le Convertisseur", view: "convert", description: "Extraire les images clés et créer un collage" }
+          ]
         }
       ];
 
@@ -1081,6 +1103,17 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           links: [
             { text: "Webリーダーとドライブを開く", view: "read", description: "Google ドライブから本やマンガをインポート" },
             { text: "変換してドライブに保存", view: "convert", description: "クラウド保存対応の一括変換" }
+          ]
+        },
+        {
+          id: "faq-18",
+          category: "comics",
+          question: "動画からマンガ（Video to Comic）への変換機能とは何ですか？動画をコマ割りマンガにする方法は？",
+          answer: "EBookCCは動画ファイル（MP4、WebM、MOV、MKVなど）を自動でコマ割りマンガに変換する「動画からコミック」機能を備えています。高速なシーン変化検出とラプラシアン鮮明度スコアリングにより、ブレのない最もシャープなキーフレームを自動抽出します。一括変換ツールでシーンをコラージュして電子書籍にまとめたり、コミックスタジオに動画をドラッグ＆ドロップするだけで自動的に6コママンガのページが生成され、フキダシや描き込みを自由に追加できます。",
+          keywords: ["動画からマンガ", "ビデオからコミック", "動画変換", "キーフレーム", "シーン検出", "コマ割り", "mp4 マンガ化"],
+          links: [
+            { text: "スタジオで動画をマンガ化", view: "create", description: "キャンバスに動画を直接ドロップして6コマ作成" },
+            { text: "変換ツールを開く", view: "convert", description: "動画のキーフレームを抽出してコラージュ" }
           ]
         }
       ];
@@ -1245,6 +1278,17 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
             { text: isHant ? "開啟閱讀器與雲端硬碟" : "打开阅读器与云端硬盘", view: "read", description: isHant ? "從 Google 雲端硬碟匯入書籍與漫畫" : "从 Google 云端硬盘导入书籍与漫画" },
             { text: isHant ? "轉換並保存到雲端硬碟" : "转换并保存到云端硬盘", view: "convert", description: isHant ? "批量轉換並備份至雲端儲存" : "批量转换并备份至云端存储" }
           ]
+        },
+        {
+          id: "faq-18",
+          category: "comics",
+          question: isHant ? "影片轉漫畫（Video-to-Comic）功能如何使用？如何將影片轉換成分格漫畫？" : "视频转漫画（Video-to-Comic）功能如何使用？如何将视频转换成分格漫画？",
+          answer: isHant ? "EBookCC 內建強大的影片轉漫畫引擎，支援將 MP4、WebM、MOV、MKV 等常見影片轉換為多格漫畫。系統透過智慧場景變化偵測與拉普拉斯清晰度演算法自動擷取畫質最清晰的關鍵影格，有效避免動態模糊。您可以在轉換器中擷取影片精彩鏡頭拼貼成畫冊，或直接將影片拖入漫畫工坊，系統會自動將其排版為經典的 6 格漫畫頁面，方便直接添加對白氣泡與手繪細節。" : "EBookCC 内置强大的视频转漫画引擎，支持将 MP4、WebM、MOV、MKV 等常见视频转换为多格漫画。系统通过智能场景变化检测与拉普拉斯清晰度算法自动捕获画质最清晰的关键帧，有效避免动态模糊。您可以在转换器中提取视频精彩镜头拼贴成画册，或直接将视频拖入漫画工坊，系统会自动将其排版为经典的 6 格漫画页面，方便直接添加对白气泡与手绘细节。",
+          keywords: ["视频转漫画", "影片轉漫畫", "video to comic", "提取关键帧", "场景检测", "mp4转漫画", "分格漫画", "漫画制作"],
+          links: [
+            { text: isHant ? "在漫畫工坊中轉換影片" : "在漫画工坊中转换视频", view: "create", description: isHant ? "直接將影片拖放到漫畫畫布生成6格頁面" : "直接将视频拖放到漫画画布生成6格页面" },
+            { text: isHant ? "開啟批量轉換器" : "打开批量转换器", view: "convert", description: isHant ? "擷取影片鏡頭並進行拼貼轉換" : "提取视频镜头并进行拼贴转换" }
+          ]
         }
       ];
     }
@@ -1403,6 +1447,17 @@ export function getFAQItems(lang: LanguageCode): FAQItem[] {
           links: [
             { text: "Acceder a Lector y Drive", view: "read", description: "Importar libros y cómics desde Google Drive" },
             { text: "Convertir y Guardar en Drive", view: "convert", description: "Conversión de archivos con soporte en la nube" }
+          ]
+        },
+        {
+          id: "faq-18",
+          category: "comics",
+          question: "¿Cómo funciona la conversión de Vídeo a Cómic y cómo transformar vídeos en páginas de cómic?",
+          answer: "EBookCC incluye una potente función de Vídeo a Cómic que convierte archivos de vídeo (MP4, WebM, MOV, MKV, etc.) en viñetas de cómic. Utiliza detección inteligente de cambios de escena y análisis de nitidez laplaciana para seleccionar los fotogramas clave más nítidos sin desenfoque de movimiento. Puedes convertir vídeos en el Conversor para armar collages o arrastrar un vídeo directamente al Estudio de Cómic para rellenar páginas de 6 viñetas listas para añadir bocadillos de diálogo y dibujos.",
+          keywords: ["video a comic", "video a manga", "convertir video", "fotogramas clave", "deteccion de escenas", "estudio comic", "mp4 a comic"],
+          links: [
+            { text: "Convertir Vídeo en el Estudio", view: "create", description: "Arrastra vídeos directamente al lienzo de cómic" },
+            { text: "Abrir Conversor por Lotes", view: "convert", description: "Extrae fotogramas clave y crea collages" }
           ]
         }
       ];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { BookOpen, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, Pause, SkipBack, SkipForward, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { BookOpen, User, Clock, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, Pause, SkipBack, SkipForward, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -448,14 +448,14 @@ async function extractComicFromEpub(fileOrBuffer: File | ArrayBuffer): Promise<E
   }
 }
 
-interface RecentBookCardProps {
+interface RecentBookListItemProps {
   book: RecentBookMetadata;
   onOpen: (book: RecentBookMetadata) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
   t: (key: string) => string;
 }
 
-const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete, t }) => {
+const RecentBookListItem: React.FC<RecentBookListItemProps> = ({ book, onOpen, onDelete, t }) => {
   const [imgError, setImgError] = useState(false);
   const [fallbackAttempt, setFallbackAttempt] = useState(0);
 
@@ -491,89 +491,100 @@ const RecentBookCard: React.FC<RecentBookCardProps> = ({ book, onOpen, onDelete,
     return hasValidCover ? rawCover : null;
   }, [cachedCover, hasValidCover, rawCover, cleanArchiveId, fallbackAttempt, imgError]);
 
+  const authorText = book.author === "Local File" ? (t("localFile") || "Local File") : (book.author || t("localFile") || "Local File");
+  const fileTypeLabel = book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType?.toUpperCase();
+
+  const formatTime = (ts?: number) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  };
+
   return (
     <div 
       onClick={() => onOpen(book)}
-      className="group relative flex flex-col bg-card hover:bg-accent/35 border border-border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md w-full select-none m-0 p-0"
+      className="group flex items-center justify-between gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer w-full select-none"
     >
-      {/* Cover Preview: Auto-resize by natural cover aspect ratio with zero blank margins */}
-      {effectiveRecentCover && !imgError ? (
-        <div className="relative w-full overflow-hidden border-b bg-card block m-0 p-0 leading-none text-[0px]">
-          <img 
-            src={effectiveRecentCover} 
-            alt={book.title}
-            loading="lazy"
-            decoding="async"
-            onLoad={() => {
-              if (effectiveRecentCover) {
-                if (book.id) setCachedCoverUrl(book.id, effectiveRecentCover);
-                if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveRecentCover);
-              }
-            }}
-            onError={() => {
-              if (cleanArchiveId && fallbackAttempt < 4) {
-                setFallbackAttempt(prev => prev + 1);
-              } else {
-                setImgError(true);
-              }
-            }}
-            className="w-full h-auto block m-0 p-0 object-cover transition-transform duration-300 group-hover:scale-105"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {/* Cover thumbnail or book icon */}
+        <div className="w-9 h-12 sm:w-10 sm:h-13 bg-muted/40 border border-border/70 overflow-hidden shrink-0 flex items-center justify-center relative rounded-none group-hover:scale-105 transition-transform">
+          {effectiveRecentCover && !imgError ? (
+            <img 
+              src={effectiveRecentCover} 
+              alt={book.title}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => {
+                if (effectiveRecentCover) {
+                  if (book.id) setCachedCoverUrl(book.id, effectiveRecentCover);
+                  if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveRecentCover);
+                }
+              }}
+              onError={() => {
+                if (cleanArchiveId && fallbackAttempt < 4) {
+                  setFallbackAttempt(prev => prev + 1);
+                } else {
+                  setImgError(true);
+                }
+              }}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-primary/10 text-primary">
+              <BookOpen className="w-4 h-4" />
             </div>
-          </div>
-          <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[8px] font-black tracking-wider uppercase bg-black/80 text-white rounded-none leading-normal">
-            {book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType}
-          </span>
+          )}
         </div>
-      ) : (
-        // Standard 3:4 layout if no cover or if cover image failed to load (preserves card height)
-        <div className="relative w-full aspect-[3/4] min-h-[140px] bg-card overflow-hidden flex flex-col justify-between border-b p-2 sm:p-2.5 select-none text-left">
-          <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
-            <span className="text-[7px] font-mono uppercase font-bold text-muted-foreground">Page 1</span>
-            <span className="text-[7px] font-mono text-primary font-bold uppercase">{book.fileType}</span>
-          </div>
-          <div className="my-auto space-y-0.5 py-0.5">
-            <h5 className="text-[10px] font-serif font-bold text-foreground line-clamp-2 leading-tight">
-              {book.title}
-            </h5>
-            <p className="text-[8px] text-muted-foreground italic font-serif truncate">
-              {book.author === "Local File" ? t("localFile") : book.author}
-            </p>
-          </div>
-          <div className="text-[6px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
-            Offline Document
-          </div>
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-            <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-              <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Book Metadata: Line 1 Title (contain delete), Line 2 Author */}
-      <div className="p-1.5 flex flex-col w-full min-w-0 bg-card">
-        <div className="flex items-center justify-between gap-1 w-full min-w-0">
-          <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={book.title}>
-            {book.title}
-          </h4>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => onDelete(e, book.id)}
-            className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer"
-            title="Remove from history"
-          >
-            <Trash2 className="w-3 h-3" />
-          </Button>
+        {/* Title, Author and metadata */}
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <h4 className="text-xs sm:text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors" title={book.title}>
+              {book.title}
+            </h4>
+            <span className="text-[9px] font-mono px-1.5 py-0.2 bg-muted text-muted-foreground border border-border/50 shrink-0 font-semibold uppercase">
+              {fileTypeLabel}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mt-0.5 min-w-0 flex-wrap">
+            <span className="truncate flex items-center gap-1 font-sans">
+              <User className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+              <span className="truncate" title={authorText}>{authorText}</span>
+            </span>
+            {book.lastReadPage !== undefined && book.lastReadPage > 0 && (
+              <>
+                <span className="text-muted-foreground/40 hidden sm:inline">•</span>
+                <span className="text-[10px] text-muted-foreground">
+                  Page {book.lastReadPage + 1}
+                </span>
+              </>
+            )}
+            {book.timestamp && (
+              <>
+                <span className="text-muted-foreground/40 hidden sm:inline">•</span>
+                <span className="truncate flex items-center gap-1 text-[10px]">
+                  <Clock className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                  <span>{formatTime(book.timestamp)}</span>
+                </span>
+              </>
+            )}
+          </div>
         </div>
-        <p className="text-[10px] text-muted-foreground truncate font-medium mt-0.5" title={book.author === "Local File" ? t("localFile") : book.author}>
-          {book.author === "Local File" ? t("localFile") : book.author}
-        </p>
+      </div>
+
+      {/* Delete / Remove Action */}
+      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => onDelete(e, book.id)}
+          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+          title="Remove from history"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
       </div>
     </div>
   );
@@ -2677,9 +2688,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full items-end">
+              <div className="flex flex-col w-full divide-y divide-border/60 bg-card rounded-none">
                 {recentBooks.map((book) => (
-                  <RecentBookCard
+                  <RecentBookListItem
                     key={book.id}
                     book={book}
                     onOpen={handleOpenRecent}

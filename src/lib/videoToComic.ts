@@ -375,11 +375,13 @@ export async function extractVideoKeyframes(
     isCancelled = () => false,
   } = options;
 
-  // If the file extension is .avi, .wmv, .flv, .ts, .mts, or .vob, HTML5 <video> typically
-  // cannot demux it client-side in Chromium/Safari. Immediately route to high-speed server extractor.
+  // Disable AVI files as requested. For other legacy non-native formats, route to server extractor.
   if (typeof videoSource !== 'string' && videoSource instanceof File) {
     const ext = videoSource.name.split('.').pop()?.toLowerCase();
-    if (ext && ['avi', 'wmv', 'flv', 'vob', 'asf'].includes(ext)) {
+    if (ext === 'avi') {
+      throw new Error('AVI format is disabled. Please choose a supported web video container like MP4, WebM, or MOV.');
+    }
+    if (ext && ['wmv', 'flv', 'vob', 'asf'].includes(ext)) {
       return await extractViaServerFallback(videoSource, options);
     }
   }
@@ -417,7 +419,6 @@ export async function extractVideoKeyframes(
       webm: 'video/webm',
       mov: 'video/quicktime',
       mkv: 'video/x-matroska',
-      avi: 'video/x-msvideo',
       wmv: 'video/x-ms-wmv',
       flv: 'video/x-flv',
       ogv: 'video/ogg',

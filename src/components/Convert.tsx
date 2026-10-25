@@ -3706,8 +3706,16 @@ export default function Convert({
     const isArchived = fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.cbz') || fileNameLower.endsWith('.epub') || fileNameLower.endsWith('.pdf');
     const isEbook = fileNameLower.endsWith('.mobi') || fileNameLower.endsWith('.cbr');
     
+    const aviFile = acceptedFiles.find((f) => f.name.toLowerCase().endsWith(".avi"));
+    if (aviFile) {
+      toast.error("AVI format is disabled. Please choose a supported web video container like MP4, WebM, or MOV.");
+      setIsUploading(false);
+      setUploadProgress(0);
+      return;
+    }
+
     // Check if video file(s) are uploaded
-    const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+    const videoExtensions = /\.(mp4|webm|mov|mkv|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
     const videoFiles = acceptedFiles.filter(
       (f) => f.type.startsWith("video/") || videoExtensions.test(f.name)
     );
@@ -3959,7 +3967,7 @@ export default function Convert({
       'application/epub+zip': ['.epub'],
       'application/x-mobipocket-ebook': ['.mobi'],
       'application/x-cbr': ['.cbr'],
-      'video/*': ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.3gp', '.wmv', '.flv', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.asf']
+      'video/*': ['.mp4', '.webm', '.mov', '.mkv', '.m4v', '.3gp', '.wmv', '.flv', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.asf']
     },
     useFsAccessApi: false,
     multiple: true,
@@ -5983,9 +5991,11 @@ ${navItems}    </ol>
               <div className="p-4 bg-background rounded-none shrink-0 text-center">
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
                 <h2 className="text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
-                <p className="text-[11px] text-muted-foreground font-semibold mt-1.5 leading-relaxed">
-                  {t("supportedFormats")}: <span className="text-foreground">EPUB, CBZ, ZIP, PDF, JPG, PNG, WEBP, MP4, AVI, MKV, MOV, WEBM</span>
-                </p>
+                <div className="text-[11px] text-muted-foreground font-semibold mt-2 leading-relaxed space-y-0.5 text-center">
+                  <div><span className="font-bold text-foreground">Ebook:</span> EPUB, CBZ, ZIP, PDF, MOBI, CBR</div>
+                  <div><span className="font-bold text-foreground">Image:</span> JPG, PNG, WEBP, GIF, BMP, AVIF</div>
+                  <div><span className="font-bold text-foreground">Video:</span> MP4, WEBM, MOV, MKV</div>
+                </div>
                 <p className="text-[10px] text-muted-foreground/80 mt-1">
                   {t("browseLocalFiles")}
                 </p>

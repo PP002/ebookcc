@@ -2835,7 +2835,7 @@ const PanelView: React.FC<{
           name={`panelFileUpload_${path.join('_')}`} 
           aria-label="Upload panel media" 
           type="file" 
-          accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf" 
+          accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf" 
           multiple 
           ref={fileInputRef} 
           className="hidden" 

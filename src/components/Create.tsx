@@ -55,6 +55,7 @@ import {
   RotateCcw,
   Film,
   Upload,
+  FileText,
 } from "lucide-react";
 import {
   Dialog,
@@ -3924,8 +3925,14 @@ export const Create: React.FC<CreateProps> = ({
 
       const fileList = Array.from(files);
 
-      // Check for video file first (expanded format support: MP4, WebM, MOV, MKV, AVI, M4V, 3GP, WMV, FLV, OGV, TS, MTS, M2TS, VOB, ASF)
-      const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+      const aviFile = fileList.find((f) => f.name.toLowerCase().endsWith(".avi"));
+      if (aviFile) {
+        toast.error("AVI format is disabled. Please choose a supported web video container like MP4, WebM, or MOV.");
+        return;
+      }
+
+      // Check for video file first (expanded format support: MP4, WebM, MOV, MKV, M4V, 3GP, WMV, FLV, OGV, TS, MTS, M2TS, VOB, ASF)
+      const videoExtensions = /\.(mp4|webm|mov|mkv|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
       const videoFile = fileList.find(
         (f) =>
           f.type.startsWith("video/") ||
@@ -4140,7 +4147,13 @@ export const Create: React.FC<CreateProps> = ({
       if (!files || files.length === 0) return;
       const fileList = Array.from(files);
 
-      const videoExtensions = /\.(mp4|webm|mov|mkv|avi|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
+      const aviFile = fileList.find((f) => f.name.toLowerCase().endsWith(".avi"));
+      if (aviFile) {
+        toast.error("AVI format is disabled. Please choose a supported web video container like MP4, WebM, or MOV.");
+        return;
+      }
+
+      const videoExtensions = /\.(mp4|webm|mov|mkv|m4v|3gp|wmv|flv|ogv|ts|mts|m2ts|vob|asf)$/i;
       const videoFile = fileList.find(
         (f) => f.type.startsWith("video/") || videoExtensions.test(f.name)
       );
@@ -7216,7 +7229,7 @@ ${manifestImages}  </manifest>
               setCreateMode("comic");
             }}
           >
-            <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
               <Layout className="w-7 h-7" />
             </div>
             <div className="flex flex-col items-center gap-2">
@@ -7234,11 +7247,11 @@ ${manifestImages}  </manifest>
                     e.stopPropagation();
                     workspaceMediaInputRef.current?.click();
                   }}
-                  className="h-8 px-3 text-xs font-semibold border-primary/40 hover:border-primary hover:bg-primary/10 text-primary flex items-center gap-1.5 rounded-full transition-all shadow-xs cursor-pointer pointer-events-auto"
+                  className="h-8 px-3 text-xs font-semibold border-primary/40 hover:border-primary hover:bg-primary/10 text-primary flex items-center gap-1.5 rounded-none transition-all shadow-xs cursor-pointer pointer-events-auto"
                   title="Upload image or convert video directly into comic canvas"
                 >
                   <Film className="w-3.5 h-3.5" />
-                  <span>Upload Image / Video</span>
+                  <span>or upload Image/Video</span>
                 </Button>
               </div>
             </div>
@@ -7253,7 +7266,7 @@ ${manifestImages}  </manifest>
               setCreateMode("document");
             }}
           >
-            <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
               <Type className="w-7 h-7" />
             </div>
             <div>
@@ -7451,9 +7464,9 @@ ${manifestImages}  </manifest>
               <h3 className="text-base sm:text-lg font-black tracking-wider uppercase text-foreground">{t("previousUnfinishedStories")}</h3>
               <span className="text-xs text-muted-foreground font-mono">{t("itemsCountLabel").replace("{count}", String(unfinishedStories.length))}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 w-full">
+            <div className="flex flex-col w-full border border-border divide-y divide-border/60 bg-card rounded-none shadow-xs">
               {unfinishedStories.map((story) => (
-                <Card 
+                <div 
                   key={story.id}
                   onClick={() => {
                     setCurrentStoryId(story.id);
@@ -7461,77 +7474,65 @@ ${manifestImages}  </manifest>
                     setLoadedHtmlContent(story.htmlContent);
                     setCreateMode("document");
                   }}
-                  className="group relative flex flex-col bg-card hover:bg-accent/30 border hover:border-primary/50 transition-all duration-300 rounded-none overflow-hidden cursor-pointer shadow-xs hover:shadow-md animate-fade-in w-full"
+                  className="group flex items-center justify-between gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer w-full select-none"
                 >
-                  {/* Miniature Story Preview: 4/3 aspect ratio */}
-                  <div className="relative aspect-[3/4] bg-muted/15 p-2 border-b flex flex-col justify-between select-none">
-                    <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
-                      <span className="text-[7px] font-mono uppercase font-bold text-muted-foreground">Draft</span>
-                      <span className="text-[7px] font-mono text-primary font-bold uppercase">DOC</span>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="p-2 bg-primary/10 text-primary shrink-0 group-hover:scale-105 transition-transform rounded-none">
+                      <FileText className="w-4 h-4" />
                     </div>
-                    <div className="my-auto space-y-0.5 py-0.5 overflow-hidden">
-                      <h5 className="text-[10px] font-serif font-bold text-foreground line-clamp-2 leading-tight">
-                        {story.title}
-                      </h5>
-                      <p className="text-[8px] text-muted-foreground italic font-serif line-clamp-3 leading-snug">
-                        {getPreviewText(story.htmlContent) || "No text content written yet..."}
-                      </p>
-                    </div>
-                    <div className="text-[6px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
-                      eBookCC Story Draft
-                    </div>
-
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="p-2 bg-primary text-primary-foreground rounded-full shadow-md transform scale-90 group-hover:scale-100 transition-transform">
-                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h4 className="text-xs sm:text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors" title={story.title}>
+                          {story.title}
+                        </h4>
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 bg-muted text-muted-foreground border border-border/50 shrink-0 font-semibold">
+                          Draft
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mt-0.5 min-w-0 flex-wrap">
+                        <span className="truncate flex items-center gap-1">
+                          <User className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                          <span className="truncate">{story.author || (user?.name || user?.email) || "Local Author"}</span>
+                        </span>
+                        <span className="text-muted-foreground/40 hidden sm:inline">•</span>
+                        <span className="truncate flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                          <span>{formatTime(story.timestamp)}</span>
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Metadata: Line 1 Title + delete/drive, Line 2 timestamp */}
-                  <div className="p-1.5 flex flex-col w-full min-w-0">
-                    <div className="flex items-center justify-between gap-1 w-full min-w-0">
-                      <h4 className="text-xs font-bold text-foreground truncate group-hover:text-primary transition-colors flex-1" title={story.title}>
-                        {story.title}
-                      </h4>
-                      <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickExportStoryDraftToDrive(story);
-                          }}
-                          className="w-4 h-4 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Save to Google Drive"
-                        >
-                          <GoogleDriveIcon className="w-2.5 h-2.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            await deleteUnfinishedStory(story.id);
-                            getUnfinishedStories().then(setUnfinishedStories);
-                            toast.success("Story project deleted");
-                          }}
-                          className="w-4 h-4 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          title={t("deleteWork")}
-                        >
-                          <Trash2 className="w-2.5 h-2.5" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono mt-0.5 min-w-0">
-                      <span className="truncate flex items-center gap-1">
-                        <Clock className="w-2.5 h-2.5 shrink-0" />
-                        {formatTime(story.timestamp)}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleQuickExportStoryDraftToDrive(story);
+                      }}
+                      className="h-8 px-2 text-muted-foreground hover:text-primary hover:bg-primary/10 gap-1.5 cursor-pointer"
+                      title="Save to Google Drive"
+                    >
+                      <GoogleDriveIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden md:inline text-xs font-semibold">Drive</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await deleteUnfinishedStory(story.id);
+                        getUnfinishedStories().then(setUnfinishedStories);
+                        toast.success("Story project deleted");
+                      }}
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                      title={t("deleteWork")}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           </div>
@@ -7543,7 +7544,7 @@ ${manifestImages}  </manifest>
       <input
         ref={workspaceMediaInputRef}
         type="file"
-        accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
+        accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -9954,7 +9955,7 @@ ${manifestImages}  </manifest>
             <input
               ref={workspaceMediaInputRef}
               type="file"
-              accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
+              accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.m4v,.3gp,.wmv,.flv,.ogv,.ts,.mts,.m2ts,.vob,.asf"
               multiple
               className="hidden"
               onChange={(e) => {

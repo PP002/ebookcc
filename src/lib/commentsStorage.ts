@@ -166,36 +166,36 @@ export async function fetchCloudComments(
         return comments.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       }
     }
-  } catch (apiErr) {
-    console.debug("Server API comments fetch notice:", apiErr);
+  } catch (_) {
+    // Fallback to cached or secondary storage silently
   }
 
-  // 2. Direct S3 Fetch via AwsClient in browser
-  const { accessKey, secretKey, bucket, endpoint } = getR2ResolvedCredentials(config);
-  if (accessKey && secretKey && endpoint) {
-    try {
-      const aws = new AwsClient({
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
-        service: "s3",
-        region: "auto",
-      });
-      const objectKey = `comments/${cleanId}.json`;
-      const getUrl = new URL(`/${bucket}/${objectKey}`, endpoint);
-      const signedReq = await aws.sign(getUrl, { method: "GET" });
-      const s3Res = await fetch(signedReq);
+  // 2. Direct S3 Fetch via AwsClient in browser (only when custom R2 config is provided)
+  if (config?.r2AccessKeyId && config?.r2SecretAccessKey && config?.r2Endpoint) {
+    const { accessKey, secretKey, bucket, endpoint } = getR2ResolvedCredentials(config);
+    if (accessKey && secretKey && endpoint) {
+      try {
+        const aws = new AwsClient({
+          accessKeyId: accessKey,
+          secretAccessKey: secretKey,
+          service: "s3",
+          region: "auto",
+        });
+        const objectKey = `comments/${cleanId}.json`;
+        const getUrl = new URL(`/${bucket}/${objectKey}`, endpoint);
+        const signedReq = await aws.sign(getUrl, { method: "GET" });
+        const s3Res = await fetch(signedReq);
 
-      if (s3Res.ok) {
-        const text = await s3Res.text();
-        const parsed = JSON.parse(text);
-        if (Array.isArray(parsed)) {
-          comments = parsed;
-          localStorage.setItem(getCacheKey(bookId), JSON.stringify(comments));
-          return comments.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (s3Res.ok) {
+          const text = await s3Res.text();
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            comments = parsed;
+            localStorage.setItem(getCacheKey(bookId), JSON.stringify(comments));
+            return comments.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          }
         }
-      }
-    } catch (directS3Err: any) {
-      console.debug("Direct S3 comments fetch notice:", directS3Err?.message);
+      } catch (_) {}
     }
   }
 

@@ -53,6 +53,12 @@ import {
   useAppSettings,
 } from "./context/AppSettingsContext";
 import { AppSettingsDialog } from "./components/AppSettingsDialog";
+import { AISettingsDialog } from "./components/AISettingsDialog";
+import { BillingDialog } from "./components/BillingDialog";
+import { AIPage } from "./components/AIPage";
+import { BillingPage } from "./components/BillingPage";
+import { ComplianceModal } from "./components/ComplianceModal";
+import { HeaderUserMenu } from "./components/HeaderUserMenu";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import {
   LanguageProvider,
@@ -72,15 +78,7 @@ import {
 import { preloadOnnxRuntimesInBackground } from "./lib/onnxPipelineEnv";
 
 function GoogleAuthProviderWrapper({ children }: { children: ReactNode }) {
-  const { googleClientId } = useAppSettings();
-  if (!googleClientId || !googleClientId.trim() || googleClientId === "dummy") {
-    return <>{children}</>;
-  }
-  return (
-    <GoogleOAuthProvider clientId={googleClientId}>
-      {children}
-    </GoogleOAuthProvider>
-  );
+  return <>{children}</>;
 }
 
 function FeatureCard({
@@ -148,6 +146,8 @@ export default function App() {
             <GoogleAuthProviderWrapper>
               <AppContent />
               <AppSettingsDialog />
+              <AISettingsDialog />
+              <BillingDialog />
             </GoogleAuthProviderWrapper>
           </LanguageProvider>
         </AppSettingsProvider>
@@ -162,7 +162,7 @@ function AppContent() {
   const { t, language, setLanguage, buildPath } = useLanguage();
 
   const [currentPath, setCurrentPath] = useState<
-    "home" | "read" | "create" | "convert" | "faq"
+    "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai"
   >(() => {
     const { view } = parseLanguageAndRouteFromPath(window.location.pathname);
     return view;
@@ -172,6 +172,10 @@ function AppContent() {
   usePageSEO({ view: currentPath, language });
 
   const [showCoffeeModal, setShowCoffeeModal] = useState(false);
+  const [complianceModal, setComplianceModal] = useState<{
+    isOpen: boolean;
+    tab: "privacy" | "terms";
+  }>({ isOpen: false, tab: "privacy" });
   const [headerHidden, setHeaderHidden] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -262,6 +266,10 @@ function AppContent() {
         );
       } else if (action === "open-settings") {
         setShowSettingsDialog(true);
+      } else if (action === "open-billing") {
+        navigate("billing");
+      } else if (action === "open-ai") {
+        navigate("ai");
       }
     };
     window.addEventListener("app-navigation", handleNav);
@@ -270,7 +278,7 @@ function AppContent() {
 
   const navigate = useCallback(
     (
-      view: "home" | "read" | "create" | "convert" | "faq",
+      view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai",
       query?: string,
     ) => {
       const path = buildPath(view) + (query || "");
@@ -306,7 +314,7 @@ function AppContent() {
 
       {/* Universal Navigation Banner */}
       {!headerHidden && (
-        <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">
+        <header className="sticky top-0 z-50 w-full border-b border-border/15 bg-background/80 backdrop-blur-md">
           <div className="w-full px-4 h-14 flex items-center justify-between gap-4">
             {/* Logo Brand */}
             <div
@@ -368,35 +376,7 @@ function AppContent() {
 
             {/* Right Layout Controls */}
             <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSettingsDialog(true)}
-                className="w-8 h-8 !rounded-full rounded-full hover:bg-muted text-foreground/80 overflow-hidden !overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
-                style={{ borderRadius: "9999px" }}
-                title={user ? (user.name ? `${user.name} (${user.email}) - ${t("appSettings")}` : `${user.email} - ${t("appSettings")}`) : t("appSettings")}
-              >
-                {user ? (
-                  (user.avatarUrl || user.photoURL) ? (
-                    <img
-                      src={user.avatarUrl || user.photoURL || undefined}
-                      alt={user.name || user.email}
-                      className="w-8 h-8 !rounded-full rounded-full object-cover shrink-0 overflow-hidden"
-                      style={{ borderRadius: "9999px" }}
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div
-                      className="w-8 h-8 !rounded-full rounded-full bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shadow-xs shrink-0 overflow-hidden"
-                      style={{ borderRadius: "9999px" }}
-                    >
-                      {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
-                    </div>
-                  )
-                ) : (
-                  <Settings className="w-4 h-4" />
-                )}
-              </Button>
+              <HeaderUserMenu onNavigate={(v) => navigate(v)} />
               {/* Dark Mode switcher */}
               <Button
                 variant="ghost"
@@ -532,7 +512,7 @@ function AppContent() {
 
               {/* Restored Key Features list directly on landing page */}
               <section
-                className="w-full py-6 border-t border-border/30"
+                className="w-full py-6 border-t border-border/10"
                 id="key-features"
               >
                 <h2 className="text-xs font-extrabold tracking-tight mb-4 text-center text-primary uppercase font-mono">
@@ -598,13 +578,16 @@ function AppContent() {
               </section>
 
               {/* Footer */}
-              <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/40 flex items-center justify-center">
+              <footer className="text-center text-xs text-muted-foreground pt-12 pb-32 border-t border-border/10 flex items-center justify-center">
                 <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 font-medium">
-                  <span>
-                    {t("madeWith")}{" "}
-                    <Heart className="w-3.5 h-3.5 inline text-rose-500 fill-rose-500" />{" "}
-                    {t("by")}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCoffeeModal(true)}
+                    className="inline-flex items-center gap-1.5 underline hover:text-primary transition-colors cursor-pointer font-medium"
+                  >
+                    <Coffee className="w-3.5 h-3.5 text-[#FF5E5B]" />
+                    <span>{t("buyCoffee") || "Buy me a coffee"}</span>
+                  </button>
                   <span className="hidden sm:inline text-border">|</span>
                   <span>
                     {t("contact")}:{" "}
@@ -621,6 +604,20 @@ function AppContent() {
                     className="underline hover:text-primary transition-colors cursor-pointer font-medium"
                   >
                     {t("faq") || "FAQ"}
+                  </button>
+                  <span className="hidden sm:inline text-border">|</span>
+                  <button
+                    onClick={() => setComplianceModal({ isOpen: true, tab: "privacy" })}
+                    className="underline hover:text-primary transition-colors cursor-pointer font-medium"
+                  >
+                    Ownership & Privacy
+                  </button>
+                  <span className="hidden sm:inline text-border">|</span>
+                  <button
+                    onClick={() => setComplianceModal({ isOpen: true, tab: "terms" })}
+                    className="underline hover:text-primary transition-colors cursor-pointer font-medium"
+                  >
+                    Terms & Copyright
                   </button>
                   <span className="hidden sm:inline text-border">|</span>
                   <LanguageSelector />
@@ -651,21 +648,25 @@ function AppContent() {
           />
         )}
         {currentPath === "faq" && <FAQ navigate={navigate} />}
+        {currentPath === "billing" && (
+          <BillingPage
+            onBack={() => navigate("home")}
+            onNavigateAI={() => navigate("ai")}
+          />
+        )}
+        {currentPath === "ai" && (
+          <AIPage
+            onBack={() => navigate("home")}
+            onNavigateBilling={() => navigate("billing")}
+          />
+        )}
       </main>
 
-      {/* Floating Global Ko-fi Button */}
-      {!isFullscreen && (
-        <div className="fixed bottom-[1%] right-[1%] z-[100] flex flex-col items-end gap-2">
-          <button
-            onClick={() => setShowCoffeeModal(true)}
-            className="flex items-center justify-center gap-1.5 bg-[#FF5E5B] hover:bg-[#ff4a47] text-white font-semibold py-1.5 px-3 portrait:w-9 portrait:h-9 portrait:p-0 rounded shadow-sm border-0 transition-all text-xs group pointer-events-auto cursor-pointer"
-          >
-            <Coffee className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform duration-300" />
-            <span className="portrait:hidden">{t("buyCoffee")}</span>
-            <Heart className="w-3 h-3 fill-white text-white animate-pulse portrait:hidden" />
-          </button>
-        </div>
-      )}
+      <ComplianceModal
+        isOpen={complianceModal.isOpen}
+        onClose={() => setComplianceModal((prev) => ({ ...prev, isOpen: false }))}
+        initialTab={complianceModal.tab}
+      />
 
       {/* Global "Buy me a coffee" Modal */}
       {showCoffeeModal && (

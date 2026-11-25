@@ -31,6 +31,12 @@ export interface AppSettings {
   setLocalLlmApiKey: (val: string) => void;
   showSettingsDialog: boolean;
   setShowSettingsDialog: (val: boolean) => void;
+  showAiSettingsDialog: boolean;
+  setShowAiSettingsDialog: (val: boolean) => void;
+  showBillingDialog: boolean;
+  setShowBillingDialog: (val: boolean) => void;
+  walletBalance: number;
+  refreshWallet: () => Promise<void>;
   
   // Supabase & Cloudflare R2 integrations
   supabaseUrl: string;
@@ -99,7 +105,15 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [localLlmUrl, setLocalLlmUrl] = useState(() => localStorage.getItem('local_llm_url') || "http://localhost:11434/v1");
   const [localLlmModel, setLocalLlmModel] = useState(() => localStorage.getItem('local_llm_model') || "llama3");
   const [localLlmApiKey, setLocalLlmApiKey] = useState(() => localStorage.getItem('local_llm_api_key') || "");
-  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialogState] = useState(false);
+  const [showAiSettingsDialog, setShowAiSettingsDialog] = useState(false);
+  const [showBillingDialog, setShowBillingDialog] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
+  const setShowSettingsDialog = (val: boolean) => {
+    setShowSettingsDialogState(val);
+    setShowAiSettingsDialog(val);
+  };
 
   // Supabase & Cloudflare R2 states
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
@@ -114,9 +128,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
     return localStorage.getItem('supabase_anon_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_qP560tjdVzDl4lsNTe0WUQ_S6BF7dEX";
   });
-  const [googleClientId, setGoogleClientId] = useState(() => {
-    return localStorage.getItem('google_client_id') || import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
-  });
+  const [googleClientId, setGoogleClientId] = useState("");
   const [r2AccessKeyId, setR2AccessKeyId] = useState(() => {
     return localStorage.getItem('r2_access_key') || import.meta.env.VITE_R2_ACCESS_KEY_ID || "";
   });
@@ -163,11 +175,26 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   // Auth User state
   const [user, setUser] = useState<UserSession | null>(() => {
-    const saved = localStorage.getItem('auth_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+
+  // Keep auth_user synchronized in localStorage
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem('auth_user', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('auth_user');
+      }
+    } catch (_) {}
+  }, [user]);
 
   // Check URL on load for recovery link or auth tokens/errors
   useEffect(() => {
@@ -331,8 +358,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       }
       if (session?.user) {
         applySupabaseSession(session);
-      } else {
-        setUser(null);
+      } else if (event === 'SIGNED_OUT') {
+        setUser((prev) => (prev?.authProvider === 'google' ? prev : null));
       }
     });
 
@@ -422,13 +449,58 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem('r2_endpoint');
   }, [r2Endpoint]);
 
-  // Persist user session
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('auth_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('auth_user');
+  // Fetch wallet balance on user login
+  const refreshWallet = async () => {
+    if (!user) {
+      setWalletBalance(0);
+      return;
     }
+    try {
+      const res = await fetch(`${getApiUrl()}/api/billing/wallet`, {
+        headers: {
+          'x-user-id': user.uid,
+          'x-user-email': user.email,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWalletBalance(data.balanceUsd || 0);
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    refreshWallet();
+  }, [user]);
+
+  // Migration for existing users: synchronize legacy API keys to encrypted vault if logged in
+  useEffect(() => {
+    if (!user) return;
+    const isMigrated = localStorage.getItem(`ai_migrated_${user.uid}`);
+    if (isMigrated) return;
+
+    const legacyGemini = localStorage.getItem('gemini_api_key');
+    const legacyStability = localStorage.getItem('stability_api_key');
+
+    const migrateKey = async (provider: string, apiKey: string) => {
+      if (!apiKey || apiKey.length < 5) return;
+      try {
+        await fetch(`${getApiUrl()}/api/ai/save-key`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.uid,
+          },
+          body: JSON.stringify({ provider, apiKey }),
+        });
+      } catch (_) {}
+    };
+
+    (async () => {
+      if (legacyGemini) await migrateKey('google', legacyGemini);
+      if (legacyStability) await migrateKey('stability', legacyStability);
+      localStorage.setItem(`ai_migrated_${user.uid}`, 'true');
+    })();
   }, [user]);
 
   return (
@@ -440,6 +512,9 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       localLlmModel, setLocalLlmModel,
       localLlmApiKey, setLocalLlmApiKey,
       showSettingsDialog, setShowSettingsDialog,
+      showAiSettingsDialog, setShowAiSettingsDialog,
+      showBillingDialog, setShowBillingDialog,
+      walletBalance, refreshWallet,
       
       // Integrations
       supabaseUrl, setSupabaseUrl,

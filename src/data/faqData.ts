@@ -2,7 +2,7 @@ import { LanguageCode } from "../context/LanguageContext";
 
 export interface FAQLink {
   text: string;
-  view?: "read" | "create" | "convert" | "home" | "faq" | "settings";
+  view?: "read" | "create" | "convert" | "home" | "faq" | "settings" | "ai" | "billing";
   action?: "settings";
   description: string;
 }
@@ -663,6 +663,17 @@ const EN_FAQ_ITEMS: FAQItem[] = [
     answer: "Yes! EBookCC includes free built-in Cloudflare Workers AI powered by Google Gemma (Gemma 4) for high-speed chat, OCR speech-bubble translation, and story/novel scripting, alongside FLUX.1 schnell for fast text-to-image panel generation — with zero API key or setup required. If you prefer to use other models, you can also connect your own API keys for Google Gemini, OpenAI (GPT-4o), Anthropic Claude, Qwen, or local offline LLMs (Ollama / LM Studio) in App Settings.",
     keywords: ["free ai", "gemma", "flux", "flux schnell", "cloudflare workers ai", "gemini", "openai", "claude", "qwen", "ollama", "lm studio", "api keys", "configure ai"],
     links: [{ text: "Configure AI & API Keys", action: "settings", description: "Set up Gemini, OpenAI, Anthropic Claude, Qwen, or local AI models in app settings" }]
+  },
+  {
+    id: "faq-audio-drama-tts",
+    category: "ai",
+    question: "How does the AI Audio Drama & Text-to-Speech (TTS) Studio work, and how is my audio stored?",
+    answer: "VoiceCraft Studio: Multi-Cast AI Audio Drama & Private Cloud Audio. Transform your original manuscripts, novel chapters, and public domain stories into immersive multi-character audio dramas using advanced multi-voice Text-to-Speech synthesis. Generated audio files are securely cached in your local browser and hosted in private, creator-controlled Cloudflare R2 cloud storage with instant high-speed streaming. You maintain 100% intellectual property ownership over all synthesized audio, with full freedom to download portable MP3s or permanently delete your files at any time.",
+    keywords: ["ai audio drama", "text to speech", "tts", "cloudflare r2", "audio storage", "voicecraft", "public domain", "creator ownership", "audiobook creator", "podcast"],
+    links: [
+      { text: "Launch Web Reader & Broadcast", view: "read", description: "Listen to audio drama narrations and read books" },
+      { text: "Configure AI & TTS Voices", view: "ai", description: "Select ElevenLabs, OpenAI, Gemini, or Cartesia voices" }
+    ]
   },
   {
     id: "faq-15",

@@ -20,9 +20,62 @@ export interface PublicBookItem {
 // Convert any target URL from gutenberg.org or archive.org to our secure backend proxy route
 export function getLibraryProxyUrl(targetUrl: string): string {
   if (!targetUrl) return '';
-  const isEpub = targetUrl.toLowerCase().includes('.epub') || targetUrl.toLowerCase().includes('epub');
+  const lower = targetUrl.toLowerCase();
+  const isImage = /\.(jpe?g|png|gif|webp)(\?|$)/.test(lower);
+  const isEpub = !isImage && (lower.includes('.epub') || lower.includes('epub'));
   const basePath = isEpub ? '/api/library/proxy/book.epub' : '/api/library/proxy';
   return `${basePath}?fileUrl=${encodeURIComponent(targetUrl)}`;
+}
+
+// Extract numeric Project Gutenberg ID from a book object, id string, or URL
+export function extractGutenbergId(
+  input?: string | { id?: string; resource_url?: string; cover?: string; cover_url?: string; source?: string } | null
+): string {
+  if (!input) return '';
+  if (typeof input === 'string') {
+    const m1 = input.match(/^gutenberg-(\d+)$/i);
+    if (m1) return m1[1];
+    const m2 = input.match(/\/cache\/epub\/(\d+)\//i) || input.match(/\/ebooks\/(\d+)/i) || input.match(/pg(\d+)\.cover\./i);
+    return m2 ? m2[1] : '';
+  }
+  const candidates = [input.id, input.resource_url, input.cover, input.cover_url];
+  for (const c of candidates) {
+    if (!c) continue;
+    const extracted = extractGutenbergId(c);
+    if (extracted) return extracted;
+  }
+  return '';
+}
+
+// Rewrite www.gutenberg.org cover URLs (which frequently return 503) to official PGLAF mirror
+export function normalizeGutenbergCoverUrl(rawUrl?: string, bookIdOrInput?: string | { id?: string; resource_url?: string; cover?: string; cover_url?: string }): string {
+  const gId = extractGutenbergId(rawUrl) || extractGutenbergId(bookIdOrInput);
+  if (gId) {
+    if (!rawUrl || rawUrl.includes('gutenberg.org/cache/epub/')) {
+      return `https://aleph.pglaf.org/cache/epub/${gId}/pg${gId}.cover.medium.jpg`;
+    }
+  }
+  return rawUrl || '';
+}
+
+// Ordered fallback list of cover image URLs for a Project Gutenberg book
+export function getGutenbergCoverCandidates(gutenbergId: string, rawCover?: string): string[] {
+  if (!gutenbergId) return rawCover ? [rawCover] : [];
+  const primaryMirror = `https://aleph.pglaf.org/cache/epub/${gutenbergId}/pg${gutenbergId}.cover.medium.jpg`;
+  const secondaryMirror = `https://gutenberg.pglaf.org/cache/epub/${gutenbergId}/pg${gutenbergId}.cover.medium.jpg`;
+  const smallMirror = `https://aleph.pglaf.org/cache/epub/${gutenbergId}/pg${gutenbergId}.cover.small.jpg`;
+  const proxiedMirror = `/api/library/proxy?fileUrl=${encodeURIComponent(primaryMirror)}`;
+  const normalizedRaw = normalizeGutenbergCoverUrl(rawCover, gutenbergId);
+
+  const list = [
+    normalizedRaw || primaryMirror,
+    primaryMirror,
+    secondaryMirror,
+    proxiedMirror,
+    smallMirror,
+    `https://www.gutenberg.org/cache/epub/${gutenbergId}/pg${gutenbergId}.cover.medium.jpg`,
+  ];
+  return Array.from(new Set(list.filter(Boolean)));
 }
 
 // ─────────────────────────────────────────────
@@ -36,7 +89,9 @@ if (typeof window !== 'undefined') {
     if (stored) {
       const parsed = JSON.parse(stored);
       Object.entries(parsed).forEach(([k, v]) => {
-        if (typeof v === 'string' && v) resolvedCoverCache.set(k, v);
+        if (typeof v === 'string' && v && !v.includes('www.gutenberg.org/cache/epub/')) {
+          resolvedCoverCache.set(k, v);
+        }
       });
     }
   } catch (_) {}
@@ -44,7 +99,11 @@ if (typeof window !== 'undefined') {
 
 export function getCachedCoverUrl(idOrKey: string): string | null {
   if (!idOrKey) return null;
-  return resolvedCoverCache.get(idOrKey) || null;
+  const cached = resolvedCoverCache.get(idOrKey) || null;
+  if (cached && cached.includes('www.gutenberg.org/cache/epub/')) {
+    return normalizeGutenbergCoverUrl(cached, idOrKey);
+  }
+  return cached;
 }
 
 export function setCachedCoverUrl(idOrKey: string, url: string): void {
@@ -119,10 +178,12 @@ export async function searchGutenbergBooks(query: string = '', page: number = 1)
         b.formats['application/octet-stream'] ||
         `https://www.gutenberg.org/ebooks/${b.id}.epub3.images`;
 
-      // Pick best Cover URL
-      const coverUrl =
+      // Pick best Cover URL (use official PGLAF mirror so www.gutenberg.org 503 blocks don't break covers)
+      const coverUrl = normalizeGutenbergCoverUrl(
         b.formats['image/jpeg'] ||
-        `https://www.gutenberg.org/cache/epub/${b.id}/pg${b.id}.cover.medium.jpg`;
+        `https://aleph.pglaf.org/cache/epub/${b.id}/pg${b.id}.cover.medium.jpg`,
+        String(b.id)
+      );
 
       const authorName = b.authors && b.authors.length > 0
         ? b.authors.map(a => a.name.includes(',') ? a.name.split(',').reverse().join(' ').trim() : a.name).join(', ')
@@ -268,7 +329,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-1342',
     title: 'Pride and Prejudice',
     author: 'Jane Austen',
-    cover_url: 'https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/1342/pg1342.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/1342/pg1342.epub',
     description: 'A romantic masterpiece of manners, upbringing, morality, and marriage in Regency England.',
@@ -279,7 +340,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-84',
     title: 'Frankenstein; Or, The Modern Prometheus',
     author: 'Mary Wollstonecraft Shelley',
-    cover_url: 'https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/84/pg84.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/84/pg84.epub',
     description: 'The foundational gothic science fiction novel of Victor Frankenstein and his creature.',
@@ -290,7 +351,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-1661',
     title: 'The Adventures of Sherlock Holmes',
     author: 'Arthur Conan Doyle',
-    cover_url: 'https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/1661/pg1661.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/1661/pg1661.epub',
     description: 'Twelve classic detective stories featuring the world’s most celebrated consulting detective.',
@@ -301,7 +362,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-11',
     title: "Alice's Adventures in Wonderland",
     author: 'Lewis Carroll',
-    cover_url: 'https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/11/pg11.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/11/pg11.epub',
     description: 'The surreal journey of young Alice through a subterranean fantasy realm of talking animals.',
@@ -312,7 +373,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-64317',
     title: 'The Great Gatsby',
     author: 'F. Scott Fitzgerald',
-    cover_url: 'https://www.gutenberg.org/cache/epub/64317/pg64317.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/64317/pg64317.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/64317/pg64317.epub',
     description: 'A portrait of the Jazz Age exploring ambition, obsession, and the American dream in Long Island.',
@@ -323,7 +384,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-345',
     title: 'Dracula',
     author: 'Bram Stoker',
-    cover_url: 'https://www.gutenberg.org/cache/epub/345/pg345.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/345/pg345.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/345/pg345.epub',
     description: 'The definitive gothic horror novel introducing Count Dracula and his journey from Transylvania.',
@@ -334,7 +395,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-98',
     title: 'A Tale of Two Cities',
     author: 'Charles Dickens',
-    cover_url: 'https://www.gutenberg.org/cache/epub/98/pg98.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/98/pg98.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/98/pg98.epub',
     description: 'A historical drama set in London and Paris during the turmoil of the French Revolution.',
@@ -345,7 +406,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-174',
     title: 'The Picture of Dorian Gray',
     author: 'Oscar Wilde',
-    cover_url: 'https://www.gutenberg.org/cache/epub/174/pg174.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/174/pg174.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/174/pg174.epub',
     description: 'A philosophical novel regarding aestheticism, youth, hedonism, and a hidden aging portrait.',
@@ -356,7 +417,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-2701',
     title: 'Moby Dick; Or, The Whale',
     author: 'Herman Melville',
-    cover_url: 'https://www.gutenberg.org/cache/epub/2701/pg2701.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/2701/pg2701.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/2701/pg2701.epub',
     description: 'The epic quest of Captain Ahab and the crew of the Pequod in relentless pursuit of the white whale.',
@@ -367,7 +428,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-35',
     title: 'The Time Machine',
     author: 'H. G. Wells',
-    cover_url: 'https://www.gutenberg.org/cache/epub/35/pg35.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/35/pg35.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/35/pg35.epub',
     description: 'The foundational science fiction story of an inventor traveling forward into the distant future of the Eloi and Morlocks.',
@@ -378,7 +439,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-36',
     title: 'The War of the Worlds',
     author: 'H. G. Wells',
-    cover_url: 'https://www.gutenberg.org/cache/epub/36/pg36.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/36/pg36.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/36/pg36.epub',
     description: 'A gripping first-person narrative of Martian invader tripods terrorizing Victorian England.',
@@ -389,7 +450,7 @@ export const PUBLIC_DOMAIN_LIBRARY_POOL: PublicBookItem[] = [
     id: 'gutenberg-5200',
     title: 'Metamorphosis',
     author: 'Franz Kafka',
-    cover_url: 'https://www.gutenberg.org/cache/epub/5200/pg5200.cover.medium.jpg',
+    cover_url: 'https://aleph.pglaf.org/cache/epub/5200/pg5200.cover.medium.jpg',
     content_type: 'epub',
     resource_url: 'https://www.gutenberg.org/cache/epub/5200/pg5200.epub',
     description: 'The haunting psychological tale of Gregor Samsa awakening transformed into a monstrous insect.',

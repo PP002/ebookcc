@@ -35,6 +35,11 @@ export function logOnnxEnvInitOnce(provider: "webgpu" | "wasm"): void {
 export function configureOnnxEnvironment(provider: "webgpu" | "wasm" = "wasm"): void {
   if (typeof self === "undefined") return;
 
+  // Suppress benign internal fallback warnings (e.g. VerifyEachNodeIsAssignedToAnEp)
+  try {
+    ort.env.logLevel = "error";
+  } catch (_) {}
+
   const isIsolated = Boolean(self.crossOriginIsolated);
   const concurrency = typeof navigator !== "undefined" ? (navigator.hardwareConcurrency || 2) : 2;
   const threads = isIsolated ? Math.min(4, concurrency) : 1;
@@ -54,6 +59,11 @@ export function configureOnnxEnvironment(provider: "webgpu" | "wasm" = "wasm"): 
   // self.location.href fetch (SPA HTML /convert) causing COEP frame blocks and crashes.
   ort.env.wasm.proxy = false;
 }
+
+// Initialise global log level
+try {
+  ort.env.logLevel = "error";
+} catch (_) {}
 
 // ─────────────────────────────────────────────
 // Canvas Reuse Pool (1.2)

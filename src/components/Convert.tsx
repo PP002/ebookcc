@@ -11,9 +11,11 @@ import { Loader2, Download, Upload, Trash2, Edit2, Check, X, Eye, EyeOff, Chevro
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { getHorizontalKeyDirection, isEditableTarget, attachWheelPageFlipper } from '@/lib/pageFlipInput';
 import { ImageToolbar } from './ImageToolbar';
 import { Slideshow } from './Slideshow';
 import { useAppSettings, handleApiError } from '@/context/AppSettingsContext';
+import { HeaderUserMenu } from './HeaderUserMenu';
 import { useLanguage } from '@/context/LanguageContext';
 import JSZip from 'jszip';
 import { runInBrowserOCR, loadPaddleOcrModels } from '@/lib/ppOcrInference';
@@ -2863,7 +2865,7 @@ export default function Convert({
   setActiveView, 
   onActiveStateChange 
 }: { 
-  setActiveView: (view: 'home' | 'read' | 'create' | 'convert') => void,
+  setActiveView: (view: 'home' | 'read' | 'create' | 'convert' | 'faq' | 'billing' | 'ai') => void,
   onActiveStateChange?: (active: boolean) => void
 }) {
   const { t, formatDate, localeCode } = useLanguage();
@@ -3457,6 +3459,7 @@ export default function Convert({
   const isDarkMode = resolvedTheme === 'dark';
 
   const imageRef = useRef<HTMLImageElement>(null);
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const editorContainerRef = useCallback((node: HTMLDivElement | null) => {
     if (resizeObserverRef.current) {
@@ -3542,13 +3545,18 @@ export default function Convert({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if (isEditableTarget(e.target || document.activeElement)) {
         return;
       }
-      
-      if (e.key === 'ArrowLeft') {
+
+      const horizDir = getHorizontalKeyDirection(e);
+      if (horizDir === 'left' || e.key === 'PageUp') {
+        e.preventDefault();
+        e.stopPropagation();
         setCurrentPageIndex(p => Math.max(0, p - 1));
-      } else if (e.key === 'ArrowRight') {
+      } else if (horizDir === 'right' || e.key === 'PageDown') {
+        e.preventDefault();
+        e.stopPropagation();
         setCurrentPageIndex(p => Math.min(pages.length - 1, p + 1));
       } else if (e.key === 'Escape') {
         setIsGridView(false);
@@ -3566,9 +3574,85 @@ export default function Convert({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [pages.length, isGridView, selectedPages, currentPageIndex]);
+
+  // Horizontal capacitive touch keyboard (BlackBerry Passport) & optical trackpad (BlackBerry Classic) navigation in Convert viewer
+  useEffect(() => {
+    const el = viewerContainerRef.current;
+    if (!el || pages.length <= 1 || isGridView) return;
+
+    const cleanupWheel = attachWheelPageFlipper(
+      el,
+      (dir) => {
+        if (editingIndex !== null || isAddingTextMode) return;
+        if (dir === 'right') {
+          setCurrentPageIndex(p => Math.min(pages.length - 1, p + 1));
+        } else {
+          setCurrentPageIndex(p => Math.max(0, p - 1));
+        }
+      },
+      {
+        shouldHandle: (e) => {
+          if (editingIndex !== null || isAddingTextMode) return false;
+          const t = e.target as HTMLElement | null;
+          if (t?.closest?.('button, input, textarea, select, [contenteditable="true"], [data-no-swipe]')) {
+            return false;
+          }
+          return true;
+        },
+      }
+    );
+
+    let touchStart: { x: number; y: number; time: number } | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      if (editingIndex !== null || isAddingTextMode || e.touches.length !== 1) {
+        touchStart = null;
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('button, input, textarea, select, [contenteditable="true"], [data-no-swipe]')) {
+        touchStart = null;
+        return;
+      }
+      touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!touchStart || editingIndex !== null || isAddingTextMode) {
+        touchStart = null;
+        return;
+      }
+      const touch = e.changedTouches[0];
+      const start = touchStart;
+      touchStart = null;
+      if (!touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      const elapsed = Date.now() - start.time;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (
+        (elapsed < 700 && absX >= 40 && absX > absY * 1.25) ||
+        (elapsed < 450 && absX >= 26 && absX > absY * 1.25)
+      ) {
+        if (dx < 0) {
+          setCurrentPageIndex(p => Math.min(pages.length - 1, p + 1));
+        } else {
+          setCurrentPageIndex(p => Math.max(0, p - 1));
+        }
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      cleanupWheel();
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [pages.length, isGridView, editingIndex, isAddingTextMode]);
 
   const processUploadedFiles = async (acceptedFiles: File[]) => {
     setIsUploading(true);
@@ -3734,9 +3818,8 @@ export default function Convert({
         for (let vIdx = 0; vIdx < videoFiles.length; vIdx++) {
           const vFile = videoFiles[vIdx];
           const keyframes = await extractVideoKeyframes(vFile, {
-            stepSeconds: 0.5,
-            sceneThreshold: 24,
-            maxKeyframes: 36,
+            strictness: 'balanced',
+            includeDebugThumbnails: false,
             onProgress: (p) => {
               setUploadProgress(Math.min(95, Math.round(10 + p.percent * 0.85)));
               setLoadingText(`Video ${vIdx + 1}/${videoFiles.length}: ${p.statusText}`);
@@ -5977,7 +6060,7 @@ ${navItems}    </ol>
   return (
     <>
       {pages.length === 0 ? (
-        <div className="flex-1 overflow-y-auto py-12 px-6 max-w-4xl mx-auto w-full min-h-[70vh] space-y-8 no-scrollbar">
+        <div className="flex-1 overflow-y-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8 w-full max-w-full min-h-[70vh] space-y-8 no-scrollbar">
           <div
             {...getRootProps()}
             className={cn(
@@ -5988,7 +6071,7 @@ ${navItems}    </ol>
           >
             <input {...getInputProps()} id="convert-file-upload-input" name="convertFiles" aria-label="Upload ebook or image files" />
             <div className="flex flex-col items-center gap-4 max-w-md">
-              <div className="p-4 bg-background rounded-none shrink-0 text-center">
+              <div className="p-4 bg-transparent rounded-none shrink-0 text-center">
                 <Layers className="w-12 h-12 text-primary mx-auto mb-2 text-primary" />
                 <h2 className="text-sm font-black uppercase tracking-wider text-foreground">{t("dragDropEbookFiles")}</h2>
                 <div className="text-[11px] text-muted-foreground font-semibold mt-2 leading-relaxed space-y-0.5 text-center">
@@ -6484,35 +6567,7 @@ ${navItems}    </ol>
 
               {/* Right Actions */}
               <div className="flex flex-1 items-center justify-end gap-0.5">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setShowApiKeyModal(true)} 
-                  className="w-8 h-8 !rounded-full rounded-full hover:bg-muted overflow-hidden !overflow-hidden flex items-center justify-center p-0 shrink-0 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-transparent shadow-none ring-0"
-                  style={{ borderRadius: "9999px" }}
-                  title={user ? (user.name ? `${user.name} (${user.email}) - ${t("appSettings")}` : `${user.email} - ${t("appSettings")}`) : t("appSettings")}
-                >
-                  {user ? (
-                    (user.avatarUrl || user.photoURL) ? (
-                      <img
-                        src={user.avatarUrl || user.photoURL || undefined}
-                        alt={user.name || user.email}
-                        className="w-8 h-8 !rounded-full rounded-full object-cover shrink-0 overflow-hidden"
-                        style={{ borderRadius: "9999px" }}
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div 
-                        className="w-8 h-8 !rounded-full rounded-full bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground font-black text-xs flex items-center justify-center uppercase font-mono shrink-0 overflow-hidden"
-                        style={{ borderRadius: "9999px" }}
-                      >
-                        {(user.name || user.email || "U").trim().charAt(0).toUpperCase()}
-                      </div>
-                    )
-                  ) : (
-                    <Settings className="w-4 h-4" />
-                  )}
-                </Button>
+                <HeaderUserMenu onNavigate={(v) => setActiveView(v)} />
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -6633,7 +6688,7 @@ ${navItems}    </ol>
 
             <div className="flex-1 flex overflow-hidden relative">
               {/* Main Content Area */}
-              <div className="flex-1 overflow-y-auto no-scrollbar relative h-full">
+              <div ref={viewerContainerRef} className="flex-1 overflow-y-auto overscroll-x-contain no-scrollbar relative h-full">
                 <div className="w-full pt-0 px-4 md:px-6 max-w-[1600px] mx-auto">
                   <div className="w-full space-y-0">
                     
@@ -7285,17 +7340,17 @@ ${navItems}    </ol>
         )}
       </AnimatePresence>
       {isUploading && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.1)]">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.1)]">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center gap-8 px-12 py-12 rounded-lg bg-background shadow-2xl border border-border max-h-[90vh] overflow-y-auto"
+              className="flex flex-col items-center gap-6 px-6 sm:px-10 py-10 rounded-xl bg-background shadow-2xl border border-border w-full max-w-[520px] max-h-[90vh] overflow-x-hidden overflow-y-auto"
             >
             {loadingText.toLowerCase().includes("collage") ? null : (
-              <Loader2 className="w-12 h-12 text-primary animate-spin" />
+              <Loader2 className="w-12 h-12 text-primary animate-spin shrink-0" />
             )}
-            <div className="text-center">
-              <h3 className="text-3xl font-bold font-serif mb-2 text-primary">
+            <div className="text-center w-full min-w-0 overflow-hidden">
+              <h3 className="text-xl sm:text-2xl font-bold font-serif mb-2 text-primary break-words max-w-full leading-snug px-2">
                 {(() => {
                   switch (loadingText) {
                     case "Initializing...": return t("initializing");
@@ -7310,7 +7365,7 @@ ${navItems}    </ol>
                   }
                 })()}
               </h3>
-              <p className="text-muted-foreground font-medium text-lg leading-tight px-4 min-h-[3rem]">
+              <p className="text-muted-foreground font-medium text-base sm:text-lg leading-tight px-2 min-h-[2.5rem] break-words max-w-full">
                 {loadingText.toLowerCase().includes("collage") || loadingText.toLowerCase().includes("reading") || loadingText.toLowerCase().includes("identifying")
                   ? t("organizingImagesLayout") 
                   : t("preparingEbookPages")}

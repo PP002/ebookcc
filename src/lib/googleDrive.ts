@@ -30,6 +30,14 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
+// Separate lightweight Google Auth provider for standard app Sign-In (profile + email only)
+const basicAccountProvider = new GoogleAuthProvider();
+basicAccountProvider.addScope('email');
+basicAccountProvider.addScope('profile');
+basicAccountProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
 // Active access token cache (in-memory with secure tab session storage fallback)
 const SESSION_TOKEN_KEY = 'ebookcc_gdrive_access_token';
 let cachedAccessToken: string | null = null;
@@ -94,53 +102,55 @@ export const initGoogleDriveAuth = (
   return onAuthStateChanged(auth, async (user: User | null) => {
     cachedUser = user;
     const token = await getDriveAccessToken();
-    if (user && token) {
-      if (onAuthSuccess) onAuthSuccess(user, token);
-    } else {
+    if (user) {
+      if (onAuthSuccess) onAuthSuccess(user, token || '');
+    } else if (!isSigningIn) {
       if (onAuthFailure) onAuthFailure();
     }
   });
 };
 
 /**
- * Silently request a Google Drive access token if the user is already logged in with Google.
- * Uses Google Identity Services without showing extra login popups.
+ * Silently retrieve cached Google Drive access token if already present in memory/sessionStorage.
+ * Avoids Google Identity Services (initTokenClient) which triggers Error 400: origin_mismatch on dynamic origins.
  */
-export const requestGoogleDriveTokenSilently = async (emailHint?: string): Promise<string | null> => {
+export const requestGoogleDriveTokenSilently = async (_emailHint?: string): Promise<string | null> => {
   const currentToken = await getDriveAccessToken();
-  if (currentToken) return currentToken;
+  return currentToken || null;
+};
 
-  return new Promise((resolve) => {
-    try {
-      const gClientId = firebaseConfig.oAuthClientId;
-      if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && gClientId) {
-        const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-          client_id: gClientId,
-          scope: DRIVE_SCOPES.join(' '),
-          hint: emailHint || '',
-          prompt: '', // Silent request; does not show dialog if user already consented
-          callback: (response: any) => {
-            if (response?.access_token) {
-              setDriveAccessToken(response.access_token);
-              resolve(response.access_token);
-            } else {
-              resolve(null);
-            }
-          },
-          error_callback: (err: any) => {
-            console.warn('[GoogleDrive] Silent token request fallback:', err?.type || err);
-            resolve(null);
-          }
-        });
-        tokenClient.requestAccessToken({ prompt: '' });
-      } else {
-        resolve(null);
-      }
-    } catch (e) {
-      console.warn('[GoogleDrive] Silent token request exception:', e);
-      resolve(null);
+/**
+ * Sign in to the application with a Google account (profile & email only, no Drive scopes required).
+ * Uses Firebase Auth popup via the authorized firebaseapp.com/__/auth/handler redirect URI.
+ */
+export const signInWithGoogleAccount = async (): Promise<{ user: User; idToken?: string | null; accessToken?: string | null }> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, basicAccountProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    cachedUser = result.user;
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
     }
-  });
+    return {
+      user: result.user,
+      idToken: credential?.idToken || null,
+      accessToken: credential?.accessToken || null,
+    };
+  } catch (error: any) {
+    const isPopupBlocked = error?.code === 'auth/popup-blocked' || error?.message?.includes('popup-blocked');
+    const isPopupClosed = error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request';
+    if (isPopupBlocked) {
+      console.warn('[GoogleAuth] Sign-in popup was blocked by the browser.');
+    } else if (isPopupClosed) {
+      console.warn('[GoogleAuth] Sign-in popup was closed by user.');
+    } else {
+      console.error('[GoogleAuth] Sign in error:', error);
+    }
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
 };
 
 /**

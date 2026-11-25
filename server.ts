@@ -15,6 +15,10 @@ import {
   buildDynamicSystemPrompt,
   CONVERT_SKIP_GUIDANCE
 } from "./src/lib/aiContextPacket";
+import { setupBroadcastRoutes } from "./src/server/serverBroadcast";
+import { setupBillingRoutes } from "./src/server/serverBilling";
+import { setupAiSettingsRoutes } from "./src/server/serverAiSettings";
+import { BROADCAST_CONFIG } from "./src/lib/broadcastConfig";
 
 // ─────────────────────────────────────────────
 // Types
@@ -100,10 +104,9 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-r2-access-key', 'x-r2-secret-key', 'x-r2-bucket', 'x-r2-endpoint', 'apikey']
   }));
 
-  // Cross-Origin Isolation headers for WASM multi-threading (SharedArrayBuffer)
+  // Allow OAuth popups (Firebase/Google Sign-In) to retain window.opener and auth iframes
   app.use((req, res, next) => {
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     next();
   });
@@ -163,6 +166,17 @@ async function startServer() {
     }
   });
 
+  // Explicit Audio Assets static serving with audio mime-types
+  app.use(['/Audio', '/audio'], express.static(path.join(process.cwd(), 'public', 'Audio'), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.mp3')) res.setHeader('Content-Type', 'audio/mpeg');
+      else if (filePath.endsWith('.wav')) res.setHeader('Content-Type', 'audio/wav');
+      else if (filePath.endsWith('.json')) res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+  }));
+
   // Proxy to Supabase removed for direct connection
 
   app.use(express.json({ limit: '100mb' }));
@@ -197,13 +211,24 @@ async function startServer() {
       key = key.replace("Bearer ", "").trim();
     }
     if (!key || key === "MY_GEMINI_API_KEY" || key.includes("YOUR_API_KEY") || key.length < 10) return null;
+
+    const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
+    const cfGateway = process.env.CF_GATEWAY_GOOGLE_AI_STUDIO || BROADCAST_CONFIG.GATEWAYS.GOOGLE_AI_STUDIO;
+
+    const httpOptions: any = {
+      headers: {
+        'User-Agent': 'aistudio-build'
+      }
+    };
+
+    if (cfAccount) {
+      httpOptions.baseUrl = `https://gateway.ai.cloudflare.com/v1/${cfAccount}/${cfGateway}/google-ai-studio`;
+      console.log(`[GoogleGenAI] Routing requests via Cloudflare AI Gateway: ${cfGateway}`);
+    }
+
     return new GoogleGenAI({
       apiKey: key,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
+      httpOptions
     });
   }
 
@@ -633,51 +658,71 @@ async function startServer() {
     const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
 
     if (cfToken && cfAccount) {
-      try {
-        const isVision = formattedMessages.some(m => typeof m.content === 'string' && (m.content.includes("data:image") || m.content.includes("image_url")));
-        const modelName = isVision ? "@cf/meta/llama-3.2-11b-vision-instruct" : "@cf/google/gemma-4-26b-a4b-it";
-        
-        let requestBody: any;
-        if (isVision) {
-          const imgMsg = formattedMessages.find(m => typeof m.content === 'string' && (m.content.includes("data:image") || m.content.includes("image_url")));
-          let b64 = "";
-          if (imgMsg) {
-            const match = imgMsg.content.match(/data:image\/[a-zA-Z]+;base64,([A-Za-z0-9+/=]+)/);
-            b64 = match ? match[1] : imgMsg.content;
-          }
-          requestBody = {
-            prompt: "Read and extract all visible text from this comic page or panel crop. Return a JSON array of detected text objects with box_2d coordinates.",
-            image: b64,
-            max_tokens: isJson ? 2048 : 1024
-          };
-        } else {
-          requestBody = {
-            messages: formattedMessages,
-            max_tokens: isJson ? 2048 : 1024,
-          };
-        }
+      const isVision = formattedMessages.some(
+        (m) => typeof m.content === "string" && (m.content.includes("data:image") || m.content.includes("image_url"))
+      );
+      const isOcr =
+        isVision &&
+        (systemInstruction?.toLowerCase().includes("ocr") ||
+          promptText.toLowerCase().includes("ocr") ||
+          promptText.toLowerCase().includes("extract all text") ||
+          promptText.toLowerCase().includes("transcribe"));
 
-        const cfRes = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/run/${modelName}`,
-          {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${cfToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-            signal: AbortSignal.timeout(12000),
+      const candidateModels = isOcr
+        ? ["@cf/google/gemma-4-26b-a4b-it", "@cf/meta/llama-3.2-11b-vision-instruct"]
+        : ["@cf/google/gemma-4-26b-a4b-it", "@cf/deepseek-ai/deepseek-v4.1-flash-1017"];
+
+      for (const modelName of candidateModels) {
+        try {
+          let requestBody: any;
+          if (isVision && modelName.includes("llama-3.2-11b-vision")) {
+            const imgMsg = formattedMessages.find(
+              (m) => typeof m.content === "string" && (m.content.includes("data:image") || m.content.includes("image_url"))
+            );
+            let b64 = "";
+            if (imgMsg) {
+              const match = imgMsg.content.match(/data:image\/[a-zA-Z]+;base64,([A-Za-z0-9+/=]+)/);
+              b64 = match ? match[1] : imgMsg.content;
+            }
+            requestBody = {
+              prompt: promptText || "Read and extract all visible text from this comic page or panel crop.",
+              image: b64,
+              max_tokens: isJson ? 2048 : 1024,
+            };
+          } else {
+            requestBody = {
+              messages: formattedMessages,
+              max_tokens: isJson ? 2048 : 1024,
+            };
           }
-        );
-        if (cfRes.ok) {
-          const cfData: any = await cfRes.json();
-          const resultText = cfData.result?.response || cfData.result?.text || cfData.result?.description || "";
-          if (resultText && resultText.trim()) {
-            return resultText.trim();
+
+          const cfRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/run/${modelName}`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cfToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(requestBody),
+              signal: AbortSignal.timeout(12000),
+            }
+          );
+          if (cfRes.ok) {
+            const cfData: any = await cfRes.json();
+            const resultText =
+              cfData.result?.response ||
+              cfData.result?.text ||
+              cfData.result?.description ||
+              cfData.result?.choices?.[0]?.message?.content ||
+              "";
+            if (resultText && resultText.trim()) {
+              return resultText.trim();
+            }
           }
+        } catch (cfErr: any) {
+          console.warn(`[callWorkerAI] Cloudflare model ${modelName} failed:`, cfErr.message);
         }
-      } catch (cfErr: any) {
-        console.warn("[callWorkerAI] Cloudflare direct API call failed:", cfErr.message);
       }
     }
 
@@ -765,6 +810,88 @@ async function startServer() {
   // ─────────────────────────────────────────────
   // Public Domain Library Proxy (/api/library/proxy)
   // ─────────────────────────────────────────────
+  function buildGutenbergMirrorCandidates(originalUrl: string): string[] {
+    const candidates: string[] = [];
+    const addCandidate = (u: string) => {
+      if (u && !candidates.includes(u)) candidates.push(u);
+    };
+
+    try {
+      const parsed = new URL(originalUrl);
+      const host = parsed.hostname.toLowerCase();
+      const isGutenberg =
+        host === "gutenberg.org" ||
+        host.endsWith(".gutenberg.org") ||
+        host === "pglaf.org" ||
+        host.endsWith(".pglaf.org");
+
+      if (!isGutenberg) {
+        return [originalUrl];
+      }
+
+      const pathname = parsed.pathname;
+      const cacheMatch = pathname.match(/\/cache\/epub\/(\d+)\/([^/?#]+)/i);
+      const ebooksMatch = pathname.match(/\/ebooks\/(\d+)\.([^/?#]+)/i);
+      const filesMatch = pathname.match(/\/files\/(\d+)\/([^/?#]+)/i);
+
+      const mirrors = [
+        "https://aleph.pglaf.org",
+        "https://gutenberg.pglaf.org",
+        "https://www.gutenberg.org",
+      ];
+
+      if (cacheMatch) {
+        const bookId = cacheMatch[1];
+        const fileName = cacheMatch[2];
+        const isCover = /\.(jpe?g|png|gif|webp)$/i.test(fileName);
+
+        for (const mirror of mirrors) {
+          addCandidate(`${mirror}/cache/epub/${bookId}/${fileName}`);
+        }
+
+        if (isCover) {
+          for (const mirror of mirrors) {
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.cover.medium.jpg`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.cover.small.jpg`);
+          }
+        } else {
+          for (const mirror of mirrors) {
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+          }
+        }
+      } else if (ebooksMatch) {
+        const bookId = ebooksMatch[1];
+        const formatExt = ebooksMatch[2].toLowerCase();
+        const prefersImages3 = formatExt.includes("epub3");
+        const prefersImages = formatExt.includes("images") && !prefersImages3;
+
+        for (const mirror of mirrors) {
+          if (prefersImages3) {
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+          } else if (prefersImages) {
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+          }
+          addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+          addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+          addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+        }
+      } else if (filesMatch) {
+        const bookId = filesMatch[1];
+        for (const mirror of mirrors) {
+          addCandidate(`${mirror}${pathname}`);
+          addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+        }
+      }
+
+      addCandidate(originalUrl);
+      return candidates;
+    } catch {
+      return [originalUrl];
+    }
+  }
+
   app.options(["/api/library/proxy", "/api/library/proxy/*"], (req, res) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -798,14 +925,25 @@ async function startServer() {
     const isWhitelisted =
       hostname === "gutenberg.org" ||
       hostname.endsWith(".gutenberg.org") ||
+      hostname === "pglaf.org" ||
+      hostname.endsWith(".pglaf.org") ||
       hostname === "archive.org" ||
       hostname.endsWith(".archive.org");
 
     if (!isWhitelisted) {
       return res.status(403).json({
-        error: `Forbidden domain: ${hostname}. Only *.gutenberg.org and *.archive.org are authorized.`
+        error: `Forbidden domain: ${hostname}. Only *.gutenberg.org, *.pglaf.org, and *.archive.org are authorized.`
       });
     }
+
+    const isImageRequest = /\.(jpe?g|png|gif|webp)$/i.test(parsedUrl.pathname);
+    const expectEpub =
+      !isImageRequest &&
+      (req.path.endsWith(".epub") ||
+        parsedUrl.pathname.endsWith(".epub") ||
+        /\.epub3?(\.images|\.noimages)?$/i.test(parsedUrl.pathname));
+
+    const candidateUrls = buildGutenbergMirrorCandidates(parsedUrl.toString());
 
     try {
       const headers: Record<string, string> = {
@@ -817,15 +955,59 @@ async function startServer() {
         headers["Range"] = req.headers.range as string;
       }
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
+      let upstreamRes: Response | null = null;
+      let winningBuffer: Buffer | null = null;
+      let lastStatus = 502;
 
-      const upstreamRes = await fetch(parsedUrl.toString(), {
-        method: req.method === "HEAD" ? "HEAD" : "GET",
-        headers,
-        redirect: "follow",
-        signal: controller.signal
-      }).finally(() => clearTimeout(timer));
+      for (const candidateUrl of candidateUrls) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        try {
+          const resp = await fetch(candidateUrl, {
+            method: req.method === "HEAD" ? "HEAD" : "GET",
+            headers,
+            redirect: "follow",
+            signal: controller.signal,
+          }).finally(() => clearTimeout(timer));
+
+          lastStatus = resp.status;
+          if (!resp.ok) {
+            continue;
+          }
+
+          if (req.method === "HEAD" || !resp.body) {
+            upstreamRes = resp;
+            break;
+          }
+
+          const arrBuf = await resp.arrayBuffer();
+          const buf = Buffer.from(arrBuf);
+
+          // If expecting an EPUB, verify ZIP magic bytes ('P', 'K') so HTML error/maintenance pages are skipped
+          if (expectEpub && (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b)) {
+            continue;
+          }
+          // If expecting an image, skip HTML error responses starting with '<'
+          if (isImageRequest && (buf.length < 4 || buf[0] === 0x3c)) {
+            continue;
+          }
+
+          upstreamRes = resp;
+          winningBuffer = buf;
+          break;
+        } catch (fetchErr) {
+          clearTimeout(timer);
+          continue;
+        }
+      }
+
+      if (!upstreamRes || !upstreamRes.ok) {
+        console.warn(`[Library Proxy] All candidates failed (last status ${lastStatus}) for ${fileUrl}`);
+        return res.status(lastStatus || 502).json({
+          error: `Upstream error ${lastStatus}`,
+          url: fileUrl,
+        });
+      }
 
       res.status(upstreamRes.status);
       res.header("Access-Control-Allow-Origin", "*");
@@ -833,20 +1015,10 @@ async function startServer() {
       res.header("Access-Control-Allow-Headers", "*");
       res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
       res.header("Cache-Control", "public, max-age=86400");
-      // Explicitly ensure no cookies are ever set or leaked across origins
       res.removeHeader("Set-Cookie");
-
-      if (!upstreamRes.ok) {
-        console.warn(`[Library Proxy] Upstream returned status ${upstreamRes.status} for ${fileUrl}`);
-        return res.status(upstreamRes.status).json({
-          error: `Upstream error ${upstreamRes.status}`,
-          url: fileUrl
-        });
-      }
 
       const headersToForward = [
         "content-type",
-        "content-length",
         "content-range",
         "accept-ranges",
         "etag",
@@ -857,17 +1029,16 @@ async function startServer() {
         if (val) res.header(h, val);
       }
 
-      // If it is an epub, enforce content-type
-      if (parsedUrl.pathname.endsWith(".epub") || fileUrl.includes(".epub")) {
+      if (expectEpub) {
         res.header("Content-Type", "application/epub+zip");
       }
 
-      if (req.method === "HEAD" || !upstreamRes.body) {
+      if (req.method === "HEAD" || !winningBuffer) {
         return res.end();
       }
 
-      const arrayBuffer = await upstreamRes.arrayBuffer();
-      return res.send(Buffer.from(arrayBuffer));
+      res.header("Content-Length", String(winningBuffer.length));
+      return res.send(winningBuffer);
     } catch (err: any) {
       console.error("[Library Proxy Error]:", err);
       return res.status(502).json({
@@ -2807,98 +2978,6 @@ STRICT INSTRUCTIONS:
     }
   });
 
-  // Video to comic keyframe extraction endpoint (handles ANY video format/codec: AVI, MKV, WMV, FLV, MP4, etc.)
-  app.post("/api/extract-video-keyframes", express.raw({ type: '*/*', limit: '250mb' }), async (req, res): Promise<any> => {
-    try {
-      const rawBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
-      if (!rawBuffer || rawBuffer.length === 0) {
-        return res.status(400).json({ success: false, error: "Empty video payload" });
-      }
-
-      const filename = String(req.query.filename || "video.avi");
-      const tempId = `v2c_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const ext = path.extname(filename) || ".avi";
-      const tempInput = path.join("/tmp", `${tempId}${ext}`);
-      const tempOutputDir = path.join("/tmp", `${tempId}_frames`);
-
-      try {
-        await fs.promises.mkdir(tempOutputDir, { recursive: true });
-        await fs.promises.writeFile(tempInput, rawBuffer);
-
-        // Step 1: Attempt scene detection and keyframe extraction with ffmpeg
-        const maxFrames = Math.min(48, Math.max(6, Number(req.query.maxKeyframes) || 36));
-        const sceneCmd = `ffmpeg -y -i "${tempInput}" -vf "select='gt(scene\\,0.22)+eq(n\\,0)',scale='min(1280,iw)':-2" -vsync vfr -q:v 2 -frames:v ${maxFrames} "${tempOutputDir}/scene_%03d.jpg"`;
-
-        try {
-          await new Promise<void>((resolve, reject) => {
-            exec(sceneCmd, { timeout: 30000 }, (error) => {
-              if (error) reject(error);
-              else resolve();
-            });
-          });
-        } catch (sceneErr) {
-          console.warn("[FFmpeg Scene Extraction Warning]:", sceneErr);
-        }
-
-        // Check extracted frames
-        let files = await fs.promises.readdir(tempOutputDir);
-        let jpgFiles = files.filter((f) => f.endsWith(".jpg")).sort();
-
-        // Step 2: Fallback to evenly-spaced frames if scene detection found fewer than 6 frames
-        if (jpgFiles.length < 6) {
-          const fallbackCmd = `ffmpeg -y -i "${tempInput}" -vf "fps=1/1.5,scale='min(1280,iw)':-2" -vsync vfr -q:v 2 -frames:v ${maxFrames} "${tempOutputDir}/fallback_%03d.jpg"`;
-          try {
-            await new Promise<void>((resolve, reject) => {
-              exec(fallbackCmd, { timeout: 30000 }, (error) => {
-                if (error) reject(error);
-                else resolve();
-              });
-            });
-            files = await fs.promises.readdir(tempOutputDir);
-            jpgFiles = files.filter((f) => f.endsWith(".jpg")).sort();
-          } catch (fallbackErr) {
-            console.warn("[FFmpeg Fallback Extraction Warning]:", fallbackErr);
-          }
-        }
-
-        if (jpgFiles.length === 0) {
-          return res.status(422).json({ success: false, error: "Could not extract frames from video" });
-        }
-
-        // Read extracted frames as base64 data URLs
-        const keyframes: { dataUrl: string; timestamp: number; index: number }[] = [];
-        for (let i = 0; i < jpgFiles.length; i++) {
-          const filePath = path.join(tempOutputDir, jpgFiles[i]);
-          const imgBuf = await fs.promises.readFile(filePath);
-          keyframes.push({
-            dataUrl: `data:image/jpeg;base64,${imgBuf.toString("base64")}`,
-            timestamp: i * 1.5,
-            index: i,
-          });
-        }
-
-        return res.json({
-          success: true,
-          keyframes,
-          count: keyframes.length,
-        });
-      } finally {
-        // Cleanup temporary files and directory
-        try {
-          await fs.promises.unlink(tempInput).catch(() => {});
-          const leftover = await fs.promises.readdir(tempOutputDir).catch(() => []);
-          for (const file of leftover) {
-            await fs.promises.unlink(path.join(tempOutputDir, file)).catch(() => {});
-          }
-          await fs.promises.rmdir(tempOutputDir).catch(() => {});
-        } catch (_) {}
-      }
-    } catch (err: any) {
-      console.error("[Video Extraction Error]:", err);
-      return res.status(500).json({ success: false, error: err.message || "Failed to extract keyframes" });
-    }
-  });
-
   app.post("/api/export/docx", async (req, res): Promise<any> => {
     try {
       const { html } = req.body;
@@ -3406,7 +3485,44 @@ STRICT INSTRUCTIONS:
         }
       }
 
-      const text = await callWorkerAI([{ role: "user", content: prompt }], "You are a precise OCR transcriber. Extract all text.");
+      const fullImageUrl = rawImage.startsWith("data:") ? rawImage : `data:${mimeType};base64,${cleanBase64}`;
+      const requestedModels = Array.isArray(req.body.models) && req.body.models.length > 0
+        ? req.body.models
+        : ["@cf/google/gemma-4-26b-a4b-it", "@cf/meta/llama-3.2-11b-vision-instruct"];
+
+      // Try Cloudflare Worker OCR endpoint if local CF credentials are not configured
+      const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
+      const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID;
+      if (!cfToken || !cfAccount) {
+        try {
+          const workerUrl = (process.env.WORKER_API_URL || "https://ebookcc.com").replace(/\/$/, "");
+          const wRes = await fetch(`${workerUrl}/api/ai/ocr`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image: fullImageUrl,
+              prompt,
+              models: requestedModels,
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+          if (wRes.ok) {
+            const wData: any = await wRes.json();
+            const wText =
+              wData?.text ||
+              wData?.candidates?.[0]?.content?.parts?.[0]?.text ||
+              "";
+            if (wText && wText.trim()) {
+              return res.json({ success: true, text: wText.trim() });
+            }
+          }
+        } catch (_) {}
+      }
+
+      const text = await callWorkerAI(
+        [{ role: "user", content: `${prompt}\n${fullImageUrl}` }],
+        "You are a precise OCR transcriber. Extract all text."
+      );
       return res.json({ success: true, text });
     } catch (err: any) {
       console.error("[Dev Server /api/ai/ocr Error]:", err.message);
@@ -3514,6 +3630,15 @@ STRICT INSTRUCTIONS:
     }
   });
 
+  // Mount Audio Drama Broadcast Routes (/api/broadcast/*)
+  setupBroadcastRoutes(app, { getAIClient, getR2ClientAndBucket, safeS3Send });
+
+  // Mount Billing & Ledger Routes (/api/billing/*)
+  setupBillingRoutes(app);
+
+  // Mount Per-Feature AI Provider & Key Vault Routes (/api/ai/*)
+  setupAiSettingsRoutes(app);
+
   // Explicit route handler for sitemap.xml and robots.txt
   app.get(['/sitemap.xml', '/robots.txt'], (req, res) => {
     const filename = req.path.slice(1);
@@ -3548,7 +3673,7 @@ STRICT INSTRUCTIONS:
     // SPA catch-all route for development mode with dynamic SEO injection & 301 redirects
     app.get('*', async (req, res, next) => {
       try {
-        if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/')) {
+        if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/') || req.path.startsWith('/Audio/') || req.path.startsWith('/audio/')) {
           return res.status(404).send('Resource not found');
         }
 
@@ -3580,7 +3705,7 @@ STRICT INSTRUCTIONS:
 
       app.get('*', (req, res) => {
         try {
-          if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/')) {
+          if (req.path.startsWith('/wasm/') || req.path.startsWith('/api/') || req.path.startsWith('/Models/') || req.path.startsWith('/Audio/') || req.path.startsWith('/audio/')) {
             return res.status(404).send('Resource not found');
           }
 

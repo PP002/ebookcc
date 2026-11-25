@@ -94,6 +94,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { ImageToolbar } from "./ImageToolbar";
+import { getHorizontalKeyDirection, isEditableTarget, attachWheelPageFlipper } from "@/lib/pageFlipInput";
 import {
   ComicCanvas,
   createGridTree,
@@ -1653,7 +1654,7 @@ function CreateMetroTile({
       className="group relative flex flex-col cursor-pointer select-none w-full"
     >
       {/* BOOK PREVIEW CONTAINER */}
-      <div className="relative aspect-[3/4] w-full flex flex-col justify-between bg-slate-900 border border-border/80 rounded-none shadow-xs overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:border-primary/50 group-active:scale-95">
+      <div className="relative aspect-[3/4] w-full flex flex-col justify-between bg-slate-900 border border-border/20 rounded-none shadow-xs overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:border-primary/50 group-active:scale-95">
         {/* BACKGROUND & METRO LIVE TILE CONTENT */}
         {book.type === 'comic' ? (
           <div className="absolute inset-0 bg-white overflow-hidden flex items-center justify-center p-0.5">
@@ -1667,7 +1668,7 @@ function CreateMetroTile({
                 className="w-full h-full flex flex-col items-center justify-center overflow-hidden bg-white"
               >
                 {currentComicPage?.tree ? (
-                  <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
+                  <div className="w-full h-full bg-white border border-border/20 flex flex-col overflow-hidden relative">
                     <ComicTreeNodeView node={currentComicPage.tree} />
                   </div>
                 ) : currentComicPage?.image ? (
@@ -1678,7 +1679,7 @@ function CreateMetroTile({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-2 text-center border border-zinc-300">
+                  <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center p-2 text-center border border-border/20">
                     <Sparkles className="w-6 h-6 text-primary mb-1 animate-pulse" />
                     <span className="text-[10px] font-bold text-foreground line-clamp-2">{book.title}</span>
                   </div>
@@ -2496,18 +2497,61 @@ export const Create: React.FC<CreateProps> = ({
   };
 
   const isComicDefaultState = (pages: ComicPage[]): boolean => {
-    if (!pages || pages.length !== 1) return false;
+    if (!pages || pages.length === 0) return true;
+    if (pages.length !== 1) return false;
     const page = pages[0];
-    if (!page.bubbles || page.bubbles.length !== 2) return false;
-    
+    if (checkNodeForImagesOrDrawings(page.tree)) return false;
+
+    if (!page.bubbles || page.bubbles.length === 0) return true;
+    if (page.bubbles.length !== 2) return false;
+
     const b1 = page.bubbles.find(b => b.text === "HELLO WORLD!");
     const b2 = page.bubbles.find(b => b.text === "WHAT A COOL WORKSPACE!");
     if (!b1 || !b2) return false;
 
-    if (checkNodeForImagesOrDrawings(page.tree)) return false;
-
     return true;
   };
+
+  const historyRef = useRef<ComicPage[][]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const [canUndoComic, setCanUndoComic] = useState(false);
+  const [canRedoComic, setCanRedoComic] = useState(false);
+  const uploadStartedFromSelectRef = useRef<boolean>(false);
+
+  const createDefaultComicPage = useCallback((withDefaultBubbles = true): ComicPage => {
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      tree: createGridTree(3, 2),
+      bubbles: withDefaultBubbles
+        ? [
+            { id: "1", text: "HELLO WORLD!", x: 25, y: 30, style: "classic" },
+            {
+              id: "2",
+              text: "WHAT A COOL WORKSPACE!",
+              x: 60,
+              y: 65,
+              style: "action",
+            },
+          ]
+        : [],
+    };
+  }, []);
+
+  const resetComicCanvasToFreshDefault = useCallback((withDefaultBubbles = true) => {
+    const freshPages = [createDefaultComicPage(withDefaultBubbles)];
+    isPublishedComicRef.current = false;
+    setCurrentComicId(null);
+    setComicTitle("Untitled Comic");
+    comicPagesRef.current = freshPages;
+    comicPagesLengthRef.current = 1;
+    activePageIndexRef.current = 0;
+    setComicPagesState(freshPages);
+    setActivePageIndex(0);
+    historyRef.current = [JSON.parse(JSON.stringify(freshPages))];
+    historyIndexRef.current = 0;
+    setCanUndoComic(false);
+    setCanRedoComic(false);
+  }, [createDefaultComicPage]);
 
   const hasStoryEditedContent = (htmlContent: string): boolean => {
     if (!htmlContent) return false;
@@ -2664,9 +2708,8 @@ export const Create: React.FC<CreateProps> = ({
       })();
 
       loadPublishedWorks();
-      setCurrentComicId(null);
+      resetComicCanvasToFreshDefault();
       setCurrentStoryId(null);
-      isPublishedComicRef.current = false;
       isPublishedStoryRef.current = false;
     }
   }, [createMode]);
@@ -2785,11 +2828,6 @@ export const Create: React.FC<CreateProps> = ({
     }
   }, [createMode, comicPages, activePageIndex, comicTitle, currentComicId]);
 
-  const historyRef = useRef<ComicPage[][]>([]);
-  const historyIndexRef = useRef<number>(-1);
-  const [canUndoComic, setCanUndoComic] = useState(false);
-  const [canRedoComic, setCanRedoComic] = useState(false);
-
   const syncUndoRedoState = useCallback(() => {
     setCanUndoComic(historyIndexRef.current > 0);
     setCanRedoComic(historyIndexRef.current < historyRef.current.length - 1);
@@ -2875,21 +2913,31 @@ export const Create: React.FC<CreateProps> = ({
     const currentIndex = activePageIndexRef.current;
     if (currentPages.length <= 1) {
       const defaultTree = createGridTree(3, 2);
-      setComicPages([
+      const blankPages: ComicPage[] = [
         {
           id: Date.now().toString(),
           tree: defaultTree,
           bubbles: [],
         },
-      ]);
+      ];
+      comicPagesRef.current = blankPages;
+      comicPagesLengthRef.current = 1;
+      activePageIndexRef.current = 0;
+      setComicPages(blankPages);
       setActivePageIndex(0);
+      if (currentComicId && !isPublishedComicRef.current) {
+        deleteUnfinishedComic(currentComicId).catch(() => {});
+      }
       return;
     }
     const newPages = currentPages.filter((_, i) => i !== currentIndex);
-    const nextIndex = Math.min(currentIndex, newPages.length - 1);
+    const nextIndex = Math.max(0, Math.min(currentIndex, newPages.length - 1));
+    comicPagesRef.current = newPages;
+    comicPagesLengthRef.current = newPages.length;
+    activePageIndexRef.current = nextIndex;
     setComicPages(newPages);
-    setActivePageIndex(Math.max(0, nextIndex));
-  }, [setComicPages]);
+    setActivePageIndex(nextIndex);
+  }, [setComicPages, currentComicId]);
 
   const flipToPrevComicPage = useCallback(() => {
     setActivePageIndex((prev) => {
@@ -3181,9 +3229,11 @@ export const Create: React.FC<CreateProps> = ({
     [],
   );
 
+  const isComicPanelExpandedRef = useRef(false);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
+      const target = (e.target || document.activeElement) as HTMLElement | null;
 
       // In Document mode, handle Delete / Backspace when an illustration is selected
       if (createMode === "document" && (e.key === "Delete" || e.key === "Backspace")) {
@@ -3257,11 +3307,7 @@ export const Create: React.FC<CreateProps> = ({
         }
       }
 
-      if (
-        ["INPUT", "TEXTAREA"].includes(target?.tagName || "") ||
-        target?.isContentEditable ||
-        Boolean(target?.closest?.('[contenteditable="true"]'))
-      )
+      if (isEditableTarget(target))
         return;
 
       if (createMode === "comic") {
@@ -3343,14 +3389,17 @@ export const Create: React.FC<CreateProps> = ({
             return;
           }
 
-          // Arrow keys and PageUp/PageDown to flip comic pages
-          if (e.key === "ArrowLeft" || e.key === "PageUp") {
+          // Arrow keys, BlackBerry D-pad/Legacy Left-Right, and PageUp/PageDown to flip comic pages
+          const horizDir = !isComicPanelExpandedRef.current ? getHorizontalKeyDirection(e) : null;
+          if (horizDir === "left" || e.key === "PageUp") {
             e.preventDefault();
+            e.stopPropagation();
             flipToPrevComicPage();
             return;
           }
-          if (e.key === "ArrowRight" || e.key === "PageDown") {
+          if (horizDir === "right" || e.key === "PageDown") {
             e.preventDefault();
+            e.stopPropagation();
             flipToNextComicPage();
             return;
           }
@@ -3372,8 +3421,8 @@ export const Create: React.FC<CreateProps> = ({
         }
       }
     };
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    window.addEventListener("keydown", handleGlobalKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, { capture: true });
   }, [
     createMode,
     isDrawingMode,
@@ -3452,8 +3501,10 @@ export const Create: React.FC<CreateProps> = ({
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
 
-      // Fast horizontal swipe gesture (distance >= 40px, under 700ms, more horizontal than vertical)
-      if (elapsed < 700 && absX >= 40 && absX > absY * 1.25) {
+      // Fast horizontal swipe gesture (distance >= 40px normal, or >= 26px quick capacitive flick)
+      const isNormalSwipe = elapsed < 700 && absX >= 40 && absX > absY * 1.25;
+      const isQuickFlick = elapsed < 450 && absX >= 26 && absX > absY * 1.25;
+      if (isNormalSwipe || isQuickFlick) {
         isSwipingComicPageRef.current = true;
         setTimeout(() => {
           isSwipingComicPageRef.current = false;
@@ -3478,13 +3529,64 @@ export const Create: React.FC<CreateProps> = ({
     el.addEventListener("touchend", handleTouchEnd, { passive: true });
     el.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
+    const cleanupWheel = attachWheelPageFlipper(
+      el,
+      (dir) => {
+        if (
+          isDrawingMode ||
+          isComicPanelExpandedRef.current ||
+          isAIGeneratorOpen ||
+          isAIFullComicDialogOpen ||
+          isAIFullStoryDialogOpen ||
+          showPublishAuthHint
+        ) {
+          return;
+        }
+        if (dir === "right") {
+          flipToNextComicPage();
+        } else {
+          flipToPrevComicPage();
+        }
+      },
+      {
+        shouldHandle: (e) => {
+          if (
+            isDrawingMode ||
+            isComicPanelExpandedRef.current ||
+            isAIGeneratorOpen ||
+            isAIFullComicDialogOpen ||
+            isAIFullStoryDialogOpen ||
+            showPublishAuthHint
+          ) {
+            return false;
+          }
+          const t = e.target as HTMLElement | null;
+          if (t?.closest?.("[data-bubble-id], .bubble-overlay, [data-export-ignore='true']")) {
+            return false;
+          }
+          return true;
+        },
+      }
+    );
+
     return () => {
       el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
       el.removeEventListener("touchend", handleTouchEnd);
       el.removeEventListener("touchcancel", handleTouchCancel);
+      cleanupWheel();
     };
-  }, [createMode, isDrawingMode, touchOff, flipToNextComicPage, flipToPrevComicPage]);
+  }, [
+    createMode,
+    isDrawingMode,
+    touchOff,
+    isAIGeneratorOpen,
+    isAIFullComicDialogOpen,
+    isAIFullStoryDialogOpen,
+    showPublishAuthHint,
+    flipToNextComicPage,
+    flipToPrevComicPage,
+  ]);
 
   useEffect(() => {
     const handleUp = () => setIsDraggingToolbar(false);
@@ -3939,6 +4041,12 @@ export const Create: React.FC<CreateProps> = ({
           videoExtensions.test(f.name)
       );
 
+      const startingFromSelect = createMode === "select" || uploadStartedFromSelectRef.current;
+      if (startingFromSelect) {
+        uploadStartedFromSelectRef.current = true;
+        resetComicCanvasToFreshDefault(false);
+      }
+
       if (videoFile) {
         setCreateMode("comic");
         setPendingVideoFile(videoFile);
@@ -3954,10 +4062,12 @@ export const Create: React.FC<CreateProps> = ({
       );
 
       if (imageFiles.length === 0) {
+        uploadStartedFromSelectRef.current = false;
         toast.error("Please drop or select valid image or video files.");
         return;
       }
 
+      uploadStartedFromSelectRef.current = false;
       setCreateMode("comic");
 
       // Read image files into data URLs
@@ -4055,7 +4165,7 @@ export const Create: React.FC<CreateProps> = ({
         toast.error("Failed to load dropped images: " + (err?.message || "error"));
       }
     },
-    [comicTree, setComicPages]
+    [comicTree, setComicPages, createMode, resetComicCanvasToFreshDefault]
   );
 
   const placeImagesStartingAtPanel = useCallback(
@@ -4224,14 +4334,24 @@ export const Create: React.FC<CreateProps> = ({
       }
 
       const currentPages = comicPagesRef.current;
-      if (isComicDefaultState(currentPages)) {
-        // Replace default placeholder comic
+      const shouldReplaceAll = uploadStartedFromSelectRef.current || isComicDefaultState(currentPages);
+      uploadStartedFromSelectRef.current = false;
+
+      if (shouldReplaceAll) {
+        // Replace default/fresh placeholder comic completely
+        comicPagesRef.current = newPages;
+        comicPagesLengthRef.current = newPages.length;
+        activePageIndexRef.current = 0;
         setComicPages(newPages);
         setActivePageIndex(0);
       } else {
-        // Append to existing comic
+        // Append to existing active comic
         const startIdx = currentPages.length;
-        setComicPages([...currentPages, ...newPages]);
+        const combined = [...currentPages, ...newPages];
+        comicPagesRef.current = combined;
+        comicPagesLengthRef.current = combined.length;
+        activePageIndexRef.current = startIdx;
+        setComicPages(combined);
         setActivePageIndex(startIdx);
       }
       toast.success(
@@ -4240,6 +4360,13 @@ export const Create: React.FC<CreateProps> = ({
     },
     [setComicPages, videoToComicTargetPanel, placeImagesStartingAtPanel]
   );
+
+  const handleCloseVideoToComic = useCallback(() => {
+    uploadStartedFromSelectRef.current = false;
+    setVideoToComicModalOpen(false);
+    setPendingVideoFile(null);
+    setVideoToComicTargetPanel(null);
+  }, []);
 
   const handleWorkspaceDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -4530,6 +4657,7 @@ export const Create: React.FC<CreateProps> = ({
 
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
   const [isComicPanelExpanded, setIsComicPanelExpanded] = useState(false);
+  isComicPanelExpandedRef.current = isComicPanelExpanded;
 
   useEffect(() => {
     if (onFullscreenChange) {
@@ -5571,36 +5699,484 @@ export const Create: React.FC<CreateProps> = ({
     }
   };
 
+  // Insert an image element into the document editor with standard responsive classes and layout.
+  // If the user's cursor or selection is in title (H1) or subtitle (H2) sections, it automatically moves down to the text section below.
+  const insertImageElementToDoc = (dataUrl: string, altText = "Pasted image") => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+
+    const imgId = "img-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8);
+    const img = document.createElement("img");
+    img.id = imgId;
+    img.src = dataUrl;
+    img.alt = altText.replace(/\.[^/.]+$/, "") || "Illustration";
+    img.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all";
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+    img.style.margin = "1.5rem auto";
+    img.style.display = "block";
+
+    const pAfter = document.createElement("p");
+    pAfter.innerHTML = "<br>";
+
+    const sel = window.getSelection();
+    let inserted = false;
+    let movedFromHeading = false;
+
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (editorRef.current.contains(range.commonAncestorContainer)) {
+        let node: Node | null = range.startContainer;
+        if (node.nodeType === Node.TEXT_NODE) {
+          node = node.parentElement;
+        }
+        const block = (node as HTMLElement | null)?.closest("p, h1, h2, h3, div, blockquote");
+
+        // If user is inserting on title (H1) or subtitle (H2) section, move down to text section below
+        const isHeading = block && (block.tagName === "H1" || block.tagName === "H2");
+
+        if (isHeading) {
+          movedFromHeading = true;
+          // Find the subtitle (H2) if present, or title (H1) to anchor right after the header section
+          const allH2 = editorRef.current.querySelectorAll("h2");
+          const allH1 = editorRef.current.querySelectorAll("h1");
+          let headingAnchor: HTMLElement | null = null;
+          if (allH2.length > 0) {
+            headingAnchor = allH2[allH2.length - 1] as HTMLElement;
+          } else if (allH1.length > 0) {
+            headingAnchor = allH1[allH1.length - 1] as HTMLElement;
+          } else {
+            headingAnchor = block as HTMLElement;
+          }
+
+          // If there is an empty paragraph immediately below the heading, replace it; otherwise insert after heading
+          const nextEl = headingAnchor.nextElementSibling;
+          if (
+            nextEl &&
+            nextEl.tagName === "P" &&
+            nextEl.textContent?.trim() === "" &&
+            !nextEl.querySelector("img, .story-inline-canvas-placeholder")
+          ) {
+            headingAnchor.parentNode?.insertBefore(img, nextEl);
+            headingAnchor.parentNode?.insertBefore(pAfter, nextEl);
+            nextEl.remove();
+          } else if (headingAnchor.nextSibling) {
+            headingAnchor.parentNode?.insertBefore(img, headingAnchor.nextSibling);
+            headingAnchor.parentNode?.insertBefore(pAfter, img.nextSibling);
+          } else {
+            headingAnchor.parentNode?.appendChild(img);
+            headingAnchor.parentNode?.appendChild(pAfter);
+          }
+          inserted = true;
+        } else if (block && block !== editorRef.current && editorRef.current.contains(block)) {
+          const isBlank =
+            block.textContent?.trim() === "" &&
+            !block.querySelector("img, .story-inline-canvas-placeholder");
+          if (isBlank) {
+            block.parentNode?.insertBefore(img, block);
+            block.parentNode?.insertBefore(pAfter, block);
+            block.remove();
+          } else {
+            block.insertAdjacentElement("afterend", pAfter);
+            block.insertAdjacentElement("afterend", img);
+          }
+          inserted = true;
+        } else {
+          range.deleteContents();
+          range.insertNode(pAfter);
+          range.insertNode(img);
+          inserted = true;
+        }
+      }
+    }
+
+    if (!inserted) {
+      // Fallback: place below title/subtitle in text section
+      const h2 = editorRef.current.querySelector("h2");
+      const h1 = editorRef.current.querySelector("h1");
+      const headingAnchor = h2 || h1;
+      if (headingAnchor && headingAnchor.parentNode === editorRef.current) {
+        const nextEl = headingAnchor.nextElementSibling;
+        if (
+          nextEl &&
+          nextEl.tagName === "P" &&
+          nextEl.textContent?.trim() === "" &&
+          !nextEl.querySelector("img, .story-inline-canvas-placeholder")
+        ) {
+          headingAnchor.parentNode?.insertBefore(img, nextEl);
+          headingAnchor.parentNode?.insertBefore(pAfter, nextEl);
+          nextEl.remove();
+        } else {
+          headingAnchor.parentNode?.insertBefore(img, headingAnchor.nextSibling);
+          headingAnchor.parentNode?.insertBefore(pAfter, img.nextSibling);
+        }
+      } else {
+        editorRef.current.appendChild(img);
+        editorRef.current.appendChild(pAfter);
+      }
+    }
+
+    if (sel) {
+      const newRange = document.createRange();
+      newRange.setStart(pAfter, 0);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    }
+
+    updateToc();
+    scrollToCaret();
+    setTimeout(() => pushStoryDocHistory(), 50);
+
+    if (movedFromHeading) {
+      toast.info("Image placed in text section below title/subtitle");
+    } else {
+      toast.success(t("imagePasted") || "Image inserted into document");
+    }
+  };
+
+  // Handle paste in document editor: supports clipboard image pasting, non-image media rejection feedback, and auto-sanitizing pasted text
+  const handleEditorPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    // 1. Check for clipboard image items vs other media formats (video, audio, etc.)
+    const items = e.clipboardData?.items;
+    let foundImage = false;
+    let hasNonImageMedia = false;
+
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === "file") {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              e.preventDefault();
+              foundImage = true;
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const res = event.target?.result as string;
+                if (res) {
+                  insertImageElementToDoc(res, file.name || "Pasted image");
+                }
+              };
+              reader.readAsDataURL(file);
+              return;
+            }
+          } else {
+            hasNonImageMedia = true;
+          }
+        }
+      }
+    }
+
+    if (!foundImage && e.clipboardData?.files && e.clipboardData.files.length > 0) {
+      for (let i = 0; i < e.clipboardData.files.length; i++) {
+        const file = e.clipboardData.files[i];
+        if (file.type.startsWith("image/")) {
+          e.preventDefault();
+          foundImage = true;
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const res = event.target?.result as string;
+            if (res) {
+              insertImageElementToDoc(res, file.name || "Pasted image");
+            }
+          };
+          reader.readAsDataURL(file);
+          return;
+        } else {
+          hasNonImageMedia = true;
+        }
+      }
+    }
+
+    // If user attempted to paste non-image media format (audio, video, PDF, etc.), give clear feedback
+    if (hasNonImageMedia && !foundImage) {
+      e.preventDefault();
+      toast.error("Only image formats (PNG, JPG, WebP, GIF, SVG) can be inserted into the editor. Audio, video, and other media formats are not supported.");
+      return;
+    }
+
+    const rawHtml = e.clipboardData.getData("text/html");
+    const rawText = e.clipboardData.getData("text/plain");
+
+    // Check if HTML contains audio/video embed tags without text
+    if (rawHtml) {
+      const lowerHtml = rawHtml.toLowerCase();
+      if (
+        (lowerHtml.includes("<video") || lowerHtml.includes("<audio") || lowerHtml.includes("<embed")) &&
+        (!rawText || rawText.trim().length === 0)
+      ) {
+        e.preventDefault();
+        toast.error("Only images can be inserted into the editor. Audio and video media are not supported.");
+        return;
+      }
+    }
+
+    // 2. Text / HTML paste: strictly sanitize and normalize so pasted content inherits the editor's layout and responsive typography
+    e.preventDefault();
+
+    if (!editorRef.current) return;
+
+    // Helper to sanitize HTML content into editor-native layout
+    const sanitizeHtmlToLayout = (htmlString: string): DocumentFragment => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlString, "text/html");
+      const body = doc.body;
+
+      // Remove dangerous or non-content tags
+      const forbidden = "script, style, meta, link, svg, canvas, iframe, form, button, input, noscript, object, embed, xml, applet";
+      body.querySelectorAll(forbidden).forEach((el) => el.remove());
+
+      // Helper to clean individual elements of inline styles and foreign formatting
+      const cleanElement = (el: Element) => {
+        el.removeAttribute("style");
+        el.removeAttribute("class");
+        el.removeAttribute("id");
+
+        const presentationalAttrs = [
+          "face", "size", "color", "bgcolor", "align", "valign", "width", "height",
+          "border", "cellpadding", "cellspacing", "hspace", "vspace"
+        ];
+        presentationalAttrs.forEach((attr) => el.removeAttribute(attr));
+
+        Array.from(el.attributes).forEach((attr) => {
+          if (attr.name.startsWith("data-") || attr.name.startsWith("aria-")) {
+            el.removeAttribute(attr.name);
+          }
+        });
+
+        const tag = el.tagName.toUpperCase();
+        if (tag === "H4" || tag === "H5" || tag === "H6") {
+          const newH = doc.createElement("h3");
+          while (el.firstChild) {
+            newH.appendChild(el.firstChild);
+          }
+          el.parentNode?.replaceChild(newH, el);
+          el = newH;
+        }
+
+        if (tag === "A") {
+          const href = el.getAttribute("href") || "";
+          if (href.startsWith("javascript:")) {
+            el.removeAttribute("href");
+          } else {
+            el.setAttribute("target", "_blank");
+            el.setAttribute("rel", "noopener noreferrer");
+          }
+        }
+
+        if (tag === "IMG") {
+          (el as HTMLElement).style.maxWidth = "100%";
+          (el as HTMLElement).style.height = "auto";
+          (el as HTMLElement).style.margin = "1.5rem auto";
+          (el as HTMLElement).style.display = "block";
+          el.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full";
+        }
+      };
+
+      const allElements = Array.from(body.querySelectorAll("*"));
+      allElements.forEach((el) => cleanElement(el));
+
+      const spans = Array.from(body.querySelectorAll("span, font"));
+      spans.forEach((span) => {
+        const parent = span.parentNode;
+        if (parent) {
+          while (span.firstChild) {
+            parent.insertBefore(span.firstChild, span);
+          }
+          parent.removeChild(span);
+        }
+      });
+
+      const divs = Array.from(body.querySelectorAll("div, section, article, header, footer, main, aside"));
+      divs.forEach((div) => {
+        const hasBlockChildren = div.querySelector("p, h1, h2, h3, ul, ol, blockquote, table");
+        if (hasBlockChildren) {
+          const parent = div.parentNode;
+          if (parent) {
+            while (div.firstChild) {
+              parent.insertBefore(div.firstChild, div);
+            }
+            parent.removeChild(div);
+          }
+        } else {
+          const p = doc.createElement("p");
+          while (div.firstChild) {
+            p.appendChild(div.firstChild);
+          }
+          div.parentNode?.replaceChild(p, div);
+        }
+      });
+
+      const fragment = document.createDocumentFragment();
+      while (body.firstChild) {
+        fragment.appendChild(body.firstChild);
+      }
+      return fragment;
+    };
+
+    const createFragmentFromPlainText = (text: string): { fragment: DocumentFragment; isInline: boolean } => {
+      const fragment = document.createDocumentFragment();
+      if (!text.includes("\n") && !text.includes("\r")) {
+        fragment.appendChild(document.createTextNode(text));
+        return { fragment, isInline: true };
+      }
+
+      const lines = text.split(/\r?\n\r?\n|\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const p = document.createElement("p");
+        if (trimmed) {
+          p.textContent = line;
+        } else {
+          p.innerHTML = "<br>";
+        }
+        fragment.appendChild(p);
+      }
+      return { fragment, isInline: false };
+    };
+
+    let fragment: DocumentFragment;
+    let isInline = false;
+
+    if (rawHtml && rawHtml.trim().length > 0) {
+      fragment = sanitizeHtmlToLayout(rawHtml);
+      if (!fragment.hasChildNodes() || !fragment.textContent?.trim()) {
+        const pt = createFragmentFromPlainText(rawText || "");
+        fragment = pt.fragment;
+        isInline = pt.isInline;
+      } else {
+        const hasBlockNodes = Array.from(fragment.childNodes).some((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const tag = (node as Element).tagName.toUpperCase();
+            return ["P", "H1", "H2", "H3", "UL", "OL", "BLOCKQUOTE", "TABLE", "DIV", "IMG"].includes(tag);
+          }
+          return false;
+        });
+        isInline = !hasBlockNodes;
+      }
+    } else {
+      const pt = createFragmentFromPlainText(rawText || "");
+      fragment = pt.fragment;
+      isInline = pt.isInline;
+    }
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !editorRef.current.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      editorRef.current.appendChild(fragment);
+      updateToc();
+      scrollToCaret();
+      setTimeout(() => pushStoryDocHistory(), 50);
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+
+    if (isInline) {
+      range.deleteContents();
+      const lastChild = fragment.lastChild;
+      range.insertNode(fragment);
+      if (lastChild) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastChild);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    } else {
+      let container: Node | null = range.startContainer;
+      if (container.nodeType === Node.TEXT_NODE) {
+        container = container.parentElement;
+      }
+      const currentBlock = (container as HTMLElement | null)?.closest("p, h1, h2, h3, blockquote, div");
+
+      // If pasting multi-block or image-containing content on title (H1) or subtitle (H2), move down to text section below
+      if (currentBlock && (currentBlock.tagName === "H1" || currentBlock.tagName === "H2")) {
+        const allH2 = editorRef.current.querySelectorAll("h2");
+        const allH1 = editorRef.current.querySelectorAll("h1");
+        const headingAnchor =
+          ((allH2.length > 0 ? allH2[allH2.length - 1] : allH1[allH1.length - 1]) as HTMLElement) || (currentBlock as HTMLElement);
+
+        const nextEl = headingAnchor.nextElementSibling;
+        const lastChild = fragment.lastChild;
+
+        if (
+          nextEl &&
+          nextEl.tagName === "P" &&
+          nextEl.textContent?.trim() === "" &&
+          !nextEl.querySelector("img, .story-inline-canvas-placeholder")
+        ) {
+          headingAnchor.parentNode?.insertBefore(fragment, nextEl);
+          nextEl.remove();
+        } else {
+          headingAnchor.parentNode?.insertBefore(fragment, headingAnchor.nextSibling);
+        }
+
+        if (lastChild) {
+          const newRange = document.createRange();
+          newRange.setStartAfter(lastChild);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+        toast.info("Content placed in text section below heading");
+      } else if (currentBlock && currentBlock !== editorRef.current && editorRef.current.contains(currentBlock)) {
+        const isCurrentBlockBlank =
+          currentBlock.textContent?.trim() === "" &&
+          !currentBlock.querySelector("img, .story-inline-canvas-placeholder");
+        const lastChild = fragment.lastChild;
+
+        if (isCurrentBlockBlank) {
+          currentBlock.parentNode?.insertBefore(fragment, currentBlock);
+          currentBlock.remove();
+        } else {
+          currentBlock.parentNode?.insertBefore(fragment, currentBlock.nextSibling);
+        }
+
+        if (lastChild) {
+          const newRange = document.createRange();
+          newRange.setStartAfter(lastChild);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      } else {
+        range.deleteContents();
+        const lastChild = fragment.lastChild;
+        range.insertNode(fragment);
+        if (lastChild) {
+          const newRange = document.createRange();
+          newRange.setStartAfter(lastChild);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      }
+    }
+
+    setTimeout(() => {
+      updateToc();
+      scrollToCaret();
+      pushStoryDocHistory();
+    }, 10);
+  };
+
   const insertImageToDoc = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
     input.onchange = (e: any) => {
-      const file = e.target.files[0];
+      const file = e.target.files?.[0];
       if (file) {
+        if (!file.type.startsWith("image/")) {
+          toast.error("Only image formats (PNG, JPG, WebP, GIF, SVG) can be inserted into the editor. Audio, video, and other media formats are not supported.");
+          return;
+        }
         const reader = new FileReader();
         reader.onload = (event) => {
-          if (editorRef.current) {
-            editorRef.current.focus();
-            const img = document.createElement("img");
-            img.src = event.target?.result as string;
-            img.style.width = "50%";
-            img.style.margin = "1.5rem auto";
-            img.style.display = "block";
-            img.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full";
-
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) {
-              const range = sel.getRangeAt(0);
-              range.insertNode(img);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-            } else {
-              editorRef.current.appendChild(img);
-            }
-            updateToc();
-            setTimeout(() => pushStoryDocHistory(), 50);
+          const res = event.target?.result as string;
+          if (res) {
+            insertImageElementToDoc(res, file.name || "Illustration");
           }
         };
         reader.readAsDataURL(file);
@@ -5611,28 +6187,8 @@ export const Create: React.FC<CreateProps> = ({
 
   const insertDrawingToDoc = (dataUrl: string) => {
     if (editorRef.current) {
-      editorRef.current.focus();
-      const img = document.createElement("img");
-      img.src = dataUrl;
-      img.style.width = "50%";
-      img.style.margin = "1.5rem auto";
-      img.style.display = "block";
-      img.className = "block mx-auto border border-zinc-200 dark:border-zinc-800 rounded-md shadow-xs max-w-full";
-      img.alt = "Drawing Illustration";
-
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        range.insertNode(img);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        editorRef.current.appendChild(img);
-      }
+      insertImageElementToDoc(dataUrl, "Drawing Illustration");
       setIsDrawingModalOpen(false);
-      updateToc();
-      setTimeout(() => pushStoryDocHistory(), 50);
     }
   };
 
@@ -5725,7 +6281,15 @@ export const Create: React.FC<CreateProps> = ({
         targetNode = targetNode.parentElement;
       }
       if (targetNode && targetNode.parentNode === editorRef.current) {
-        if (targetNode.nodeName === "P" && (!targetNode.textContent || targetNode.textContent.trim() === "")) {
+        if (targetNode.nodeName === "H1" || targetNode.nodeName === "H2") {
+          const allH2 = editorRef.current.querySelectorAll("h2");
+          const allH1 = editorRef.current.querySelectorAll("h1");
+          const headingAnchor = (allH2 && allH2.length > 0
+            ? allH2[allH2.length - 1]
+            : (allH1 && allH1.length > 0 ? allH1[allH1.length - 1] : targetNode)) as HTMLElement;
+          headingAnchor.parentNode?.insertBefore(div, headingAnchor.nextSibling);
+          headingAnchor.parentNode?.insertBefore(afterP, div.nextSibling);
+        } else if (targetNode.nodeName === "P" && (!targetNode.textContent || targetNode.textContent.trim() === "")) {
           targetNode.parentNode.insertBefore(div, targetNode);
           targetNode.parentNode.insertBefore(afterP, targetNode.nextSibling);
           targetNode.parentNode.removeChild(targetNode);
@@ -7192,7 +7756,7 @@ ${manifestImages}  </manifest>
         
         <div className="grid md:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl mx-auto">
           <Card
-            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none relative"
+            className="p-5 sm:p-6 border border-dashed border-border/50 cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card/50 group rounded-none relative"
             onDragOver={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -7202,30 +7766,16 @@ ${manifestImages}  </manifest>
               e.preventDefault();
               e.stopPropagation();
               if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                resetDrawToolSettingsToDefault();
+                uploadStartedFromSelectRef.current = true;
+                resetComicCanvasToFreshDefault(false);
                 handleWorkspaceMediaFiles(e.dataTransfer.files);
               }
             }}
             onClick={() => {
               resetDrawToolSettingsToDefault();
-              setCurrentComicId(null);
-              setComicTitle("Untitled Comic");
-              setComicPagesState([
-                {
-                  id: Date.now().toString(),
-                  tree: createGridTree(3, 2),
-                  bubbles: [
-                    { id: "1", text: "HELLO WORLD!", x: 25, y: 30, style: "classic" },
-                    {
-                      id: "2",
-                      text: "WHAT A COOL WORKSPACE!",
-                      x: 60,
-                      y: 65,
-                      style: "action",
-                    },
-                  ],
-                }
-              ]);
-              setActivePageIndex(0);
+              uploadStartedFromSelectRef.current = false;
+              resetComicCanvasToFreshDefault(true);
               setCreateMode("comic");
             }}
           >
@@ -7245,6 +7795,9 @@ ${manifestImages}  </manifest>
                   variant="outline"
                   onClick={(e) => {
                     e.stopPropagation();
+                    resetDrawToolSettingsToDefault();
+                    uploadStartedFromSelectRef.current = true;
+                    resetComicCanvasToFreshDefault(false);
                     workspaceMediaInputRef.current?.click();
                   }}
                   className="h-8 px-3 text-xs font-semibold border-primary/40 hover:border-primary hover:bg-primary/10 text-primary flex items-center gap-1.5 rounded-none transition-all shadow-xs cursor-pointer pointer-events-auto"
@@ -7258,7 +7811,7 @@ ${manifestImages}  </manifest>
           </Card>
 
           <Card
-            className="p-5 sm:p-6 border border-border cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card group rounded-none"
+            className="p-5 sm:p-6 border border-dashed border-border/50 cursor-pointer hover:border-primary transition-all hover:shadow-md flex flex-col items-center text-center gap-3 bg-card/50 group rounded-none"
             onClick={() => {
               setCurrentStoryId(null);
               setStoryTitle("Untitled Story");
@@ -7309,7 +7862,7 @@ ${manifestImages}  </manifest>
           </div>
 
           {publishedWorks.filter((item) => checkIsAuthor(item, user)).length === 0 ? (
-            <Card className="p-6 text-center bg-card/40 border border-dashed flex flex-col items-center justify-center gap-2 rounded-none">
+            <Card className="p-6 text-center bg-card/40 border border-dashed border-border/50 flex flex-col items-center justify-center gap-2 rounded-none">
               <BookOpen className="w-8 h-8 text-muted-foreground/40" />
               <p className="text-sm font-medium text-muted-foreground">{t("noPublishedWorks")}</p>
               <p className="text-xs text-muted-foreground/80 max-w-sm">
@@ -7399,6 +7952,7 @@ ${manifestImages}  </manifest>
                       onClick={async (e) => {
                         e.stopPropagation();
                         await deleteUnfinishedComic(comic.id);
+                        resetComicCanvasToFreshDefault(true);
                         getUnfinishedComics().then(setUnfinishedComics);
                         toast.success("Comic project deleted");
                       }}
@@ -7514,11 +8068,7 @@ ${manifestImages}  </manifest>
 
       <VideoToComicDialog
         isOpen={videoToComicModalOpen}
-        onClose={() => {
-          setVideoToComicModalOpen(false);
-          setPendingVideoFile(null);
-          setVideoToComicTargetPanel(null);
-        }}
+        onClose={handleCloseVideoToComic}
         videoFile={pendingVideoFile}
         onComplete={handleVideoToComicComplete}
       />
@@ -8119,7 +8669,8 @@ ${manifestImages}  </manifest>
                 const types = Array.from(e.dataTransfer.types);
                 if (
                   types.includes("image-drag-id") ||
-                  types.includes("text/html")
+                  types.includes("text/html") ||
+                  types.includes("Files")
                 ) {
                   e.preventDefault();
                   // @ts-ignore
@@ -8134,6 +8685,44 @@ ${manifestImages}  </manifest>
                 }
               }}
               onDrop={(e) => {
+                // Check if user dropped files from desktop / explorer
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                  e.preventDefault();
+                  let hasNonImage = false;
+                  const imageFiles: File[] = [];
+
+                  for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    if (file.type.startsWith("image/")) {
+                      imageFiles.push(file);
+                    } else {
+                      hasNonImage = true;
+                    }
+                  }
+
+                  if (hasNonImage && imageFiles.length === 0) {
+                    toast.error("Only image formats (PNG, JPG, WebP, GIF, SVG) can be inserted into the editor. Audio, video, and other media formats are not supported.");
+                    return;
+                  }
+
+                  if (hasNonImage) {
+                    toast.warning("Some non-image files were skipped. Only images can be inserted.");
+                  }
+
+                  for (const imgFile of imageFiles) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const res = event.target?.result as string;
+                      if (res) {
+                        insertImageElementToDoc(res, imgFile.name || "Illustration");
+                      }
+                    };
+                    reader.readAsDataURL(imgFile);
+                  }
+                  return;
+                }
+
                 const dragId = e.dataTransfer.getData("image-drag-id");
                 if (dragId) {
                   e.preventDefault();
@@ -8146,13 +8735,41 @@ ${manifestImages}  </manifest>
                       ? document.caretRangeFromPoint(e.clientX, e.clientY)
                       : null;
 
-                    if (dropRange) {
-                      dropRange.insertNode(oldImg);
-                      dropRange.collapse(false);
-                      const sel = window.getSelection();
-                      sel?.removeAllRanges();
-                      sel?.addRange(dropRange);
-                    } else {
+                    let inserted = false;
+                    if (dropRange && editorRef.current?.contains(dropRange.commonAncestorContainer)) {
+                      let node: Node | null = dropRange.startContainer;
+                      if (node.nodeType === Node.TEXT_NODE) {
+                        node = node.parentElement;
+                      }
+                      const block = (node as HTMLElement | null)?.closest("h1, h2, p, div");
+
+                      // If dropped onto title (H1) or subtitle (H2), move down to text section below
+                      if (block && (block.tagName === "H1" || block.tagName === "H2")) {
+                        const allH2 = editorRef.current?.querySelectorAll("h2");
+                        const allH1 = editorRef.current?.querySelectorAll("h1");
+                        const headingAnchor = (allH2 && allH2.length > 0
+                          ? allH2[allH2.length - 1]
+                          : (allH1 && allH1.length > 0 ? allH1[allH1.length - 1] : block)) as HTMLElement;
+
+                        const nextEl = headingAnchor.nextElementSibling;
+                        if (nextEl) {
+                          headingAnchor.parentNode?.insertBefore(oldImg, nextEl);
+                        } else {
+                          headingAnchor.parentNode?.appendChild(oldImg);
+                        }
+                        toast.info("Image placed in text section below heading");
+                        inserted = true;
+                      } else {
+                        dropRange.insertNode(oldImg);
+                        dropRange.collapse(false);
+                        const sel = window.getSelection();
+                        sel?.removeAllRanges();
+                        sel?.addRange(dropRange);
+                        inserted = true;
+                      }
+                    }
+
+                    if (!inserted) {
                       const sel = window.getSelection();
                       if (sel && sel.rangeCount > 0) {
                         const range = sel.getRangeAt(0);
@@ -8169,11 +8786,12 @@ ${manifestImages}  </manifest>
                   }, 0);
                 }
               }}
-              className="relative w-full max-w-4xl bg-card border shadow-sm p-8 md:p-12 overflow-y-auto font-serif text-lg leading-relaxed outline-none [&_img]:max-w-full [&_img]:my-4 [&_img]:rounded-md [&_h1]:text-4xl [&_h1]:font-extrabold [&_h1]:text-foreground [&_h1]:mb-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-muted-foreground [&_h2]:mb-4 [&_h2]:mt-8 [&_p]:mb-4 editor-doc h-full print-content"
+              className="relative w-full max-w-4xl bg-card border shadow-sm p-4 sm:p-6 md:p-10 lg:p-12 overflow-y-auto font-serif outline-none editor-doc h-full print-content text-foreground transition-all duration-150"
               contentEditable
               suppressContentEditableWarning
               data-placeholder={t("startWritingYourStory")}
               style={{ emptyCells: "show" }}
+              onPaste={handleEditorPaste}
               onInput={() => {
                 updateToc();
                 scrollToCaret();
@@ -8186,16 +8804,84 @@ ${manifestImages}  </manifest>
           <style
             dangerouslySetInnerHTML={{
               __html: `
+            /* Device resolution adaptive typography for comfortable reading ergonomics */
+            .editor-doc {
+              font-size: clamp(1rem, 0.92rem + 0.42vw, 1.25rem);
+              line-height: 1.8;
+              letter-spacing: 0.012em;
+              word-break: break-word;
+              overflow-wrap: break-word;
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
+              text-rendering: optimizeLegibility;
+            }
             .editor-doc h1, .editor-doc h2, .editor-doc p { position: relative; min-height: 1.5em; }
             .editor-doc > div:not(.story-inline-canvas-placeholder) { position: relative; min-height: 1.5em; }
             .story-inline-canvas-placeholder, .story-inline-canvas-placeholder * { min-height: 0; box-sizing: border-box; }
-            .editor-doc h1 { border-bottom: 2px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 0.75rem; }
-            .editor-doc h2 { border-bottom: 1px dashed #e5e7eb; padding-bottom: 0.25rem; margin-bottom: 1.25rem; }
+            .editor-doc h1 {
+              font-size: clamp(1.75rem, 1.35rem + 1.25vw, 2.5rem);
+              line-height: 1.25;
+              font-weight: 800;
+              color: inherit;
+              margin-top: clamp(1rem, 0.8rem + 0.6vw, 1.75rem);
+              margin-bottom: clamp(0.75rem, 0.6rem + 0.4vw, 1.25rem);
+              border-bottom: 2px dashed #e5e7eb;
+              padding-bottom: 0.35rem;
+            }
+            .editor-doc h2 {
+              font-size: clamp(1.25rem, 1.08rem + 0.6vw, 1.75rem);
+              line-height: 1.35;
+              font-weight: 600;
+              color: var(--muted-foreground, #6b7280);
+              margin-top: clamp(1.25rem, 1rem + 0.75vw, 2rem);
+              margin-bottom: clamp(0.5rem, 0.4rem + 0.35vw, 0.9rem);
+              border-bottom: 1px dashed #e5e7eb;
+              padding-bottom: 0.25rem;
+            }
+            .editor-doc h3 {
+              font-size: clamp(1.1rem, 1.02rem + 0.35vw, 1.35rem);
+              line-height: 1.4;
+              font-weight: 600;
+              margin-top: 1.25rem;
+              margin-bottom: 0.5rem;
+            }
+            .editor-doc p {
+              font-size: inherit;
+              line-height: inherit;
+              cursor: text;
+              outline: none;
+              margin-bottom: clamp(0.9rem, 0.8rem + 0.35vw, 1.35rem);
+            }
+            .editor-doc blockquote {
+              border-left: 3px solid currentColor;
+              opacity: 0.85;
+              padding-left: 1rem;
+              margin: 1.25rem 0;
+              font-style: italic;
+            }
+            .editor-doc ul, .editor-doc ol {
+              padding-left: 1.5rem;
+              margin-bottom: 1rem;
+            }
+            .editor-doc li {
+              margin-bottom: 0.35rem;
+              line-height: inherit;
+            }
             .dark .editor-doc h1 { border-bottom-color: rgba(255, 255, 255, 0.2); }
-            .dark .editor-doc h2 { border-bottom-color: rgba(255, 255, 255, 0.15); }
-            .editor-doc img { page-break-inside: avoid; break-inside: avoid; display: block; margin-left: auto; margin-right: auto; max-width: 100%; }
+            .dark .editor-doc h2 { border-bottom-color: rgba(255, 255, 255, 0.15); color: #9ca3af; }
+            .editor-doc img {
+              page-break-inside: avoid;
+              break-inside: avoid;
+              display: block;
+              margin-left: auto;
+              margin-right: auto;
+              max-width: 100%;
+              height: auto;
+              border-radius: 0.375rem;
+              margin-top: 1.25rem;
+              margin-bottom: 1.25rem;
+            }
             .story-inline-canvas-placeholder { display: block; margin-left: auto; margin-right: auto; }
-            .editor-doc p { cursor: text; outline: none; margin-bottom: 1rem; }
             .editor-doc h1:empty:before, .editor-doc h1:has(> br:only-child):before { content: '${t("title").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
             .editor-doc h2:empty:before, .editor-doc h2:has(> br:only-child):before { content: '${t("subtitle").replace(/'/g, "\\'")}'; color: #4b5563; pointer-events: none; opacity: 0.5; position: absolute; top: 0; left: 0; }
             .dark .editor-doc h1:empty:before, .dark .editor-doc h1:has(> br:only-child):before,
@@ -8218,7 +8904,24 @@ ${manifestImages}  </manifest>
             .dark .editor-doc[data-has-no-text="true"] p:first-of-type:has(> br:only-child):before {
               color: #9ca3af;
             }
-         `,
+
+            /* Compact mobile screen optimization */
+            @media (max-width: 640px) {
+              .editor-doc {
+                font-size: 1rem;
+                line-height: 1.7;
+                padding: 1rem !important;
+              }
+            }
+
+            /* Large desktop / 4K optimization */
+            @media (min-width: 2560px) {
+              .editor-doc {
+                font-size: 1.25rem;
+                line-height: 1.85;
+              }
+            }
+          `,
             }}
           />
         </main>
@@ -9728,7 +10431,7 @@ ${manifestImages}  </manifest>
             onDragLeave={handleWorkspaceDragLeave}
             onDrop={handleWorkspaceDrop}
             className={cn(
-              "flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden transition-colors",
+              "flex-1 relative h-full flex justify-center items-center p-0 min-w-0 min-h-0 bg-background/50 overflow-hidden overscroll-x-contain transition-colors",
               isWorkspaceMediaDragging && "bg-primary/5 ring-2 ring-primary ring-inset"
             )}
           >
@@ -10152,11 +10855,7 @@ ${manifestImages}  </manifest>
 
         <VideoToComicDialog
           isOpen={videoToComicModalOpen}
-          onClose={() => {
-            setVideoToComicModalOpen(false);
-            setPendingVideoFile(null);
-            setVideoToComicTargetPanel(null);
-          }}
+          onClose={handleCloseVideoToComic}
           videoFile={pendingVideoFile}
           onComplete={handleVideoToComicComplete}
         />

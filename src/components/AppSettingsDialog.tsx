@@ -92,15 +92,18 @@ export function AppSettingsDialog() {
   return (
     <>
       <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+        <DialogContent
+          className="w-[94vw] max-w-[760px] aspect-[4/3] max-h-[88vh] p-0 flex flex-col overflow-hidden gap-0 rounded-xl bg-card border-border shadow-2xl"
+          style={{ aspectRatio: "4/3" }}
+        >
+          <DialogHeader className="px-6 py-3.5 border-b border-border bg-muted/20 shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
               <Settings className="w-5 h-5 text-primary" />
               {t("appSettings")}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             {/* Engine Selector Dropdown */}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="settings-ai-engine-select" className="text-sm font-semibold">{t("aiProvider")}</label>
@@ -302,7 +305,7 @@ export function AppSettingsDialog() {
             )}
           </div>
 
-          <div className="flex justify-between items-center mt-4 pt-4 border-t">
+          <div className="px-6 py-3 border-t border-border bg-muted/20 flex justify-between items-center shrink-0">
             {/* Left side: Sign In / Login button at left-bottom corner of app settings window */}
             <div className="flex items-center">
               {user ? (

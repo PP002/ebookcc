@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { BookOpen, User, Clock, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, Pause, SkipBack, SkipForward, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { BookOpen, User, Clock, PenTool, Wrench, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Book, Star, Sparkles, FolderOpen, Heart, Layers, PanelLeftOpen, PanelLeftClose, Maximize, Minimize, Sun, Moon, Laptop, Settings, Grid, Crop, Trash2, Play, Pause, SkipBack, SkipForward, MessageSquare, StickyNote, ArrowLeftRight, ArrowLeft, ArrowRight, Loader2, RefreshCw, Radio } from 'lucide-react';
+import { BroadcastPlayer } from '@/components/broadcast/BroadcastPlayer';
+import {
+  isImageUrl,
+  isTableOfContentsOrFrontMatter,
+  stripTableOfContentsAndFrontMatter,
+  removeTocNodesFromElement,
+  stripHtmlTableOfContents,
+} from '@/lib/broadcastExtractor';
+import { toPlainText } from '@/lib/cleanPlainText';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useDropzone } from 'react-dropzone';
@@ -24,7 +33,8 @@ import { getLocalNotes, fetchCloudComments } from '@/lib/commentsStorage';
 import { fetchPublishedWorksFromR2, fetchSinglePublishedWork } from '@/lib/r2Storage';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from '@/components/GoogleDriveDialog';
-import { getLibraryProxyUrl, getArchivePageImageUrl, getCachedCoverUrl, setCachedCoverUrl, fetchArchiveComicPageCount } from '@/lib/publicLibrary';
+import { getLibraryProxyUrl, getArchivePageImageUrl, getCachedCoverUrl, setCachedCoverUrl, fetchArchiveComicPageCount, extractGutenbergId, getGutenbergCoverCandidates, normalizeGutenbergCoverUrl } from '@/lib/publicLibrary';
+import { getHorizontalKeyDirection, isEditableTarget, attachWheelPageFlipper } from '@/lib/pageFlipInput';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
@@ -463,19 +473,34 @@ const RecentBookListItem: React.FC<RecentBookListItemProps> = ({ book, onOpen, o
     ? book.id.replace(/^archive-/, '')
     : (book as any).identifier || null;
 
-  const rawCover = typeof book.cover === 'string' ? book.cover : '';
+  const cleanGutenbergId = extractGutenbergId({
+    id: book.id,
+    cover: typeof book.cover === 'string' ? book.cover : undefined,
+  });
+
+  const rawCover = normalizeGutenbergCoverUrl(typeof book.cover === 'string' ? book.cover : '', book.id);
   const hasValidCover = !imgError && rawCover && 
     (rawCover.startsWith('data:') || rawCover.startsWith('http') || rawCover.startsWith('blob:') || rawCover.startsWith('/')) &&
     !rawCover.includes('placehold.co') &&
     !rawCover.includes('archive.org/services/img');
 
+  const gutenbergCandidates = React.useMemo(() => {
+    if (!cleanGutenbergId) return [];
+    return getGutenbergCoverCandidates(cleanGutenbergId, rawCover);
+  }, [cleanGutenbergId, rawCover]);
+
   const cachedCover = React.useMemo(() => {
-    return (book.id ? getCachedCoverUrl(book.id) : null) || (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null);
-  }, [book.id, cleanArchiveId]);
+    return (book.id ? getCachedCoverUrl(book.id) : null) ||
+      (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null) ||
+      (cleanGutenbergId ? getCachedCoverUrl(`gutenberg-${cleanGutenbergId}`) : null);
+  }, [book.id, cleanArchiveId, cleanGutenbergId]);
 
   const effectiveRecentCover = React.useMemo(() => {
     if (imgError) return null;
-    if (cachedCover) return cachedCover;
+    if (cachedCover && fallbackAttempt === 0) return cachedCover;
+    if (cleanGutenbergId && gutenbergCandidates.length > 0) {
+      return gutenbergCandidates[Math.min(fallbackAttempt, gutenbergCandidates.length - 1)] || null;
+    }
     if (fallbackAttempt === 0 && hasValidCover) return rawCover;
     if (cleanArchiveId) {
       if (fallbackAttempt === 0 || fallbackAttempt === 1) {
@@ -489,7 +514,7 @@ const RecentBookListItem: React.FC<RecentBookListItemProps> = ({ book, onOpen, o
       }
     }
     return hasValidCover ? rawCover : null;
-  }, [cachedCover, hasValidCover, rawCover, cleanArchiveId, fallbackAttempt, imgError]);
+  }, [cachedCover, cleanGutenbergId, gutenbergCandidates, hasValidCover, rawCover, cleanArchiveId, fallbackAttempt, imgError]);
 
   const authorText = book.author === "Local File" ? (t("localFile") || "Local File") : (book.author || t("localFile") || "Local File");
   const fileTypeLabel = book.fileType === 'comic' || book.fileType === 'images' ? 'Comic' : book.fileType?.toUpperCase();
@@ -518,10 +543,13 @@ const RecentBookListItem: React.FC<RecentBookListItemProps> = ({ book, onOpen, o
                 if (effectiveRecentCover) {
                   if (book.id) setCachedCoverUrl(book.id, effectiveRecentCover);
                   if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveRecentCover);
+                  if (cleanGutenbergId) setCachedCoverUrl(`gutenberg-${cleanGutenbergId}`, effectiveRecentCover);
                 }
               }}
               onError={() => {
-                if (cleanArchiveId && fallbackAttempt < 4) {
+                if (cleanGutenbergId && fallbackAttempt < gutenbergCandidates.length - 1) {
+                  setFallbackAttempt(prev => prev + 1);
+                } else if (cleanArchiveId && fallbackAttempt < 4) {
                   setFallbackAttempt(prev => prev + 1);
                 } else {
                   setImgError(true);
@@ -603,6 +631,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   const [croppedCache, setCroppedCache] = useState<Record<number, string>>({});
   const [isProcessingPage, setIsProcessingPage] = useState(false);
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
+  const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
+  const [broadcastBBox, setBroadcastBBox] = useState<[number, number, number, number] | null>(null);
+  const [broadcastHighlightText, setBroadcastHighlightText] = useState<string | null>(null);
+  const [broadcastHighlightEventIdx, setBroadcastHighlightEventIdx] = useState<number>(0);
+  const [broadcastTextRects, setBroadcastTextRects] = useState<Array<{ left: number; top: number; width: number; height: number }>>([]);
+  const lastMatchedNormIdxRef = React.useRef<{ eventIdx: number; normIdx: number }>({ eventIdx: -1, normIdx: 0 });
 
   const [epubToc, setEpubToc] = useState<any[]>([]);
   const [epubCurrentPage, setEpubCurrentPage] = useState<number>(0);
@@ -659,23 +693,23 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
             }
           } catch (_) {}
 
-          // Prioritized list of fetch targets
+          // Prioritized list of fetch targets (with official Project Gutenberg pglaf.org mirrors first)
           const targets: string[] = [];
-          if (selectedBook.streamUrl) {
-            targets.push(selectedBook.streamUrl);
-          }
           if (selectedBook.id.startsWith('gutenberg-')) {
             const rawId = selectedBook.id.replace('gutenberg-', '');
             const epubs = [
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://aleph.pglaf.org/cache/epub/${rawId}/pg${rawId}.epub`)}`,
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://gutenberg.pglaf.org/cache/epub/${rawId}/pg${rawId}.epub`)}`,
+              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://aleph.pglaf.org/cache/epub/${rawId}/pg${rawId}-images-3.epub`)}`,
               `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`)}`,
               `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}-images-3.epub`)}`,
-              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/ebooks/${rawId}.epub3.images`)}`,
-              `/api/library/proxy/book.epub?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/ebooks/${rawId}.epub.noimages`)}`,
-              `/api/library/proxy?fileUrl=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`)}`
             ];
             for (const ep of epubs) {
               if (!targets.includes(ep)) targets.push(ep);
             }
+          }
+          if (selectedBook.streamUrl && !targets.includes(selectedBook.streamUrl)) {
+            targets.push(selectedBook.streamUrl);
           }
 
           let arrayBuffer: ArrayBuffer | null = null;
@@ -1011,6 +1045,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 content_type: 'epub',
                 type: 'novel',
                 source: 'gutenberg',
+                cover_url: `https://aleph.pglaf.org/cache/epub/${rawId}/pg${rawId}.cover.medium.jpg`,
                 resource_url: `https://www.gutenberg.org/cache/epub/${rawId}/pg${rawId}.epub`,
               };
             }
@@ -1033,11 +1068,12 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
 
             if (isEpub) {
               const streamUrl = book.resource_url ? getLibraryProxyUrl(book.resource_url) : undefined;
+              const resolvedBookCover = normalizeGutenbergCoverUrl(book.cover || book.cover_url || "", book);
               setSelectedBook({
                 id: book.id,
                 title: book.title,
                 author: book.author || "Project Gutenberg",
-                cover: book.cover || book.cover_url || "",
+                cover: resolvedBookCover,
                 chapters: 1,
                 rating: 5,
                 fileType: "epub",
@@ -2048,7 +2084,331 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
     if (onActiveStateChange) {
       onActiveStateChange(selectedBook !== null);
     }
+    setBroadcastHighlightText(null);
+    setBroadcastTextRects([]);
+    lastMatchedNormIdxRef.current = { eventIdx: -1, normIdx: 0 };
   }, [selectedBook, onActiveStateChange]);
+
+  // Highlight and auto-flip page to follow reading text when Broadcast subtitles are turned off
+  useEffect(() => {
+    const clearEpubHighlights = () => {
+      try {
+        const iframes = document.querySelectorAll('.reader-epub-container iframe');
+        iframes.forEach((ifr: any) => {
+          const doc = ifr?.contentDocument || ifr?.contentWindow?.document;
+          const existing = doc?.getElementById('ebookcc-epub-highlight-layer');
+          if (existing) existing.remove();
+        });
+      } catch (_) {}
+    };
+
+    if (!broadcastHighlightText || !selectedBook) {
+      setBroadcastTextRects([]);
+      clearEpubHighlights();
+      return;
+    }
+
+    const normalizeAlnum = (str: string): string => {
+      const out: string[] = [];
+      for (const ch of str) {
+        if (/[\p{L}\p{N}]/u.test(ch)) {
+          out.push(ch.toLowerCase());
+        }
+      }
+      return out.join('');
+    };
+
+    const findMatchingRangeInRoot = (
+      rootEl: HTMLElement,
+      doc: Document,
+      targetRaw: string,
+      evIdx: number
+    ): Range | null => {
+      const normTarget = normalizeAlnum(targetRaw);
+      if (normTarget.length < 2) return null;
+
+      const walker = doc.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      const normDomChars: string[] = [];
+      const domMap: Array<{ node: Text; offset: number }> = [];
+
+      let currentNode = walker.nextNode() as Text | null;
+      while (currentNode) {
+        const val = currentNode.nodeValue || '';
+        for (let i = 0; i < val.length; i++) {
+          const ch = val[i];
+          if (/[\p{L}\p{N}]/u.test(ch)) {
+            normDomChars.push(ch.toLowerCase());
+            domMap.push({ node: currentNode, offset: i });
+          }
+        }
+        currentNode = walker.nextNode() as Text | null;
+      }
+
+      const normDom = normDomChars.join('');
+      if (!normDom) return null;
+
+      const searchFrom =
+        evIdx >= lastMatchedNormIdxRef.current.eventIdx && lastMatchedNormIdxRef.current.normIdx > 0
+          ? Math.max(0, lastMatchedNormIdxRef.current.normIdx - 15)
+          : 0;
+
+      let matchStart = normDom.indexOf(normTarget, searchFrom);
+      let matchEnd = matchStart !== -1 ? matchStart + normTarget.length - 1 : -1;
+
+      if (matchStart === -1 && searchFrom > 0) {
+        matchStart = normDom.indexOf(normTarget, 0);
+        matchEnd = matchStart !== -1 ? matchStart + normTarget.length - 1 : -1;
+      }
+
+      // Fuzzy prefix + suffix span match for longer passages
+      if (matchStart === -1 && normTarget.length > 36) {
+        const prefix = normTarget.slice(0, 28);
+        const suffix = normTarget.slice(-24);
+        let pIdx = normDom.indexOf(prefix, searchFrom);
+        if (pIdx === -1 && searchFrom > 0) pIdx = normDom.indexOf(prefix, 0);
+        if (pIdx !== -1) {
+          const sIdx = normDom.indexOf(suffix, pIdx + prefix.length);
+          if (sIdx !== -1 && sIdx - pIdx <= normTarget.length * 1.5) {
+            matchStart = pIdx;
+            matchEnd = sIdx + suffix.length - 1;
+          } else {
+            matchStart = pIdx;
+            matchEnd = Math.min(normDom.length - 1, pIdx + normTarget.length - 1);
+          }
+        }
+      }
+
+      // Prefix fallback for medium sentences
+      if (matchStart === -1 && normTarget.length >= 14) {
+        const prefix = normTarget.slice(0, 14);
+        let pIdx = normDom.indexOf(prefix, searchFrom);
+        if (pIdx === -1 && searchFrom > 0) pIdx = normDom.indexOf(prefix, 0);
+        if (pIdx !== -1) {
+          matchStart = pIdx;
+          matchEnd = Math.min(normDom.length - 1, pIdx + normTarget.length - 1);
+        }
+      }
+
+      if (matchStart === -1 || matchEnd === -1 || !domMap[matchStart] || !domMap[matchEnd]) {
+        return null;
+      }
+
+      lastMatchedNormIdxRef.current = { eventIdx: evIdx, normIdx: matchStart };
+
+      const range = doc.createRange();
+      const startEntry = domMap[matchStart];
+      const endEntry = domMap[matchEnd];
+      range.setStart(startEntry.node, startEntry.offset);
+      range.setEnd(endEntry.node, Math.min(endEntry.node.length, endEntry.offset + 1));
+      return range;
+    };
+
+    // 1. Paginated Text / DOCX Mode
+    if ((selectedBook.fileType === 'text' || selectedBook.fileType === 'docx') && textContentRef.current) {
+      const container = textContentRef.current;
+      const range = findMatchingRangeInRoot(container, document, broadcastHighlightText, broadcastHighlightEventIdx);
+      if (!range) {
+        setBroadcastTextRects([]);
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const rawRects = Array.from(range.getClientRects()).filter((r) => r.width > 1 && r.height > 1);
+      if (rawRects.length === 0) {
+        setBroadcastTextRects([]);
+        return;
+      }
+
+      const relRects = rawRects.map((r) => ({
+        left: r.left - containerRect.left,
+        top: r.top - containerRect.top,
+        width: r.width,
+        height: r.height,
+      }));
+      setBroadcastTextRects(relRects);
+
+      // Auto-flip horizontal column page so the highlighted sentence is always visible
+      const outerTextContainer = container.closest('.reader-text-container') as HTMLElement | null;
+      const activeWidth =
+        pageDimensions.width ||
+        outerTextContainer?.clientWidth ||
+        containerSize.width ||
+        600;
+      if (activeWidth > 0) {
+        const primaryRect = relRects[0];
+        const anchorX = primaryRect.left + Math.min(24, Math.max(4, primaryRect.width * 0.25));
+        const targetPage = Math.max(0, Math.floor(anchorX / activeWidth));
+        setCurrentPage((prevPage) => (prevPage !== targetPage ? targetPage : prevPage));
+      }
+      return;
+    }
+
+    // 2. EPUB Mode
+    if (selectedBook.fileType === 'epub') {
+      let cancelled = false;
+
+      const highlightAndEnsureVisibleInEpub = async () => {
+        try {
+          const outerContainer = document.querySelector('.reader-epub-container') as HTMLElement | null;
+          const iframes = document.querySelectorAll('.reader-epub-container iframe');
+          let matchedInCurrentIframe = false;
+
+          for (let i = 0; i < iframes.length; i++) {
+            const ifr = iframes[i] as HTMLIFrameElement;
+            const doc = ifr.contentDocument || ifr.contentWindow?.document;
+            const win = ifr.contentWindow;
+            if (!doc || !doc.body || !win) continue;
+
+            const range = findMatchingRangeInRoot(
+              doc.body,
+              doc,
+              broadcastHighlightText,
+              broadcastHighlightEventIdx
+            );
+            if (!range) continue;
+
+            matchedInCurrentIframe = true;
+
+            const renderEpubOverlay = () => {
+              const rawRects = Array.from(range.getClientRects()).filter((r) => r.width > 1 && r.height > 1);
+              if (rawRects.length === 0) return null;
+              const bodyRect = doc.body.getBoundingClientRect();
+              let layer = doc.getElementById('ebookcc-epub-highlight-layer');
+              if (!layer) {
+                layer = doc.createElement('div');
+                layer.id = 'ebookcc-epub-highlight-layer';
+                layer.style.position = 'absolute';
+                layer.style.top = '0';
+                layer.style.left = '0';
+                layer.style.pointerEvents = 'none';
+                layer.style.zIndex = '50';
+                if (doc.body.style.position === '' || doc.body.style.position === 'static') {
+                  doc.body.style.position = 'relative';
+                }
+                doc.body.appendChild(layer);
+              }
+              layer.innerHTML = '';
+              rawRects.forEach((r) => {
+                const box = doc.createElement('div');
+                box.style.position = 'absolute';
+                box.style.left = `${r.left - bodyRect.left}px`;
+                box.style.top = `${r.top - bodyRect.top}px`;
+                box.style.width = `${r.width}px`;
+                box.style.height = `${r.height}px`;
+                box.style.backgroundColor = 'rgba(245, 158, 11, 0.28)';
+                box.style.borderBottom = '2px solid rgba(245, 158, 11, 0.85)';
+                box.style.borderRadius = '2px';
+                box.style.pointerEvents = 'none';
+                layer!.appendChild(box);
+              });
+              return rawRects[0];
+            };
+
+            const firstRect = renderEpubOverlay();
+            if (firstRect && renditionRef.current) {
+              // Compare the highlight rect's actual screen position against the visible .reader-epub-container viewport!
+              // Note: In epubjs paginated mode, ifr.clientWidth is the multi-column chapter width (often 4000px+),
+              // while ifr.getBoundingClientRect().left shifts negative as pages flip.
+              const ifrRect = ifr.getBoundingClientRect();
+              const viewportRect = (outerContainer || ifr.parentElement || ifr).getBoundingClientRect();
+
+              const screenLeft = ifrRect.left + firstRect.left;
+              const screenRight = ifrRect.left + firstRect.right;
+              const screenTop = ifrRect.top + firstRect.top;
+              const screenBottom = ifrRect.top + firstRect.bottom;
+
+              const isOffScreenHoriz =
+                screenLeft >= viewportRect.right - 16 || screenRight <= viewportRect.left + 16;
+              const isOffScreenVert =
+                screenTop >= viewportRect.bottom - 16 || screenBottom <= viewportRect.top + 16;
+
+              if (isOffScreenHoriz || isOffScreenVert) {
+                let jumpedByCfi = false;
+                try {
+                  const contentsList = renditionRef.current.getContents?.() || [];
+                  const matchedContent = Array.isArray(contentsList)
+                    ? contentsList.find((c: any) => c?.document === doc) || contentsList[0]
+                    : null;
+                  if (matchedContent && typeof matchedContent.cfiFromRange === 'function') {
+                    const targetCfi = matchedContent.cfiFromRange(range);
+                    if (targetCfi) {
+                      jumpedByCfi = true;
+                      await renditionRef.current.display(targetCfi);
+                    }
+                  }
+                } catch (_) {}
+
+                if (!jumpedByCfi) {
+                  if (screenLeft >= viewportRect.right - 16 || screenTop >= viewportRect.bottom - 16) {
+                    await renditionRef.current.next?.();
+                  } else if (screenRight <= viewportRect.left + 16 || screenBottom <= viewportRect.top + 16) {
+                    await renditionRef.current.prev?.();
+                  }
+                }
+
+                // Re-render highlight after page flip settles
+                setTimeout(() => {
+                  if (!cancelled) {
+                    try {
+                      renderEpubOverlay();
+                    } catch (_) {}
+                  }
+                }, 120);
+              }
+            }
+            break;
+          }
+
+          // If the currently displayed EPUB spine item (e.g. Cover or Table of Contents) does NOT contain
+          // the highlighted text, locate the spine item that contains it and flip the reader there automatically!
+          if (!matchedInCurrentIframe && renditionRef.current?.book?.spine) {
+            const normSnippet = normalizeAlnum(broadcastHighlightText).slice(0, 28);
+            if (normSnippet.length >= 10) {
+              const bookObj = renditionRef.current.book;
+              const spine = bookObj.spine;
+              const items = spine.items || spine.spineItems || [];
+              for (let i = 0; i < items.length; i++) {
+                if (cancelled) return;
+                const item = items[i];
+                const href = (item?.href || '').toLowerCase();
+                if (/cover|toc|contents|nav|copyright|license/i.test(href)) continue;
+                try {
+                  const loaded = await item.load(bookObj.load.bind(bookObj));
+                  const rawTxt = loaded?.body?.textContent || loaded?.documentElement?.textContent || loaded?.textContent || '';
+                  if (normalizeAlnum(rawTxt).includes(normSnippet) && item.href) {
+                    await renditionRef.current.display(item.href);
+                    // Once displayed, run highlight in the newly loaded chapter iframe
+                    setTimeout(() => {
+                      if (!cancelled) {
+                        highlightAndEnsureVisibleInEpub().catch(() => {});
+                      }
+                    }, 180);
+                    break;
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+      };
+
+      highlightAndEnsureVisibleInEpub();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [
+    broadcastHighlightText,
+    broadcastHighlightEventIdx,
+    selectedBook,
+    pageDimensions.width,
+    pageDimensions.height,
+    containerSize.width,
+    fontSize,
+    fontFamily,
+    textAlign,
+  ]);
 
   const totalBookPages = useMemo(() => {
     if (!selectedBook) return 1;
@@ -2172,9 +2532,19 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
   }, []);
 
   const nextPageRef = React.useRef(nextPage);
+  const prevPageRef = React.useRef(prevPage);
+  const readingDirectionRef = React.useRef(readingDirection);
+  const isFullscreenRef = React.useRef(isFullscreen);
+  const isNotesSidebarOpenRef = React.useRef(isNotesSidebarOpen);
+  const toggleFullscreenSafeRef = React.useRef(toggleFullscreenSafe);
   useEffect(() => {
     nextPageRef.current = nextPage;
-  }, [nextPage]);
+    prevPageRef.current = prevPage;
+    readingDirectionRef.current = readingDirection;
+    isFullscreenRef.current = isFullscreen;
+    isNotesSidebarOpenRef.current = isNotesSidebarOpen;
+    toggleFullscreenSafeRef.current = toggleFullscreenSafe;
+  }, [nextPage, prevPage, readingDirection, isFullscreen, isNotesSidebarOpen, toggleFullscreenSafe]);
 
   useEffect(() => {
     if (isPlayingSlideshow) {
@@ -2251,7 +2621,9 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       const absY = Math.abs(deltaY);
 
       // 1. Finger slide / Horizontal swipe to flip page (touch devices only)
-      if (elapsed < 700 && absX > 40 && absX > absY * 1.2) {
+      const isNormalSwipe = elapsed < 700 && absX >= 40 && absX > absY * 1.2;
+      const isQuickFlickSwipe = elapsed < 450 && absX >= 26 && absX > absY * 1.25;
+      if (isNormalSwipe || isQuickFlickSwipe) {
         isSwipingRef.current = true;
         setTimeout(() => {
           isSwipingRef.current = false;
@@ -2340,12 +2712,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
       // Don't page if user is typing in an input or if note float window is active
       if (isNotesSidebarOpen) return;
       const targetEl = (e.target || document.activeElement) as HTMLElement | null;
-      if (
-        targetEl?.tagName === 'INPUT' || 
-        targetEl?.tagName === 'TEXTAREA' || 
-        targetEl?.isContentEditable ||
-        targetEl?.getAttribute?.('contenteditable') === 'true'
-      ) {
+      if (isEditableTarget(targetEl)) {
         return;
       }
 
@@ -2378,7 +2745,8 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         return;
       }
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const horizDir = getHorizontalKeyDirection(e);
+      if (horizDir || e.key === 'PageDown' || e.key === 'PageUp') {
         const now = Date.now();
         // Debounce to strictly prevent flipping two pages in one keypress
         if (now - lastKeyNavTimeRef.current < 220) {
@@ -2390,18 +2758,55 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         e.preventDefault();
         e.stopPropagation();
 
+        if (e.key === 'PageDown') {
+          nextPage();
+          return;
+        }
+        if (e.key === 'PageUp') {
+          prevPage();
+          return;
+        }
+
         if (readingDirection === 'rtl') {
-          if (e.key === 'ArrowRight') prevPage();
-          else if (e.key === 'ArrowLeft') nextPage();
+          if (horizDir === 'right') prevPage();
+          else nextPage();
         } else {
-          if (e.key === 'ArrowRight') nextPage();
-          else if (e.key === 'ArrowLeft') prevPage();
+          if (horizDir === 'right') nextPage();
+          else prevPage();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [nextPage, prevPage, isNotesSidebarOpen, readingDirection]);
+  }, [nextPage, prevPage, isNotesSidebarOpen, readingDirection, isFullscreen, toggleFullscreenSafe]);
+
+  // Horizontal wheel / capacitive touch-keyboard (BlackBerry Passport) & optical trackpad (BlackBerry Classic) page flip
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !selectedBook) return;
+
+    return attachWheelPageFlipper(
+      el,
+      (dir) => {
+        if (isNotesSidebarOpenRef.current || hasTextSelection()) return;
+        if (readingDirectionRef.current === 'rtl') {
+          if (dir === 'right') prevPageRef.current();
+          else nextPageRef.current();
+        } else {
+          if (dir === 'right') nextPageRef.current();
+          else prevPageRef.current();
+        }
+      },
+      {
+        shouldHandle: (e) => {
+          if (isNotesSidebarOpenRef.current || hasTextSelection()) return false;
+          const t = e.target as HTMLElement | null;
+          if (t?.closest?.('.fullscreen-hud, [data-no-swipe]')) return false;
+          return true;
+        },
+      }
+    );
+  }, [selectedBook?.id, selectedBook?.fileType, isFullscreen, hasTextSelection]);
 
   const loadFile = useCallback(async (file: File) => {
     let pages: string[] = [];
@@ -2742,18 +3147,20 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0 z-10">
-                {selectedBook.fileType === 'epub' && (selectedBook.fileBuffer || selectedBook.file) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs gap-1.5 px-2.5"
-                    onClick={handleRecoverEpubAsComic}
-                    title="Read this EPUB as Comic (extract image pages)"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Comic View</span>
-                  </Button>
-                )}
+                <Button 
+                  variant={isBroadcastOpen ? "default" : "outline"} 
+                  size="icon" 
+                  className={cn(
+                    "h-8 w-8 relative transition-all cursor-pointer",
+                    isBroadcastOpen && "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/40"
+                  )}
+                  onClick={() => setIsBroadcastOpen(!isBroadcastOpen)}
+                  title="Broadcast Audio Drama"
+                  id="reader-broadcast-toggle-btn"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                </Button>
+
                 {selectedBook.fileType !== 'text' && selectedBook.fileType !== 'pdf' && selectedBook.fileType !== 'epub' && (
                    <>
                      <Button 
@@ -3178,7 +3585,7 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                 setIsHudVisible(prev => !prev);
               }}
               className={cn(
-                "flex-1 overflow-hidden relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center",
+                "flex-1 overflow-hidden overscroll-x-contain relative w-full h-full transition-colors duration-300 select-none flex items-center justify-center",
                 isFullscreen ? "bg-background" : "bg-background",
                 isFullscreen && !isHudVisible && "cursor-none"
               )}
@@ -3241,6 +3648,21 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                   "relative w-full h-full overflow-hidden flex items-center justify-center bg-transparent",
                   isPagedDoc && "shadow-2xl ring-1 ring-border/40"
                 )}>
+                  {/* Broadcast Active Speech Balloon / Panel Highlight */}
+                  {broadcastBBox && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute pointer-events-none rounded-xl border-2 border-primary bg-primary/15 shadow-2xl ring-4 ring-primary/20 z-30 transition-all duration-300"
+                      style={{
+                        left: `${broadcastBBox[0] * 100}%`,
+                        top: `${broadcastBBox[1] * 100}%`,
+                        width: `${broadcastBBox[2] * 100}%`,
+                        height: `${broadcastBBox[3] * 100}%`,
+                      }}
+                    />
+                  )}
                   {selectedBook.fileType === 'epub' && (selectedBook.streamUrl || selectedBook.fileBuffer || selectedBook.file) ? (
                     <div className="absolute inset-0 z-0 bg-transparent reader-epub-container">
                       {(isDownloadingEpub || (!selectedBook.fileBuffer && !selectedBook.file && !epubDownloadError)) && (
@@ -3328,13 +3750,148 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           rendition.themes.override('background-color', 'transparent', 'important');
                           rendition.themes.fontSize(`${fontSize}px`);
 
-                          // Register content hook to inject theme and transparent background before first paint
+                          // Register content hook to inject theme, transparent background, and BlackBerry/keyboard/wheel/swipe navigation inside EPUB iframe
                           rendition.hooks.content.register((contents: any) => {
                             if (applyEpubThemeStylesRef.current) {
                               applyEpubThemeStylesRef.current(contents);
                             } else {
                               applyEpubThemeStyles(contents);
                             }
+
+                            const doc = contents?.document as Document | undefined;
+                            const win = contents?.window as Window | undefined;
+                            if (!doc || (doc as any).__ebookccNavBound) return;
+                            (doc as any).__ebookccNavBound = true;
+
+                            if (doc.documentElement) {
+                              doc.documentElement.style.overscrollBehaviorX = 'contain';
+                            }
+
+                            const hasIframeSelection = () => {
+                              try {
+                                const sel = win?.getSelection?.() || doc.getSelection?.();
+                                return Boolean(sel && sel.toString().trim().length > 0);
+                              } catch {
+                                return false;
+                              }
+                            };
+
+                            const flipEpubDir = (dir: 'left' | 'right') => {
+                              if (readingDirectionRef.current === 'rtl') {
+                                if (dir === 'right') prevPageRef.current();
+                                else nextPageRef.current();
+                              } else {
+                                if (dir === 'right') nextPageRef.current();
+                                else prevPageRef.current();
+                              }
+                            };
+
+                            doc.addEventListener(
+                              'keydown',
+                              (e: KeyboardEvent) => {
+                                if (isNotesSidebarOpenRef.current || isEditableTarget(e.target)) return;
+                                if (e.key === 'f' || e.key === 'F') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  toggleFullscreenSafeRef.current();
+                                  return;
+                                }
+                                if (e.key === 'Escape' && isFullscreenRef.current) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsFullscreen(false);
+                                  setIsPlayingSlideshow(false);
+                                  if (document.fullscreenElement) {
+                                    document.exitFullscreen?.().catch(() => {});
+                                  }
+                                  return;
+                                }
+                                if (e.key === ' ' || e.code === 'Space') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (isFullscreenRef.current) {
+                                    setIsPlayingSlideshow((prev) => !prev);
+                                  } else {
+                                    nextPageRef.current();
+                                  }
+                                  return;
+                                }
+
+                                const horizDir = getHorizontalKeyDirection(e);
+                                if (horizDir || e.key === 'PageDown' || e.key === 'PageUp') {
+                                  const now = Date.now();
+                                  if (now - lastKeyNavTimeRef.current < 220) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    return;
+                                  }
+                                  lastKeyNavTimeRef.current = now;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (e.key === 'PageDown') {
+                                    nextPageRef.current();
+                                  } else if (e.key === 'PageUp') {
+                                    prevPageRef.current();
+                                  } else if (horizDir) {
+                                    flipEpubDir(horizDir);
+                                  }
+                                }
+                              },
+                              { capture: true }
+                            );
+
+                            attachWheelPageFlipper(
+                              doc,
+                              (dir) => {
+                                if (isNotesSidebarOpenRef.current || hasIframeSelection()) return;
+                                flipEpubDir(dir);
+                              },
+                              {
+                                shouldHandle: () => !isNotesSidebarOpenRef.current && !hasIframeSelection(),
+                              }
+                            );
+
+                            let iframeTouchStart: { x: number; y: number; time: number } | null = null;
+                            doc.addEventListener(
+                              'touchstart',
+                              (e: TouchEvent) => {
+                                if (hasIframeSelection() || e.touches.length !== 1) {
+                                  iframeTouchStart = null;
+                                  return;
+                                }
+                                iframeTouchStart = {
+                                  x: e.touches[0].clientX,
+                                  y: e.touches[0].clientY,
+                                  time: Date.now(),
+                                };
+                              },
+                              { passive: true }
+                            );
+                            doc.addEventListener(
+                              'touchend',
+                              (e: TouchEvent) => {
+                                if (!iframeTouchStart || hasIframeSelection()) {
+                                  iframeTouchStart = null;
+                                  return;
+                                }
+                                const touch = e.changedTouches[0];
+                                const start = iframeTouchStart;
+                                iframeTouchStart = null;
+                                if (!touch) return;
+                                const dx = touch.clientX - start.x;
+                                const dy = touch.clientY - start.y;
+                                const elapsed = Date.now() - start.time;
+                                const absX = Math.abs(dx);
+                                const absY = Math.abs(dy);
+                                if (
+                                  (elapsed < 700 && absX >= 40 && absX > absY * 1.2) ||
+                                  (elapsed < 450 && absX >= 26 && absX > absY * 1.25)
+                                ) {
+                                  flipEpubDir(dx < 0 ? 'right' : 'left');
+                                }
+                              },
+                              { passive: true }
+                            );
                           });
 
                           // Register render hook to ensure iframe is transparent as soon as it is inserted
@@ -3453,12 +4010,28 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                           }}
                         >
                           <div 
-                            className="w-full h-full"
+                            className="relative w-full h-full"
                             style={{
                               transform: `translateX(-${currentPage * pageWidth}px)`,
                               transition: isReflowing ? 'none' : 'transform 0.3s ease'
                             }}
                           >
+                            {broadcastTextRects.length > 0 && (
+                              <div className="absolute inset-0 pointer-events-none z-20" aria-hidden="true">
+                                {broadcastTextRects.map((rect, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="absolute bg-amber-400/25 dark:bg-amber-400/30 border-b-2 border-amber-500/80 rounded-[2px] transition-all duration-150"
+                                    style={{
+                                      left: `${rect.left}px`,
+                                      top: `${rect.top}px`,
+                                      width: `${rect.width}px`,
+                                      height: `${rect.height}px`,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
                             <div 
                               ref={textContentRef}
                               className={cn(
@@ -3733,6 +4306,16 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
                       </div>
 
                       <div className="flex items-center gap-1 sm:gap-2">
+                        {/* Broadcast Audio Drama */}
+                        <button
+                          type="button"
+                          onClick={() => setIsBroadcastOpen(p => !p)}
+                          className={cn("p-1.5 rounded-lg transition-colors cursor-pointer border border-border/40", isBroadcastOpen ? "bg-primary text-primary-foreground shadow-xs" : "hover:bg-muted text-foreground/80")}
+                          title="Broadcast Audio Drama"
+                        >
+                          <Radio className="w-4 h-4" />
+                        </button>
+
                         {/* Manual Play Speed Input */}
                         <div 
                           className="flex items-center gap-1 bg-muted/60 border border-border/50 rounded-lg px-2 py-0.5 text-xs text-foreground touch-manipulation" 
@@ -3848,6 +4431,312 @@ export const Read: React.FC<ReadProps> = ({ setActiveView, onActiveStateChange, 
         exportFile={exportPayload}
         onFileImported={loadFile}
       />
+
+      {/* Broadcast Audio Drama Player */}
+      {selectedBook && (() => {
+        const isSelectedBookNovel = 
+          selectedBook.fileType === 'epub' || 
+          selectedBook.fileType === 'text' || 
+          selectedBook.fileType === 'docx' || 
+          selectedBook.fileType === 'novel' ||
+          selectedBook.type === 'novel' ||
+          selectedBook.content_type === 'epub' ||
+          selectedBook.content_type === 'novel' ||
+          selectedBook.source === 'gutenberg' ||
+          (typeof selectedBook.id === 'string' && selectedBook.id.startsWith('gutenberg-'));
+
+        const extractHtmlTextClean = (docOrEl: any): string => {
+          if (!docOrEl) return '';
+          if (typeof docOrEl === 'string') {
+            return toPlainText(stripHtmlTableOfContents(docOrEl));
+          }
+          try {
+            const rootEl =
+              docOrEl.body ||
+              (typeof docOrEl.querySelector === 'function' ? docOrEl.querySelector('body') : null) ||
+              (typeof docOrEl.getElementsByTagName === 'function' ? docOrEl.getElementsByTagName('body')?.[0] : null) ||
+              docOrEl.documentElement ||
+              docOrEl;
+            if (!rootEl) return '';
+            const clone = typeof rootEl.cloneNode === 'function' ? (rootEl.cloneNode(true) as HTMLElement) : rootEl;
+            removeTocNodesFromElement(clone);
+            const rawHtml = typeof clone.innerHTML === 'string' && clone.innerHTML.trim() ? clone.innerHTML : '';
+            if (rawHtml) {
+              return toPlainText(stripHtmlTableOfContents(rawHtml));
+            }
+            return toPlainText(clone.innerText || clone.textContent || '');
+          } catch (_) {
+            try {
+              return toPlainText(docOrEl.textContent || '');
+            } catch {
+              return '';
+            }
+          }
+        };
+
+        const stripGutenbergBoilerplate = (t: string): string => {
+          return stripTableOfContentsAndFrontMatter(t || '');
+        };
+
+        const isFrontMatter = (t: string): boolean => {
+          return isTableOfContentsOrFrontMatter(t || '');
+        };
+
+        const extractCurrentEpubText = async (): Promise<string> => {
+          // 1. Method A: Active EPUB iframes (only use if not on cover/TOC/front-matter)
+          const iframes = document.querySelectorAll<HTMLIFrameElement>('.reader-epub-container iframe');
+          let bestText = '';
+          iframes.forEach((iframe) => {
+            try {
+              const doc = iframe.contentDocument || iframe.contentWindow?.document;
+              const txt = extractHtmlTextClean(doc);
+              if (txt.length > bestText.length) {
+                bestText = txt;
+              }
+            } catch (_) {}
+          });
+
+          if (bestText.length >= 160 && !isFrontMatter(bestText)) {
+            const stripped = stripGutenbergBoilerplate(bestText);
+            if (stripped.length >= 150) {
+              return stripped;
+            }
+          }
+
+          // 2. Method B: Rendition contents (only use if not on cover/TOC/front-matter)
+          if (renditionRef.current?.getContents) {
+            try {
+              const contents = renditionRef.current.getContents();
+              if (Array.isArray(contents)) {
+                for (const c of contents) {
+                  const txt = extractHtmlTextClean(c?.document || c?.content);
+                  if (txt.length > bestText.length) bestText = txt;
+                }
+              }
+            } catch (_) {}
+          }
+          if (bestText.length >= 160 && !isFrontMatter(bestText)) {
+            const stripped = stripGutenbergBoilerplate(bestText);
+            if (stripped.length >= 150) {
+              return stripped;
+            }
+          }
+
+          // 3. Method C: Scan EPUB Spine items via epubjs to locate Chapter 1 and skip Cover & Table of Contents
+          if (renditionRef.current?.book?.spine) {
+            try {
+              const bookObj = renditionRef.current.book;
+              const spine = bookObj.spine;
+              const items = spine.items || spine.spineItems || [];
+
+              for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const href = (item?.href || '').toLowerCase();
+                const id = (item?.id || item?.idref || '').toLowerCase();
+
+                // Skip known cover/TOC/copyright files
+                if (
+                  /cover|titlepage|title_page|imprint|copyright|license|gutenberg_header|toc|contents|nav|halftitle|wrap0000/i.test(href) ||
+                  /cover|titlepage|copyright|toc|contents|nav/i.test(id)
+                ) {
+                  continue;
+                }
+
+                let txt = '';
+                try {
+                  const loaded = await item.load(bookObj.load.bind(bookObj));
+                  txt = extractHtmlTextClean(loaded);
+                } catch (_) {}
+
+                if (txt.length < 150 && typeof item.render === 'function') {
+                  try {
+                    const renderedHtml = await item.render(bookObj.load.bind(bookObj));
+                    const renderedTxt = extractHtmlTextClean(renderedHtml);
+                    if (renderedTxt.length > txt.length) txt = renderedTxt;
+                  } catch (_) {}
+                }
+
+                if (txt.length >= 160 && !isFrontMatter(txt)) {
+                  const cleaned = stripGutenbergBoilerplate(txt);
+                  if (cleaned.length >= 150) {
+                    console.log(`[Read Broadcast] Located Chapter 1 in spine item ${i} (${item.href}), len=${cleaned.length}`);
+                    try {
+                      if (item.href) {
+                        renditionRef.current?.display(item.href);
+                      }
+                    } catch (_) {}
+                    return cleaned;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          // 4. Method C2: Direct JSZip extraction from selectedBook.fileBuffer (infallible EPUB fallback)
+          if (selectedBook.fileType === 'epub' && selectedBook.fileBuffer) {
+            try {
+              const zip = await JSZip.loadAsync(selectedBook.fileBuffer);
+              const allEntries = Object.keys(zip.files).filter((k) => !zip.files[k].dir);
+
+              // Try to determine reading order from OPF spine
+              let orderedHtmlPaths: string[] = [];
+              const opfPath = allEntries.find((k) => k.toLowerCase().endsWith('.opf'));
+              if (opfPath) {
+                try {
+                  const opfXml = await zip.files[opfPath].async('string');
+                  const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+                  const manifestMap = new Map<string, string>();
+                  const itemRegex = /<item\b[^>]*>/gi;
+                  let m: RegExpExecArray | null;
+                  while ((m = itemRegex.exec(opfXml)) !== null) {
+                    const tag = m[0];
+                    const idMatch = tag.match(/\bid=["']([^"']+)["']/i);
+                    const hrefMatch = tag.match(/\bhref=["']([^"']+)["']/i);
+                    if (idMatch && hrefMatch) {
+                      manifestMap.set(idMatch[1], decodeURIComponent(hrefMatch[1]));
+                    }
+                  }
+                  const spineRegex = /<itemref\b[^>]*\bidref=["']([^"']+)["'][^>]*>/gi;
+                  while ((m = spineRegex.exec(opfXml)) !== null) {
+                    const href = manifestMap.get(m[1]);
+                    if (href) {
+                      const fullPath = opfDir + href.replace(/^\.?\//, '');
+                      const matchedEntry =
+                        zip.files[fullPath]
+                          ? fullPath
+                          : allEntries.find((e) => e.endsWith('/' + href) || e === href);
+                      if (matchedEntry) orderedHtmlPaths.push(matchedEntry);
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              if (orderedHtmlPaths.length === 0) {
+                orderedHtmlPaths = allEntries
+                  .filter((k) => /\.(xhtml|html|htm)$/i.test(k))
+                  .sort();
+              }
+
+              for (const htmlPath of orderedHtmlPaths) {
+                const lowerPath = htmlPath.toLowerCase();
+                if (/cover|titlepage|title_page|imprint|copyright|license|toc|contents|nav|wrap0000/i.test(lowerPath)) {
+                  continue;
+                }
+                const htmlStr = await zip.files[htmlPath].async('string');
+                if (!isFrontMatter(htmlStr)) {
+                  const cleaned = stripGutenbergBoilerplate(htmlStr);
+                  if (cleaned.length >= 150) {
+                    console.log(`[Read Broadcast] Extracted Chapter 1 via JSZip (${htmlPath}), len=${cleaned.length}`);
+                    return cleaned;
+                  }
+                }
+              }
+
+              // Second pass without filename filter, but still enforcing !isFrontMatter
+              for (const htmlPath of orderedHtmlPaths) {
+                const htmlStr = await zip.files[htmlPath].async('string');
+                if (!isFrontMatter(htmlStr)) {
+                  const cleaned = stripGutenbergBoilerplate(htmlStr);
+                  if (cleaned.length >= 150) {
+                    return cleaned;
+                  }
+                }
+              }
+            } catch (zipErr) {
+              console.warn('[Read Broadcast] JSZip EPUB extraction notice:', zipErr);
+            }
+          }
+
+          // 5. Method D: Text page content (for non-EPUB novels and published works)
+          if (Array.isArray(selectedBook.pages)) {
+            for (let i = 0; i < selectedBook.pages.length; i++) {
+              const p = selectedBook.pages[i];
+              if (typeof p === 'string' && !isImageUrl(p) && !isFrontMatter(p)) {
+                const plainP = stripGutenbergBoilerplate(p);
+                if (plainP.length >= 120) {
+                  if (selectedBook.pages.length > 1) {
+                    setCurrentPage(i);
+                  }
+                  return plainP;
+                }
+              }
+            }
+          }
+
+          if (typeof (selectedBook as any).content === 'string') {
+            const plainContent = stripGutenbergBoilerplate((selectedBook as any).content);
+            if (plainContent.length >= 80) {
+              return plainContent;
+            }
+          }
+
+          return stripGutenbergBoilerplate(bestText);
+        };
+
+        let rawPageText = '';
+        const currentOrFirstPageText =
+          typeof selectedBook.pages?.[currentPage] === 'string' && !isImageUrl(selectedBook.pages[currentPage])
+            ? selectedBook.pages[currentPage]
+            : typeof selectedBook.pages?.[0] === 'string' && !isImageUrl(selectedBook.pages[0])
+            ? selectedBook.pages[0]
+            : '';
+
+        if (currentOrFirstPageText) {
+          if (!isFrontMatter(currentOrFirstPageText)) {
+            rawPageText = stripGutenbergBoilerplate(currentOrFirstPageText);
+          } else if (Array.isArray(selectedBook.pages)) {
+            for (let i = 0; i < selectedBook.pages.length; i++) {
+              const p = selectedBook.pages[i];
+              if (typeof p === 'string' && !isImageUrl(p) && !isFrontMatter(p)) {
+                rawPageText = stripGutenbergBoilerplate(p);
+                break;
+              }
+            }
+          }
+        } else if (typeof (selectedBook as any).content === 'string') {
+          rawPageText = stripGutenbergBoilerplate((selectedBook as any).content);
+        }
+        rawPageText = toPlainText(rawPageText);
+
+        // For novels, NEVER pass image URLs for visual analysis or OCR (covers/illustrations are skipped)
+        const safePageUrls = isSelectedBookNovel
+          ? []
+          : (Array.isArray(selectedBook.pages)
+              ? selectedBook.pages.map((p: any) => getPageImageUrl(p) || (typeof p === 'string' ? p : '')).filter(Boolean)
+              : []);
+
+        return (
+          <BroadcastPlayer
+            book={selectedBook}
+            currentPage={currentPage}
+            chapterText={rawPageText}
+            chapterId={selectedBook.fileType === 'epub' ? String(location || currentPage) : undefined}
+            pageUrls={safePageUrls}
+            readingDirection={readingDirection}
+            isOpen={isBroadcastOpen}
+            onClose={() => {
+              setIsBroadcastOpen(false);
+              setBroadcastBBox(null);
+              setBroadcastHighlightText(null);
+              setBroadcastTextRects([]);
+            }}
+            onNavigatePage={(pageIndex) => {
+              setCurrentPage(pageIndex);
+              if (selectedBook.fileType === 'epub' && typeof pageIndex === 'string') {
+                setLocation(pageIndex);
+              }
+            }}
+            onHighlightBBox={(bbox) => setBroadcastBBox(bbox)}
+            onHighlightText={(text, evIdx) => {
+              setBroadcastHighlightText(text);
+              if (evIdx !== undefined) {
+                setBroadcastHighlightEventIdx(evIdx);
+              }
+            }}
+            onExtractChapterText={extractCurrentEpubText}
+          />
+        );
+      })()}
     </div>
   );
 };

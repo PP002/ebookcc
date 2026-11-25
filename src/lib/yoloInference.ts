@@ -99,8 +99,9 @@ export async function getYoloSession(
       try {
         configureOnnxEnvironment("webgpu");
         session = await ort.InferenceSession.create(modelBytes as any, {
-          executionProviders: ["webgpu"],
-          graphOptimizationLevel: "all"
+          executionProviders: ["webgpu", "wasm"],
+          graphOptimizationLevel: "all",
+          logSeverityLevel: 3,
         });
         acceleratorUsed = "webgpu";
         logOnnxEnvInitOnce("webgpu");
@@ -117,8 +118,9 @@ export async function getYoloSession(
       logOnnxEnvInitOnce("wasm");
       try {
         session = await ort.InferenceSession.create(modelBytes as any, {
-          executionProviders: ["wasm"],
-          graphOptimizationLevel: "all"
+          executionProviders: ["wasm", "cpu"],
+          graphOptimizationLevel: "all",
+          logSeverityLevel: 3,
         });
         acceleratorUsed = "wasm";
         console.log(`[YOLO ONNX Engine] ${filename} session initialized with WASM (Tier B)!`);
@@ -130,8 +132,9 @@ export async function getYoloSession(
         }
         ort.env.wasm.proxy = false;
         session = await ort.InferenceSession.create(modelBytes as any, {
-          executionProviders: ["wasm"],
-          graphOptimizationLevel: "all"
+          executionProviders: ["wasm", "cpu"],
+          graphOptimizationLevel: "all",
+          logSeverityLevel: 3,
         });
         acceleratorUsed = "wasm";
         console.log(`[YOLO ONNX Engine] ${filename} session initialized with WASM (attempt 2)!`);

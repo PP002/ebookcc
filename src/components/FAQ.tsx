@@ -90,7 +90,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={ui.searchPlaceholder}
-              className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all shadow-xs"
+              className="w-full pl-10 pr-4 py-2.5 bg-card/70 border border-border/20 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all shadow-xs"
             />
             {searchQuery && (
               <button
@@ -104,7 +104,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
         </div>
 
         {/* Category Filters & Collapse Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-b border-border/60 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-b border-border/15 pb-4">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setActiveCategory("all")}
@@ -182,7 +182,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
         {/* FAQ Accordion Items */}
         <div className="space-y-4">
           {filteredFaqs.length === 0 ? (
-            <div className="text-center py-12 px-4 bg-card border border-border rounded-xl space-y-3">
+            <div className="text-center py-12 px-4 bg-card/70 border border-border/15 rounded-xl space-y-3">
               <HelpCircle className="w-10 h-10 text-muted-foreground mx-auto" />
               <h3 className="font-bold text-base">{ui.noMatchTitle}</h3>
               <p className="text-xs text-muted-foreground max-w-md mx-auto">
@@ -205,7 +205,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
               return (
                 <div
                   key={faq.id}
-                  className="bg-card border border-border rounded-xl overflow-hidden shadow-2xs transition-all duration-200"
+                  className="bg-card/70 border border-border/15 rounded-xl overflow-hidden shadow-2xs hover:border-border/30 transition-all duration-200"
                 >
                   <button
                     onClick={() => toggleExpand(faq.id)}
@@ -225,7 +225,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
                   </button>
 
                   {isExpanded && (
-                    <div className="px-5 pb-5 pt-1 border-t border-border/40 text-sm text-muted-foreground space-y-4 animate-in fade-in duration-150">
+                    <div className="px-5 pb-5 pt-1 border-t border-border/10 text-sm text-muted-foreground space-y-4 animate-in fade-in duration-150">
                       <p className="leading-relaxed text-foreground/90">{faq.answer}</p>
 
                       {/* Internal Navigational Action Links */}
@@ -243,7 +243,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
                                     navigate(link.view);
                                   }
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-lg transition-colors border border-primary/20 cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs rounded-lg transition-colors border border-primary/15 cursor-pointer"
                                 title={link.description}
                               >
                                 <span>{link.text}</span>
@@ -266,7 +266,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
         </div>
 
         {/* Bottom Comprehensive Solutions Callout */}
-        <div className="p-6 sm:p-8 bg-card border border-border rounded-2xl space-y-6 shadow-sm">
+        <div className="p-6 sm:p-8 bg-card/60 border border-border/15 rounded-2xl space-y-6 shadow-2xs">
           <div className="flex items-center gap-3 text-primary">
             <Lightbulb className="w-6 h-6" />
             <h2 className="text-xl font-bold tracking-tight text-foreground">
@@ -275,7 +275,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className="p-4 bg-muted/40 rounded-xl space-y-2 border border-border/50">
+            <div className="p-4 bg-muted/30 rounded-xl space-y-2 border border-border/10">
               <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 {ui.bottomReaderTitle}
@@ -287,7 +287,7 @@ export const FAQ: React.FC<FAQProps> = ({ navigate }) => {
               </ul>
             </div>
 
-            <div className="p-4 bg-muted/40 rounded-xl space-y-2 border border-border/50">
+            <div className="p-4 bg-muted/30 rounded-xl space-y-2 border border-border/10">
               <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-500" />
                 {ui.bottomAuthorTitle}

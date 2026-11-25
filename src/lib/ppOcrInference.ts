@@ -96,8 +96,9 @@ async function createOcrSession(modelBytes: Uint8Array, modelName: string): Prom
     try {
       configureOnnxEnvironment('webgpu');
       const session = await ort.InferenceSession.create(modelBytes, {
-        executionProviders: ['webgpu'],
-        graphOptimizationLevel: 'all'
+        executionProviders: ['webgpu', 'wasm'],
+        graphOptimizationLevel: 'all',
+        logSeverityLevel: 3,
       });
       logOnnxEnvInitOnce('webgpu');
       console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WebGPU (Tier A)!`);
@@ -134,8 +135,9 @@ async function createOcrSession(modelBytes: Uint8Array, modelName: string): Prom
   logOnnxEnvInitOnce('wasm');
   try {
     const session = await ort.InferenceSession.create(modelBytes, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all'
+      executionProviders: ['wasm', 'cpu'],
+      graphOptimizationLevel: 'all',
+      logSeverityLevel: 3,
     });
     console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM via local assets!`);
     return session;
@@ -146,8 +148,9 @@ async function createOcrSession(modelBytes: Uint8Array, modelName: string): Prom
     }
     ort.env.wasm.proxy = false;
     const session = await ort.InferenceSession.create(modelBytes, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all'
+      executionProviders: ['wasm', 'cpu'],
+      graphOptimizationLevel: 'all',
+      logSeverityLevel: 3,
     });
     console.log(`[PP-OCR ONNX] ${modelName} successfully loaded on WASM (attempt 2)!`);
     return session;
@@ -957,18 +960,20 @@ export async function runInBrowserOCR(
 
         if (recRes.conf >= 0.9) {
           bookVocab.add(corrected, recRes.conf);
-        } else {
-          // Low-confidence crop fallback canvas
-          const cCanvas = document.createElement('canvas');
-          const cW = Math.max(1, bXmax - bXmin);
-          const cH = Math.max(1, bYmax - bYmin);
-          cCanvas.width = cW;
-          cCanvas.height = cH;
-          const cCtx = cCanvas.getContext('2d');
-          if (cCtx) {
-            cCtx.drawImage(img, bXmin, bYmin, cW, cH, 0, 0, cW, cH);
-            lowConfidenceCrops.push({ canvas: cCanvas, box: [ymin, xmin, ymax, xmax] });
-          }
+        }
+      }
+
+      if (recRes.conf < 0.9 && (bXmax - bXmin >= 10) && (bYmax - bYmin >= 8)) {
+        // Low-confidence crop fallback canvas for Workers AI fix (@cf/google/gemma-4-26b-a4b-it -> @cf/meta/llama-3.2-11b-vision-instruct)
+        const cCanvas = document.createElement('canvas');
+        const cW = Math.max(1, bXmax - bXmin);
+        const cH = Math.max(1, bYmax - bYmin);
+        cCanvas.width = cW;
+        cCanvas.height = cH;
+        const cCtx = cCanvas.getContext('2d');
+        if (cCtx) {
+          cCtx.drawImage(img, bXmin, bYmin, cW, cH, 0, 0, cW, cH);
+          lowConfidenceCrops.push({ canvas: cCanvas, box: [ymin, xmin, ymax, xmax] });
         }
       }
     }

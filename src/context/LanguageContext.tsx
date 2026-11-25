@@ -4673,7 +4673,7 @@ export function detectBrowserLanguage(): LanguageCode {
 
 export function parseLanguageAndRouteFromPath(pathname: string): {
   lang: LanguageCode | null;
-  view: "home" | "read" | "create" | "convert" | "faq";
+  view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai";
 } {
   const cleanPath = (pathname || "/").trim();
   const segments = cleanPath.split("/").filter(Boolean);
@@ -4700,16 +4700,30 @@ export function parseLanguageAndRouteFromPath(pathname: string): {
 
   if (matchedLang) {
     const remainingSeg = segments[1] ? segments[1].toLowerCase() : "";
-    let view: "home" | "read" | "create" | "convert" | "faq" = "home";
-    if (remainingSeg === "read" || remainingSeg === "create" || remainingSeg === "convert" || remainingSeg === "faq") {
-      view = remainingSeg;
+    let view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai" = "home";
+    if (
+      remainingSeg === "read" ||
+      remainingSeg === "create" ||
+      remainingSeg === "convert" ||
+      remainingSeg === "faq" ||
+      remainingSeg === "billing" ||
+      remainingSeg === "ai"
+    ) {
+      view = remainingSeg as any;
     }
     return { lang: matchedLang, view };
   }
 
-  let view: "home" | "read" | "create" | "convert" | "faq" = "home";
-  if (firstSeg === "read" || firstSeg === "create" || firstSeg === "convert" || firstSeg === "faq") {
-    view = firstSeg;
+  let view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai" = "home";
+  if (
+    firstSeg === "read" ||
+    firstSeg === "create" ||
+    firstSeg === "convert" ||
+    firstSeg === "faq" ||
+    firstSeg === "billing" ||
+    firstSeg === "ai"
+  ) {
+    view = firstSeg as any;
   }
 
   return { lang: null, view };
@@ -4717,9 +4731,9 @@ export function parseLanguageAndRouteFromPath(pathname: string): {
 
 export function buildPathWithLanguage(
   lang: LanguageCode,
-  view: "home" | "read" | "create" | "convert" | "faq"
+  view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai"
 ): string {
-  const viewPath = view === "home" ? "" : `/${view}`;
+  const viewPath = view === "home" ? "" : view === "ai" ? "/AI" : `/${view}`;
   if (lang === "en") {
     return viewPath || "/";
   }
@@ -4763,7 +4777,7 @@ interface LanguageContextType {
   setLanguage: (code: LanguageCode) => void;
   currentOption: LanguageOption;
   t: (key: string, params?: Record<string, string | number>) => string;
-  buildPath: (view: "home" | "read" | "create" | "convert" | "faq") => string;
+  buildPath: (view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai") => string;
   formatDate: (date: Date | number, options?: Intl.DateTimeFormatOptions) => string;
 }
 
@@ -4863,7 +4877,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const buildPath = useCallback(
-    (view: "home" | "read" | "create" | "convert" | "faq") => {
+    (view: "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai") => {
       return buildPathWithLanguage(language, view);
     },
     [language]

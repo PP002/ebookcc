@@ -11,6 +11,7 @@ import { ComicLayer, ComicLayerGroup } from './comic/drawingTypes';
 import { BubbleData, SpeechBubbleRenderer } from './ComicPageRenderer';
 import { toast } from 'sonner';
 import { useIsMobileDevice } from '@/lib/isMobile';
+import { getHorizontalKeyDirection, isEditableTarget } from '@/lib/pageFlipInput';
 
 export type Point = { 
   x: number; 
@@ -2926,27 +2927,31 @@ const ExpandedPanelWorkspace: React.FC<{
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const targetEl = (e.target || document.activeElement) as HTMLElement | null;
-      if (targetEl?.tagName === 'INPUT' || targetEl?.tagName === 'TEXTAREA' || targetEl?.isContentEditable) return;
+      if (isEditableTarget(targetEl)) return;
 
-      if (e.key === 'ArrowRight') {
+      const horizDir = getHorizontalKeyDirection(e);
+      if (horizDir === 'right') {
         e.preventDefault();
+        e.stopPropagation();
         if (leafBoxes && leafBoxes.length > 0) {
           const nextIdx = (currentPanelIndex + 1) % leafBoxes.length;
           onSelectPanelPath?.(leafBoxes[nextIdx].path);
         }
-      } else if (e.key === 'ArrowLeft') {
+      } else if (horizDir === 'left') {
         e.preventDefault();
+        e.stopPropagation();
         if (leafBoxes && leafBoxes.length > 0) {
           const prevIdx = (currentPanelIndex - 1 + leafBoxes.length) % leafBoxes.length;
           onSelectPanelPath?.(leafBoxes[prevIdx].path);
         }
       } else if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
         e.preventDefault();
+        e.stopPropagation();
         onExitExpanded();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [currentPanelIndex, leafBoxes, onSelectPanelPath, onExitExpanded]);
 
   const [zoomScale, setZoomScaleState] = useState<number>(1.0);

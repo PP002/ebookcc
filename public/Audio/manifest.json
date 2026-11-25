@@ -1,0 +1,113 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-10-25T00:00:00Z",
+  "bgm": [
+    {
+      "id": "bgm_calm_piano",
+      "tags": ["calm", "peaceful", "peace", "gentle", "piano", "emotional", "nostalgic", "morning", "reading", "soft"],
+      "description": "Gentle acoustic piano progression with soft warm reverb and quiet contemplative pace",
+      "synth_type": "piano_pad",
+      "url": "/Audio/bgm/calm_piano.mp3"
+    },
+    {
+      "id": "bgm_mysterious_ambient",
+      "tags": ["mystery", "suspense", "investigation", "night", "dark", "secrets", "subtle", "tension", "creepy"],
+      "description": "Deep atmospheric drone with quiet pulsating bells and unresolved minor chords",
+      "synth_type": "dark_drone",
+      "url": "/Audio/bgm/mysterious_ambient.mp3"
+    },
+    {
+      "id": "bgm_epic_action",
+      "tags": ["action", "battle", "fight", "epic", "cinematic", "intense", "chase", "heroic", "adventure", "danger"],
+      "description": "Fast cinematic percussion with urgent low ostinato strings and driving brass pulse",
+      "synth_type": "action_ostinato",
+      "url": "/Audio/bgm/epic_action.mp3"
+    },
+    {
+      "id": "bgm_cheerful_acoustic",
+      "tags": ["happy", "cheerful", "playful", "comedy", "lighthearted", "fun", "sunny", "whimsical", "everyday"],
+      "description": "Uplifting bouncy acoustic guitar strumming with playful marimba accents",
+      "synth_type": "cheerful_marimba",
+      "url": "/Audio/bgm/cheerful_acoustic.mp3"
+    },
+    {
+      "id": "bgm_dramatic_strings",
+      "tags": ["drama", "sad", "sorrow", "tragedy", "loss", "tears", "orchestral", "climax", "heavy"],
+      "description": "Sweeping cinematic cello and violin adagio with melancholic rising chord resolution",
+      "synth_type": "strings_adagio",
+      "url": "/Audio/bgm/dramatic_strings.mp3"
+    },
+    {
+      "id": "bgm_cyberpunk_sci_fi",
+      "tags": ["scifi", "cyberpunk", "electronic", "futuristic", "synthwave", "space", "technology", "hologram"],
+      "description": "Analog synth arpeggio with shimmering neon pads and deep electronic sub bass",
+      "synth_type": "synthwave_pulse",
+      "url": "/Audio/bgm/cyberpunk_sci_fi.mp3"
+    }
+  ],
+  "sfx": [
+    {
+      "id": "sfx_footsteps_indoor",
+      "tags": ["footsteps", "walk", "walking", "running", "shoes", "corridor", "steps", "approach"],
+      "description": "Soft leather shoes walking on wood floor with slight room reverb",
+      "synth_type": "footsteps",
+      "url": "/Audio/sfx/footsteps_indoor.mp3"
+    },
+    {
+      "id": "sfx_door_creak_close",
+      "tags": ["door", "creak", "wood", "close", "slam", "shut", "open", "hinge", "entrance"],
+      "description": "Old wooden door creaking softly open then latching shut",
+      "synth_type": "door_wood",
+      "url": "/Audio/sfx/door_creak_close.mp3"
+    },
+    {
+      "id": "sfx_heavy_impact_punch",
+      "tags": ["punch", "hit", "strike", "impact", "fight", "smash", "blow", "clash", "crash"],
+      "description": "Punchy bass thump with flesh slap and swift whoosh",
+      "synth_type": "impact_punch",
+      "url": "/Audio/sfx/heavy_impact_punch.mp3"
+    },
+    {
+      "id": "sfx_explosion_distant",
+      "tags": ["explosion", "blast", "bomb", "boom", "detonation", "thunder", "rumble", "fireball"],
+      "description": "Deep low-frequency detonation rumble rolling across the distance",
+      "synth_type": "explosion",
+      "url": "/Audio/sfx/explosion_distant.mp3"
+    },
+    {
+      "id": "sfx_rain_gentle",
+      "tags": ["rain", "storm", "weather", "water", "droplets", "wind", "nature", "outside", "drizzle"],
+      "description": "Gentle continuous rainfall on leaves and window glass",
+      "synth_type": "rain_ambience",
+      "url": "/Audio/sfx/rain_gentle.mp3"
+    },
+    {
+      "id": "sfx_magic_chime_sparkle",
+      "tags": ["magic", "spell", "sparkle", "chime", "fairy", "fantasy", "glow", "power", "miracle", "shimmer"],
+      "description": "Glistening crystal windchimes with ascending harmonic glockenspiel sparkle",
+      "synth_type": "magic_chime",
+      "url": "/Audio/sfx/magic_chime_sparkle.mp3"
+    },
+    {
+      "id": "sfx_heartbeat_tense",
+      "tags": ["heartbeat", "pulse", "fear", "tension", "breath", "scared", "terror", "danger", "shock"],
+      "description": "Muffled deep dual-thump heartbeat slowly accelerating under high tension",
+      "synth_type": "heartbeat",
+      "url": "/Audio/sfx/heartbeat_tense.mp3"
+    },
+    {
+      "id": "sfx_sword_blade_whoosh",
+      "tags": ["sword", "blade", "slash", "cut", "katana", "knife", "metal", "whoosh", "steel"],
+      "description": "Sharp metallic ring and high-velocity air displacement slash",
+      "synth_type": "blade_slash",
+      "url": "/Audio/sfx/sword_blade_whoosh.mp3"
+    },
+    {
+      "id": "sfx_phone_notification",
+      "tags": ["phone", "notification", "ring", "beep", "device", "digital", "message", "chime"],
+      "description": "Crisp two-tone modern digital glass chime notification",
+      "synth_type": "phone_chime",
+      "url": "/Audio/sfx/phone_notification.mp3"
+    }
+  ]
+}

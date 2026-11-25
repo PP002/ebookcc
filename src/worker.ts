@@ -5,6 +5,16 @@ import {
   CONVERT_SKIP_GUIDANCE,
   AIContextPacket
 } from "./lib/aiContextPacket";
+import {
+  detectLanguage,
+  isLanguageSupportedFree,
+  getUnsupportedFreeTtsFeedbackMessage,
+  resolveFreeTtsModel,
+  extractVerbatimTtsText,
+  getOrAssignFreeSpeaker,
+  normalizeAndSniffAudio,
+  ALL_SUPPORTED_LANGUAGES,
+} from "./lib/broadcastTtsRouting";
 
 export interface R2HttpMetadata {
   contentType?: string;
@@ -94,6 +104,8 @@ export interface Env {
   ASSETS?: {
     fetch: (request: Request) => Promise<Response>;
   };
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CF_ACCOUNT_ID?: string;
   R2_BUCKET_NAME?: string;
   VITE_R2_BUCKET_NAME?: string;
   R2_ACCESS_KEY_ID?: string;
@@ -111,6 +123,37 @@ export interface Env {
   API_URL?: string;
   VITE_API_URL?: string;
   YOLO_API_KEY?: string;
+}
+
+//（Free plan, 10,000 Neurons/day, make it's default for signin user but not paid）──
+export const FREE_MODELS = {
+  vision:          "@cf/google/gemma-4-26b-a4b-it",
+  vision_fallback: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+  ocr:             "@cf/google/gemma-4-26b-a4b-it",
+  ocr_fallback:    "@cf/meta/llama-3.2-11b-vision-instruct",
+  director:        "@cf/nvidia/nemotron-3-120b-a12b",
+  director_alt:    "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+  tts:             "@cf/deepgram/aura-2-en",
+  tts_alt:         "@cf/inworld/tts-1.5-max",
+  tts_es:          "@cf/deepgram/aura-2-es",
+  music:           null,
+  sfx:             null,
+};
+
+//（BYOK via gateway）──
+export const PAID_MODELS = {
+  vision:        "google/gemini-pro",  // via gateway BYOK
+  ocr_fallback:  "google/gemini-flash",  // via gateway BYOK
+  director:      "custom-codecraftai/claude-sonnet",  // via gateway BYOK
+  tts:           "elevenlabs/...",      // via gateway BYOK
+  tts_fallback:  "openai/tts-1",  // via gateway BYOK
+  music:         "elevenlabs/...",      // via gateway BYOK
+  sfx:           "elevenlabs/...",      // via gateway BYOK
+};
+
+export function getModels(env: Env) {
+  const isPaid = !!env.CLOUDFLARE_ACCOUNT_ID;  
+  return isPaid ? PAID_MODELS : FREE_MODELS;
 }
 
 const corsHeaders: Record<string, string> = {
@@ -778,11 +821,176 @@ export default {
     }
 
     // ─────────────────────────────────────────────
+    // Route: GET/HEAD /api/library/proxy & /api/library/proxy/*
+    // ─────────────────────────────────────────────
+    if (
+      (url.pathname === "/api/library/proxy" || url.pathname.startsWith("/api/library/proxy/")) &&
+      (request.method === "GET" || request.method === "HEAD")
+    ) {
+      const fileUrl = url.searchParams.get("fileUrl") || url.searchParams.get("url") || url.searchParams.get("target") || "";
+      if (!fileUrl) {
+        return jsonResponse({ error: 'Missing required query parameter "fileUrl".' }, 400);
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(fileUrl);
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          return jsonResponse({ error: "Protocol not allowed. Only HTTP and HTTPS are permitted." }, 403);
+        }
+      } catch {
+        return jsonResponse({ error: "Invalid URL provided." }, 400);
+      }
+
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const isWhitelisted =
+        hostname === "gutenberg.org" ||
+        hostname.endsWith(".gutenberg.org") ||
+        hostname === "pglaf.org" ||
+        hostname.endsWith(".pglaf.org") ||
+        hostname === "archive.org" ||
+        hostname.endsWith(".archive.org");
+
+      if (!isWhitelisted) {
+        return jsonResponse(
+          { error: `Forbidden domain: ${hostname}. Only *.gutenberg.org, *.pglaf.org, and *.archive.org are authorized.` },
+          403
+        );
+      }
+
+      const candidates: string[] = [];
+      const addCandidate = (u: string) => {
+        if (u && !candidates.includes(u)) candidates.push(u);
+      };
+
+      const isGutenberg =
+        hostname === "gutenberg.org" ||
+        hostname.endsWith(".gutenberg.org") ||
+        hostname === "pglaf.org" ||
+        hostname.endsWith(".pglaf.org");
+
+      if (isGutenberg) {
+        const pathname = parsedUrl.pathname;
+        const cacheMatch = pathname.match(/\/cache\/epub\/(\d+)\/([^/?#]+)/i);
+        const ebooksMatch = pathname.match(/\/ebooks\/(\d+)\.([^/?#]+)/i);
+        const filesMatch = pathname.match(/\/files\/(\d+)\/([^/?#]+)/i);
+        const mirrors = [
+          "https://aleph.pglaf.org",
+          "https://gutenberg.pglaf.org",
+          "https://www.gutenberg.org",
+        ];
+
+        if (cacheMatch) {
+          const bookId = cacheMatch[1];
+          const fileName = cacheMatch[2];
+          const isCover = /\.(jpe?g|png|gif|webp)$/i.test(fileName);
+          for (const mirror of mirrors) {
+            addCandidate(`${mirror}/cache/epub/${bookId}/${fileName}`);
+          }
+          if (isCover) {
+            for (const mirror of mirrors) {
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.cover.medium.jpg`);
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.cover.small.jpg`);
+            }
+          } else {
+            for (const mirror of mirrors) {
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+            }
+          }
+        } else if (ebooksMatch) {
+          const bookId = ebooksMatch[1];
+          const formatExt = ebooksMatch[2].toLowerCase();
+          const prefersImages3 = formatExt.includes("epub3");
+          const prefersImages = formatExt.includes("images") && !prefersImages3;
+          for (const mirror of mirrors) {
+            if (prefersImages3) {
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+            } else if (prefersImages) {
+              addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+            }
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images-3.epub`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}-images.epub`);
+          }
+        } else if (filesMatch) {
+          const bookId = filesMatch[1];
+          for (const mirror of mirrors) {
+            addCandidate(`${mirror}${pathname}`);
+            addCandidate(`${mirror}/cache/epub/${bookId}/pg${bookId}.epub`);
+          }
+        }
+      }
+      addCandidate(parsedUrl.toString());
+
+      const isImageRequest = /\.(jpe?g|png|gif|webp)$/i.test(parsedUrl.pathname);
+      const expectEpub =
+        !isImageRequest &&
+        (url.pathname.endsWith(".epub") ||
+          parsedUrl.pathname.endsWith(".epub") ||
+          /\.epub3?(\.images|\.noimages)?$/i.test(parsedUrl.pathname));
+
+      let lastStatus = 502;
+      for (const candidateUrl of candidates) {
+        try {
+          const resp = await fetch(candidateUrl, {
+            method: request.method === "HEAD" ? "HEAD" : "GET",
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+              Accept: "*/*",
+            },
+            redirect: "follow",
+          });
+          lastStatus = resp.status;
+          if (!resp.ok) continue;
+
+          if (request.method === "HEAD") {
+            return new Response(null, {
+              status: 200,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": expectEpub ? "application/epub+zip" : resp.headers.get("content-type") || "application/octet-stream",
+                "Cache-Control": "public, max-age=86400",
+              },
+            });
+          }
+
+          const arrBuf = await resp.arrayBuffer();
+          const bytes = new Uint8Array(arrBuf);
+          if (expectEpub && (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b)) {
+            continue;
+          }
+          if (isImageRequest && (bytes.length < 4 || bytes[0] === 0x3c)) {
+            continue;
+          }
+
+          return new Response(arrBuf, {
+            status: 200,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": expectEpub ? "application/epub+zip" : resp.headers.get("content-type") || "application/octet-stream",
+              "Content-Length": String(bytes.byteLength),
+              "Cache-Control": "public, max-age=86400",
+            },
+          });
+        } catch {
+          continue;
+        }
+      }
+
+      return jsonResponse({ error: `Upstream error ${lastStatus}`, url: fileUrl }, lastStatus || 502);
+    }
+
+    // ─────────────────────────────────────────────
     // Route: GET /api/config
     // ─────────────────────────────────────────────
     if (url.pathname === "/api/config" && request.method === "GET") {
       const { bucket, endpoint } = getR2Credentials(env, request);
       const defaultSupabaseUrl = "https://wipjqdmystqfzwsmvscx.supabase.co";
+      const isPaid = !!env.CLOUDFLARE_ACCOUNT_ID;
+      const models = getModels(env);
 
       return jsonResponse({
         supabaseUrl: (
@@ -799,6 +1007,29 @@ export default {
         r2Endpoint: endpoint,
         isCloudflareWorker: true,
         hasR2Binding: !!getR2Bucket(env),
+        isPaid,
+        models,
+      });
+    }
+
+    // ─────────────────────────────────────────────
+    // Route: GET /api/broadcast/models or /api/models
+    // ─────────────────────────────────────────────
+    if (
+      (url.pathname === "/api/broadcast/models" || url.pathname === "/api/models") &&
+      request.method === "GET"
+    ) {
+      const isPaid = !!env.CLOUDFLARE_ACCOUNT_ID;
+      const models = getModels(env);
+      return jsonResponse({
+        isPaid,
+        models,
+        gateways: {
+          anthropic: "ebookcc-gateway_codecraftai_default",
+          elevenlabs: "ebookcc-gateway_elevenlabs_default",
+          google_ai_studio: "ebookcc-gateway_google-ai-studio_default",
+          openai: "ebookcc-gateway_openai_default",
+        },
       });
     }
 
@@ -1610,18 +1841,40 @@ export default {
           try {
             const rawB64 = imageUrl.replace(/^data:image\/[a-z]+;base64,/, "");
             const imageBase64 = rawB64;
+            const fullDataUrl = imageUrl.startsWith("data:") ? imageUrl : `data:image/jpeg;base64,${imageBase64}`;
 
-            // Workers AI OCR model: Moondream 3.1
+            // Workers AI OCR fix: @cf/google/gemma-4-26b-a4b-it first, fallback to @cf/meta/llama-3.2-11b-vision-instruct
             let extractedText = "";
             try {
-              const result = await env.AI.run("@cf/moondream/moondream3.1-9B-A2B", {
-                task: "query",
-                image: imageBase64,
-                question: "Read all text in this image and output only the text.",
+              const result = await env.AI.run(FREE_MODELS.ocr, {
+                messages: [
+                  { role: "system", content: "Read all text in this image and output only the text." },
+                  {
+                    role: "user",
+                    content: [
+                      { type: "text", text: "Read all text in this image and output only the text." },
+                      { type: "image_url", image_url: { url: fullDataUrl } },
+                    ],
+                  },
+                ],
+                max_tokens: 1024,
               });
               extractedText = extractTextFromAIResult(result);
-            } catch (moondreamErr: any) {
-              console.warn("[Workers AI Moondream detectText Error]:", moondreamErr?.message || moondreamErr);
+            } catch (gemmaOcrErr: any) {
+              console.warn("[Workers AI Gemma detectText Error, falling back to Llama 3.2 Vision]:", gemmaOcrErr?.message || gemmaOcrErr);
+            }
+
+            if (!extractedText || !extractedText.trim()) {
+              try {
+                const fallbackRes = await env.AI.run(FREE_MODELS.ocr_fallback, {
+                  image: imageBase64,
+                  prompt: "Read all text in this image and output only the text.",
+                  max_tokens: 1024,
+                });
+                extractedText = extractTextFromAIResult(fallbackRes);
+              } catch (llamaOcrErr: any) {
+                console.warn("[Workers AI Llama 3.2 Vision detectText Fallback Error]:", llamaOcrErr?.message || llamaOcrErr);
+              }
             }
 
             if (extractedText && extractedText.trim()) {
@@ -1927,28 +2180,36 @@ export default {
           // Rule 3: select system prompt template by page+mode & interpolate packet fields (under 80 tokens)
           const systemPrompt = buildDynamicSystemPrompt(contextPacket);
 
-          // Rule 3: call Cloudflare Workers AI (Gemma4) with system prompt + userMessage
+          // Rule 3: call Cloudflare Workers AI (Gemma4, fallback DeepSeek v4.1 Flash) with system prompt + userMessage
           const finalMessages = [
             { role: "system", content: systemPrompt },
             { role: "user", content: contextPacket.userMessage || " " }
           ];
 
           const sessionId = getSessionId(body);
-          const aiResult = await env.AI.run(
-            "@cf/google/gemma-4-26b-a4b-it",
-            { messages: finalMessages, max_tokens: 1024 },
-            {
-              gateway: {
-                id: "ebookcc-gateway",
-                skipCache: false,
-                cacheTtl: 3600,
-              },
-              headers: {
-                "x-session-affinity": `ses_${sessionId}`,
-              },
+          let responseText = "";
+          for (const candidateModel of [FREE_MODELS.vision, FREE_MODELS.vision_fallback]) {
+            try {
+              const aiResult = await env.AI.run(
+                candidateModel,
+                { messages: finalMessages, max_tokens: 1024 },
+                {
+                  gateway: {
+                    id: "ebookcc-gateway",
+                    skipCache: false,
+                    cacheTtl: 3600,
+                  },
+                  headers: {
+                    "x-session-affinity": `ses_${sessionId}`,
+                  },
+                }
+              );
+              responseText = extractTextFromAIResult(aiResult);
+              if (responseText && responseText.trim()) break;
+            } catch (modelErr: any) {
+              console.warn(`[Workers AI Chat] ${candidateModel} failed, trying fallback:`, modelErr?.message || modelErr);
             }
-          );
-          const responseText = extractTextFromAIResult(aiResult);
+          }
 
           if (isStreaming) {
             return makeSSEResponse(responseText);
@@ -1983,22 +2244,35 @@ export default {
 
         // Optimization: Session affinity for model prefix caching
         const sessionId = getSessionId(body);
+        const candidateModels: string[] = Array.isArray(body.models) && body.models.length > 0
+          ? body.models
+          : body.model && typeof body.model === "string" && body.model.startsWith("@cf/")
+          ? [body.model, FREE_MODELS.vision_fallback]
+          : [FREE_MODELS.vision, FREE_MODELS.vision_fallback];
 
-        const aiResult = await env.AI.run(
-          "@cf/google/gemma-4-26b-a4b-it",
-          { messages: finalMessages, max_tokens: maxTokens },
-          {
-            gateway: {
-              id: "ebookcc-gateway",
-              skipCache: false,
-              cacheTtl: 3600,
-            },
-            headers: {
-              "x-session-affinity": `ses_${sessionId}`,
-            },
+        let responseText = "";
+        for (const candidateModel of candidateModels) {
+          try {
+            const aiResult = await env.AI.run(
+              candidateModel,
+              { messages: finalMessages, max_tokens: maxTokens },
+              {
+                gateway: {
+                  id: "ebookcc-gateway",
+                  skipCache: false,
+                  cacheTtl: 3600,
+                },
+                headers: {
+                  "x-session-affinity": `ses_${sessionId}`,
+                },
+              }
+            );
+            responseText = extractTextFromAIResult(aiResult);
+            if (responseText && responseText.trim()) break;
+          } catch (modelErr: any) {
+            console.warn(`[Workers AI Chat] ${candidateModel} failed, trying fallback:`, modelErr?.message || modelErr);
           }
-        );
-        const responseText = extractTextFromAIResult(aiResult);
+        }
 
         if (isStreaming) {
           return makeSSEResponse(responseText);
@@ -2021,6 +2295,7 @@ export default {
         const contentType = request.headers.get("content-type") || "";
         let prompt = "Extract all text from this image.";
         let imageUrl = "";
+        let requestedModels: string[] = [FREE_MODELS.ocr, FREE_MODELS.ocr_fallback];
 
         if (contentType.includes("multipart/form-data")) {
           const formData = await request.formData();
@@ -2040,6 +2315,9 @@ export default {
           if (body.prompt && typeof body.prompt === "string" && body.prompt.trim()) {
             prompt = body.prompt.trim();
           }
+          if (Array.isArray(body.models) && body.models.length > 0) {
+            requestedModels = body.models;
+          }
           const rawImage = body.image || body.base64Image || body.imageBase64 || "";
           if (!rawImage) {
             return jsonResponse(makeGeminiErrorFormat("Missing image in request body (expected base64 string)", 400), 400);
@@ -2058,6 +2336,7 @@ export default {
         if (cached) {
           return jsonResponse({
             ...makeGeminiCandidatesResponse(cached),
+            text: cached,
             cached: true,
           });
         }
@@ -2070,20 +2349,47 @@ export default {
         const rawB64 = imageUrl.replace(/^data:image\/[a-z]+;base64,/, "");
         const imageBase64 = rawB64;
 
-        const aiResult = await env.AI.run("@cf/moondream/moondream3.1-9B-A2B", {
-          task: "query",
-          image: imageBase64,
-          question: prompt || "Read all text in this image and output only the text.",
-        });
-
-        const extractedText = extractTextFromAIResult(aiResult);
+        let extractedText = "";
+        for (const ocrModel of requestedModels) {
+          try {
+            let aiResult: any;
+            if (ocrModel.includes("llama-3.2-11b-vision")) {
+              aiResult = await env.AI.run(ocrModel, {
+                image: imageBase64,
+                prompt: prompt || "Read all text in this image and output only the text.",
+                max_tokens: maxTokens,
+              });
+            } else {
+              aiResult = await env.AI.run(ocrModel, {
+                messages: [
+                  { role: "system", content: "You are a precise OCR assistant. Output only the extracted text." },
+                  {
+                    role: "user",
+                    content: [
+                      { type: "text", text: prompt || "Read all text in this image and output only the text." },
+                      { type: "image_url", image_url: { url: imageUrl } },
+                    ],
+                  },
+                ],
+                max_tokens: maxTokens,
+              });
+            }
+            extractedText = extractTextFromAIResult(aiResult);
+            if (extractedText && extractedText.trim()) break;
+          } catch (ocrModelErr: any) {
+            console.warn(`[Workers AI OCR] ${ocrModel} failed, trying fallback:`, ocrModelErr?.message || ocrModelErr);
+          }
+        }
 
         // Store in KV cache (24h TTL)
         if (extractedText) {
           await cacheKV?.put(ocrCacheKey, extractedText, { expirationTtl: 86400 }).catch(() => {});
         }
 
-        return jsonResponse(makeGeminiCandidatesResponse(extractedText));
+        return jsonResponse({
+          ...makeGeminiCandidatesResponse(extractedText),
+          text: extractedText,
+        });
       } catch (err: any) {
         console.error("[Workers AI OCR Error]:", err);
         return jsonResponse(makeGeminiErrorFormat(err.message || "Failed processing OCR request", 500), 500);
@@ -2575,6 +2881,524 @@ export default {
       }
     }
 
+    // 7. GET/POST /api/broadcast/tts-test (Debug Endpoint - Requirement 7)
+    if (url.pathname === "/api/broadcast/tts-test" && (request.method === "GET" || request.method === "POST")) {
+      try {
+        let b: any = {};
+        if (request.method === "POST") {
+          b = await request.json().catch(() => ({}));
+        }
+        const text = b.text || url.searchParams.get("text") || "Hello, this is an audio broadcast test with Received Pronunciation.";
+        const declaredLang = b.lang || b.language || url.searchParams.get("lang") || url.searchParams.get("language") || "en";
+        const character = b.character || url.searchParams.get("character") || "narrator";
+        const explicitSpeaker = b.speaker || url.searchParams.get("speaker");
+        const explicitModel = b.model || url.searchParams.get("model");
+
+        const lang = detectLanguage(text, declaredLang);
+        if (!isLanguageSupportedFree(lang)) {
+          return jsonResponse({
+            success: false,
+            error: getUnsupportedFreeTtsFeedbackMessage(lang),
+            supported_languages: ALL_SUPPORTED_LANGUAGES,
+          }, 400);
+        }
+
+        const routing = resolveFreeTtsModel(lang);
+        const modelUsed = explicitModel || routing?.model || "@cf/deepgram/aura-2-en";
+        const speakerUsed = explicitSpeaker || (routing ? getOrAssignFreeSpeaker(character, undefined, routing.provider, lang) : "draco");
+        const cleanText = extractVerbatimTtsText(text);
+
+        if (!env.AI) {
+          return jsonResponse({ success: false, error: "Workers AI binding (env.AI) is not available." }, 500);
+        }
+
+        let bodyPayload: any;
+        if (routing?.provider === "deepgram" || routing?.provider === "deepgram_es" || modelUsed.includes("deepgram")) {
+          bodyPayload = { text: cleanText, encoding: "mp3", speaker: speakerUsed };
+        } else if (routing?.provider === "inworld" || modelUsed.includes("inworld")) {
+          bodyPayload = { text: cleanText, voice_id: speakerUsed, output_format: "mp3" };
+        } else {
+          bodyPayload = { prompt: cleanText, lang };
+        }
+        const rawOutput = await env.AI.run(modelUsed, bodyPayload);
+
+        const sniffed = await normalizeAndSniffAudio(rawOutput);
+        return jsonResponse({
+          success: true,
+          model_used: modelUsed,
+          speaker_used: speakerUsed,
+          language: lang,
+          response_type: rawOutput?.constructor?.name || typeof rawOutput,
+          byte_length: sniffed.byteLength,
+          magic_bytes_hex: sniffed.magicBytesHex,
+          detected_format: sniffed.contentType,
+          extension: sniffed.extension,
+        });
+      } catch (testErr: any) {
+        return jsonResponse({ success: false, error: testErr.message }, 500);
+      }
+    }
+
+    // 8. POST /api/broadcast/tts (Workers AI TTS Synthesis in Worker)
+    if (url.pathname === "/api/broadcast/tts" && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const text = body.text;
+        if (!text) {
+          return jsonResponse({ error: "text is required" }, 400);
+        }
+
+        const cleanText = extractVerbatimTtsText(text);
+        const declaredLang = body.language || body.lang;
+        const lang = detectLanguage(cleanText, declaredLang);
+        const character = body.character || "narrator";
+
+        if (!isLanguageSupportedFree(lang)) {
+          return jsonResponse({
+            error: getUnsupportedFreeTtsFeedbackMessage(lang),
+            supported_languages: ALL_SUPPORTED_LANGUAGES,
+          }, 400);
+        }
+
+        const routing = resolveFreeTtsModel(lang);
+        if (!routing) {
+          return jsonResponse({ error: getUnsupportedFreeTtsFeedbackMessage(lang) }, 400);
+        }
+
+        if (env.AI) {
+          const attempts: Array<{ model: string; provider: "deepgram" | "deepgram_es" | "inworld" }> = [
+            { model: routing.model, provider: routing.provider },
+          ];
+          if (routing.fallbackModel) {
+            attempts.push({ model: routing.fallbackModel, provider: "inworld" });
+          }
+
+          let sniffed: any = null;
+          let usedSpeaker = "";
+          let lastTtsErr: any = null;
+
+          for (const attempt of attempts) {
+            try {
+              const speaker = getOrAssignFreeSpeaker(
+                character,
+                body.character_bible?.characters?.[character],
+                attempt.provider,
+                lang,
+                body.character_bible
+              );
+              let bodyPayload: any;
+              if (attempt.provider === "deepgram" || attempt.provider === "deepgram_es") {
+                bodyPayload = { text: cleanText, encoding: "mp3", speaker };
+              } else if (attempt.provider === "inworld") {
+                bodyPayload = { text: cleanText, voice_id: speaker, output_format: "mp3" };
+              } else {
+                bodyPayload = { prompt: cleanText, lang };
+              }
+
+              const aiResult = await env.AI.run(attempt.model, bodyPayload);
+              const candidateSniffed = await normalizeAndSniffAudio(aiResult);
+              if (candidateSniffed && candidateSniffed.byteLength > 0) {
+                sniffed = candidateSniffed;
+                usedSpeaker = speaker;
+                break;
+              }
+            } catch (err: any) {
+              lastTtsErr = err;
+              console.warn(`[Worker TTS] ${attempt.model} failed, trying fallback if available:`, err?.message || err);
+            }
+          }
+
+          if (!sniffed) {
+            throw lastTtsErr || new Error("Workers AI TTS failed");
+          }
+
+          const uint8Buf = new Uint8Array(sniffed.buffer);
+          const shouldUploadToR2 = Boolean(body.use_platform_credits || body.is_paid);
+
+          if (shouldUploadToR2 && body.cache_key && body.event_id) {
+            const r2 = getR2Bucket(env);
+            if (r2 && sniffed.extension !== "wav") {
+              const r2Key = `broadcast/${body.cache_key}/audio/${body.event_id}.${sniffed.extension}`;
+              await r2.put(r2Key, uint8Buf, {
+                httpMetadata: { contentType: sniffed.contentType },
+              }).catch(() => {});
+            }
+          }
+
+          return new Response(uint8Buf as unknown as BodyInit, {
+            headers: {
+              "Content-Type": sniffed.contentType,
+              "Cache-Control": "public, max-age=31536000, immutable",
+              "X-Audio-Format": sniffed.contentType,
+              "X-Magic-Bytes": sniffed.magicBytesHex,
+              "X-Speaker": usedSpeaker,
+              ...corsHeaders,
+            },
+          });
+        }
+
+        return jsonResponse({ error: "Workers AI binding unavailable" }, 500);
+      } catch (ttsErr: any) {
+        return jsonResponse({ error: ttsErr.message || "TTS synthesis failed" }, 500);
+      }
+    }
+
+    // 8.1 ALL /api/broadcast/purge-wav (Purge any legacy .wav files from R2)
+    if (url.pathname === "/api/broadcast/purge-wav") {
+      try {
+        const r2 = getR2Bucket(env);
+        let deletedCount = 0;
+        if (r2) {
+          let cursor: string | undefined = undefined;
+          const keysToDelete: string[] = [];
+          do {
+            const listed = await r2.list({ prefix: "broadcast/", cursor });
+            for (const obj of listed.objects) {
+              if (obj.key.toLowerCase().endsWith(".wav")) {
+                keysToDelete.push(obj.key);
+                const parts = obj.key.split("/");
+                if (parts.length >= 2) {
+                  keysToDelete.push(`${parts[0]}/${parts[1]}/script.json`);
+                }
+              }
+            }
+            cursor = listed.truncated ? listed.cursor : undefined;
+          } while (cursor);
+
+          if (keysToDelete.length > 0) {
+            const uniqueKeys = Array.from(new Set(keysToDelete));
+            await r2.delete(uniqueKeys);
+            deletedCount = uniqueKeys.length;
+          }
+        }
+        return jsonResponse({ success: true, deleted_count: deletedCount });
+      } catch (err: any) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // 8.2 GET /api/broadcast/asset/* (Serve Broadcast Audio & Scripts from R2)
+    if (url.pathname.startsWith("/api/broadcast/asset/") && request.method === "GET") {
+      const relPath = decodeURIComponent(url.pathname.replace(/^\/api\/broadcast\/asset\//, ""));
+      if (!relPath || relPath.includes("..") || relPath.toLowerCase().endsWith(".wav")) {
+        return new Response("Not Found", { status: 404, headers: corsHeaders });
+      }
+      const r2 = getR2Bucket(env);
+      if (r2) {
+        const obj = await r2.get(`broadcast/${relPath}`);
+        if (obj) {
+          let contentType = obj.httpMetadata?.contentType || "application/octet-stream";
+          if (relPath.endsWith(".mp3")) contentType = "audio/mpeg";
+          else if (relPath.endsWith(".ogg") || relPath.endsWith(".opus")) contentType = "audio/ogg";
+          else if (relPath.endsWith(".flac")) contentType = "audio/flac";
+          else if (relPath.endsWith(".json")) contentType = "application/json";
+          return new Response(obj.body, {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": contentType,
+              "Cache-Control": "public, max-age=31536000, immutable",
+            },
+          });
+        }
+      }
+      return new Response("Not Found", { status: 404, headers: corsHeaders });
+    }
+
+    // 8.3 POST /api/broadcast/job & GET /api/broadcast/job/:jobId (Workers AI Audio Drama Generation)
+    if (url.pathname === "/api/broadcast/job" && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as any;
+        const { cache_key, title, extraction, character_bible } = body;
+        if (!cache_key || !extraction) {
+          return jsonResponse({ error: "cache_key and extraction data are required" }, 400);
+        }
+
+        const shouldUploadToR2 = Boolean(body.use_platform_credits || body.is_paid);
+
+        // Check language support for free Workers AI tier (English & Spanish only)
+        const rawText = String(extraction.chapterText || "");
+        const sampleText =
+          rawText ||
+          (extraction.pages || [])
+            .flatMap((p: any) => (p.lines || []).map((l: any) => l.text || ""))
+            .join(" ");
+        const lang = detectLanguage(sampleText, extraction.language);
+
+        if (!isLanguageSupportedFree(lang)) {
+          return jsonResponse({
+            cached: false,
+            status: "failed",
+            unsupported_free_language: true,
+            error: getUnsupportedFreeTtsFeedbackMessage(lang),
+            supported_languages: ALL_SUPPORTED_LANGUAGES,
+          }, 200);
+        }
+
+        const r2 = getR2Bucket(env);
+        const scriptKey = `broadcast/${cache_key}/script.json`;
+
+        // 1. Check R2 shared cache (reject if it contains legacy .wav URLs or 1-line synthetic stub)
+        if (r2) {
+          const cachedObj = await r2.get(scriptKey);
+          if (cachedObj) {
+            const cachedScript = await cachedObj.json<any>().catch(() => null);
+            const allCachedEvents = (cachedScript?.scenes || []).flatMap((sc: any) => sc.events || []);
+            const hasWav = allCachedEvents.some(
+              (ev: any) => typeof ev.audio_url === "string" && ev.audio_url.toLowerCase().endsWith(".wav")
+            );
+            const isPlaceholderStub =
+              allCachedEvents.length === 1 &&
+              typeof allCachedEvents[0]?.text === "string" &&
+              allCachedEvents[0].text.trim().endsWith("The narrative begins.");
+            if (cachedScript && !hasWav && !isPlaceholderStub) {
+              return jsonResponse({
+                cached: true,
+                status: "ready",
+                progress: 100,
+                script: cachedScript,
+              });
+            } else if (hasWav || isPlaceholderStub) {
+              await r2.delete(scriptKey).catch(() => {});
+            }
+          }
+        }
+
+        // 2. Build script and synthesize via Workers AI (env.AI)
+        const isEnglish = lang.startsWith("en");
+
+        const splitLongChunk = (text: string, maxLen = 240): string[] => {
+          const clean = text.replace(/\s+/g, " ").trim();
+          if (!clean) return [];
+          if (clean.length <= maxLen) return [clean];
+          const sentences = clean.match(/[^.!?。！？；;]+[.!?。！？；;]*\s*/g) || [clean];
+          const out: string[] = [];
+          let cur = "";
+          for (const s of sentences) {
+            const t = s.trim();
+            if (!t) continue;
+            if ((cur + " " + t).trim().length <= maxLen) {
+              cur = (cur + " " + t).trim();
+            } else {
+              if (cur) out.push(cur);
+              if (t.length <= maxLen) {
+                cur = t;
+              } else {
+                const words = t.split(/\s+/);
+                cur = "";
+                for (const w of words) {
+                  if ((cur + " " + w).trim().length <= maxLen) {
+                    cur = (cur + " " + w).trim();
+                  } else {
+                    if (cur) out.push(cur);
+                    cur = w.slice(0, maxLen);
+                  }
+                }
+              }
+            }
+          }
+          if (cur) out.push(cur);
+          return out;
+        };
+
+        const events: any[] = [];
+        let evCounter = 1;
+        if (extraction.bookType === "comic") {
+          for (const page of extraction.pages || []) {
+            for (const line of page.lines || []) {
+              if (line.text && String(line.text).trim()) {
+                events.push({
+                  id: `e${evCounter++}`,
+                  type: "dialogue",
+                  character: evCounter % 2 === 0 ? "c1" : "c2",
+                  text: extractVerbatimTtsText(line.text),
+                  emotion: "neutral",
+                  pause_after_ms: 380,
+                  source: { page: page.pageIndex, bbox: line.bbox },
+                });
+              }
+            }
+          }
+        } else {
+          const rawEvents: any[] = [];
+          let charToggle = 0;
+          const paras = rawText.split(/\n+/).filter((p) => p.trim().length > 0);
+          for (const para of paras) {
+            const quoteRegex = /([“"«「『][^”"»」』]+[”"»」』])/g;
+            let lastIdx = 0;
+            let match: RegExpExecArray | null;
+            while ((match = quoteRegex.exec(para)) !== null) {
+              if (match.index > lastIdx) {
+                const nar = extractVerbatimTtsText(para.slice(lastIdx, match.index));
+                for (const chunk of splitLongChunk(nar, 240)) {
+                  rawEvents.push({ type: "narration", character: "narrator", text: chunk, pause_after_ms: 300 });
+                }
+              }
+              const dlg = extractVerbatimTtsText(match[1].replace(/^[“"«「『]|[”"»」』]$/g, ""));
+              if (dlg) {
+                charToggle++;
+                const charId = charToggle % 2 === 1 ? "c1" : "c2";
+                for (const chunk of splitLongChunk(dlg, 240)) {
+                  rawEvents.push({ type: "dialogue", character: charId, text: chunk, pause_after_ms: 380 });
+                }
+              }
+              lastIdx = match.index + match[0].length;
+            }
+            if (lastIdx < para.length) {
+              const rem = extractVerbatimTtsText(para.slice(lastIdx));
+              for (const chunk of splitLongChunk(rem, 240)) {
+                rawEvents.push({ type: "narration", character: "narrator", text: chunk, pause_after_ms: 350 });
+              }
+            }
+          }
+
+          for (const ev of rawEvents) {
+            const prev = events[events.length - 1];
+            if (
+              prev &&
+              prev.type === "narration" &&
+              ev.type === "narration" &&
+              (prev.text.length + ev.text.length) < 250
+            ) {
+              prev.text = `${prev.text} ${ev.text}`.trim();
+            } else {
+              events.push({
+                id: `e${events.length + 1}`,
+                type: ev.type,
+                character: ev.character,
+                text: ev.text,
+                emotion: "neutral",
+                pause_after_ms: ev.pause_after_ms,
+              });
+            }
+            if (events.length >= 24) break;
+          }
+        }
+
+        // Free tier: Music & SFX are not provided free of charge
+        const script: any = {
+          book_id: title || extraction.title || "Audio Drama",
+          cache_key,
+          chapter_id: extraction.chapterId,
+          language: lang,
+          pipeline_version: "v1.0.0",
+          music_sfx_enabled: false,
+          characters: [
+            {
+              id: "narrator",
+              name: "Narrator",
+              gender: "neutral",
+              age_group: "adult",
+              personality: "expressive and measured",
+              voice_design: isEnglish
+                ? "Refined British RP narrator voice, articulate, warm and resonant"
+                : "Articulate, warm and resonant native narrator voice",
+            },
+            {
+              id: "c1",
+              name: "Protagonist",
+              gender: "male",
+              age_group: "adult",
+              personality: "observant",
+              voice_design: "Warm clear natural voice",
+            },
+            {
+              id: "c2",
+              name: "Companion",
+              gender: "female",
+              age_group: "adult",
+              personality: "spirited",
+              voice_design: "Bright melodic expressive voice",
+            },
+          ],
+          scenes: [
+            {
+              id: "s1",
+              setting: "Story Scene",
+              mood: "calm",
+              scene_summary: "Audio drama sequence.",
+              bgm_prompt: "",
+              bgm_loop: false,
+              events: events.slice(0, 24),
+            },
+          ],
+          created_at: Date.now(),
+        };
+
+        // Synthesize TTS for events via Workers AI (env.AI)
+        // Upload to R2 ONLY when generated by the Platform Credits plan; otherwise return inline data URLs to save locally
+        if (env.AI && isLanguageSupportedFree(lang)) {
+          const routing = resolveFreeTtsModel(lang);
+          if (routing) {
+            const attempts: Array<{ model: string; provider: "deepgram" | "deepgram_es" | "inworld" }> = [
+              { model: routing.model, provider: routing.provider },
+            ];
+            if (routing.fallbackModel) {
+              attempts.push({ model: routing.fallbackModel, provider: "inworld" });
+            }
+
+            const targetEvents = script.scenes[0].events;
+            for (let i = 0; i < targetEvents.length; i += 4) {
+              const batch = targetEvents.slice(i, i + 4);
+              await Promise.all(
+                batch.map(async (ev: any) => {
+                  if (!ev.text) return;
+                  for (const attempt of attempts) {
+                    try {
+                      const speaker = getOrAssignFreeSpeaker(
+                        ev.character || "narrator",
+                        undefined,
+                        attempt.provider,
+                        lang,
+                        character_bible
+                      );
+                      const payload =
+                        attempt.provider === "deepgram" || attempt.provider === "deepgram_es"
+                          ? { text: ev.text, encoding: "mp3", speaker }
+                          : attempt.provider === "inworld"
+                          ? { text: ev.text, voice_id: speaker, output_format: "mp3" }
+                          : { prompt: ev.text, lang };
+                      const aiOut = await env.AI!.run(attempt.model, payload);
+                      const sniffed = await normalizeAndSniffAudio(aiOut);
+                      if (sniffed.extension !== "wav" && sniffed.byteLength > 0) {
+                        const rawBytes = new Uint8Array(sniffed.buffer);
+                        if (shouldUploadToR2 && r2) {
+                          const fileName = `${ev.id}.${sniffed.extension}`;
+                          await r2.put(
+                            `broadcast/${cache_key}/audio/${fileName}`,
+                            rawBytes,
+                            { httpMetadata: { contentType: sniffed.contentType } }
+                          );
+                          ev.audio_url = `/api/broadcast/asset/${encodeURIComponent(cache_key)}/audio/${fileName}`;
+                        } else {
+                          ev.audio_url = `data:${sniffed.contentType};base64,${uint8ArrayToBase64(rawBytes)}`;
+                        }
+                        break;
+                      }
+                    } catch (_) {}
+                  }
+                })
+              );
+            }
+          }
+        }
+
+        if (shouldUploadToR2 && r2) {
+          await r2.put(scriptKey, JSON.stringify(script, null, 2), {
+            httpMetadata: { contentType: "application/json" },
+          }).catch(() => {});
+        }
+
+        return jsonResponse({
+          cached: true,
+          status: "ready",
+          progress: 100,
+          script,
+        });
+      } catch (jobErr: any) {
+        return jsonResponse({ error: jobErr.message || "Broadcast job failed" }, 500);
+      }
+    }
+
     // ─────────────────────────────────────────────
     // Fallback: Proxy other /api/* routes to external backend server if configured
     // ─────────────────────────────────────────────
@@ -2617,8 +3441,7 @@ export default {
     if (env.ASSETS) {
       const assetRes = await env.ASSETS.fetch(request);
       const headers = new Headers(assetRes.headers);
-      headers.set("Cross-Origin-Opener-Policy", "same-origin");
-      headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+      headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
       headers.set("Cross-Origin-Resource-Policy", "cross-origin");
       return new Response(assetRes.body, {
         status: assetRes.status,

@@ -23,7 +23,10 @@ import {
   getLibraryProxyUrl,
   getArchivePageImageUrl,
   getCachedCoverUrl,
-  setCachedCoverUrl
+  setCachedCoverUrl,
+  extractGutenbergId,
+  getGutenbergCoverCandidates,
+  normalizeGutenbergCoverUrl
 } from '@/lib/publicLibrary';
 
 export interface PublishedItem {
@@ -93,18 +96,33 @@ function MetroBookTile({
     return '';
   }, [book.identifier, book.id, book.resource_url]);
 
+  const cleanGutenbergId = React.useMemo(() => {
+    return extractGutenbergId(book);
+  }, [book.id, book.resource_url, book.cover, book.cover_url]);
+
   const [archiveImgAttempt, setArchiveImgAttempt] = useState(0);
 
+  const gutenbergCandidates = React.useMemo(() => {
+    if (!cleanGutenbergId) return [];
+    return getGutenbergCoverCandidates(cleanGutenbergId, book.cover || book.cover_url || '');
+  }, [cleanGutenbergId, book.cover, book.cover_url]);
+
   const cachedCover = React.useMemo(() => {
-    return (book.id ? getCachedCoverUrl(book.id) : null) || (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null);
-  }, [book.id, cleanArchiveId]);
+    return (book.id ? getCachedCoverUrl(book.id) : null) ||
+      (cleanArchiveId ? getCachedCoverUrl(cleanArchiveId) : null) ||
+      (cleanGutenbergId ? getCachedCoverUrl(`gutenberg-${cleanGutenbergId}`) : null);
+  }, [book.id, cleanArchiveId, cleanGutenbergId]);
 
   // Determine fallback first page image if cover is missing or is generic archive logo
   const effectiveCover = React.useMemo(() => {
-    if (cachedCover) return cachedCover;
+    if (cachedCover && archiveImgAttempt === 0) return cachedCover;
 
-    const rawCover = book.cover || book.cover_url || '';
+    const rawCover = normalizeGutenbergCoverUrl(book.cover || book.cover_url || '', book);
     const isGenericArchiveLogo = rawCover.includes('archive.org/services/img');
+
+    if (cleanGutenbergId && gutenbergCandidates.length > 0) {
+      return gutenbergCandidates[Math.min(archiveImgAttempt, gutenbergCandidates.length - 1)] || '';
+    }
 
     if (cleanArchiveId) {
       if (archiveImgAttempt === 0) {
@@ -123,7 +141,7 @@ function MetroBookTile({
 
     if (rawCover && !isGenericArchiveLogo) return rawCover;
     return '';
-  }, [cachedCover, book.cover, book.cover_url, cleanArchiveId, archiveImgAttempt]);
+  }, [cachedCover, book, cleanGutenbergId, gutenbergCandidates, cleanArchiveId, archiveImgAttempt]);
 
   // Unique hash seed per tile to shuffle sliding timers and starting phases
   const tileSeed = React.useMemo(() => {
@@ -283,7 +301,7 @@ function MetroBookTile({
       className="flex-shrink-0 w-[80px] sm:w-[130px] md:w-[160px] lg:w-[180px] group flex flex-col cursor-pointer select-none"
     >
       {/* BOOK PREVIEW CONTAINER: 4/3 Aspect Ratio */}
-      <div className="relative w-full aspect-[3/4] flex flex-col justify-between bg-card text-card-foreground border border-border/80 rounded-md shadow-none overflow-hidden transition-all duration-300 group-hover:border-primary/60 group-active:scale-95">
+      <div className="relative w-full aspect-[3/4] flex flex-col justify-between bg-card text-card-foreground border border-border/20 rounded-md shadow-none overflow-hidden transition-all duration-300 group-hover:border-primary/40 group-active:scale-95">
         {/* BACKGROUND & METRO LIVE TILE CONTENT */}
         {isPublicDomain ? (
           // STATIC COVER OR FIRST PAGE FOR PUBLIC DOMAIN LIBRARY BOOKS & COMICS
@@ -299,10 +317,13 @@ function MetroBookTile({
                   if (effectiveCover) {
                     if (book.id) setCachedCoverUrl(book.id, effectiveCover);
                     if (cleanArchiveId) setCachedCoverUrl(cleanArchiveId, effectiveCover);
+                    if (cleanGutenbergId) setCachedCoverUrl(`gutenberg-${cleanGutenbergId}`, effectiveCover);
                   }
                 }}
                 onError={() => {
-                  if (cleanArchiveId && archiveImgAttempt < 4) {
+                  if (cleanGutenbergId && archiveImgAttempt < gutenbergCandidates.length - 1) {
+                    setArchiveImgAttempt(prev => prev + 1);
+                  } else if (cleanArchiveId && archiveImgAttempt < 4) {
                     setArchiveImgAttempt(prev => prev + 1);
                   } else {
                     setImgError(true);
@@ -313,8 +334,8 @@ function MetroBookTile({
               />
             ) : (
               // First page representation on book card when no cover image is available
-              <div className="w-full h-full bg-card p-2 sm:p-3 flex flex-col justify-between text-left select-none overflow-hidden border border-border/40">
-                <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
+              <div className="w-full h-full bg-card p-2 sm:p-3 flex flex-col justify-between text-left select-none overflow-hidden border border-border/15">
+                <div className="flex items-center justify-between border-b border-border/15 pb-0.5">
                   <span className="text-[7px] sm:text-[8px] font-mono uppercase font-bold text-muted-foreground tracking-wider">Page 1</span>
                   <span className="text-[7px] sm:text-[8px] font-mono text-muted-foreground uppercase">{book.type}</span>
                 </div>
@@ -329,7 +350,7 @@ function MetroBookTile({
                     {book.description || currentNovelSnippet || "Opening chapter excerpt from the public domain library collection."}
                   </p>
                 </div>
-                <div className="text-[6px] sm:text-[7px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center truncate">
+                <div className="text-[6px] sm:text-[7px] text-muted-foreground/60 font-mono border-t border-border/15 pt-0.5 text-center truncate">
                   {book.source === 'gutenberg' ? 'Project Gutenberg' : 'Internet Archive'}
                 </div>
               </div>
@@ -348,7 +369,7 @@ function MetroBookTile({
                 className="w-full h-full flex flex-col items-center justify-center overflow-hidden"
               >
                 {currentComicPage?.tree ? (
-                  <div className="w-full h-full bg-white border border-zinc-900 flex flex-col overflow-hidden relative">
+                  <div className="w-full h-full bg-white border border-border/20 flex flex-col overflow-hidden relative">
                     <ComicTreeNodeView node={currentComicPage.tree} />
                   </div>
                 ) : (currentComicPage?.image || book.cover || book.cover_url) ? (
@@ -359,8 +380,8 @@ function MetroBookTile({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-full h-full bg-card p-2 sm:p-3 flex flex-col justify-between text-left select-none overflow-hidden border border-border/40">
-                    <div className="flex items-center justify-between border-b border-border/40 pb-0.5">
+                  <div className="w-full h-full bg-card p-2 sm:p-3 flex flex-col justify-between text-left select-none overflow-hidden border border-border/15">
+                    <div className="flex items-center justify-between border-b border-border/15 pb-0.5">
                       <span className="text-[7px] sm:text-[8px] font-mono uppercase font-bold text-muted-foreground">{t("page") || "Page"} 1</span>
                       <span className="text-[7px] sm:text-[8px] font-mono text-amber-500 font-bold uppercase">{t("comic") || "COMIC"}</span>
                     </div>
@@ -368,7 +389,7 @@ function MetroBookTile({
                       <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 mx-auto opacity-70 animate-pulse" />
                       <span className="text-[9px] sm:text-xs font-bold text-foreground line-clamp-2">{book.title || t("untitledComic") || "Untitled Comic"}</span>
                     </div>
-                    <div className="text-[6px] sm:text-[7px] text-muted-foreground/60 font-mono border-t border-border/30 pt-0.5 text-center">
+                    <div className="text-[6px] sm:text-[7px] text-muted-foreground/60 font-mono border-t border-border/15 pt-0.5 text-center">
                       {t("comicCreatorProject") || "Comic Creator Project"}
                     </div>
                   </div>
@@ -403,7 +424,7 @@ function MetroBookTile({
                     {currentNovelSnippet}
                   </p>
                 </div>
-                <div className="relative z-10 pt-1 flex items-center justify-between text-[8px] sm:text-[9px] text-muted-foreground font-serif border-t border-border/30 mt-auto">
+                <div className="relative z-10 pt-1 flex items-center justify-between text-[8px] sm:text-[9px] text-muted-foreground font-serif border-t border-border/15 mt-auto">
                   <span className="truncate max-w-[80px] sm:max-w-[100px]">{book.title || t("untitledStory") || "Untitled Story"}</span>
                   <span className="font-mono text-[7px] sm:text-[8px] opacity-70">p. {((slideIndex + tileSeed) % Math.max(1, novelSnippets.length)) + 1}</span>
                 </div>
@@ -436,7 +457,7 @@ function MetroBookTile({
                   animate={{ x: "0%", y: "0%", opacity: 1 }}
                   exit={currentDirection.exit}
                   transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
-                  className="text-[9px] sm:text-[10px] leading-tight text-card-foreground font-sans line-clamp-2 bg-card/90 p-1 sm:p-1.5 rounded-sm border border-amber-500/40 backdrop-blur-xs"
+                  className="text-[9px] sm:text-[10px] leading-tight text-card-foreground font-sans line-clamp-2 bg-card/90 p-1 sm:p-1.5 rounded-sm border border-amber-500/20 backdrop-blur-xs"
                 >
                   💬 "{currentComicPage.speechSnippet}"
                 </motion.p>
@@ -495,7 +516,17 @@ if (typeof window !== 'undefined') {
   try {
     const saved = sessionStorage.getItem('ebookcc_bookshelf_library_pool');
     if (saved) {
-      globalRandomSeedItems = JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        globalRandomSeedItems = parsed.map((item: any) => {
+          const normalizedCover = normalizeGutenbergCoverUrl(item.cover || item.cover_url || '', item);
+          return {
+            ...item,
+            cover: normalizedCover,
+            cover_url: normalizedCover,
+          };
+        });
+      }
     }
   } catch (_) {}
 }
@@ -1026,7 +1057,7 @@ export function Bookshelf({
   );
 
   return (
-    <div className="w-full pt-4 pb-0 border-t border-border/40 max-w-full shadow-none" id="bookshelf-section">
+    <div className="w-full pt-4 pb-0 max-w-full shadow-none" id="bookshelf-section">
       <div className="w-full">
         {/* Header & Integrated Search Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
@@ -1052,7 +1083,7 @@ export function Bookshelf({
                   if (e.key === 'Enter') handleCatalogSearch();
                 }}
                 placeholder="Search Gutenberg & Archive..."
-                className="w-full pl-9 pr-14 py-1.5 text-xs rounded-lg border border-border bg-background/90 focus:bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-xs transition-all"
+                className="w-full pl-9 pr-14 py-1.5 text-xs rounded-lg border border-border/20 bg-background/90 focus:bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-xs transition-all"
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                 {searchQuery && (
@@ -1083,7 +1114,7 @@ export function Bookshelf({
             </div>
 
             {/* Type Toggle: All | Books | Comics */}
-            <div className="flex items-center p-0.5 rounded-lg border border-border bg-muted/40 shrink-0 text-xs font-medium w-full sm:w-auto">
+            <div className="flex items-center p-0.5 rounded-lg border border-border/20 bg-muted/20 shrink-0 text-xs font-medium w-full sm:w-auto">
               <button
                 onClick={() => setTypeFilter('all')}
                 className={cn(
@@ -1127,7 +1158,7 @@ export function Bookshelf({
 
         {/* Active Search Notification Banner: Search results take the place of displayed books */}
         {searchResults !== null && (
-          <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border border-primary/25 rounded-lg mb-4 text-xs shadow-xs">
+          <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border border-primary/15 rounded-lg mb-4 text-xs shadow-xs">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-primary" />
               <span className="font-semibold text-foreground">
@@ -1144,7 +1175,7 @@ export function Bookshelf({
                 setSearchResults(null);
                 setSearchQuery('');
               }}
-              className="h-7 text-xs gap-1.5 cursor-pointer hover:bg-background"
+              className="h-7 text-xs gap-1.5 cursor-pointer hover:bg-background border-border/20"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Clear Search
@@ -1164,7 +1195,7 @@ export function Bookshelf({
                     <button
                       type="button"
                       onClick={() => scrollShelf(1, 'left')}
-                      className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border shadow-md text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md cursor-pointer"
+                      className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border/20 shadow-xs text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md cursor-pointer"
                       aria-label="Scroll Shelf left"
                     >
                       <ChevronLeft className="w-5 h-5" />
@@ -1174,7 +1205,7 @@ export function Bookshelf({
                     <button
                       type="button"
                       onClick={() => scrollShelf(1, 'right')}
-                      className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border shadow-md text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md cursor-pointer"
+                      className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 p-2.5 rounded-full bg-background/95 border border-border/20 shadow-xs text-foreground hover:bg-primary hover:text-primary-foreground transition-all duration-200 focus:outline-none backdrop-blur-md cursor-pointer"
                       aria-label="Scroll Shelf right"
                     >
                       <ChevronRight className="w-5 h-5" />
@@ -1188,7 +1219,7 @@ export function Bookshelf({
                 className="flex gap-3 sm:gap-6 overflow-x-auto pb-1 scroll-smooth select-none px-1 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
               >
                 {activeBooks.length === 0 ? (
-                  <div className="w-full py-8 text-center border border-dashed rounded-lg bg-muted/10">
+                  <div className="w-full py-8 text-center border border-dashed border-border/20 rounded-lg bg-muted/10">
                     <BookOpen className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
                     <p className="text-xs font-semibold text-foreground">
                       {searchResults !== null ? "No matching search results" : "Library is empty"}
@@ -1230,11 +1261,11 @@ export function Bookshelf({
 
       {/* IMMERSIVE READER DIALOG */}
       <Dialog open={!!selectedBook} onOpenChange={() => setSelectedBook(null)}>
-        <DialogContent className="sm:max-w-[750px] max-h-[92vh] flex flex-col p-0 overflow-hidden border bg-background text-foreground shadow-2xl rounded-xl">
+        <DialogContent className="sm:max-w-[750px] max-h-[92vh] flex flex-col p-0 overflow-hidden border border-border/20 bg-background text-foreground shadow-2xl rounded-xl">
           {selectedBook && (
             <>
               {/* Header Panel */}
-              <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
+              <div className="p-4 border-b border-border/15 bg-muted/20 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className={`p-1.5 rounded ${selectedBook.type === 'comic' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
                     <BookOpen className="w-4 h-4" />
@@ -1248,7 +1279,7 @@ export function Bookshelf({
                 <div className="flex items-center gap-2">
                   {/* Font Size controls for novel */}
                   {selectedBook.type === 'novel' && (
-                    <div className="flex items-center gap-1 border rounded-md p-0.5 bg-background">
+                    <div className="flex items-center gap-1 border border-border/20 rounded-md p-0.5 bg-background">
                       <Button 
                         variant={fontSize === 'sm' ? 'secondary' : 'ghost'} 
                         size="icon" 

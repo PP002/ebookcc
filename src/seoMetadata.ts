@@ -4,7 +4,7 @@
  * localized meta descriptions, Open Graph, Twitter Cards, and Schema.org JSON-LD.
  */
 
-export type ViewRoute = "home" | "read" | "create" | "convert" | "faq";
+export type ViewRoute = "home" | "read" | "create" | "convert" | "faq" | "billing" | "ai";
 
 export type SupportedLanguage =
   | "en"
@@ -54,6 +54,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Free Online Comic Maker, Manga Creator & Novel Writer | EBookCC",
     convert: "Universal E-book Converter | CBZ, CBR, PDF to EPUB Online | EBookCC",
     faq: "FAQ & Help Center | EBookCC Comic Suite & Converter Guides",
+    billing: "Billing & Prepaid Credits Wallet | EBookCC",
+    ai: "AI Provider Settings & Model Engines | EBookCC",
   },
   ja: {
     home: "EBookCC | オールインワン電子書籍＆マンガ作成・AI翻訳スイート",
@@ -61,6 +63,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "無料オンラインマンガ制作＆小説エディター | EBookCC",
     convert: "高機能電子書籍コンバーター | CBZ・PDFからEPUB変換 | EBookCC",
     faq: "よくある質問とヘルプセンター | EBookCC ガイド",
+    billing: "ウォレットとご利用料金 | EBookCC",
+    ai: "AI プロバイダー・エンジン設定 | EBookCC",
   },
   "zh-hans": {
     home: "EBookCC | 全方位电子书与漫画创作工具 | AI 漫画即时翻译",
@@ -68,6 +72,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "免费在线漫画绘制与小说创作编辑器 | EBookCC",
     convert: "万用电子书转换器 | CBZ、PDF 转 EPUB 在线工具 | EBookCC",
     faq: "常见问题与使用指南 | EBookCC 帮助中心",
+    billing: "账单与预付代币钱包 | EBookCC",
+    ai: "AI 服务商与引擎设置 | EBookCC",
   },
   "zh-hant": {
     home: "EBookCC | 全方位電子書與漫畫創作工具 | AI 漫畫即時翻譯",
@@ -75,6 +81,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "免費線上漫畫繪製與小說創作編輯器 | EBookCC",
     convert: "萬用電子書轉換器 | CBZ、PDF 轉 EPUB 線上工具 | EBookCC",
     faq: "常見問題與使用指南 | EBookCC 說明中心",
+    billing: "帳單與預付代幣錢包 | EBookCC",
+    ai: "AI 服務商與引擎設定 | EBookCC",
   },
   fr: {
     home: "EBookCC | Suite Complète E-book & Manga | Traducteur Manga IA",
@@ -82,6 +90,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Créateur de BD & Manga en Ligne Gratuit | EBookCC",
     convert: "Convertisseur d'E-books Universel | CBZ, PDF vers EPUB | EBookCC",
     faq: "Centre d'Aide & FAQ | Guides EBookCC",
+    billing: "Facturation & Portefeuille de Crédits | EBookCC",
+    ai: "Paramètres Fournisseurs d'IA | EBookCC",
   },
   es: {
     home: "EBookCC | Suite Todo en Uno para E-books y Cómics | Traductor IA",
@@ -89,6 +99,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Creador de Cómics y Manga Online Gratis | EBookCC",
     convert: "Conversor Universal de E-books | CBZ, PDF a EPUB | EBookCC",
     faq: "Preguntas Frecuentes y Centro de Ayuda | EBookCC",
+    billing: "Facturación y Saldo Prepago | EBookCC",
+    ai: "Ajustes de Proveedores de IA | EBookCC",
   },
   pt: {
     home: "EBookCC | Suíte Completa para E-books e Quadrinhos | Tradutor IA",
@@ -96,6 +108,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Criador de Quadrinhos e Mangás Online Grátis | EBookCC",
     convert: "Conversor Universal de E-books | CBZ, PDF para EPUB | EBookCC",
     faq: "Perguntas Frequentes & Suporte | EBookCC",
+    billing: "Cobrança & Saldo Pré-pago | EBookCC",
+    ai: "Configuração de Provedores de IA | EBookCC",
   },
   ko: {
     home: "EBookCC | 올인원 전자책 & 만화 제작 스위트 | AI 만화 번역",
@@ -103,6 +117,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "무료 온라인 만화 제작 & 소설 편집기 | EBookCC",
     convert: "만능 전자책 변환기 | CBZ, PDF를 EPUB으로 변환 | EBookCC",
     faq: "자주 묻는 질문 및 고객 지원 | EBookCC",
+    billing: "결제 및 선불 크레딧 지갑 | EBookCC",
+    ai: "AI 제공업체 및 모델 설정 | EBookCC",
   },
   de: {
     home: "EBookCC | All-in-One E-Book & Comic Suite | KI Manga Übersetzer",
@@ -110,6 +126,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Kostenloser Online Comic Maker & Roman-Editor | EBookCC",
     convert: "Universeller E-Book Konverter | CBZ, PDF zu EPUB | EBookCC",
     faq: "Häufig gestellte Fragen & Hilfe | EBookCC",
+    billing: "Abrechnung & Guthaben-Wallet | EBookCC",
+    ai: "KI-Anbieter und Modell-Einstellungen | EBookCC",
   },
   ar: {
     home: "EBookCC | منصة شاملة لإنشاء وقراءة المانجا والكتب الإلكترونية مع الترجمة بالذكاء الاصطناعي",
@@ -117,6 +135,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "صانع القصص المصورة والمانجا المجاني عبر الإنترنت | EBookCC",
     convert: "محول الكتب الإلكترونية الشامل | تحويل CBZ و PDF إلى EPUB | EBookCC",
     faq: "الأسئلة الشائعة ومركز المساعدة | EBookCC",
+    billing: "الفواتير ومحفظة الرصيد المدفوع مسبقاً | EBookCC",
+    ai: "إعدادات مزودي الذكاء الاصطناعي | EBookCC",
   },
   ru: {
     home: "EBookCC | Универсальный сервис для чтения, создания и перевода манги и комиксов с ИИ",
@@ -124,6 +144,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Бесплатный онлайн-конструктор комиксов и редактор новелл | EBookCC",
     convert: "Универсальный конвертер электронных книг | Конвертация CBZ, PDF в EPUB | EBookCC",
     faq: "Часто задаваемые вопросы и руководство | EBookCC",
+    billing: "Биллинг и предоплаченный баланс | EBookCC",
+    ai: "Настройки провайдеров и моделей ИИ | EBookCC",
   },
   it: {
     home: "EBookCC | Suite Completa per E-book e Fumetti | Traduttore Manga IA",
@@ -131,6 +153,8 @@ export const SEO_TITLES: Record<SupportedLanguage, Record<ViewRoute, string>> = 
     create: "Crea Fumetti e Manga Online Gratis | EBookCC",
     convert: "Convertitore Universale di E-book | Da CBZ, PDF a EPUB | EBookCC",
     faq: "Domande Frequenti e Centro Assistenza | EBookCC",
+    billing: "Fatturazione e Saldo Prepagato | EBookCC",
+    ai: "Impostazioni Fornitori IA | EBookCC",
   },
 };
 
@@ -141,6 +165,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Design custom multi-panel comic strips, speech bubbles, drawings, and write e-book novels online with AI assistance and EPUB export.",
     convert: "Batch convert CBZ, CBR, PDF, and EPUB files online with automatic OCR scanning, panel splitting, AI manga translation, and Kindle formatting.",
     faq: "Learn how to use EBookCC for manga translation, comic panel layout splitting, offline local processing, and converting archives into EPUB e-books.",
+    billing: "Manage your prepaid AI credits wallet, view transparent usage history, set monthly spending limits, and add funds easily.",
+    ai: "Configure multi-pipeline AI settings for OCR, Vision, TTS, Text-to-Image, Director, Music, SFX, and custom encrypted API keys.",
   },
   ja: {
     home: "完全無料のオンラインマンガ作成、AI翻訳、電子書籍変換ツール。コマ割りレイアウト、高精度AI OCRによる吹き出し翻訳、Kindle対応EPUB書き出しに対応。",
@@ -148,6 +174,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "複数コマのマンガ作成、吹き出し配置、手描きイラスト、AI文章生成による小説執筆が可能なオンラインエディター。",
     convert: "CBZ、CBR、PDF、EPUBの一括変換、自動OCRスキャン、コマ分割、AIマンガ翻訳をワンクリックで実行。",
     faq: "EBookCCの使い方、マンガ翻訳、コマ分割、オフライン処理、EPUB変換に関するよくある質問と解説。",
+    billing: "プリペイドウォレット残高、利用履歴、月間上限設定、チャージ機能の管理ダッシュボード。",
+    ai: "OCR、視覚解析、TTS音声、画像生成、監督、BGM、効果音、ストレージのAIエンジンとAPIキー設定。",
   },
   "zh-hans": {
     home: "免费在线漫画创作、AI 漫画翻译与电子书转换工具。自定义分镜排版、精准 AI OCR 气泡识别翻译，快速导出 Kindle 适用 EPUB 文件。",
@@ -155,6 +183,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "在线自定义多格分镜、对话气泡、手绘插图，并结合 AI 辅助撰写小说与脚本。",
     convert: "批量转换 CBZ、CBR、PDF 与 EPUB，自动 OCR 识别、漫画分格裁切与 AI 翻译。",
     faq: "探索 EBookCC 漫画翻译、分格裁切、离线安全处理与 EPUB 转换之常见问题与操作指南。",
+    billing: "管理预付代币余额、透明账单流水、月度消费上限以及一键充值。",
+    ai: "多通道 AI 引擎配置：OCR识别、视觉分析、TTS语音合成、生图、导演、音乐音效与加密密钥管理。",
   },
   "zh-hant": {
     home: "免費線上漫畫創作、AI 漫畫翻譯與電子書轉換工具。自訂分鏡版面、精準 AI OCR 氣泡辨識翻譯，快速匯出 Kindle 適用 EPUB 檔案。",
@@ -162,6 +192,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "線上自訂多格分鏡、對話對話框、手繪插圖，並結合 AI 輔助撰寫小說與腳本。",
     convert: "批次轉換 CBZ、CBR、PDF 與 EPUB，自動 OCR 辨識、漫畫分格裁切與 AI 翻譯。",
     faq: "探索 EBookCC 漫畫翻譯、分格裁切、離線安全處理與 EPUB 轉換之常見問題與操作指南。",
+    billing: "管理預付代幣餘額、透明帳單明細、月度支出上限及快速加值。",
+    ai: "多通道 AI 引擎設定：OCR辨識、視覺分析、TTS語音合成、生圖、導演、音樂音效與加密金鑰管理。",
   },
   fr: {
     home: "Outil gratuit en ligne de création de mangas et BD, traduction IA et conversion d'e-books. Export EPUB haute fidélité pour Kindle et liseuses.",
@@ -169,6 +201,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Concevez vos planches de BD, ajoutez des bulles de dialogue et écrivez vos romans en ligne avec assistance IA.",
     convert: "Convertissez facilement vos archives CBZ, CBR, PDF en EPUB optimisés pour toutes les liseuses.",
     faq: "Toutes les réponses pour maîtriser la traduction de manga, la découpe de cases et la conversion d'e-books sur EBookCC.",
+    billing: "Gérez votre portefeuille de crédits prépayés, l'historique d'utilisation et les limites mensuelles de dépenses.",
+    ai: "Configurez les pipelines d'IA pour OCR, synthèse vocale, génération d'images, réalisation, musique et vos clés API.",
   },
   es: {
     home: "Herramienta gratuita online para crear cómics y manga, traducir con IA y convertir e-books. Exporta archivos EPUB compatibles con Kindle.",
@@ -176,6 +210,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Diseña tiras cómicas de varios paneles, bocadillos de diálogo y escribe novelas con asistencia de IA.",
     convert: "Convierte archivos CBZ, CBR, PDF a EPUB con OCR automático y traducción inteligente.",
     faq: "Aprende a usar EBookCC para traducir manga, dividir viñetas y convertir cómics a EPUB.",
+    billing: "Administra tu billetera prepago de créditos, historial detallado de consumo y límites mensuales.",
+    ai: "Configuración integral de IA: OCR, visión, TTS, imagen, director, música, efectos y claves cifradas.",
   },
   pt: {
     home: "Ferramenta online gratuita para criar quadrinhos e mangás, tradução com IA e conversor de e-books com exportação em EPUB para Kindle.",
@@ -183,6 +219,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Crie tiras de quadrinhos, balões de fala, ilustrações e escreva livros com inteligência artificial.",
     convert: "Converta CBZ, CBR, PDF em EPUB com OCR automático, divisão de painéis e tradução IA.",
     faq: "Tudo o que você precisa saber sobre tradução de mangá, divisão de painéis e conversão no EBookCC.",
+    billing: "Gerencie sua carteira pré-paga de créditos, histórico de consumo e limite mensal de gastos.",
+    ai: "Configurações de IA para OCR, voz, imagens, diretor, música, efeitos sonoros e chaves seguras.",
   },
   ko: {
     home: "무료 온라인 만화 제작, AI 번역 및 전자책 변환 툴. 맞춤형 컷 레이아웃, 정밀 AI 말풍선 OCR 번역 및 킨들용 EPUB 내보내기 지원.",
@@ -190,6 +228,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "다양한 만화 컷 레이아웃 구성, 말풍선 삽입, 드로잉 및 AI 소설 작성 스튜디오.",
     convert: "CBZ, CBR, PDF, EPUB 일괄 변환, 자동 OCR 스캔 및 스마트 패널 분할.",
     faq: "EBookCC의 만화 번역, 패널 분할, 오프라인 보안 처리 및 전자책 변환에 대한 자주 묻는 질문.",
+    billing: "선불 크레딧 지갑 잔액 관리, 투명한 사용 내역 조회 및 월간 지출 한도 설정.",
+    ai: "OCR, 음성합성, 이미지 생성, 디렉터, 음악/효과음 등 파이프라인별 AI 설정 및 암호화 키 관리.",
   },
   de: {
     home: "Kostenloses Online-Tool für Comic- & Manga-Erstellung, KI-Übersetzung und E-Book-Konvertierung mit EPUB-Export.",
@@ -197,6 +237,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Gestalten Sie individuelle Comic-Panels, Sprechblasen und schreiben Sie Romane mit KI-Unterstützung.",
     convert: "Konvertieren Sie CBZ-, CBR- und PDF-Dateien in Kindle-optimierte EPUB-eBooks.",
     faq: "Erfahren Sie alles über Manga-Übersetzung, Panel-Aufteilung und EPUB-Konvertierung mit EBookCC.",
+    billing: "Prepaid-Guthaben verwalten, transparente Nutzungshistorie und monatliches Ausgabenlimit anpassen.",
+    ai: "Multi-Pipeline KI-Einstellungen für OCR, Sprachausgabe, Bildgenerierung, Musik, SFX und eigene API-Keys.",
   },
   ar: {
     home: "أداة مجانية عبر الإنترنت لإنشاء وقراءة وترجمة قصص المانجا والكوميكس بالذكاء الاصطناعي مع تحويل الكتب الإلكترونية إلى صيغة EPUB.",
@@ -204,6 +246,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "صمم لوحات قصص مصورة متعددة، وأضف فقاعات حوارية، واكتب الروايات بالذكاء الاصطناعي.",
     convert: "تحويل دفعات ملفات CBZ و CBR و PDF إلى EPUB مع فحص OCR وتقسيم الإطارات تلقائياً.",
     faq: "تعرف على كيفية استخدام EBookCC لترجمة المانجا وتقسيم الإطارات وتحويل الملفات إلى كتب إلكترونية.",
+    billing: "إدارة رصيد المحفظة المدفوعة مسبقاً وسجل الاستخدام الشفاف وتحديد الحد الشهري للإنفاق.",
+    ai: "إعدادات مزودي الذكاء الاصطناعي لمختلف المسارات من OCR ونطق صوتي وتوليد صور وموسيقى وإدارة المفاتيح المشفرة.",
   },
   ru: {
     home: "Бесплатный онлайн-инструмент для создания комиксов и манги, перевода с помощью ИИ и конвертации в EPUB для Kindle.",
@@ -211,6 +255,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Создавайте многопанельные комиксы, добавляйте облака диалогов и пишите рассказы с поддержкой ИИ.",
     convert: "Конвертируйте CBZ, CBR, PDF в EPUB с автоматическим распознаванием OCR и ИИ-переводом.",
     faq: "Ответы на частые вопросы по переводу манги, нарезке кадров и конвертации в EPUB на EBookCC.",
+    billing: "Управление предоплаченным кошельком кредитов, прозрачная история списаний и лимиты расходов.",
+    ai: "Настройка ИИ пайплайнов для OCR, синтеза речи, генерации изображений, музыки и зашифрованных ключей.",
   },
   it: {
     home: "Suite online gratuita per creare e tradurre manga con IA e convertire e-book in formato EPUB compatibile con Kindle.",
@@ -218,6 +264,8 @@ export const SEO_DESCRIPTIONS: Record<SupportedLanguage, Record<ViewRoute, strin
     create: "Progetta fumetti a più vignette, balloon di dialogo e scrivi romanzi con l'aiuto dell'intelligenza artificiale.",
     convert: "Converti file CBZ, CBR e PDF in EPUB con scansione OCR automatica e traduzione IA.",
     faq: "Tutte le informazioni sulla traduzione di manga, suddivisione delle vignette e conversione in e-book su EBookCC.",
+    billing: "Gestione del portafoglio crediti prepagato, storico transazioni e limiti mensili di spesa.",
+    ai: "Impostazioni avanzate IA per OCR, sintesi vocale, generazione immagini, audio e chiavi API crittografate.",
   },
 };
 
@@ -249,15 +297,19 @@ export function resolveSEORoute(pathname: string): RouteResolution {
   const rawFirst = segments[0];
   const firstLower = rawFirst.toLowerCase();
 
+  const parseViewSeg = (seg: string | undefined): ViewRoute => {
+    const s = seg?.toLowerCase() || "";
+    if (s === "read" || s === "create" || s === "convert" || s === "faq" || s === "billing" || s === "ai") {
+      return s as ViewRoute;
+    }
+    return "home";
+  };
+
   // 1. Check for legacy/uppercase/duplicate prefixes that need 301 redirect
   // - /en or /en/something -> 301 to / or /something
   if (firstLower === "en") {
-    const sub = segments[1]?.toLowerCase() || "";
-    let targetView: ViewRoute = "home";
-    if (sub === "read" || sub === "create" || sub === "convert" || sub === "faq") {
-      targetView = sub;
-    }
-    const targetPath = targetView === "home" ? "/" : `/${targetView}`;
+    const targetView = parseViewSeg(segments[1]);
+    const targetPath = targetView === "home" ? "/" : targetView === "ai" ? "/AI" : `/${targetView}`;
     return {
       lang: "en",
       view: targetView,
@@ -269,12 +321,8 @@ export function resolveSEORoute(pathname: string): RouteResolution {
 
   // - /jp -> /ja
   if (firstLower === "jp") {
-    const sub = segments[1]?.toLowerCase() || "";
-    let targetView: ViewRoute = "home";
-    if (sub === "read" || sub === "create" || sub === "convert" || sub === "faq") {
-      targetView = sub;
-    }
-    const targetPath = targetView === "home" ? "/ja" : `/ja/${targetView}`;
+    const targetView = parseViewSeg(segments[1]);
+    const targetPath = targetView === "home" ? "/ja" : targetView === "ai" ? "/ja/AI" : `/ja/${targetView}`;
     return {
       lang: "ja",
       view: targetView,
@@ -294,12 +342,8 @@ export function resolveSEORoute(pathname: string): RouteResolution {
     firstLower === "zh-sg" ||
     firstLower === "zh_sg"
   ) {
-    const sub = segments[1]?.toLowerCase() || "";
-    let targetView: ViewRoute = "home";
-    if (sub === "read" || sub === "create" || sub === "convert" || sub === "faq") {
-      targetView = sub;
-    }
-    const targetPath = targetView === "home" ? "/zh-hans" : `/zh-hans/${targetView}`;
+    const targetView = parseViewSeg(segments[1]);
+    const targetPath = targetView === "home" ? "/zh-hans" : targetView === "ai" ? "/zh-hans/AI" : `/zh-hans/${targetView}`;
     return {
       lang: "zh-hans",
       view: targetView,
@@ -320,12 +364,8 @@ export function resolveSEORoute(pathname: string): RouteResolution {
     firstLower === "zh-mo" ||
     firstLower === "zh_mo"
   ) {
-    const sub = segments[1]?.toLowerCase() || "";
-    let targetView: ViewRoute = "home";
-    if (sub === "read" || sub === "create" || sub === "convert" || sub === "faq") {
-      targetView = sub;
-    }
-    const targetPath = targetView === "home" ? "/zh-hant" : `/zh-hant/${targetView}`;
+    const targetView = parseViewSeg(segments[1]);
+    const targetPath = targetView === "home" ? "/zh-hant" : targetView === "ai" ? "/zh-hant/AI" : `/zh-hant/${targetView}`;
     return {
       lang: "zh-hant",
       view: targetView,
@@ -338,13 +378,9 @@ export function resolveSEORoute(pathname: string): RouteResolution {
   // 2. Check if first segment is a standard non-English language prefix
   const matchedLang = SEO_LANGUAGES.find((l) => l.code !== "en" && l.code === firstLower);
   if (matchedLang) {
-    const sub = segments[1]?.toLowerCase() || "";
-    let view: ViewRoute = "home";
-    if (sub === "read" || sub === "create" || sub === "convert" || sub === "faq") {
-      view = sub;
-    }
-    const canonicalPath = view === "home" ? `/${matchedLang.code}` : `/${matchedLang.code}/${view}`;
-    const shouldRedirect = cleanPath !== canonicalPath;
+    const view = parseViewSeg(segments[1]);
+    const canonicalPath = view === "home" ? `/${matchedLang.code}` : view === "ai" ? `/${matchedLang.code}/AI` : `/${matchedLang.code}/${view}`;
+    const shouldRedirect = cleanPath !== canonicalPath && cleanPath.toLowerCase() !== canonicalPath.toLowerCase();
 
     return {
       lang: matchedLang.code,
@@ -355,13 +391,11 @@ export function resolveSEORoute(pathname: string): RouteResolution {
     };
   }
 
-  // 3. Default English root route without prefix (e.g. /convert, /read, /create, /faq)
-  let view: ViewRoute = "home";
-  if (firstLower === "read" || firstLower === "create" || firstLower === "convert" || firstLower === "faq") {
-    view = firstLower;
-  }
-  const canonicalPath = view === "home" ? "/" : `/${view}`;
-  const shouldRedirect = cleanPath !== canonicalPath;
+  // 3. Default English root route without prefix (e.g. /convert, /read, /create, /faq, /billing, /AI)
+  const view = parseViewSeg(rawFirst);
+  const canonicalPath = view === "home" ? "/" : view === "ai" ? "/AI" : `/${view}`;
+  // Accept both /AI and /ai without redirect loop
+  const shouldRedirect = cleanPath !== canonicalPath && !(view === "ai" && (cleanPath === "/AI" || cleanPath === "/ai"));
 
   return {
     lang: "en",

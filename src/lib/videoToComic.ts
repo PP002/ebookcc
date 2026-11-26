@@ -2601,9 +2601,15 @@ export async function extractVideoKeyframes(
 
     let previewCtx: CanvasRenderingContext2D | null = null;
     if (includeDebugThumbnails) {
+      const previewMaxDim = Math.max(
+        160,
+        cfgSample.contactSheetThumbWidth,
+        cfgSample.contactSheetThumbHeight
+      );
+      const previewScale = Math.min(1, previewMaxDim / Math.max(1, rawWidth, rawHeight));
       previewCanvas = document.createElement('canvas');
-      previewCanvas.width = cfgSample.contactSheetThumbWidth;
-      previewCanvas.height = cfgSample.contactSheetThumbHeight;
+      previewCanvas.width = Math.max(24, Math.round(rawWidth * previewScale));
+      previewCanvas.height = Math.max(24, Math.round(rawHeight * previewScale));
       previewCtx = previewCanvas.getContext('2d');
     }
 
@@ -2657,7 +2663,7 @@ export async function extractVideoKeyframes(
       let previewDataUrl: string | undefined;
       if (previewCtx && previewCanvas) {
         previewCtx.drawImage(
-          analysisCanvas,
+          videoEl,
           0,
           0,
           previewCanvas.width,
@@ -2682,7 +2688,21 @@ export async function extractVideoKeyframes(
       await seekVideo(videoEl, 0, 4000);
       analysisCtx.drawImage(videoEl, 0, 0, analysisW, analysisH);
       const imgData = analysisCtx.getImageData(0, 0, analysisW, analysisH);
-      signatures.push(computeFrameSignature(imgData, 0, undefined, 0));
+      let fallbackPreview: string | undefined;
+      if (previewCtx && previewCanvas) {
+        previewCtx.drawImage(
+          videoEl,
+          0,
+          0,
+          previewCanvas.width,
+          previewCanvas.height
+        );
+        fallbackPreview = previewCanvas.toDataURL(
+          'image/jpeg',
+          cfgSample.contactSheetJpegQuality
+        );
+      }
+      signatures.push(computeFrameSignature(imgData, 0, fallbackPreview, 0));
     }
 
     populateSignatureStability(signatures);

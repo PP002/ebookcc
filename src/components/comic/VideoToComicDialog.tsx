@@ -334,7 +334,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleCancel()}>
       <DialogContent
-        className="w-[min(calc(100vw-2rem),calc(88vh*0.75),480px)] max-w-none sm:max-w-none aspect-[3/4] max-h-[88vh] bg-card border-border shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col gap-3"
+        className="w-[min(calc(100vw-2rem),calc(88vh*4/3),720px)] max-w-none sm:max-w-none aspect-[4/3] max-h-[88vh] bg-card border-border shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col gap-3"
       >
         <DialogHeader className="min-w-0 shrink-0 pr-7">
           <div className="flex items-center gap-2.5 min-w-0">

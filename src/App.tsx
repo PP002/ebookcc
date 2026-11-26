@@ -40,13 +40,13 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 const mangaBg = "/features/manga-translation.png";
-const multiAiBg = "/features/multi-ai.png?v=2";
-const panelSplitterBg = "/features/panel-splitter.png?v=2";
-const videoToComicBg = "/features/video-to-comic.png";
-const aiAgentBg = "/features/ai-agent.png?v=2";
+const multiAiBg = "/features/multi-ai.png?v=3";
+const panelSplitterBg = "/features/panel-splitter.png?v=3";
+const videoToComicBg = "/features/video-to-comic.png?v=3";
+const aiAgentBg = "/features/ai-agent.png?v=3";
 const localProcessingBg = "/features/local-processing.png";
 const broadcastAudioDramaBg = "/features/broadcast-audio-drama.png";
-const penSupportBg = "/features/pen-support.png?v=2";
+const penSupportBg = "/features/pen-support.png?v=3";
 import { Slideshow } from "./components/Slideshow";
 import {
   AppSettingsProvider,

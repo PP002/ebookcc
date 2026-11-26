@@ -34,6 +34,8 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { useLanguage } from "@/context/LanguageContext";
+import { AI_BILLING_TRANSLATIONS, formatTemplate } from "@/data/aiBillingTranslations";
 import { getApiUrl } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -63,6 +65,17 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
     walletBalance,
     refreshWallet,
   } = useAppSettings();
+  const { language } = useLanguage();
+  const copy = (AI_BILLING_TRANSLATIONS[language] || AI_BILLING_TRANSLATIONS.en).billing;
+  const dateLocale =
+    language === "zh-Hans" ? "zh-CN" : language === "zh-Hant" ? "zh-TW" : language;
+  const localizeStatus = (status: string) => {
+    if (status === "completed") return copy.history.statusCompleted;
+    if (status === "failed") return copy.history.statusFailed;
+    if (status === "refunded") return copy.history.statusRefunded;
+    if (status === "pending") return copy.history.statusPending;
+    return status;
+  };
 
   const [activeTab, setActiveTab] = useState<"wallet" | "history" | "guide" | "limits">("wallet");
   const [isSidebarFolded, setIsSidebarFolded] = useState(false);
@@ -123,7 +136,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
   // Initiate Stripe or sandbox top-up
   const handleTopUp = async () => {
     if (!user) {
-      toast.error("Please sign in to add funds to your wallet.");
+      toast.error(copy.toasts.signInTopUp);
       setShowAuthDialog(true);
       return;
     }
@@ -145,19 +158,21 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to initiate top-up.");
+        throw new Error(data.error || copy.toasts.topUpFailed);
       }
 
       if (data.checkoutUrl) {
         // Redirect to real Stripe Checkout session
         window.location.href = data.checkoutUrl;
       } else if (data.mode === "sandbox" || data.success) {
-        toast.success(`Successfully credited $${selectedTopUp.toFixed(2)} to your wallet!`);
+        toast.success(
+          formatTemplate(copy.toasts.topUpSuccess, { amount: `$${selectedTopUp.toFixed(2)}` })
+        );
         await refreshWallet();
         await fetchWalletAndHistory();
       }
     } catch (e: any) {
-      toast.error(e.message || "Checkout failed");
+      toast.error(e.message || copy.toasts.checkoutFailed);
     } finally {
       setIsProcessingCheckout(false);
     }
@@ -168,7 +183,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
     if (!user) return;
     const parsed = parseFloat(newCapInput);
     if (isNaN(parsed) || parsed < 5 || parsed > 1000) {
-      toast.error("Monthly spending cap must be between $5.00 and $1,000.00.");
+      toast.error(copy.toasts.capRangeError);
       return;
     }
 
@@ -183,11 +198,13 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
         body: JSON.stringify({ monthlySpendCapUsd: parsed }),
       });
       if (res.ok) {
-        toast.success(`Monthly spending cap updated to $${parsed.toFixed(2)}.`);
+        toast.success(
+          formatTemplate(copy.toasts.capUpdated, { amount: `$${parsed.toFixed(2)}` })
+        );
         await fetchWalletAndHistory();
       } else {
         const d = await res.json();
-        toast.error(d.error || "Failed to update cap.");
+        toast.error(d.error || copy.toasts.capUpdateFailed);
       }
     } catch (e: any) {
       toast.error(e.message);
@@ -202,14 +219,17 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
   const monthlyCap = walletDetails?.monthlySpendCapUsd || 50;
 
   const sidebarTabs = [
-    { id: "wallet" as const, label: "Prepaid Wallet", icon: Wallet },
-    { id: "history" as const, label: "Usage History", icon: History },
-    { id: "guide" as const, label: "Billing Guide", icon: HelpCircle },
-    { id: "limits" as const, label: "Spend Limits", icon: Sliders },
+    { id: "wallet" as const, label: copy.tabs.wallet, icon: Wallet },
+    { id: "history" as const, label: copy.tabs.history, icon: History },
+    { id: "guide" as const, label: copy.tabs.guide, icon: HelpCircle },
+    { id: "limits" as const, label: copy.tabs.limits, icon: Sliders },
   ];
 
   return (
-    <div className="h-full w-full overflow-hidden bg-background text-foreground flex flex-col min-h-0">
+    <div
+      dir={language === "ar" ? "rtl" : "ltr"}
+      className="h-full w-full overflow-hidden bg-background text-foreground flex flex-col min-h-0"
+    >
       {/* Top Header Bar - Borderless & Clean */}
       <header className="w-full bg-card/30 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
@@ -218,8 +238,8 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
             size="icon"
             onClick={() => setIsSidebarFolded((prev) => !prev)}
             className="h-8 w-8 text-muted-foreground hover:text-foreground hidden md:flex cursor-pointer"
-            title={isSidebarFolded ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label="Toggle sidebar"
+            title={isSidebarFolded ? copy.expandSidebar : copy.collapseSidebar}
+            aria-label={isSidebarFolded ? copy.expandSidebar : copy.collapseSidebar}
           >
             {isSidebarFolded ? (
               <PanelLeftOpen className="w-4 h-4 text-primary" />
@@ -228,9 +248,9 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
             )}
           </Button>
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-muted-foreground">Account</span>
+            <span className="text-muted-foreground">{copy.accountBreadcrumb}</span>
             <span className="text-border/40">/</span>
-            <span className="font-bold text-foreground">Billing & Wallet</span>
+            <span className="font-bold text-foreground">{copy.pageTitle}</span>
           </div>
         </div>
 
@@ -243,9 +263,9 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
           <button
             onClick={fetchWalletAndHistory}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-transparent border-0 p-0 outline-none"
-            title="Refresh Wallet"
+            title={copy.refreshWallet}
           >
-            <RefreshCw className="w-3.5 h-3.5 mr-0.5" /> Refresh
+            <RefreshCw className="w-3.5 h-3.5 mr-0.5" /> {copy.refresh}
           </button>
           {onNavigateAI && (
             <button
@@ -253,7 +273,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
               className="flex items-center gap-1.5 text-xs font-bold text-foreground hover:text-primary transition-colors cursor-pointer bg-transparent border-0 p-0 outline-none"
             >
               <Sparkles className="w-3.5 h-3.5 text-primary" />
-              <span>AI Provider Settings →</span>
+              <span>{copy.aiSettingsLink}</span>
             </button>
           )}
         </div>
@@ -286,7 +306,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
         >
           {!isSidebarFolded && (
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Navigation
+              {copy.navigationHeading}
             </div>
           )}
 
@@ -298,7 +318,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 title={t.label}
-                className={`flex items-center rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                className={`flex items-center rounded-lg text-xs font-bold transition-all text-start cursor-pointer ${
                   isSidebarFolded
                     ? `w-10 h-10 justify-center ${
                         isActive
@@ -328,7 +348,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                   <div className="p-5 rounded-xl bg-gradient-to-br from-card/90 to-muted/30 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Current Available Balance
+                        {copy.wallet.availableBalance}
                       </span>
                       <div className="flex items-baseline gap-2">
                         <span className="text-3xl font-black font-mono text-foreground tracking-tight">
@@ -337,12 +357,17 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                         <span className="text-xs text-muted-foreground font-medium">USD</span>
                       </div>
                       <div className="flex items-center gap-3 pt-1 text-[11px] text-muted-foreground font-mono">
-                        <span>Prepaid Credits: <strong className="text-foreground">${paidBalance.toFixed(2)}</strong></span>
+                        <span>
+                          {copy.wallet.prepaidCredits}:{" "}
+                          <strong className="text-foreground">${paidBalance.toFixed(2)}</strong>
+                        </span>
                       </div>
                     </div>
 
                     <div className="flex flex-col items-start sm:items-end gap-1 text-xs">
-                      <span className="text-muted-foreground">Monthly Cap: ${monthlyCap.toFixed(2)}</span>
+                      <span className="text-muted-foreground">
+                        {copy.wallet.monthlyCap}: ${monthlyCap.toFixed(2)}
+                      </span>
                       <div className="w-36 h-2 bg-muted rounded-full overflow-hidden border border-border/20">
                         <div
                           className="h-full bg-primary transition-all duration-300"
@@ -352,7 +377,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                         />
                       </div>
                       <span className="text-[10px] text-muted-foreground">
-                        Spent this month: ${currentMonthSpend.toFixed(2)}
+                        {copy.wallet.spentThisMonth}: ${currentMonthSpend.toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -361,10 +386,10 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                        <CreditCard className="w-4 h-4 text-primary" /> Add Funds (Instant Checkout)
+                        <CreditCard className="w-4 h-4 text-primary" /> {copy.wallet.addFundsTitle}
                       </h3>
                       <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Powered by Stripe
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> {copy.wallet.poweredByStripe}
                       </span>
                     </div>
 
@@ -382,7 +407,9 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                             }`}
                           >
                             <span className="text-lg font-black font-mono text-foreground">${amt}</span>
-                            <span className="text-[10px] text-muted-foreground font-semibold">USD Credits</span>
+                            <span className="text-[10px] text-muted-foreground font-semibold">
+                              {copy.wallet.usdCredits}
+                            </span>
                           </button>
                         );
                       })}
@@ -390,7 +417,9 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
 
                     <div className="pt-1 flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-muted/20 border border-border/20 rounded-xl">
                       <div className="text-xs text-muted-foreground">
-                        Adding <strong className="text-foreground">${selectedTopUp}.00 USD</strong> to your account wallet.
+                        {copy.wallet.addingToWalletPrefix}{" "}
+                        <strong className="text-foreground">${selectedTopUp}.00 USD</strong>{" "}
+                        {copy.wallet.addingToWalletSuffix}
                       </div>
                       <Button
                         onClick={handleTopUp}
@@ -400,11 +429,13 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                         {isProcessingCheckout ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" />
-                            Redirecting to Checkout...
+                            {copy.wallet.redirecting}
                           </>
                         ) : (
                           <>
-                            Proceed to Add ${selectedTopUp}.00
+                            {formatTemplate(copy.wallet.proceedToAdd, {
+                              amount: `$${selectedTopUp}.00`,
+                            })}
                             <ArrowUpRight className="w-3.5 h-3.5 ml-1" />
                           </>
                         )}
@@ -419,9 +450,9 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-sm font-bold text-foreground">Usage & Transaction Ledger</h2>
+                      <h2 className="text-sm font-bold text-foreground">{copy.history.title}</h2>
                       <p className="text-[11px] text-muted-foreground">
-                        Immutable records of balance deductions, top-ups, and refunds.
+                        {copy.history.subtitle}
                       </p>
                     </div>
                     <Button
@@ -430,27 +461,27 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                       onClick={fetchWalletAndHistory}
                       className="h-7 text-xs"
                     >
-                      <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                      <RefreshCw className="w-3 h-3 mr-1" /> {copy.refresh}
                     </Button>
                   </div>
 
                   {history.length === 0 ? (
                     <div className="p-8 text-center text-xs text-muted-foreground border border-dashed border-border/30 rounded-xl bg-card/30">
-                      No transactions recorded yet. Your credit usages and top-ups will appear here.
+                      {copy.history.empty}
                     </div>
                   ) : (
                     <div className="border border-border/20 rounded-xl overflow-hidden bg-card/40 shadow-2xs">
                       <div className="overflow-x-auto max-h-[50vh]">
-                        <table className="w-full text-xs text-left">
+                        <table className="w-full text-xs text-start">
                           <thead className="bg-muted/30 border-b border-border/20 text-[11px] uppercase tracking-wider text-muted-foreground font-mono">
                             <tr>
-                              <th className="py-2.5 px-3">Date</th>
-                              <th className="py-2.5 px-3">Feature</th>
-                              <th className="py-2.5 px-3">Provider</th>
-                              <th className="py-2.5 px-3">Units</th>
-                              <th className="py-2.5 px-3 text-right">Amount</th>
-                              <th className="py-2.5 px-3 text-right">Balance</th>
-                              <th className="py-2.5 px-3 text-center">Status</th>
+                              <th className="py-2.5 px-3">{copy.history.colDate}</th>
+                              <th className="py-2.5 px-3">{copy.history.colFeature}</th>
+                              <th className="py-2.5 px-3">{copy.history.colProvider}</th>
+                              <th className="py-2.5 px-3">{copy.history.colUnits}</th>
+                              <th className="py-2.5 px-3 text-right">{copy.history.colAmount}</th>
+                              <th className="py-2.5 px-3 text-right">{copy.history.colBalance}</th>
+                              <th className="py-2.5 px-3 text-center">{copy.history.colStatus}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/20">
@@ -459,7 +490,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                               return (
                                 <tr key={row.id} className="hover:bg-muted/15 transition-colors">
                                   <td className="py-2 px-3 text-muted-foreground font-mono whitespace-nowrap">
-                                    {new Date(row.createdAt).toLocaleDateString([], {
+                                    {new Date(row.createdAt).toLocaleDateString(dateLocale, {
                                       month: "short",
                                       day: "numeric",
                                       hour: "2-digit",
@@ -497,7 +528,7 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                                           : "bg-amber-500/10 text-amber-500"
                                       }`}
                                     >
-                                      {row.status}
+                                      {localizeStatus(row.status)}
                                     </span>
                                   </td>
                                 </tr>
@@ -515,46 +546,46 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
               {activeTab === "guide" && (
                 <div className="space-y-4 max-w-5xl">
                   <div>
-                    <h2 className="text-sm font-bold text-foreground">Transparent Billing & Cost Guide</h2>
+                    <h2 className="text-sm font-bold text-foreground">{copy.guide.title}</h2>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Everything you need to know about wallet funds, pricing markup, and zero-risk executions.
+                      {copy.guide.subtitle}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div className="p-4 border border-border/20 rounded-xl bg-card/60 shadow-2xs space-y-1.5">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Pay-As-You-Go Wallet
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> {copy.guide.card1Title}
                       </span>
                       <p className="text-muted-foreground leading-relaxed">
-                        Funds are pre-deposited and usage is deducted in real-time. No subscription fees, no unexpected monthly bills.
+                        {copy.guide.card1Desc}
                       </p>
                     </div>
 
                     <div className="p-4 border border-border/20 rounded-xl bg-card/60 shadow-2xs space-y-1.5">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-blue-500" /> Own-Key Mode = $0 Platform Charge
+                        <CheckCircle2 className="w-4 h-4 text-blue-500" /> {copy.guide.card2Title}
                       </span>
                       <p className="text-muted-foreground leading-relaxed">
-                        When you configure your own API key in AI Settings, the platform does NOT deduct any credits. Calls are billed directly by your provider.
+                        {copy.guide.card2Desc}
                       </p>
                     </div>
 
                     <div className="p-4 border border-border/20 rounded-xl bg-card/60 shadow-2xs space-y-1.5">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-primary" /> Automatic Failure Refunds
+                        <CheckCircle2 className="w-4 h-4 text-primary" /> {copy.guide.card3Title}
                       </span>
                       <p className="text-muted-foreground leading-relaxed">
-                        When an AI job is dispatched, credits are reserved. If the provider model fails or times out, all reserved funds are refunded back into your wallet immediately.
+                        {copy.guide.card3Desc}
                       </p>
                     </div>
 
                     <div className="p-4 border border-border/20 rounded-xl bg-card/60 shadow-2xs space-y-1.5">
                       <span className="font-bold text-foreground flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-purple-500" /> Reusable Caches Are Free
+                        <CheckCircle2 className="w-4 h-4 text-purple-500" /> {copy.guide.card4Title}
                       </span>
                       <p className="text-muted-foreground leading-relaxed">
-                        Pre-rendered audio chapters and generated comic scripts are stored in cache. Re-playing or re-reading cached content incurs 0 deductions.
+                        {copy.guide.card4Desc}
                       </p>
                     </div>
                   </div>
@@ -563,17 +594,17 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                   <div className="p-4 border border-blue-500/20 rounded-xl bg-blue-500/5 space-y-2">
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0" />
-                      <h4 className="text-xs font-bold text-foreground">Payout Platform & Merchant Compliance Summary</h4>
+                      <h4 className="text-xs font-bold text-foreground">{copy.guide.complianceTitle}</h4>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      EbookCC operates strictly as a cloud-based creator productivity utility and authoring tool, not a content distribution or streaming service. Our Text-to-Speech (TTS) and format conversion pipelines process exclusively user-authored manuscripts or verified public domain texts provided directly by the creator. All synthesized audio and converted documents are stored in private, creator-owned Cloudflare R2 storage or local browser cache, fully protected by end-to-end access controls. EbookCC hosts zero commercial audiobooks or pirated media, enforces an immediate zero-tolerance copyright policy, and serves solely as a software synthesizer for independent writers and publishers.
+                      {copy.guide.complianceDesc}
                     </p>
                   </div>
 
                   <div className="p-4 border border-border/20 rounded-xl bg-muted/20 space-y-2">
-                    <h4 className="text-xs font-bold text-foreground">Need Support or Custom Invoicing?</h4>
+                    <h4 className="text-xs font-bold text-foreground">{copy.guide.supportTitle}</h4>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      If you ever notice an unexplained deduction, need enterprise credit allotments, or have questions about AI gateway limits, email our engineering team directly at{" "}
+                      {copy.guide.supportDescPrefix}{" "}
                       <a href="mailto:support@ebookcc.com" className="text-primary underline font-medium">
                         support@ebookcc.com
                       </a>.
@@ -586,15 +617,15 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
               {activeTab === "limits" && (
                 <div className="space-y-4 max-w-5xl">
                   <div>
-                    <h2 className="text-sm font-bold text-foreground">Spending Protection & Caps</h2>
+                    <h2 className="text-sm font-bold text-foreground">{copy.limits.title}</h2>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Set a hard monthly spend ceiling to prevent runaway scripts or accidental overdrafts.
+                      {copy.limits.subtitle}
                     </p>
                   </div>
 
                   <div className="p-5 rounded-xl bg-card/60 shadow-2xs space-y-3">
                     <label className="text-xs font-bold uppercase tracking-wider text-foreground block">
-                      Monthly Spending Cap (USD)
+                      {copy.limits.capLabel}
                     </label>
                     <div className="flex items-center gap-3">
                       <div className="relative flex-1 max-w-xs">
@@ -615,11 +646,11 @@ export function BillingPage({ onBack, onNavigateAI }: BillingPageProps) {
                         className="text-xs font-bold h-9"
                       >
                         {isUpdatingCap ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
-                        Save Cap
+                        {copy.limits.saveCap}
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Once this monthly limit is reached, paid AI actions are paused until the next billing cycle unless manually increased.
+                      {copy.limits.hint}
                     </p>
                   </div>
                 </div>

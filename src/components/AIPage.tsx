@@ -50,6 +50,8 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { useAppSettings } from "@/context/AppSettingsContext";
+import { useLanguage } from "@/context/LanguageContext";
+import { AI_BILLING_TRANSLATIONS, formatTemplate } from "@/data/aiBillingTranslations";
 import { getApiUrl } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -559,6 +561,13 @@ function normalizeFeatureSettings(
 
 export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
   const { user, setShowAuthDialog, walletBalance } = useAppSettings();
+  const { language } = useLanguage();
+  const copy = (AI_BILLING_TRANSLATIONS[language] || AI_BILLING_TRANSLATIONS.en).ai;
+
+  const localizeProviderName = (name: string) =>
+    name
+      .replace("(in-browser, no need API)", copy.noApiSuffixBrowser)
+      .replace("(Workers AI, no need API)", copy.noApiSuffixWorkers);
 
   const [activeTab, setActiveTab] = useState<PipelineId>("vision");
   const [catalog, setCatalog] = useState<Record<string, any>>(FALLBACK_CATALOG);
@@ -690,11 +699,11 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
   const handleSaveApiKey = async (providerId: string) => {
     const rawKey = apiKeyInputs[providerId]?.trim();
     if (!rawKey) {
-      toast.error("Please enter an API key.");
+      toast.error(copy.toasts.enterKey);
       return;
     }
     if (!user) {
-      toast.error("Please sign in to securely save and encrypt your API keys.");
+      toast.error(copy.toasts.signInSaveKey);
       setShowAuthDialog(true);
       return;
     }
@@ -715,7 +724,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to save API key.");
+        throw new Error(data.error || copy.toasts.saveKeyFailed);
       }
 
       setMaskedKeys((prev) => ({
@@ -726,9 +735,11 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
         ...prev,
         [providerId]: "",
       }));
-      toast.success(`${providerId.toUpperCase()} API key saved and encrypted (AES-256-GCM).`);
+      toast.success(
+        formatTemplate(copy.toasts.saveKeySuccess, { provider: providerId.toUpperCase() })
+      );
     } catch (err: any) {
-      toast.error(err.message || "Failed to save API key.");
+      toast.error(err.message || copy.toasts.saveKeyFailed);
     } finally {
       setSavingKeyProvider(null);
     }
@@ -738,7 +749,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
   const handleTestApiKey = async (providerId: string) => {
     const rawKey = apiKeyInputs[providerId]?.trim();
     if (!user) {
-      toast.error("Please sign in to test your API key.");
+      toast.error(copy.toasts.signInTestKey);
       setShowAuthDialog(true);
       return;
     }
@@ -763,24 +774,28 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
         setTestResult({
           provider: providerId,
           success: true,
-          message: data.message || "Key test succeeded! Provider responded 200 OK.",
+          message: data.message || copy.toasts.testKeyOkDefault,
         });
-        toast.success(`Key test succeeded for ${providerId.toUpperCase()}`);
+        toast.success(
+          formatTemplate(copy.toasts.testKeySuccess, { provider: providerId.toUpperCase() })
+        );
       } else {
         setTestResult({
           provider: providerId,
           success: false,
-          message: data.error || data.message || "Key verification failed. Check credentials.",
+          message: data.error || data.message || copy.toasts.testKeyFailDefault,
         });
-        toast.error(`Key test failed for ${providerId.toUpperCase()}`);
+        toast.error(
+          formatTemplate(copy.toasts.testKeyFailed, { provider: providerId.toUpperCase() })
+        );
       }
     } catch (err: any) {
       setTestResult({
         provider: providerId,
         success: false,
-        message: err.message || "Network error while verifying API key.",
+        message: err.message || copy.toasts.testKeyNetErr,
       });
-      toast.error("Network error during key verification.");
+      toast.error(copy.toasts.testKeyNetToast);
     } finally {
       setTestingKeyProvider(null);
     }
@@ -804,10 +819,10 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
           delete next[providerId];
           return next;
         });
-        toast.success(`API key for ${providerId} removed.`);
+        toast.success(formatTemplate(copy.toasts.deleteKeySuccess, { provider: providerId }));
       }
     } catch (err) {
-      toast.error("Failed to delete key.");
+      toast.error(copy.toasts.deleteKeyFailed);
     }
   };
 
@@ -874,12 +889,12 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
   };
 
   const sidebarItems: Array<{ id: PipelineId; label: string; icon: any }> = [
-    { id: "vision", label: "Vision", icon: Eye },
-    { id: "tts", label: "Text to Speech", icon: Volume2 },
-    { id: "text_to_image", label: "Text to Images", icon: ImageIcon },
-    { id: "director", label: "Director", icon: Film },
-    { id: "music", label: "Music", icon: Music },
-    { id: "sfx", label: "Sound Effects", icon: Zap },
+    { id: "vision", label: copy.tabs.vision, icon: Eye },
+    { id: "tts", label: copy.tabs.tts, icon: Volume2 },
+    { id: "text_to_image", label: copy.tabs.text_to_image, icon: ImageIcon },
+    { id: "director", label: copy.tabs.director, icon: Film },
+    { id: "music", label: copy.tabs.music, icon: Music },
+    { id: "sfx", label: copy.tabs.sfx, icon: Zap },
   ];
 
   // Robust, crash-proof pipeline control block
@@ -925,7 +940,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
         : [{ id: "default", name: "Default Model" }];
 
     const provId = selectedProviderObj?.id || "provider";
-    const provName = selectedProviderObj?.name || "Provider";
+    const provName = localizeProviderName(selectedProviderObj?.name || copy.providerLabel);
     const hasSavedMaskedKey = Boolean(maskedKeys[provId]);
     const isNoApiNeeded = Boolean(selectedProviderObj?.noApiNeeded);
     const isPaddleOcr = provId === "paddle_ocr" || selectedProviderObj?.id === "paddle_ocr";
@@ -959,7 +974,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Own Key
+              {copy.ownKey}
             </button>
             <Switch
               checked={isPlatformCredits}
@@ -968,7 +983,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   mode: checked ? "platform_credits" : "own_key",
                 })
               }
-              aria-label="Toggle Platform Credits Mode"
+              aria-label={`${copy.ownKey} / ${copy.platformCredits}`}
               className="cursor-pointer"
             />
             <button
@@ -984,7 +999,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Platform Credits
+              {copy.platformCredits}
             </button>
           </div>
         </div>
@@ -994,7 +1009,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
           {/* Provider Dropdown */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-foreground uppercase tracking-wider block">
-              Provider
+              {copy.providerLabel}
             </label>
             <select
               value={setting.provider}
@@ -1015,7 +1030,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             >
               {safeProviders.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {localizeProviderName(p.name)}
                 </option>
               ))}
             </select>
@@ -1025,7 +1040,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
           {!isPaddleOcr && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-foreground uppercase tracking-wider block">
-                Model
+                {copy.modelLabel}
               </label>
               <select
                 value={setting.model}
@@ -1034,7 +1049,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
               >
                 {availableModels.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} {m.isDefault ? "(Default)" : ""}
+                    {m.name} {m.isDefault ? copy.defaultBadge : ""}
                   </option>
                 ))}
               </select>
@@ -1048,18 +1063,17 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             {isNoApiNeeded ? (
               <div className="p-3 rounded-lg bg-emerald-500/10 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                 <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                <span>
-                  <strong>{provName}</strong> runs directly without requiring an API key.
-                </span>
+                <span>{formatTemplate(copy.noApiNotice, { provider: provName })}</span>
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-primary" /> API Key ({provName})
+                    <Key className="w-3.5 h-3.5 text-primary" />{" "}
+                    {formatTemplate(copy.apiKeyLabel, { provider: provName })}
                   </label>
                   <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-emerald-500" /> AES-256-GCM Encrypted
+                    <ShieldCheck className="w-3 h-3 text-emerald-500" /> {copy.encryptedBadge}
                   </span>
                 </div>
 
@@ -1070,7 +1084,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                         {maskedKeys[provId]}
                       </span>
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                        Stored
+                        {copy.storedBadge}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 self-end sm:self-auto">
@@ -1086,7 +1100,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                         ) : (
                           <RefreshCw className="w-3 h-3 mr-1" />
                         )}
-                        Test Key
+                        {copy.testKey}
                       </Button>
                       <Button
                         size="sm"
@@ -1094,7 +1108,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                         className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
                         onClick={() => handleDeleteApiKey(provId)}
                       >
-                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                        <Trash2 className="w-3.5 h-3.5 mr-1" /> {copy.deleteKey}
                       </Button>
                     </div>
                   </div>
@@ -1103,7 +1117,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="password"
-                        placeholder={`Enter ${provName} API key...`}
+                        placeholder={formatTemplate(copy.apiKeyPlaceholder, { provider: provName })}
                         value={apiKeyInputs[provId] || ""}
                         onChange={(e) =>
                           setApiKeyInputs((prev) => ({
@@ -1123,7 +1137,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                           {savingKeyProvider === provId ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
                           ) : (
-                            "Save Key"
+                            copy.saveKey
                           )}
                         </Button>
                         <Button
@@ -1136,7 +1150,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                           {testingKeyProvider === provId ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
                           ) : (
-                            "Test Key"
+                            copy.testKey
                           )}
                         </Button>
                       </div>
@@ -1172,8 +1186,8 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <Info className="w-3.5 h-3.5 text-primary shrink-0" />
             <span>
               {isPlatformCredits
-                ? "Deducts pay-as-you-go credits from your wallet (includes 40% markup)."
-                : `Billed directly to your ${provName} account. $0 platform credits deducted.`}
+                ? copy.pricingPlatform
+                : formatTemplate(copy.pricingOwnKey, { provider: provName })}
             </span>
           </div>
           {isPlatformCredits && onNavigateBilling && (
@@ -1181,7 +1195,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
               onClick={onNavigateBilling}
               className="text-primary hover:underline font-bold shrink-0 ml-2 cursor-pointer"
             >
-              Add Funds →
+              {copy.addFunds}
             </button>
           )}
         </div>
@@ -1190,7 +1204,10 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
   };
 
   return (
-    <div className="h-full w-full overflow-hidden bg-background text-foreground flex flex-col min-h-0">
+    <div
+      dir={language === "ar" ? "rtl" : "ltr"}
+      className="h-full w-full overflow-hidden bg-background text-foreground flex flex-col min-h-0"
+    >
       {/* Top Header Bar - Borderless & Clean */}
       <header className="w-full bg-card/30 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
@@ -1199,8 +1216,8 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             size="icon"
             onClick={() => setIsSidebarFolded((prev) => !prev)}
             className="h-8 w-8 text-muted-foreground hover:text-foreground hidden md:flex cursor-pointer"
-            title={isSidebarFolded ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label="Toggle sidebar"
+            title={isSidebarFolded ? copy.expandSidebar : copy.collapseSidebar}
+            aria-label={isSidebarFolded ? copy.expandSidebar : copy.collapseSidebar}
           >
             {isSidebarFolded ? (
               <PanelLeftOpen className="w-4 h-4 text-primary" />
@@ -1209,9 +1226,9 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             )}
           </Button>
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-muted-foreground">Settings</span>
+            <span className="text-muted-foreground">{copy.settingsBreadcrumb}</span>
             <span className="text-border/40">/</span>
-            <span className="font-bold text-foreground">AI Provider Settings</span>
+            <span className="font-bold text-foreground">{copy.pageTitle}</span>
           </div>
         </div>
 
@@ -1223,7 +1240,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
           )}
 
           {/* Main Billing Mode Switch beside Wallet: Left is Own Key, Right is Platform Credits */}
-          <div className="flex items-center gap-1.5 select-none" aria-label="Main AI billing mode switch">
+          <div className="flex items-center gap-1.5 select-none" aria-label={`${copy.ownKey} / ${copy.platformCredits}`}>
             <button
               type="button"
               onClick={() => handleMainModeChange("own_key")}
@@ -1233,14 +1250,14 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Own Key
+              {copy.ownKey}
             </button>
             <Switch
               checked={mainBillingMode === "platform_credits"}
               onCheckedChange={(checked) =>
                 handleMainModeChange(checked ? "platform_credits" : "own_key")
               }
-              aria-label="Main switch: Own Key or Platform Credits"
+              aria-label={`${copy.ownKey} / ${copy.platformCredits}`}
               className="cursor-pointer"
             />
             <button
@@ -1252,7 +1269,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Platform Credits
+              {copy.platformCredits}
             </button>
           </div>
 
@@ -1262,7 +1279,9 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
               className="flex items-center gap-1.5 text-xs font-bold text-foreground hover:text-primary transition-colors cursor-pointer bg-transparent border-0 p-0 outline-none"
             >
               <CreditCard className="w-3.5 h-3.5 text-primary" />
-              <span>Wallet: ${walletBalance.toFixed(2)}</span>
+              <span>
+                {copy.walletLabel}: ${walletBalance.toFixed(2)}
+              </span>
             </button>
           )}
         </div>
@@ -1273,7 +1292,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
         {/* Mobile Top Navigation Dropdown */}
         <div className="md:hidden p-3 bg-muted/20 shrink-0">
           <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
-            Select Pipeline
+            {copy.selectPipeline}
           </label>
           <select
             value={activeTab}
@@ -1296,7 +1315,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
         >
           {!isSidebarFolded && (
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Pipelines
+              {copy.pipelinesHeading}
             </div>
           )}
 
@@ -1308,7 +1327,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 title={item.label}
-                className={`flex items-center rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                className={`flex items-center rounded-lg text-xs font-bold transition-all text-start cursor-pointer ${
                   isSidebarFolded
                     ? `w-10 h-10 justify-center ${
                         isActive
@@ -1336,18 +1355,17 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-primary" /> Vision
+                  <Eye className="w-5 h-5 text-primary" /> {copy.tabs.vision}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Multi-modal vision analysis for manga panels, speech balloon detection, and optical character recognition.
+                  {copy.sections.visionDesc}
                 </p>
               </div>
 
               {/* Section 1: OCR */}
               {renderPipelineControlBlock({
-                title: "1. OCR (Optical Character Recognition)",
-                description:
-                  "Extracts dialogue and dialogue balloons. Supported: Paddle OCR, Google Gemini, OpenAI, Anthropic Claude, Alibaba Qwen, Cloudflare Workers AI, and Local LLM.",
+                title: copy.sections.ocrTitle,
+                description: copy.sections.ocrDesc,
                 stateKey: "vision_ocr",
                 providers: catalog.vision?.ocrProviders || FALLBACK_CATALOG.vision.ocrProviders,
                 isSubSection: true,
@@ -1355,9 +1373,8 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
 
               {/* Section 2: Vision Analyst */}
               {renderPipelineControlBlock({
-                title: "2. Vision Analyst",
-                description:
-                  "Analyzes panel composition, character facial expressions, and stage directions. Supported: Google Gemini, OpenAI, Anthropic Claude, Alibaba Qwen, and Local LLM.",
+                title: copy.sections.analystTitle,
+                description: copy.sections.analystDesc,
                 stateKey: "vision_analyst",
                 providers: catalog.vision?.analystProviders || FALLBACK_CATALOG.vision.analystProviders,
                 isSubSection: true,
@@ -1370,16 +1387,16 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Volume2 className="w-5 h-5 text-primary" /> Text to Speech
+                  <Volume2 className="w-5 h-5 text-primary" /> {copy.tabs.tts}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Voice narration and character acting with British RP accents. Providers: Elevenlabs, Cartesia, Google Gemini, OpenAI, and Local LLM.
+                  {copy.sections.ttsDesc}
                 </p>
               </div>
 
               {renderPipelineControlBlock({
-                title: "Speech Synthesis Engine",
-                description: "Select voice model and configure your provider API key.",
+                title: copy.sections.ttsEngineTitle,
+                description: copy.sections.ttsEngineDesc,
                 stateKey: "tts",
                 providers: catalog.tts?.providers || FALLBACK_CATALOG.tts.providers,
               })}
@@ -1389,10 +1406,10 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                 <div className="flex items-center justify-between pb-1">
                   <div>
                     <span className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5 text-primary" /> Provider Fallback Priority
+                      <Sliders className="w-3.5 h-3.5 text-primary" /> {copy.sections.ttsFallbackTitle}
                     </span>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      If the primary model is throttled or fails, the system automatically falls back down this order.
+                      {copy.sections.ttsFallbackDesc}
                     </p>
                   </div>
                 </div>
@@ -1409,7 +1426,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                   ).map((provId: string, idx: number, arr: string[]) => {
                     const allTtsProviders = catalog.tts?.providers || FALLBACK_CATALOG.tts.providers;
                     const provObj = allTtsProviders.find((p: any) => p.id === provId);
-                    const provName = provObj ? provObj.name : provId;
+                    const provName = localizeProviderName(provObj ? provObj.name : provId);
                     return (
                       <div
                         key={provId}
@@ -1422,7 +1439,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                           <span className="font-semibold text-foreground">{provName}</span>
                           {idx === 0 && (
                             <span className="text-[10px] text-primary font-bold uppercase tracking-wide">
-                              (Primary)
+                              {copy.sections.primaryBadge}
                             </span>
                           )}
                         </div>
@@ -1433,7 +1450,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                             disabled={idx === 0}
                             onClick={() => moveTtsProvider(idx, "up")}
                             className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-                            title="Move Up"
+                            title={copy.sections.moveUp}
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </Button>
@@ -1443,7 +1460,7 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
                             disabled={idx === arr.length - 1}
                             onClick={() => moveTtsProvider(idx, "down")}
                             className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-                            title="Move Down"
+                            title={copy.sections.moveDown}
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
                           </Button>
@@ -1461,16 +1478,16 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <ImageIcon className="w-5 h-5 text-primary" /> Text to Images
+                  <ImageIcon className="w-5 h-5 text-primary" /> {copy.tabs.text_to_image}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Comic panel generation and cover concept art. Providers: Stability AI, Black Forest Labs, Google Gemini, OpenAI, and Local LLM.
+                  {copy.sections.t2iDesc}
                 </p>
               </div>
 
               {renderPipelineControlBlock({
-                title: "Image Generation Engine",
-                description: "Select rendering model and configure your provider API key.",
+                title: copy.sections.t2iEngineTitle,
+                description: copy.sections.t2iEngineDesc,
                 stateKey: "text_to_image",
                 providers: catalog.text_to_image?.providers || FALLBACK_CATALOG.text_to_image.providers,
               })}
@@ -1482,16 +1499,16 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Film className="w-5 h-5 text-primary" /> Director
+                  <Film className="w-5 h-5 text-primary" /> {copy.tabs.director}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Story pacing, audio drama adaptation, and stage direction scripting. Providers: Google Gemini, OpenAI, Anthropic Claude, Alibaba Qwen, and Local LLM.
+                  {copy.sections.directorDesc}
                 </p>
               </div>
 
               {renderPipelineControlBlock({
-                title: "Director Reasoning Engine",
-                description: "Select reasoning model and configure your provider API key.",
+                title: copy.sections.directorEngineTitle,
+                description: copy.sections.directorEngineDesc,
                 stateKey: "director",
                 providers: catalog.director?.providers || FALLBACK_CATALOG.director.providers,
               })}
@@ -1503,16 +1520,16 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Music className="w-5 h-5 text-primary" /> Music
+                  <Music className="w-5 h-5 text-primary" /> {copy.tabs.music}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Atmospheric cinematic soundscapes and orchestral BGM. Providers: ElevenLabs, Stability AI, Meta, Freesound API, and Local LLM.
+                  {copy.sections.musicDesc}
                 </p>
               </div>
 
               {renderPipelineControlBlock({
-                title: "Music Synthesis Engine",
-                description: "Select music model and configure your provider API key.",
+                title: copy.sections.musicEngineTitle,
+                description: copy.sections.musicEngineDesc,
                 stateKey: "music",
                 providers: catalog.music?.providers || FALLBACK_CATALOG.music.providers,
               })}
@@ -1524,16 +1541,16 @@ export function AIPage({ onBack, onNavigateBilling }: AIPageProps) {
             <div className="space-y-6 max-w-5xl">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-primary" /> Sound Effects
+                  <Zap className="w-5 h-5 text-primary" /> {copy.tabs.sfx}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Foley, ambient noise, and dynamic impact effects. Providers: ElevenLabs, Stability AI, Meta, Freesound API, and Local LLM.
+                  {copy.sections.sfxDesc}
                 </p>
               </div>
 
               {renderPipelineControlBlock({
-                title: "Sound Effects Engine",
-                description: "Select SFX model and configure your provider API key.",
+                title: copy.sections.sfxEngineTitle,
+                description: copy.sections.sfxEngineDesc,
                 stateKey: "sfx",
                 providers: catalog.sfx?.providers || FALLBACK_CATALOG.sfx.providers,
               })}

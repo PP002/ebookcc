@@ -30,23 +30,23 @@ import {
   Languages,
   Bot,
   LayoutGrid,
-  FileArchive,
+  Film,
   Wand2,
   Server,
-  Files,
+  Radio,
   MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 const mangaBg = "/features/manga-translation.png";
-const multiAiBg = "/features/multi-ai.png";
-const panelSplitterBg = "/features/panel-splitter.png";
-const cbzConverterBg = "/features/cbz-converter.png";
-const aiAgentBg = "/features/ai-agent.png";
+const multiAiBg = "/features/multi-ai.png?v=2";
+const panelSplitterBg = "/features/panel-splitter.png?v=2";
+const videoToComicBg = "/features/video-to-comic.png";
+const aiAgentBg = "/features/ai-agent.png?v=2";
 const localProcessingBg = "/features/local-processing.png";
-const formatSupportBg = "/features/format-support.png";
-const penSupportBg = "/features/pen-support.png";
+const broadcastAudioDramaBg = "/features/broadcast-audio-drama.png";
+const penSupportBg = "/features/pen-support.png?v=2";
 import { Slideshow } from "./components/Slideshow";
 import {
   AppSettingsProvider,
@@ -541,8 +541,8 @@ function AppContent() {
                   />
 
                   <FeatureCard
-                    bg={cbzConverterBg}
-                    icon={FileArchive}
+                    bg={videoToComicBg}
+                    icon={Film}
                     title={t("featCbzEpubTitle")}
                     description={t("featCbzEpubDesc")}
                   />
@@ -562,8 +562,8 @@ function AppContent() {
                   />
 
                   <FeatureCard
-                    bg={formatSupportBg}
-                    icon={Files}
+                    bg={broadcastAudioDramaBg}
+                    icon={Radio}
                     title={t("featFormatSupportTitle")}
                     description={t("featFormatSupportDesc")}
                   />
@@ -610,14 +610,14 @@ function AppContent() {
                     onClick={() => setComplianceModal({ isOpen: true, tab: "privacy" })}
                     className="underline hover:text-primary transition-colors cursor-pointer font-medium"
                   >
-                    Ownership & Privacy
+                    {t("ownershipAndPrivacy")}
                   </button>
                   <span className="hidden sm:inline text-border">|</span>
                   <button
                     onClick={() => setComplianceModal({ isOpen: true, tab: "terms" })}
                     className="underline hover:text-primary transition-colors cursor-pointer font-medium"
                   >
-                    Terms & Copyright
+                    {t("termsAndCopyright")}
                   </button>
                   <span className="hidden sm:inline text-border">|</span>
                   <LanguageSelector />

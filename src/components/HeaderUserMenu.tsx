@@ -12,6 +12,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAppSettings, getSupabase } from "@/context/AppSettingsContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { AI_BILLING_TRANSLATIONS } from "@/data/aiBillingTranslations";
 import { CreditCard, Sparkles, LogOut, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { signOutGoogleDrive } from "@/lib/googleDrive";
@@ -22,7 +23,8 @@ interface HeaderUserMenuProps {
 }
 
 export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuProps) {
-  const { t } = useLanguage();
+  const { language } = useLanguage();
+  const menuCopy = (AI_BILLING_TRANSLATIONS[language] || AI_BILLING_TRANSLATIONS.en).menu;
   const {
     user,
     setUser,
@@ -46,7 +48,7 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
   const menuItems = [
     {
       id: "billing",
-      label: "Billing",
+      label: menuCopy.billing,
       icon: CreditCard,
       badge: walletBalance > 0 ? `$${walletBalance.toFixed(2)}` : undefined,
       action: () => {
@@ -59,7 +61,7 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
     },
     {
       id: "ai",
-      label: "AI",
+      label: menuCopy.ai,
       icon: Sparkles,
       action: () => {
         if (onNavigate) {
@@ -71,7 +73,7 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
     },
     {
       id: "logout",
-      label: "Log out",
+      label: menuCopy.logOut,
       icon: LogOut,
       destructive: true,
       action: () => handleLogout(),
@@ -161,7 +163,7 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
       }
       setUser(null);
       localStorage.removeItem("auth_user");
-      toast.success("Logged out successfully.");
+      toast.success(menuCopy.loggedOutSuccess);
     } finally {
       setIsLoggingOut(false);
       setIsOpen(false);
@@ -177,9 +179,9 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
         type="button"
         onClick={() => setShowAuthDialog(true)}
         className={`px-3 py-1.5 text-xs font-semibold text-primary hover:text-primary-foreground hover:bg-primary/90 border border-primary/40 hover:border-primary rounded-md transition-all duration-150 shadow-xs cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 select-none ${className}`}
-        aria-label="Sign in to your account"
+        aria-label={menuCopy.signInAria}
       >
-        Sign in
+        {menuCopy.signIn}
       </button>
     );
   }
@@ -230,8 +232,8 @@ export function HeaderUserMenu({ className = "", onNavigate }: HeaderUserMenuPro
           className="absolute right-0 mt-2 w-48 origin-top-right rounded-lg bg-popover/95 backdrop-blur-md border border-border/20 shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100 outline-none divide-y divide-border/20"
         >
           {/* User identity preview */}
-          <div className="px-3 py-2 text-left">
-            <p className="text-xs font-semibold text-foreground truncate">{user.name || "My Account"}</p>
+          <div className="px-3 py-2 text-start">
+            <p className="text-xs font-semibold text-foreground truncate">{user.name || menuCopy.myAccount}</p>
             <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
           </div>
 

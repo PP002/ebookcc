@@ -768,7 +768,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
                   </div>
                 ) : (
                   <div
-                    className={`grid ${previewGridColsClass} gap-2 flex-1 min-h-0 overflow-y-auto p-1.5 border border-border rounded-lg bg-background/50 content-start`}
+                    className={`grid ${previewGridColsClass} gap-2 items-start content-start flex-1 min-h-0 overflow-y-auto p-1.5 border border-border rounded-lg bg-background/50`}
                   >
                     {activeClusters.map((cl, idx) => {
                       const isSelected = selectedClusterIds.has(cl.clusterId);
@@ -777,10 +777,12 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
                         cl.previewDataUrl;
 
                       return (
-                        <button
+                        <div
                           key={cl.clusterId}
-                          type="button"
-                          disabled={isProcessing}
+                          role="button"
+                          tabIndex={isProcessing ? -1 : 0}
+                          aria-disabled={isProcessing}
+                          aria-pressed={isSelected}
                           onClick={(e) =>
                             handleToggleFrameSelection(
                               cl.clusterId,
@@ -788,11 +790,17 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
                               e.shiftKey
                             )
                           }
-                          aria-pressed={isSelected}
-                          style={{
-                            aspectRatio: `${videoWidth} / ${videoHeight}`,
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleToggleFrameSelection(
+                                cl.clusterId,
+                                idx,
+                                e.shiftKey
+                              );
+                            }
                           }}
-                          className={`group relative w-full rounded overflow-hidden border bg-black/80 transition-all text-start focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                          className={`group relative w-full self-start rounded overflow-hidden border bg-black/80 transition-all select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                             isProcessing
                               ? 'cursor-default border-border'
                               : isSelected
@@ -807,13 +815,13 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
                               alt={formatVideoComicTemplate(copy.frameAlt, {
                                 id: idx + 1,
                               })}
-                              className={`w-full h-full object-contain transition-opacity ${
+                              className={`w-full h-auto block transition-opacity ${
                                 isSelected ? 'opacity-70' : 'opacity-100'
                               }`}
                               draggable={false}
                             />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-[9px] text-muted-foreground">
+                            <div className="w-full py-6 flex items-center justify-center text-[9px] text-muted-foreground">
                               #{idx + 1}
                             </div>
                           )}
@@ -845,7 +853,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
                           <span className="absolute bottom-1 right-1 text-[8px] bg-black/75 text-white px-1 rounded font-mono leading-tight">
                             {cl.repTimestamp.toFixed(1)}s
                           </span>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

@@ -2569,19 +2569,19 @@ export async function extractVideoKeyframes(
     }
 
     // Warm up decoder
-    if (videoEl.readyState < 2) {
+    if (videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) {
       try {
         await seekVideo(videoEl, Math.min(0.05, videoEl.duration * 0.01), 3000);
       } catch (_) {}
     }
 
     const duration = videoEl.duration;
-    const rawWidth = videoEl.videoWidth || 640;
-    const rawHeight = videoEl.videoHeight || 360;
+    let rawWidth = videoEl.videoWidth || 640;
+    let rawHeight = videoEl.videoHeight || 360;
     const maxDim = 1600;
-    const scaleFactor = Math.min(1, maxDim / Math.max(rawWidth, rawHeight));
-    const videoWidth = Math.max(1, Math.round(rawWidth * scaleFactor));
-    const videoHeight = Math.max(1, Math.round(rawHeight * scaleFactor));
+    let scaleFactor = Math.min(1, maxDim / Math.max(rawWidth, rawHeight));
+    let videoWidth = Math.max(1, Math.round(rawWidth * scaleFactor));
+    let videoHeight = Math.max(1, Math.round(rawHeight * scaleFactor));
 
     const cfgSample = VIDEO_TO_COMIC_CONFIG.sampling;
     const analysisW = cfgSample.analysisCanvasWidth;
@@ -2599,17 +2599,13 @@ export async function extractVideoKeyframes(
     if (!analysisCtx)
       throw new Error('Could not create 2D analysis canvas context.');
 
+    const previewMaxDim = 320;
     let previewCtx: CanvasRenderingContext2D | null = null;
     if (includeDebugThumbnails) {
-      const previewMaxDim = Math.max(
-        160,
-        cfgSample.contactSheetThumbWidth,
-        cfgSample.contactSheetThumbHeight
-      );
       const previewScale = Math.min(1, previewMaxDim / Math.max(1, rawWidth, rawHeight));
       previewCanvas = document.createElement('canvas');
-      previewCanvas.width = Math.max(24, Math.round(rawWidth * previewScale));
-      previewCanvas.height = Math.max(24, Math.round(rawHeight * previewScale));
+      previewCanvas.width = Math.max(2, Math.round(rawWidth * previewScale));
+      previewCanvas.height = Math.max(2, Math.round(rawHeight * previewScale));
       previewCtx = previewCanvas.getContext('2d');
     }
 
@@ -2648,6 +2644,18 @@ export async function extractVideoKeyframes(
       const seekOk = await seekVideo(videoEl, t, 5000);
       if (!seekOk) continue;
 
+      if (
+        videoEl.videoWidth > 0 &&
+        videoEl.videoHeight > 0 &&
+        (videoEl.videoWidth !== rawWidth || videoEl.videoHeight !== rawHeight)
+      ) {
+        rawWidth = videoEl.videoWidth;
+        rawHeight = videoEl.videoHeight;
+        scaleFactor = Math.min(1, maxDim / Math.max(rawWidth, rawHeight));
+        videoWidth = Math.max(1, Math.round(rawWidth * scaleFactor));
+        videoHeight = Math.max(1, Math.round(rawHeight * scaleFactor));
+      }
+
       const actualTime = Number.isFinite(videoEl.currentTime)
         ? videoEl.currentTime
         : t;
@@ -2662,6 +2670,19 @@ export async function extractVideoKeyframes(
 
       let previewDataUrl: string | undefined;
       if (previewCtx && previewCanvas) {
+        const previewScale = Math.min(
+          1,
+          previewMaxDim / Math.max(1, rawWidth, rawHeight)
+        );
+        const targetPreviewW = Math.max(2, Math.round(rawWidth * previewScale));
+        const targetPreviewH = Math.max(2, Math.round(rawHeight * previewScale));
+        if (
+          previewCanvas.width !== targetPreviewW ||
+          previewCanvas.height !== targetPreviewH
+        ) {
+          previewCanvas.width = targetPreviewW;
+          previewCanvas.height = targetPreviewH;
+        }
         previewCtx.drawImage(
           videoEl,
           0,

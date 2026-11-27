@@ -16,6 +16,7 @@ import {
   Check,
   CheckSquare,
   Square,
+  Eye,
 } from 'lucide-react';
 import {
   extractVideoKeyframes,
@@ -76,7 +77,8 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
   const [activeClusters, setActiveClusters] = useState<ClusterSummaryRecord[]>([]);
   const [needsStage4Capture, setNeedsStage4Capture] = useState<boolean>(false);
 
-  // Multi-select state for deleting unwanted preview frames
+  // Individual Preview window state & multi-select state for deleting unwanted frames
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [selectedClusterIds, setSelectedClusterIds] = useState<Set<number>>(
     () => new Set()
   );
@@ -131,6 +133,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
       const pages = paginateKeyframesTo6PanelPages(keyframes, {
         baseTitle: file.name.replace(/\.[^/.]+$/, ''),
       });
+      setIsPreviewOpen(false);
       onCompleteRef.current(pages, keyframes);
       onCloseRef.current();
     },
@@ -176,6 +179,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
       const runId = ++activeRunIdRef.current;
       isCancelledRef.current = false;
       setIsProcessing(true);
+      setIsPreviewOpen(false);
       setExtractedKeyframes([]);
       setCachedSession(null);
       setActiveClusters([]);
@@ -275,6 +279,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
       isCancelledRef.current = true;
       activeRunIdRef.current++;
       setIsProcessing(false);
+      setIsPreviewOpen(false);
       setSelectedClusterIds(new Set());
       lastClickedIdxRef.current = null;
     }
@@ -411,6 +416,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
     if (needsStage4Capture && cachedSession && activeClusters.length > 0) {
       const runId = ++activeRunIdRef.current;
       isCancelledRef.current = false;
+      setIsPreviewOpen(false);
       setIsProcessing(true);
       setStatusMode('live');
       try {
@@ -465,6 +471,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
     activeRunIdRef.current++;
     startedFileRef.current = null;
     setIsProcessing(false);
+    setIsPreviewOpen(false);
     onCloseRef.current();
   };
 
@@ -540,11 +547,17 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
     activeClusters.length > 0 && selectedCount === activeClusters.length;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleCancel()}>
-      <DialogContent
-        dir={language === 'ar' ? 'rtl' : 'ltr'}
-        className="w-[min(calc(100vw-2rem),calc(88vh*4/3),720px)] max-w-none sm:max-w-none aspect-[4/3] max-h-[88vh] bg-card border-border shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col gap-3"
+    <>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open && !isPreviewOpen) handleCancel();
+        }}
       >
+        <DialogContent
+          dir={language === 'ar' ? 'rtl' : 'ltr'}
+          className="w-[min(calc(100vw-2rem),560px)] max-w-none sm:max-w-none h-auto max-h-[88vh] bg-card border-border shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col gap-3"
+        >
         <DialogHeader className="min-w-0 shrink-0 pr-7">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
@@ -557,7 +570,7 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
         </DialogHeader>
 
         {videoFile && (
-          <div className="flex-1 min-h-0 flex flex-col gap-2.5 overflow-y-auto pr-0.5 min-w-0">
+          <div className="min-h-0 flex flex-col gap-2.5 overflow-y-auto pr-0.5 min-w-0">
             {/* Video metadata banner */}
             <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/40 border border-border/60 text-xs min-w-0 shrink-0 overflow-hidden">
               <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
@@ -693,185 +706,40 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
               </div>
             </div>
 
-            {/* Instant Preview Grid of Cluster Representatives (Original Video Ratio + Multi-Select Delete) */}
-            {(activeClusters.length > 0 || statusMode === 'empty') && (
-              <div className="flex-1 min-h-[140px] flex flex-col gap-1.5 min-w-0 overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs min-w-0 shrink-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-semibold text-foreground truncate flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-                      {formatVideoComicTemplate(copy.previewTitle, {
-                        count: activeClusters.length,
-                      })}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground shrink-0">
-                      {formatVideoComicTemplate(copy.comicPagesCount, {
-                        pages: Math.ceil(activeClusters.length / 6),
-                      })}
-                    </span>
-                  </div>
-
-                  {!isProcessing && activeClusters.length > 0 && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {selectedCount > 0 ? (
-                        <span className="text-[11px] font-medium text-destructive">
-                          {formatVideoComicTemplate(copy.selectedCount, {
-                            count: selectedCount,
-                          })}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                          {copy.selectHint}
-                        </span>
-                      )}
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-6 px-2 text-[11px] gap-1"
-                        onClick={handleSelectAllOrClear}
-                      >
-                        {allSelected ? (
-                          <CheckSquare className="w-3 h-3" />
-                        ) : (
-                          <Square className="w-3 h-3" />
-                        )}
-                        <span>
-                          {allSelected ? copy.clearSelection : copy.selectAll}
-                        </span>
-                      </Button>
-
-                      {selectedCount > 0 && (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="h-6 px-2 text-[11px] gap-1"
-                          onClick={handleDeleteSelectedFrames}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>
-                            {formatVideoComicTemplate(copy.deleteSelected, {
-                              count: selectedCount,
-                            })}
-                          </span>
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {activeClusters.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center p-4 border border-dashed border-border rounded-lg bg-background/40 text-xs text-muted-foreground text-center">
-                    {copy.allDeletedNotice}
-                  </div>
-                ) : (
-                  <div
-                    className={`grid ${previewGridColsClass} gap-2 items-start content-start flex-1 min-h-0 overflow-y-auto p-1.5 border border-border rounded-lg bg-background/50`}
-                  >
-                    {activeClusters.map((cl, idx) => {
-                      const isSelected = selectedClusterIds.has(cl.clusterId);
-                      const imgSrc =
-                        keyframeByClusterId.get(cl.clusterId)?.dataUrl ||
-                        cl.previewDataUrl;
-
-                      return (
-                        <div
-                          key={cl.clusterId}
-                          role="button"
-                          tabIndex={isProcessing ? -1 : 0}
-                          aria-disabled={isProcessing}
-                          aria-pressed={isSelected}
-                          onClick={(e) =>
-                            handleToggleFrameSelection(
-                              cl.clusterId,
-                              idx,
-                              e.shiftKey
-                            )
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              handleToggleFrameSelection(
-                                cl.clusterId,
-                                idx,
-                                e.shiftKey
-                              );
-                            }
-                          }}
-                          className={`group relative w-full self-start rounded overflow-hidden border bg-black/80 transition-all select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                            isProcessing
-                              ? 'cursor-default border-border'
-                              : isSelected
-                              ? 'cursor-pointer border-destructive ring-2 ring-destructive shadow-sm'
-                              : 'cursor-pointer border-border hover:border-primary/70'
-                          }`}
-                          title={`#${idx + 1} • ${cl.repTimestamp.toFixed(1)}s`}
-                        >
-                          {imgSrc ? (
-                            <img
-                              src={imgSrc}
-                              alt={formatVideoComicTemplate(copy.frameAlt, {
-                                id: idx + 1,
-                              })}
-                              className={`w-full h-auto block transition-opacity ${
-                                isSelected ? 'opacity-70' : 'opacity-100'
-                              }`}
-                              draggable={false}
-                            />
-                          ) : (
-                            <div className="w-full py-6 flex items-center justify-center text-[9px] text-muted-foreground">
-                              #{idx + 1}
-                            </div>
-                          )}
-
-                          {/* Selection tint overlay */}
-                          {isSelected && (
-                            <div className="absolute inset-0 bg-destructive/20 pointer-events-none" />
-                          )}
-
-                          {/* Frame number badge */}
-                          <span className="absolute top-1 left-1 text-[8px] bg-primary/90 text-primary-foreground px-1 rounded font-mono leading-tight">
-                            #{idx + 1}
-                          </span>
-
-                          {/* Multi-select checkbox badge */}
-                          {!isProcessing && (
-                            <span
-                              className={`absolute top-1 right-1 w-4 h-4 rounded flex items-center justify-center border transition-colors ${
-                                isSelected
-                                  ? 'bg-destructive border-destructive text-destructive-foreground'
-                                  : 'bg-black/55 border-white/60 text-transparent group-hover:border-white'
-                              }`}
-                            >
-                              <Check className="w-2.5 h-2.5 stroke-[3]" />
-                            </span>
-                          )}
-
-                          {/* Timestamp badge */}
-                          <span className="absolute bottom-1 right-1 text-[8px] bg-black/75 text-white px-1 rounded font-mono leading-tight">
-                            {cl.repTimestamp.toFixed(1)}s
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+            {statusMode === 'empty' && !isProcessing && (
+              <div className="p-3 border border-dashed border-border rounded-lg bg-background/40 text-xs text-muted-foreground text-center shrink-0">
+                {copy.allDeletedNotice}
               </div>
             )}
           </div>
         )}
 
         <DialogFooter className="mx-0 mb-0 p-0 pt-2.5 border-t border-border/60 bg-transparent flex flex-row items-center justify-between gap-2 shrink-0 sm:justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleCancel}
-          >
-            {isProcessing ? copy.cancel : copy.close}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCancel}
+            >
+              {isProcessing ? copy.cancel : copy.close}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={isProcessing || displayedFrameCount === 0}
+              onClick={() => setIsPreviewOpen(true)}
+            >
+              <Eye className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {copy.previewButton}
+                {displayedFrameCount > 0 ? ` (${displayedFrameCount})` : ''}
+              </span>
+            </Button>
+          </div>
 
           {!isProcessing && displayedFrameCount > 0 && videoFile && (
             <Button
@@ -894,7 +762,219 @@ export const VideoToComicDialog: React.FC<VideoToComicDialogProps> = ({
             </Button>
           )}
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      {/* Individual Preview Window (Original Video Ratio + Multi-Select Delete) */}
+      <Dialog open={isOpen && isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent
+          dir={language === 'ar' ? 'rtl' : 'ltr'}
+          className="w-[min(calc(100vw-2rem),960px)] max-w-none sm:max-w-none h-[min(86vh,760px)] max-h-[86vh] bg-card border-border shadow-2xl p-4 sm:p-5 overflow-hidden flex flex-col gap-3"
+        >
+          <DialogHeader className="min-w-0 shrink-0 pr-7">
+            <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <DialogTitle className="text-base font-semibold truncate">
+                  {formatVideoComicTemplate(copy.previewTitle, {
+                    count: activeClusters.length,
+                  })}
+                </DialogTitle>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {formatVideoComicTemplate(copy.comicPagesCount, {
+                    pages: Math.ceil(activeClusters.length / 6),
+                  })}
+                </span>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Selection toolbar */}
+          {activeClusters.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+              {selectedCount > 0 ? (
+                <span className="text-xs font-medium text-destructive">
+                  {formatVideoComicTemplate(copy.selectedCount, {
+                    count: selectedCount,
+                  })}
+                </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">
+                  {copy.selectHint}
+                </span>
+              )}
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs gap-1"
+                  onClick={handleSelectAllOrClear}
+                >
+                  {allSelected ? (
+                    <CheckSquare className="w-3.5 h-3.5" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {allSelected ? copy.clearSelection : copy.selectAll}
+                  </span>
+                </Button>
+
+                {selectedCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs gap-1"
+                    onClick={handleDeleteSelectedFrames}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      {formatVideoComicTemplate(copy.deleteSelected, {
+                        count: selectedCount,
+                      })}
+                    </span>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Frame grid maintaining exact original video frame ratio */}
+          {activeClusters.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center p-6 border border-dashed border-border rounded-lg bg-background/40 text-xs text-muted-foreground text-center">
+              {copy.allDeletedNotice}
+            </div>
+          ) : (
+            <div
+              className={`grid ${previewGridColsClass} gap-2.5 items-start content-start flex-1 min-h-0 overflow-y-auto p-2 border border-border rounded-lg bg-background/50`}
+            >
+              {activeClusters.map((cl, idx) => {
+                const isSelected = selectedClusterIds.has(cl.clusterId);
+                const imgSrc =
+                  keyframeByClusterId.get(cl.clusterId)?.dataUrl ||
+                  cl.previewDataUrl;
+
+                return (
+                  <div
+                    key={cl.clusterId}
+                    role="button"
+                    tabIndex={isProcessing ? -1 : 0}
+                    aria-disabled={isProcessing}
+                    aria-pressed={isSelected}
+                    onClick={(e) =>
+                      handleToggleFrameSelection(
+                        cl.clusterId,
+                        idx,
+                        e.shiftKey
+                      )
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleToggleFrameSelection(
+                          cl.clusterId,
+                          idx,
+                          e.shiftKey
+                        );
+                      }
+                    }}
+                    className={`group relative w-full self-start rounded overflow-hidden border bg-black/80 transition-all select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      isProcessing
+                        ? 'cursor-default border-border'
+                        : isSelected
+                        ? 'cursor-pointer border-destructive ring-2 ring-destructive shadow-sm'
+                        : 'cursor-pointer border-border hover:border-primary/70'
+                    }`}
+                    title={`#${idx + 1} • ${cl.repTimestamp.toFixed(1)}s`}
+                  >
+                    {imgSrc ? (
+                      <img
+                        src={imgSrc}
+                        alt={formatVideoComicTemplate(copy.frameAlt, {
+                          id: idx + 1,
+                        })}
+                        className={`w-full h-auto block transition-opacity ${
+                          isSelected ? 'opacity-70' : 'opacity-100'
+                        }`}
+                        draggable={false}
+                      />
+                    ) : (
+                      <div className="w-full py-6 flex items-center justify-center text-[9px] text-muted-foreground">
+                        #{idx + 1}
+                      </div>
+                    )}
+
+                    {/* Selection tint overlay */}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-destructive/20 pointer-events-none" />
+                    )}
+
+                    {/* Frame number badge */}
+                    <span className="absolute top-1 left-1 text-[9px] bg-primary/90 text-primary-foreground px-1 rounded font-mono leading-tight">
+                      #{idx + 1}
+                    </span>
+
+                    {/* Multi-select checkbox badge */}
+                    {!isProcessing && (
+                      <span
+                        className={`absolute top-1 right-1 w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                          isSelected
+                            ? 'bg-destructive border-destructive text-destructive-foreground'
+                            : 'bg-black/55 border-white/60 text-transparent group-hover:border-white'
+                        }`}
+                      >
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      </span>
+                    )}
+
+                    {/* Timestamp badge */}
+                    <span className="absolute bottom-1 right-1 text-[9px] bg-black/75 text-white px-1 rounded font-mono leading-tight">
+                      {cl.repTimestamp.toFixed(1)}s
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <DialogFooter className="mx-0 mb-0 p-0 pt-2.5 border-t border-border/60 bg-transparent flex flex-row items-center justify-between gap-2 shrink-0 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPreviewOpen(false)}
+            >
+              {copy.close}
+            </Button>
+
+            {!isProcessing && displayedFrameCount > 0 && videoFile && (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="gap-1.5 min-w-0 truncate"
+                onClick={handleApplyOrCapture}
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {needsStage4Capture
+                    ? formatVideoComicTemplate(copy.captureAndApply, {
+                        count: displayedFrameCount,
+                      })
+                    : formatVideoComicTemplate(copy.applyKeyframes, {
+                        count: displayedFrameCount,
+                      })}
+                </span>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };

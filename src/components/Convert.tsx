@@ -27,7 +27,8 @@ import {
   deleteConversionLog,
   ConversionLog
 } from '@/lib/historyCache';
-import { extractVideoKeyframes } from '@/lib/videoToComic';
+import type { ExtractedKeyframe } from '@/lib/videoToComic';
+import { VideoToComicDialog } from './comic/VideoToComicDialog';
 import { detectReadingDirectionWaterfall, ReadingDirection } from '@/utils/readingDirection';
 import { GoogleDriveDialog, GoogleDriveIcon } from './GoogleDriveDialog';
 import {
@@ -2917,6 +2918,10 @@ export default function Convert({
     }
   }, [pages.length]);
   const [showCollageModal, setShowCollageModal] = useState(false);
+  const [videoExtractQueue, setVideoExtractQueue] = useState<File[]>([]);
+  const [pendingNonVideoForCollage, setPendingNonVideoForCollage] = useState<File[]>([]);
+  const [collectedVideoFrames, setCollectedVideoFrames] = useState<File[]>([]);
+  const videoQueueCompletedRef = useRef<boolean>(false);
   const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
   const [isRandomMode, setIsRandomMode] = useState(false);
   const [collageStep, setCollageStep] = useState<'template' | 'settings'>('template');
@@ -3808,60 +3813,12 @@ export default function Convert({
     );
 
     if (videoFiles.length > 0) {
-      setIsUploading(true);
-      setUploadProgress(10);
-      setLoadingText("Extracting video scenes...");
-
-      try {
-        const extractedImageFiles: File[] = [];
-
-        for (let vIdx = 0; vIdx < videoFiles.length; vIdx++) {
-          const vFile = videoFiles[vIdx];
-          const keyframes = await extractVideoKeyframes(vFile, {
-            strictness: 'balanced',
-            includeDebugThumbnails: false,
-            onProgress: (p) => {
-              setUploadProgress(Math.min(95, Math.round(10 + p.percent * 0.85)));
-              setLoadingText(`Video ${vIdx + 1}/${videoFiles.length}: ${p.statusText}`);
-            },
-          });
-
-          keyframes.forEach((kf, kfIdx) => {
-            const baseName = vFile.name.replace(/\.[^/.]+$/, "");
-            const frameFile = new File(
-              [kf.blob],
-              `${baseName}_scene_${String(kfIdx + 1).padStart(3, "0")}.jpg`,
-              { type: "image/jpeg", lastModified: Date.now() }
-            );
-            extractedImageFiles.push(frameFile);
-          });
-        }
-
-        if (extractedImageFiles.length === 0) {
-          toast.error("No clear scenes could be extracted from the video.");
-          setIsUploading(false);
-          setUploadProgress(0);
-          return;
-        }
-
-        // Combine extracted video keyframe images with any other uploaded images
-        const combinedFiles = [...extractedImageFiles, ...nonVideoFiles];
-
-        setUploadProgress(100);
-        setIsUploading(false);
-        setPendingFiles(combinedFiles);
-        setShowCollageModal(true);
-        toast.success(
-          `Extracted ${extractedImageFiles.length} scenes from video. Choose a layout to collage!`
-        );
-        return;
-      } catch (videoErr: any) {
-        console.error("Video conversion in Convert failed:", videoErr);
-        toast.error(`Video conversion failed: ${videoErr?.message || "Unknown error"}`);
-        setIsUploading(false);
-        setUploadProgress(0);
-        return;
-      }
+      setIsUploading(false);
+      setUploadProgress(0);
+      setCollectedVideoFrames([]);
+      setPendingNonVideoForCollage(nonVideoFiles);
+      setVideoExtractQueue(videoFiles);
+      return;
     }
 
     // If it's an unsupported ebook type, let user know it's detected but not yet processed
@@ -7473,6 +7430,52 @@ ${navItems}    </ol>
         initialMode={googleDriveMode}
         exportFile={exportDrivePayload}
         onFileImported={(file) => onDrop([file])}
+      />
+
+      {/* Shared Video to Comic/Image Dialog (before Collage process) */}
+      <VideoToComicDialog
+        isOpen={videoExtractQueue.length > 0}
+        videoFile={videoExtractQueue[0] || null}
+        onComplete={(_newPages, keyframes: ExtractedKeyframe[]) => {
+          const currentVideo = videoExtractQueue[0];
+          const baseName = currentVideo
+            ? currentVideo.name.replace(/\.[^/.]+$/, "")
+            : "video";
+          const frameFiles = keyframes.map(
+            (kf, kfIdx) =>
+              new File(
+                [kf.blob],
+                `${baseName}_scene_${String(kfIdx + 1).padStart(3, "0")}.jpg`,
+                { type: "image/jpeg", lastModified: Date.now() }
+              )
+          );
+          const nextCollected = [...collectedVideoFrames, ...frameFiles];
+          const remainingQueue = videoExtractQueue.slice(1);
+
+          videoQueueCompletedRef.current = true;
+          if (remainingQueue.length > 0) {
+            setCollectedVideoFrames(nextCollected);
+            setVideoExtractQueue(remainingQueue);
+          } else {
+            const combinedFiles = [...nextCollected, ...pendingNonVideoForCollage];
+            setVideoExtractQueue([]);
+            setCollectedVideoFrames([]);
+            setPendingNonVideoForCollage([]);
+            if (combinedFiles.length > 0) {
+              setPendingFiles(combinedFiles);
+              setShowCollageModal(true);
+            }
+          }
+        }}
+        onClose={() => {
+          if (videoQueueCompletedRef.current) {
+            videoQueueCompletedRef.current = false;
+            return;
+          }
+          setVideoExtractQueue([]);
+          setCollectedVideoFrames([]);
+          setPendingNonVideoForCollage([]);
+        }}
       />
     </>
   );

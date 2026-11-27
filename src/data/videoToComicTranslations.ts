@@ -31,6 +31,7 @@ export interface VideoToComicTranslation {
     noFramesLeft: string;
   };
   selectedSummary: string; // {count}, {pages}
+  previewButton: string;
   previewTitle: string; // {count}
   comicPagesCount: string; // {pages}
   selectHint: string;
@@ -88,6 +89,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "No frames remaining. Adjust strictness to re-cluster.",
     },
     selectedSummary: "Selected: {count} ({pages} Pages)",
+    previewButton: "Preview",
     previewTitle: "Preview ({count} frames)",
     comicPagesCount: "{pages} Comic Pages",
     selectHint: "Click frames to select (Shift+Click for range)",
@@ -143,6 +145,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "フレームが残っていません。厳密さを調整して再抽出してください。",
     },
     selectedSummary: "抽出数: {count} ({pages} ページ)",
+    previewButton: "プレビュー",
     previewTitle: "プレビュー ({count} 枚)",
     comicPagesCount: "{pages} コミックページ",
     selectHint: "クリックで複数選択（Shift+クリックで範囲選択）",
@@ -198,6 +201,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "已无剩余画帧。可调整严格度重新聚类。",
     },
     selectedSummary: "已选：{count}（{pages} 页）",
+    previewButton: "预览",
     previewTitle: "预览（{count} 帧）",
     comicPagesCount: "{pages} 页漫画",
     selectHint: "点击画帧多选删除（Shift+点击连选）",
@@ -253,6 +257,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "已無剩餘影格。可調整嚴格度重新分群。",
     },
     selectedSummary: "已選：{count}（{pages} 頁）",
+    previewButton: "預覽",
     previewTitle: "預覽（{count} 格）",
     comicPagesCount: "{pages} 頁漫畫",
     selectHint: "點擊影格多選刪除（Shift+點擊連選）",
@@ -308,6 +313,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "Aucune image restante. Ajustez la rigueur pour recalculer.",
     },
     selectedSummary: "Retenues : {count} ({pages} pages)",
+    previewButton: "Aperçu",
     previewTitle: "Aperçu ({count} images)",
     comicPagesCount: "{pages} pages BD",
     selectHint: "Cliquez pour sélectionner (Maj+Clic pour une plage)",
@@ -363,6 +369,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "No quedan fotogramas. Ajusta el rigor para reagrupar.",
     },
     selectedSummary: "Seleccionados: {count} ({pages} páginas)",
+    previewButton: "Vista previa",
     previewTitle: "Vista previa ({count} fotogramas)",
     comicPagesCount: "{pages} páginas de cómic",
     selectHint: "Haz clic para seleccionar (Mayús+Clic para rango)",
@@ -418,6 +425,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "Nenhum quadro restante. Ajuste o rigor para reagrupar.",
     },
     selectedSummary: "Selecionados: {count} ({pages} páginas)",
+    previewButton: "Prévia",
     previewTitle: "Prévia ({count} quadros)",
     comicPagesCount: "{pages} páginas de HQ",
     selectHint: "Clique para selecionar (Shift+Clique para intervalo)",
@@ -473,6 +481,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "남은 프레임이 없습니다. 엄격도를 조정해 다시 추출하세요.",
     },
     selectedSummary: "추출됨: {count} ({pages}페이지)",
+    previewButton: "미리보기",
     previewTitle: "미리보기 ({count}프레임)",
     comicPagesCount: "만화 {pages}페이지",
     selectHint: "클릭하여 다중 선택 (Shift+클릭으로 범위 선택)",
@@ -528,6 +537,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "Keine Bilder mehr übrig. Strenge anpassen zum Neugruppieren.",
     },
     selectedSummary: "Ausgewählt: {count} ({pages} Seiten)",
+    previewButton: "Vorschau",
     previewTitle: "Vorschau ({count} Bilder)",
     comicPagesCount: "{pages} Comic-Seiten",
     selectHint: "Zum Auswählen klicken (Umschalt+Klick für Bereich)",
@@ -583,6 +593,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "لم تتبقَ إطارات. اضبط دقة التشابه لإعادة التجميع.",
     },
     selectedSummary: "المختارة: {count} ({pages} صفحة)",
+    previewButton: "معاينة",
     previewTitle: "المعاينة ({count} إطاراً)",
     comicPagesCount: "{pages} صفحة مصورة",
     selectHint: "انقر على الإطارات لتحديدها (Shift+نقر لنطاق)",
@@ -638,6 +649,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "Кадров не осталось. Измените строгость для повторной группировки.",
     },
     selectedSummary: "Отобрано: {count} ({pages} стр.)",
+    previewButton: "Предпросмотр",
     previewTitle: "Предпросмотр ({count} кадров)",
     comicPagesCount: "{pages} стр. комикса",
     selectHint: "Нажмите для выбора (Shift+клик — диапазон)",
@@ -693,6 +705,7 @@ export const VIDEO_TO_COMIC_TRANSLATIONS: Record<LanguageCode, VideoToComicTrans
       noFramesLeft: "Nessun fotogramma rimasto. Regola il rigore per ricalcolare.",
     },
     selectedSummary: "Selezionati: {count} ({pages} pagine)",
+    previewButton: "Anteprima",
     previewTitle: "Anteprima ({count} fotogrammi)",
     comicPagesCount: "{pages} pagine fumetto",
     selectHint: "Clicca per selezionare (Maiusc+Clic per intervallo)",
